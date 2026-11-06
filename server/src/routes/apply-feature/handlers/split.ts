@@ -44,7 +44,7 @@ export async function handleSplit(ctx: ApplyFeatureRequestContext, req: Request,
     }));
 
     const synthesizePick = makePickSynthesizer({
-      res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+      res, fluidCadServer, code, filePath, mergeProducer, parts, imports, callees: ctx.currentCallees,
     });
     const synthesizeFace = (pick: Pick): Promise<number | null> =>
       synthesizePick(pick, 'plane', {
@@ -98,7 +98,7 @@ export async function handleSplit(ctx: ApplyFeatureRequestContext, req: Request,
 
     const options: SplitEditOptions = { plane, keep: request.keep, targets };
     // Truthful preview: the same allocation walk the transform runs.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const varFor = (i: number): string | null => producerVars[i];
     const statement = renderSplitStatement(
       options,

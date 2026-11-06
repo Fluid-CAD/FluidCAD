@@ -1,0 +1,232 @@
+---
+sidebar_label: "Building the Geometry"
+title: "Building the Geometry"
+sidebar_position: 2
+---
+
+# Building the Geometry
+
+`buildTool()` is where a custom feature makes its solids. This page covers what it can read, what it builds with, and what FluidCAD does with the result. It also covers the preview, features that read what they are picked at, and raw OpenCascade for shapes the kernel can't build.
+
+## What happens to what `buildTool()` returns
+
+`buildTool()` returns a list of solids, the **tool**. Then FluidCAD:
+
+1. applies the statement's operation: `.add()` fuses the tool into the solids in scope, `.new()` keeps it as bodies of its own, and `.remove()` cuts it out of them. With no chain, it applies the feature's default: `add` when it offers it, else the first of its `operations`.
+2. narrows the solids it touches to `.scope(…)`'s, when the statement has one.
+3. records the history, and carries the faces `setBuckets()` named through the fusion or the cut.
+
+A [repeat](/docs/patterns/repeat) builds the tool again for each copy, from the same picks read where they stand, and moves it. The picks are never copied: copying the face a standoff stands on would copy the plate with it. `copy()` duplicates the finished solid.
+
+Returning no shape fails the row: `standoff: buildTool() returned no shapes`.
+
+## Reading the picks
+
+The picked values are scene objects. Read them only through these helpers. In the dialog's preview the feature gets stand-ins for the picks, not the scene's own objects.
+
+| Helper | Gives |
+|---|---|
+| `this.facesOf(ref)` | The faces it holds: a face selection's faces, a solid's faces. |
+| `this.edgesOf(ref)` | Its edges: an edge selection's, a face's, a solid's. |
+| `this.shapesOf(ref)` | Every shape it holds: a sketch's outlines, a solid's solids. |
+| `this.axisOf(ref)` | The `Axis` of an axis value: a world axis (`'z'`), an `axis()`, a straight edge, or a connector's Z axis. |
+| `this.planeOf(ref)` | The `Plane` of a plane value: an origin plane (`'xy'`), a `plane()`, a planar face. |
+| `this.frameOf(ref)` | The frame a connector, point or anchor stands on: its origin at the location, Z out of the material. |
+| `this.framesOf(ref)` | Every frame a value stands at: one per placement of a picked `hole()`, one per member of a list. |
+| `this.pointOf(ref)` | The world position of a connector, point or anchor. |
+| `this.isLocation(ref)` | Whether a pick is a connector, a point or an anchor, to tell the kinds of a [several-kind pick](/docs/custom-features/inputs#several-kinds-in-one-pick) apart. |
+| `this.propertiesOf(ref)` | What a pick is, as plain data: its `type` and the values its statement set. |
+
+Where a location's Z points: a connector gives its own frame, a face's `center()` the face's normal, and a circle's `center()` the circle's axis. An edge's `start()` or `end()` faces along the edge, a sketch point gets its sketch's plane, and any other point world Z.
+
+`surface: 'planar'` and the other limits on a picker only narrow the dialog. A call written by hand is not checked, so check what the geometry needs and throw an error that names the feature and the fix:
+
+```js
+const faces = this.facesOf(this.values.face);
+if (faces.length !== 1) {
+  throw new Error(`vent grid: pick one planar face (got ${faces.length} faces)`);
+}
+```
+
+The error fails the statement's History row with that message, and the rest of the model builds.
+
+## The kernel
+
+`fluidcad/sdk/kernel` holds the engine's own shapes and operations. `fluidcad/math` holds the placement types: `Matrix4`, `Plane`, `Axis`, `Point`, `Vector3d`.
+
+```js
+import { Primitives, BooleanOps, ShapeOps, ShapeFactory } from 'fluidcad/sdk/kernel';
+import { Matrix4, Plane, Vector3d } from 'fluidcad/math';
+
+Primitives.makeCylinder(radius, height)         // standing on the XY plane, from z = 0 up
+Primitives.makeSphere(radius, angle)            // centred on the origin; angle in radians, 2π for a whole one
+BooleanOps.cutShapes(shape, tool)               // a new shape; both inputs stay yours
+ShapeOps.transform(shape, matrix)               // a moved copy
+ShapeOps.transformTracking(shape, matrix, faces) // a moved copy, and where each face went
+ShapeOps.getBoundingBox(shape)                  // minX … maxZ
+
+shape.getSubShapes('face')      // its faces; 'edge' for its edges
+face.getPlane()  face.center()  face.calculateNormal()  face.getBoundingBox()
+```
+
+The kernel is **unstable**: its names and signatures will change while the SDK settles. For anything it can't build, such as a box, a loft or a sweep, use [raw OpenCascade](#raw-opencascade).
+
+### Build on the XY plane, then place
+
+Build the tool standing on the XY plane, where `z = 0` is its start and its faces are easy to sort. Then move it where the pick stands with a frame:
+
+```js
+const plane = faces[0].getPlane();
+const origin = plane.projectPoint(faces[0].center());
+// The frame that puts X, Y and Z of the XY plane onto the face, at its centre.
+const frame = Matrix4.fromBasis(plane.xDirection, plane.yDirection, plane.normal, origin);
+const placed = ShapeOps.transform(tool, frame);
+```
+
+`frame.multiply(Matrix4.fromTranslation(x, y, z))` moves the tool within the face's own plane first: the vent grid lays each hole out at `x, y` on the face and sinks it `z` below it.
+
+When the feature names its faces, place it with `ShapeOps.transformTracking(tool, frame, faces)`. Its `images[i]` is where `faces[i]` went, and those images are the faces `setBuckets()` must name. See [Name its faces](/docs/custom-features#4-name-its-faces).
+
+### Who owns which shape
+
+- **A shape you build is yours.** Dispose every one you drop with `shape.dispose()`: the cylinders a cut consumed, the shape a transform moved. A feature builds on every render that changes it, and on every change in its preview, so a leak grows the engine's memory for the whole session.
+- **A shape `buildTool()` returns belongs to the feature.** Never dispose it.
+- **A shape read from a pick belongs to the scene.** Never dispose it.
+
+```js
+const boss = Primitives.makeCylinder(outer / 2, height);
+const bore = Primitives.makeCylinder(hole / 2, height);
+const tube = BooleanOps.cutShapes(boss, bore);
+boss.dispose();
+bore.dispose();
+```
+
+### Several tools from one statement
+
+A loop inside `buildTool()` is fine: the tools still come from one statement and one History row. The vent grid returns one cylinder per hole:
+
+```js
+const tools = [];
+for (let row = 0; row < rows; row++) {
+  for (let column = 0; column < columns; column++) {
+    const x = (column - (columns - 1) / 2) * pitch;
+    const y = (row - (rows - 1) / 2) * pitch;
+    const hole = Primitives.makeCylinder(diameter / 2, length);
+    tools.push(ShapeOps.transform(hole, frame.multiply(Matrix4.fromTranslation(x, y, -length))));
+    hole.dispose();
+  }
+}
+return tools;
+```
+
+The no-loops rule is for models, where features built in a loop are hard to edit. A feature's own loop is how it becomes one row.
+
+## Cutting features
+
+A feature whose `operations` is `['remove']` cuts with no chain, and its dialog shows no operation tabs. What it cut is named by the cut, as `cut()` names it: the rims where the tool enters the material are its **start edges**, its far rims its **end edges**, its walls **internal faces**. Give `setBuckets()` the plane the tool starts on, its normal pointing into the material:
+
+```js
+// The holes start on the face and grow into the panel.
+this.setBuckets({ startPlane: new Plane(origin, plane.xDirection, plane.normal.negate()) });
+```
+
+The vent grid's lid then chamfers every hole's rim with `chamfer(0.5, grid.startEdges())`. Without `startPlane`, every rim is internal.
+
+### A different tool for a cut
+
+A feature that offers both adding and cutting can build a different tool for each. `this.getOperationMode()` returns `'add'`, `'new'` or `'remove'`: the statement's chain, else the default. It reads the same in the preview, from the dialog's tab, and on every repeat copy. A tube that cuts only its bore:
+
+```js
+buildTool() {
+  const { outer, bore, height } = this.values;
+  const space = Primitives.makeCylinder(bore / 2, height);
+  if (this.getOperationMode() === 'remove') {
+    return [space];
+  }
+  const body = Primitives.makeCylinder(outer / 2, height);
+  const tube = BooleanOps.cutShapes(body, space);
+  body.dispose();
+  space.dispose();
+  return [tube];
+}
+```
+
+`tube({ height: 25 })` fuses a tube into a disk, and `tube({ height: 25 }).remove()` bores through both, keeping the tube's wall.
+
+## The preview
+
+While a dialog previews, FluidCAD builds the feature from the dialog's values on stand-ins of the picks and draws the result, green for an add or a new and red for a cut. It does so again on every change, without touching the scene. The feature chooses when, with `ghost` in `defineFeature()`:
+
+| `ghost` | The dialog |
+|---|---|
+| `'toggle'` (or left out) | A **Preview** toggle, off until the user turns it on. For a build that may be slow: a gear, a loft through many sections. |
+| `'always'` | No toggle, the preview drawn from the start. For a cheap build: the vent grid. |
+| `false` | No preview. |
+
+- A preview that takes over 5 seconds to build is not drawn, and the dialog says so. Turning the toggle off and on asks again, and so does **Try again** for a feature that always previews.
+- By default the preview runs `buildTool()`. A feature can override `ghost(ctx)` to return something cheaper to build, such as a plain disc in place of a gear's every tooth.
+- **Apply** never depends on the preview.
+
+## Following what the feature is picked at
+
+A feature that stands at another feature can take values from it: a screw sized by the hole it is picked at. `derive()` returns the values to fix, by name. They replace the statement's, and the dialog shows their rows locked, with **Fixed by what was picked**.
+
+```js
+// In outline: SIZES lists the screw sizes ({ label: 'M5', value: 'M5' }, …),
+// and screwAt() builds one screw standing on a frame.
+class Screw extends Feature.with({
+  at: { picker: ['connector', 'point', 'anchor', 'feature'], types: ['hole'], label: 'At' },
+  size: { type: 'select', default: 'M5', options: SIZES },
+  length: { type: 'length', default: 16 },
+}) {
+  static id = 'screw';
+
+  derive() {
+    const hole = this.propertiesOf(this.values.at);
+    // At a connector or a point, nothing is fixed.
+    return hole.type === 'hole' ? { size: hole.size } : null;
+  }
+
+  buildTool() {
+    // One screw per placement of the hole; this.values.size is the hole's.
+    return this.framesOf(this.values.at).map(frame => this.screwAt(frame));
+  }
+}
+```
+
+- `derive()` runs before every build and preview, once the picks are built.
+- It names typed-in values only, and each is checked like a call's: `'size' must be one of "M5", "M6", got 'M99'` fails the row.
+- A value the statement passes as well is ignored, with a warning on the row: `'size' is "M6", fixed by what the feature was picked at — the statement's "M5" is ignored`.
+- Keep it pure: the same picks give the same values. A hole that changes size rebuilds the screw.
+
+`propertiesOf()` gives a `hole()`'s `size`, `fastener` (its fit or its thread), `style` (counterbore or countersink, with their sizes), `depth` and `frames`. It gives a connector's name and frame, and a custom feature's typed-in values. Lengths are in the pick's own `unit`.
+
+## Raw OpenCascade
+
+For a shape the kernel can't build, run raw OpenCascade inside `this.occ()`. The [gear](/docs/custom-features/named-faces-and-edges) builds its tooth outline this way:
+
+```js
+const body = this.occ(({ oc, track }) => {
+  const wire = new oc.BRepBuilderAPI_MakeWire();
+  // … add the outline's edges, each track()ed …
+  const face = new oc.BRepBuilderAPI_MakeFace(track(wire.Wire()), true);
+  const prism = new oc.BRepPrimAPI_MakePrism(track(face.Face()), new oc.gp_Vec(0, 0, thickness), false, true);
+  return ShapeFactory.fromShape(track(prism.Shape()));
+});
+```
+
+- Everything constructed through the scope's `oc`, and everything handed to `track()`, is freed when the scope ends. What the scope returns is spared.
+- Wrap raw shapes with `ShapeFactory.fromShape(raw)` before returning them: those are the shapes `buildTool()` returns and `setBuckets()` names.
+- The code runs synchronously, inside the function `this.occ()` runs.
+- Nothing checks raw code. A shape freed twice can crash the kernel for the whole engine session. The feature's row then says so, and the page offers a restart. The binding's names also change with the engine.
+
+## A feature that changes solids
+
+Everything above is a **tool**: it builds solids that FluidCAD adds or cuts. A **modifier** overrides `build(ctx)` in place of `buildTool()`, and changes the solids directly, as a fillet does. The engine's own [`draft()`](/docs/api/features/3d/draft) is written this way. A modifier reaches the solids through the engine's internals, which are not a settled SDK yet. Prefer a tool whenever the feature adds or removes material.
+
+## Rules of a feature file
+
+- **No constructor.** FluidCAD makes a feature from its values alone, and a repeat's copy is the same class built from the same values.
+- **No state at the top of the file, and no geometry built there.** The file is read again on every render, and by the Custom dropdown in a scene of its own.
+- **Never `instanceof` your own class.** Each read makes the class anew. FluidCAD compares two statements by their id and their values. `instanceof Feature` is fine.
+- **Node built-ins are blocked**, as in models: `fs`, `child_process`, `net`, `http`, `os`, …

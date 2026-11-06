@@ -29,7 +29,13 @@ website/docs/
   extra/             reusable-objects, units
   import-export/     import, export
   part/              introduction, part, param, connector, expose
-  assembly/          introduction, grounded, fastened, slider, revolute, cylindrical, planar, tangent, replicate
+  assembly/          introduction, parameters, configurations, grounded, fastened, slider, revolute,
+                     cylindrical, planar, tangent, replicate, gear, generated (inserting generated
+                     parts and assemblies from the Custom dropdown)
+  custom-features/   index (using and writing a *.feature.js feature), inputs, geometry,
+                     named-faces-and-edges, generated-parts-and-assemblies (definePart,
+                     Generator + defineAssembly)
+  packages/          index (one page: installing, using and making packages)
   tutorials/         (unchanged)
   api/               (generated — never edit by hand; `npm run generate-api-docs`)
 ```
@@ -202,8 +208,15 @@ Verified against `ui/src` at the time of writing. Use these names.
 rename; drag to reorder; **+** = *Open a file* — a quick-open box that opens
 an existing file or creates a new one when the name does not exist),
 **Import** (STEP), **Export** (menu of solids; in an assembly it leads with
-*Whole assembly*), the **Settings** gear (tabs **Appearance / Editor / Sketch /
-Timeline / Units / Materials / Advanced**; every tab is a draft until the
+*Whole assembly*), **Packages** (the *Packages in this project* dialog: each
+pinned package with *From your library* / *Copied into this project's packages/
+folder*, **Copy into project** / **Use from library**, the missing-package banner
+with **Install from file…**, **Install package…**; a red dot while a pin is
+missing), the **Settings** gear (tabs **Appearance / Editor / Sketch /
+Timeline / Units / Materials / Packages / Advanced**; **Packages** = **Library
+folder** (Browse… in the desktop app), **New packages go to** (*My library* /
+*This project*), **Installed in my library** with a bin and **Install
+package…**; every tab is a draft until the
 dialog's **Save**, Cancel drops it; **Materials** = the user's own materials
 kept in the preferences file: list rows name / id / density / unit with pencil
 and bin, an **Add material** form with **Name**, **Density** + **Unit**
@@ -360,8 +373,20 @@ click a tile to queue an instance, then one parameter page per queued
 instance that declares `param()`s; *Insert N* commits them all), the mates
 **Fastened**, **Revolute**, **Slider**, **Cylindrical**, **Planar**,
 **Tangent**, then **Replicate** and **Connector** (an assembly-level
-`connector('name', [x, y, z])` frame). Instances are moved with the transform
-gizmo (drag arrows / rings); the pose is written back as
+`connector('name', [x, y, z])` frame), and last **Custom** (tooltip *Custom
+parts and assemblies*: the generated parts and assemblies, `definePart` /
+`defineAssembly`, under **This project** and each package's name and version,
+with the pin; the Insert dialog shows them as tiles marked *generated part* /
+*generated assembly*). A generated definition opens the custom-feature dialog
+over its values only (no picks, tabs or Preview toggle), with **Apply** /
+**Cancel**: the viewport shows the real result while it is open,
+*Updating…* in the title row while a build is slow, the note *The model
+changed, so the preview was rebuilt.* after the file changed under it, and
+the Parts / Connectors / Joints panels read-only. **Edit parameters…** on a
+generated occurrence's header (or a generated part's row) opens it titled
+*Edit* followed by the occurrence's name; rows under a generated occurrence offer **Show in source**
+only, and its joints **Show in source** and **Animate…**. Instances are moved
+with the transform gizmo (drag arrows / rings); the pose is written back as
 `.translate()` / `.rotate()` on the `insert()` statement.
 
 **Mate dialog** — **Type** dropdown, two connector pick slots (click connector
@@ -378,8 +403,10 @@ header), **Connectors** (assembly-level connectors; a copied one heads a
 family — count, chevron, `instance(k)` rows; menu: Show in source,
 Copy… / Edit copy…, Delete; on a copy: Show in source, Edit copy…, Remove
 copies), **Joints** (one row per
-`mate()`; click highlights both connectors; right-click a revolute/slider
-row → **Animate…**).
+`mate()`; a joint with a `.name()` — a generator's `g.mate(…).name('Left
+door')` too — reads by its name with its type beside it in smaller text, an
+unnamed one by its type; click highlights both connectors; right-click a
+revolute/slider row → **Animate…**).
 
 **Animate bar** — bottom-centre chips: **Start**, **End**, **Steps**,
 **Playback** (*Single / Loop / Reciprocate*), then **Play / Pause**, **Stop**
@@ -418,6 +445,16 @@ Any other editor works beside `fluidcad serve`; the model rebuilds on save.
   targets, rows)` copies a mated instance onto new targets. Assembly-level
   `connector('name', [x, y, z])` is a free frame. Units: assembly lengths are the project
   unit; parts are scaled in; overrides are in the part's unit.
+- Generated definitions (`fluidcad/sdk`): `definePart(FeatureClass, meta)`,
+  exported from a `*.part.js` (the feature's typed-in values are its interface;
+  picked values must be optional and are left out; each frame a feature
+  declares, `Feature.with(params, { frames })` + `this.setFrames({ … })`,
+  becomes a connector), and `defineAssembly(GeneratorClass, meta)`, exported
+  from a `*.assembly.js` (`Generator.with(values)`, `static id`, `layout(g)`
+  with `g.part()` / `g.mate()` / `g.relation()`, `static build(type, inputs,
+  ctx)` with `ctx.detail` `'preview' | 'full'`). Meta: `label` (required),
+  `description`, `icon`, `layout`, `width`, `aside`, `name`. Inserted with
+  values by id, never by label: `insert(gearPart, { teeth: 30 })`.
 - Sketches: every sketch is solved; geometry statements are guesses,
   constraints pin them. Datums `origin()`, `xAxis()`, `yAxis()` from
   `fluidcad/core`. Constraints from `fluidcad/constraints`: `coincident,

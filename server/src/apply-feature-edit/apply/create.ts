@@ -15,22 +15,26 @@ import {
 import { SelectHoist } from '../../select-hoist.ts';
 import { enclosingStatement, rowOfIndex } from '../ast/nodes.ts';
 import { validChamferOptions } from '../features/chamfer.ts';
-import { CONNECTOR_NAME, validConnectorAnchor, validConnectorRotate } from '../features/connector.ts';
-import { validCopyAxisSlot, type CopyAxisSpec } from '../features/copy.ts';
+import { ColorValues } from '../features/color.ts';
+import { CONNECTOR_NAME, validConnectorAnchor, validConnectorOffset, validConnectorRotate } from '../features/connector.ts';
+import type { CopyAxisSpec } from '../features/copy.ts';
+import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
-import { renderLoftConnections } from '../features/loft.ts';
+import { renderLoftConnections, validEditCondition } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
-import { renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
+import { isLocalAxes, renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
 import { renderSectionPlaneExpr, renderSectionStatement, validSectionOptions } from '../features/section.ts';
 import { renderSplitPlaneExpr, renderSplitStatement, validSplitOptions, validSplitPlane } from '../features/split.ts';
 import { PROJECTION_OPS } from '../features/projection.ts';
 import type { RepeatAxisSpec, RepeatPlaneSpec } from '../features/repeat.ts';
-import { validTextStatementOptions } from '../features/text.ts';
+import { textLiteralBlank, validTextStatementOptions } from '../features/text.ts';
 import { validTranslation } from '../features/translate.ts';
 import { validHoleFasten, validHoleOptions, validHolePlacementSlot } from '../features/hole.ts';
+import { CustomFeatureImport, CustomFeatureStatement } from '../features/custom.ts';
 import { appendTopLevelStatement, declarationsBefore, resolveInsertion } from '../insertion.ts';
 import { FeatureNames } from '../../feature-names.ts';
 import { allocateNames, resolveProducerBindings } from '../producers/bindings.ts';
+import type { FeatureCallees } from '../producers/callees.ts';
 import {
   isAxisProducer,
   isConnectorProducer,
@@ -46,6 +50,7 @@ import { buildStatement, statementCallee } from '../render/statement.ts';
 import { renderNewVariableDecls } from '../render/variable-decls.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec } from '../spec.ts';
 import { validCountValue, validEditExtend, validValueExpr } from '../value-expr.ts';
+import { ValueSlots } from '../value-slots.ts';
 
 /**
  * The generic create path: validate the spec's shape for its feature, bind
@@ -54,12 +59,17 @@ import { validCountValue, validEditExtend, validValueExpr } from '../value-expr.
  * cross-part references, resolved before it gets here: a projection appends
  * them after its selector parts ({@link applyProjectForeign}), a plane's
  * `foreign` bases render them by index ({@link applyPlaneForeign}).
+ * `extras.callees` are the custom features the file imports, which bind as
+ * producers like the built-ins (see {@link FeatureCallees}).
  */
 export async function applyCreateEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
-  extras: { foreignArgs?: string[] } = {},
+  extras: { foreignArgs?: string[]; callees?: FeatureCallees } = {},
 ): Promise<ApplyFeatureEditResult> {
+  // A custom feature's builder is imported from its own module, under the
+  // name the file already reads it by or a free one.
+  let customImport: CustomFeatureImport | null = null;
   if (spec.feature === 'extrude') {
     // The profile sketch (implicit consumption or a bound variable) is always
     // producers[0]. A picked-face target carries exactly one selector part —
@@ -68,6 +78,7 @@ export async function applyCreateEdit(
     // are bound feature producers trailing the list.
     const scope = spec.extrude?.scope ?? [];
     const valid = spec.extrude !== undefined && spec.producers.length >= 1
+      && ValueSlots.validBoolean(spec.extrude.drill)
       && scope.every(p => isScopeTargetProducer(spec, p))
       && (spec.extrude.toFace === 'selector'
         ? spec.parts.length === 1
@@ -153,7 +164,9 @@ export async function applyCreateEdit(
         : spec.parts.length === 0
           && (rev.axis.kind === 'standard'
             ? spec.producers.length === 1 + scope.length
-            : isAxisProducer(spec, rev.axis.producer)));
+            : rev.axis.kind === 'connector'
+              ? ConnectorAxisSpecs.valid(spec, rev.axis)
+              : isAxisProducer(spec, rev.axis.producer)));
     if (!valid) {
       return { newCode: code, error: 'malformed revolve edit spec' };
     }
@@ -168,7 +181,9 @@ export async function applyCreateEdit(
         : spec.parts.length === 0
           && (hx.source.kind === 'standard'
             ? spec.producers.length === 0
-            : isAxisProducer(spec, hx.source.producer)));
+            : hx.source.kind === 'connector'
+              ? ConnectorAxisSpecs.valid(spec, hx.source)
+              : isAxisProducer(spec, hx.source.producer)));
     if (!valid) {
       return { newCode: code, error: 'malformed helix edit spec' };
     }
@@ -206,9 +221,8 @@ export async function applyCreateEdit(
       // A guide is any wire source (a sketch or a helix).
       && guides.every(g => g?.kind === 'sketch' && isWireProducer(spec, g.producer))
       && (lo.scope ?? []).every(p => isScopeTargetProducer(spec, p))
-      && [lo.startCondition, lo.endCondition].every(c => c === undefined
-        || ((c.type === 'normal' || c.type === 'tangent')
-          && validValueExpr(c.magnitude, { nonzero: true })));
+      // A condition's type is a literal or an expression, like an edit's.
+      && [lo.startCondition, lo.endCondition].every(c => validEditCondition(c));
     if (!valid) {
       return { newCode: code, error: 'malformed loft edit spec' };
     }
@@ -261,7 +275,7 @@ export async function applyCreateEdit(
         && validValueExpr(pl.position)
         && (typeof pl.position !== 'number' || (pl.position >= 0 && pl.position <= 1))
         && [pl.offset, pl.rotateX, pl.rotateY, pl.rotateZ].every(v => v === null)
-        && pl.rotationAxes !== 'world'));
+        && isLocalAxes(pl.rotationAxes)));
     if (!valid) {
       return { newCode: code, error: 'malformed plane edit spec' };
     }
@@ -297,6 +311,8 @@ export async function applyCreateEdit(
         ? validPart(axis.part)
         : axis.kind === 'standard'
           ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
+          : axis.kind === 'connector'
+            ? ConnectorAxisSpecs.valid(spec, axis)
           : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const validPlane = (plane: RepeatPlaneSpec | undefined): boolean =>
       plane !== undefined && (plane.kind === 'selector'
@@ -317,6 +333,7 @@ export async function applyCreateEdit(
       && new Set(targets.map(t => t.producer)).size === targets.length
       && (rp.kind === 'linear'
         ? validDirections && (rp.spacingMode === 'offset' || rp.spacingMode === 'length')
+          && (rp.centered === undefined || ValueSlots.validBoolean(rp.centered))
           && rp.axis === undefined && rp.plane === undefined
           && rp.count === undefined && rp.sweep === undefined && rp.angle === undefined
         : rp.kind === 'circular'
@@ -362,7 +379,7 @@ export async function applyCreateEdit(
           : axis.kind === 'local'
             ? axis.axis === 'x' || axis.axis === 'y'
           : axis.kind === 'connector'
-            ? isConnectorProducer(spec, axis.producer) && validCopyAxisSlot(axis.slot)
+            ? ConnectorAxisSpecs.valid(spec, axis)
           : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const validSweep = cp?.sweep !== undefined
       && (cp.sweep.mode === 'angle' || cp.sweep.mode === 'offset')
@@ -377,6 +394,7 @@ export async function applyCreateEdit(
       && new Set(targets.map(t => t.producer)).size === targets.length
       && (cp.kind === 'linear'
         ? validDirections && (cp.spacingMode === 'offset' || cp.spacingMode === 'length')
+          && (cp.centered === undefined || ValueSlots.validBoolean(cp.centered))
           && cp.axis === undefined && cp.center === undefined
           && cp.count === undefined && cp.sweep === undefined
         : cp.kind === 'circular'
@@ -526,6 +544,8 @@ export async function applyCreateEdit(
         ? validPart(axis.part)
         : axis.kind === 'standard'
           ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
+          : axis.kind === 'connector'
+            ? ConnectorAxisSpecs.valid(spec, axis)
           : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const valid = ro !== undefined
       && targets.length >= 1
@@ -570,6 +590,22 @@ export async function applyCreateEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed boolean edit spec' };
     }
+  } else if (spec.feature === 'color') {
+    // Whole objects are bound feature producers and render no selector parts
+    // (the Solid tab); with none, the painted faces come as selector parts
+    // or an expression override (the Face tab).
+    const co = spec.color;
+    const targets = co?.targets ?? [];
+    const valid = co !== undefined
+      && ColorValues.validSlot(co.value)
+      && targets.every(t => isFeatureProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && (targets.length > 0
+        ? spec.parts.length === 0
+        : spec.parts.length > 0 || Boolean(spec.rawArgs?.trim()));
+    if (!valid) {
+      return { newCode: code, error: 'malformed color edit spec' };
+    }
   } else if (spec.feature === 'sketch' && spec.sketchOnPlane) {
     // The single producer is the plane statement the sketch targets; there is
     // no selector to render.
@@ -599,7 +635,7 @@ export async function applyCreateEdit(
       || !validTextStatementOptions(spec.text)) {
       return { newCode: code, error: 'malformed text edit spec' };
     }
-    if (spec.text!.text.trim() === '') {
+    if (textLiteralBlank(spec.text!.text)) {
       return { newCode: code, error: 'the text string is empty' };
     }
   } else if (spec.feature === 'connector') {
@@ -613,8 +649,7 @@ export async function applyCreateEdit(
       && spec.producers.length >= 1 && spec.parts.length === 1
       && validConnectorAnchor(co.anchor)
       && validConnectorRotate(co.rotate)
-      && (co.offset === undefined
-        || (Array.isArray(co.offset) && co.offset.length === 3 && co.offset.every(v => Number.isFinite(v))));
+      && validConnectorOffset(co.offset);
     if (!valid) {
       return { newCode: code, error: 'malformed connector edit spec' };
     }
@@ -630,6 +665,28 @@ export async function applyCreateEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed expose edit spec' };
     }
+  } else if (spec.feature === 'custom') {
+    // Every value renders through the feature's call shape: picked elements
+    // from the producers and parts, typed-in ones as written. A statement
+    // that reads no existing one (typed-in values, a world axis) appends
+    // like a pick-less sketch — to the active part when one is set.
+    const refusal = CustomFeatureStatement.createError(spec);
+    if (refusal) {
+      return { newCode: code, error: refusal };
+    }
+    const custom = spec.custom!;
+    customImport = await CustomFeatureImport.plan(code, spec.filePath, custom.exportName!, custom.modulePath!, custom.importFrom);
+    if (spec.producers.length === 0 && spec.parts.length === 0) {
+      const rendered = CustomFeatureStatement.render(customImport.local, custom, spec, () => null);
+      if ('error' in rendered) {
+        return { newCode: code, error: rendered.error };
+      }
+      const importer = customImport;
+      return appendTopLevelStatement(
+        code, () => rendered.statement, customImport.local, spec.newVariables, spec.activePart,
+        result => importer.ensure(result),
+      );
+    }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
@@ -641,7 +698,7 @@ export async function applyCreateEdit(
   const tree = parser.parse(code);
   const lines = splitLines(code);
 
-  const resolved = resolveProducerBindings(tree, lines, spec);
+  const resolved = resolveProducerBindings(tree, lines, spec, extras.callees);
   if ('error' in resolved) {
     return { newCode: code, error: resolved.error };
   }
@@ -653,11 +710,20 @@ export async function applyCreateEdit(
   if ('error' in insertion) {
     return { newCode: code, error: insertion.error };
   }
-  let statementText = buildStatement(spec, bindings, insertion.indent, extras.foreignArgs ?? []);
-  // The row's name, written with the statement (D2): "<DisplayType> <n>"
-  // past every such name the file holds. Nothing inside a sketch body and
-  // no callee without a display type takes one.
-  statementText += FeatureNames.chainFor(tree, statementCallee(spec), insertion.index);
+  let statementText: string;
+  if (customImport) {
+    const rendered = CustomFeatureStatement.render(customImport.local, spec.custom!, spec, i => bindings[i].varName);
+    if ('error' in rendered) {
+      return { newCode: code, error: rendered.error };
+    }
+    statementText = rendered.statement;
+  } else {
+    statementText = buildStatement(spec, bindings, insertion.indent, extras.foreignArgs ?? []);
+    // The row's name, written with the statement (D2): "<DisplayType> <n>"
+    // past every such name the file holds. Nothing inside a sketch body and
+    // no callee without a display type takes one.
+    statementText += FeatureNames.chainFor(tree, statementCallee(spec), insertion.index);
+  }
   let useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 
   type Edit = { index: number; text: string };
@@ -729,7 +795,7 @@ export async function applyCreateEdit(
     return { newCode: code, error: landed.error };
   }
   result = landed.newCode;
-  result = await ensureSymbolImport(result, statementCallee(spec));
+  result = customImport ? await customImport.ensure(result) : await ensureSymbolImport(result, statementCallee(spec));
   const imports = new Set(spec.imports ?? []);
   if (spec.rawArgs?.trim()) {
     for (const symbol of importsForRawArgs(spec.rawArgs)) {

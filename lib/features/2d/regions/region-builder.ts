@@ -31,6 +31,7 @@ import { mmTol } from "../../../units/tolerance.js";
 import { GeometrySceneObject } from "../geometry.js";
 import { RegionItem } from "./region-ref.js";
 import { StatementLabels } from "./statement-label.js";
+import { BooleanBuilders } from "../../../oc/boolean-builders.js";
 
 export type SketchRegion = {
   /** The cell, holes included — its inner loops are the shapes drawn inside it. */
@@ -112,41 +113,43 @@ export class SketchRegionBuilder {
       return table;
     }
 
-    const builder = new oc.BOPAlgo_CellsBuilder();
+    // The general fuse of the sources: every piece they split each other
+    // into, with each source's history. The API algorithm releases its
+    // intersection data (BooleanBuilders); BOPAlgo_CellsBuilder never does.
+    const generalFuse = new oc.BRepAlgoAPI_BuilderAlgo();
     const args = new oc.TopTools_ListOfShape();
     for (const source of sources) {
       args.Append(source.getShape());
     }
-    builder.SetArguments(args);
-    builder.SetNonDestructive(true);
-    builder.SetToFillHistory(true);
+    generalFuse.SetArguments(args);
+    generalFuse.SetNonDestructive(true);
+    generalFuse.SetToFillHistory(true);
     const progress = new oc.Message_ProgressRange();
     try {
-      builder.Perform(progress);
-      if (builder.HasErrors()) {
+      generalFuse.Build(progress);
+      if (!generalFuse.IsDone() || generalFuse.HasErrors()) {
         for (const source of sources) {
           register(source.getShape(), source);
         }
         return table;
       }
-      builder.AddAllToResult(0, false);
       let split = 0;
       for (const source of sources) {
         const raw = source.getShape();
-        const modified = ShapeOps.shapeListToArray(builder.Modified(raw));
+        const modified = ShapeOps.shapeListToArray(generalFuse.Modified(raw));
         if (modified.length > 0) {
           split++;
           for (const piece of modified) {
             register(piece, source);
           }
-        } else if (!builder.IsDeleted(raw)) {
+        } else if (!generalFuse.IsDeleted(raw)) {
           register(raw, source);
         }
       }
       if (split === 0) {
-        // No history came back: take the builder's parts and attribute each
+        // No history came back: take the generalFuse's parts and attribute each
         // to the source(s) it lies on.
-        const parts = Explorer.findShapes(builder.GetAllParts(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
+        const parts = Explorer.findShapes(generalFuse.Shape(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum);
         if (parts.length > sources.length) {
           table.sources = [];
           table.count = 0;
@@ -165,7 +168,7 @@ export class SketchRegionBuilder {
     } finally {
       progress.delete();
       args.delete();
-      builder.delete();
+      BooleanBuilders.release(generalFuse);
     }
   }
 
@@ -233,7 +236,7 @@ export class SketchRegionBuilder {
       progress.delete();
       tools.delete();
       args.delete();
-      splitter.delete();
+      BooleanBuilders.release(splitter);
       disposePln();
     }
   }

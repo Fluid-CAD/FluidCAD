@@ -74,7 +74,8 @@ describe('atomic timeline breakpoint moves', () => {
   it('continues by removing standalone and inline stops without deleting model code', async () => {
     const code = "import { breakpoint } from 'fluidcad/core';\nbreakpoint();\nextrude(5); breakpoint(); fillet(2);\n// breakpoint(); is just a comment\n";
     const result = await move(code, null);
-    expect(result.newCode).toBe("import { breakpoint } from 'fluidcad/core';\nextrude(5);  fillet(2);\n// breakpoint(); is just a comment\n");
+    // The last stop takes its import with it; the comment calls nothing.
+    expect(result.newCode).toBe("extrude(5);  fillet(2);\n// breakpoint(); is just a comment\n");
   });
 
   it('refuses a move on a changed live buffer, but still continues on it', async () => {

@@ -3,6 +3,19 @@
 import type { CompileError } from '../ws-protocol.ts';
 import type { LengthUnit } from '../project-config.ts';
 import type { SceneRenderedData } from './render-types.ts';
+import type { SerializedAssembly } from './assembly-types.ts';
+import { GeneratedRows } from '../generated-rows.ts';
+import { JointSummary } from './joint-summary.ts';
+import type { SceneSummaryJoints, SceneSummaryMate, SceneSummaryRelation } from './joint-summary.ts';
+
+export type {
+  SceneSummaryJoints,
+  SceneSummaryMate,
+  SceneSummaryMateOptions,
+  SceneSummaryMateSide,
+  SceneSummaryRelation,
+  SceneSummaryRelationMate,
+} from './joint-summary.ts';
 
 /**
  * One drawn shape of the scene, labelled the way the Shapes panel lists it:
@@ -49,6 +62,11 @@ export type SceneSummaryObject = {
    * the part has none. Resolve it through `GET /api/materials`.
    */
   material?: string | null;
+  /**
+   * Part rows only: the appearance id `.appearance()` assigned, or null
+   * when the part has none — a built-in look (`oak`, `steel`, …).
+   */
+  appearance?: string | null;
   containerId: string | null;
   isContainer: boolean;
   visible: boolean;
@@ -84,6 +102,85 @@ export function sceneStopFields(data: SceneStopFields): SceneStopFields {
   };
 }
 
+/**
+ * The preview mark a `scene-rendered` message carries when its scene is an
+ * assembly preview's (`SceneRenderedData.preview`): spread by every emitter
+ * of a scene, so a rollback that re-emits a preview's scene says so too.
+ * Empty for a scene of the session's own code.
+ */
+export function scenePreviewFields(data: Pick<SceneRenderedData, 'preview'>): Pick<SceneRenderedData, 'preview'> {
+  return data.preview ? { preview: { token: data.preview.token } } : {};
+}
+
+/**
+ * One instance's pose in exactly the shape an `interfere` `poses` entry
+ * takes, so an agent can pass it back unchanged. What the pose is — its
+ * frame and where it comes from — is `SceneSummary.instancePoses`.
+ */
+export type SceneSummaryInstancePose = {
+  instanceId: string;
+  position: { x: number; y: number; z: number };
+  quaternion: { x: number; y: number; z: number; w: number };
+};
+
+/**
+ * What every `instances[].pose` is. `frame: 'world'`: occurrence frames are
+ * composed in, so a sub-assembly's instance is placed where its parent puts
+ * it. `source: 'statement'`: the warm-start pose the `insert()` chain sets
+ * (`.translate()` / `.rotate()`; a replica copies its seed's) — the pose
+ * `interfere`, `measure` and `resolve_selection` use when none is passed.
+ * Never the mate-solved pose the viewport draws: mates are solved only in
+ * the viewer, and the server never sees the result.
+ */
+export type SceneSummaryInstancePoses = { frame: 'world'; source: 'statement' };
+
+/** One inserted assembly instance, addressed the way the inspection tools take it. */
+export type SceneSummaryInstance = {
+  instanceId: string;
+  name: string;
+  /** The inserted part's `part` row id in `objects[]` — what `partId` on the shape-properties route takes. */
+  partId: string;
+  partName: string;
+  /** Owning scope: "" for the root assembly, else the occurrence path ("asm-0", "asm-0/asm-1"). */
+  owner: string;
+  /** Effective grounding — fixed in the world, the scoped-grounding rule applied (what the viewer's solver pins). */
+  grounded: boolean;
+  /**
+   * The rendered solids this instance shows: its part prototype's, so every
+   * instance of one part lists the same ids — the shapes `validate` checks
+   * for this `instanceId` and the bodies `interfere` places for it. Empty
+   * when the part shows no solid (rolled back, or its build failed). Absent
+   * on an engine that predates the lookup.
+   */
+  shapeIds?: string[];
+  pose: SceneSummaryInstancePose;
+  sourceLocation?: { filePath: string; line: number; column: number };
+  /** Present on a `replicate()` copy: the seed instance, the replicate statement, the row. */
+  replica?: { of: string; statement: string; row: number };
+  /**
+   * Present (true) on a part a generator made (`defineAssembly`):
+   * engine-owned and read-only — its `sourceLocation` is the insert of the
+   * generated assembly, whose values are the only way to change it.
+   */
+  engineOwned?: true;
+};
+
+/** One inserted sub-assembly — the scope an instance's `owner` names. */
+export type SceneSummaryOccurrence = {
+  occurrenceId: string;
+  name: string;
+  assemblyName: string;
+  /** The parent scope's occurrence path; "" when inserted at the root. */
+  parentPath: string;
+  /**
+   * An occurrence of a generated assembly (`defineAssembly`): its
+   * definition's id and the values its insert resolved to, by id. Every
+   * record it owns is engine-owned (`engineOwned`); the occurrence itself
+   * is the inserting file's.
+   */
+  generated?: { definition: string; values: Record<string, unknown> };
+};
+
 export type SceneSummary = {
   schemaVersion: 1;
   file: string;
@@ -94,7 +191,91 @@ export type SceneSummary = {
   /** Present while a part-scoped rollback is displayed — see SceneRenderedData. */
   rollbackScopePartId?: string;
   compileError: CompileError | null;
+  /** Assembly files only: what every `instances[].pose` is. */
+  instancePoses?: SceneSummaryInstancePoses;
+  /** Assembly files only: every inserted instance, sub-assemblies' included. */
+  instances?: SceneSummaryInstance[];
+  /** Assembly files that insert a sub-assembly only. */
+  occurrences?: SceneSummaryOccurrence[];
+  /** Assembly files only: what every `mates[]` / `relations[]` entry is — authored records, solved only in the viewer. */
+  joints?: SceneSummaryJoints;
+  /** Assembly files only: every mate, sub-assemblies' and generators' included, in statement order (possibly empty). */
+  mates?: SceneSummaryMate[];
+  /** Assembly files with a `relation()` (their own or a generator's) only. */
+  relations?: SceneSummaryRelation[];
 };
+
+/**
+ * The assembly half of a scene summary, projected from the serialized
+ * assembly a render hands the UI. Additive: a part file's summary carries
+ * none of these keys.
+ */
+export class AssemblySummary {
+  static readonly POSES: SceneSummaryInstancePoses = { frame: 'world', source: 'statement' };
+
+  /**
+   * The summary keys for an assembly render. `shapeIds` maps an instance id
+   * to the rendered solids it shows, or is null on an engine without that
+   * lookup (the entries then carry no `shapeIds`). `rendered` are the
+   * render's rows: they name the connectors mate sides hold by id, and with
+   * the assembly records they decide which records are engine-owned
+   * ({@link GeneratedRows}, the write guard's rule).
+   */
+  static fields(
+    assembly: SerializedAssembly,
+    shapeIds: Map<string, string[]> | null,
+    rendered: readonly any[] = [],
+  ): Pick<SceneSummary, 'instancePoses' | 'instances' | 'occurrences' | 'joints' | 'mates' | 'relations'> {
+    const occurrences = assembly.occurrences ?? [];
+    const owned = GeneratedRows.of(rendered, assembly);
+    const joints = new JointSummary(assembly, rendered, owned);
+    const relations = joints.relations();
+    return {
+      instancePoses: { ...AssemblySummary.POSES },
+      instances: assembly.instances.map(instance => AssemblySummary.instanceOf(instance, shapeIds, owned)),
+      ...(occurrences.length > 0 ? { occurrences: occurrences.map(AssemblySummary.occurrenceOf) } : {}),
+      joints: { ...JointSummary.JOINTS },
+      mates: joints.mates(),
+      ...(relations.length > 0 ? { relations } : {}),
+    };
+  }
+
+  private static instanceOf(
+    instance: SerializedAssembly['instances'][number],
+    shapeIds: Map<string, string[]> | null,
+    owned: GeneratedRows,
+  ): SceneSummaryInstance {
+    return {
+      instanceId: instance.instanceId,
+      name: instance.name,
+      partId: instance.partId,
+      partName: instance.partName,
+      owner: instance.owner ?? '',
+      grounded: instance.grounded,
+      ...(shapeIds ? { shapeIds: [...(shapeIds.get(instance.instanceId) ?? [])] } : {}),
+      pose: {
+        instanceId: instance.instanceId,
+        position: { x: instance.position.x, y: instance.position.y, z: instance.position.z },
+        quaternion: { x: instance.quaternion.x, y: instance.quaternion.y, z: instance.quaternion.z, w: instance.quaternion.w },
+      },
+      ...(instance.sourceLocation ? { sourceLocation: instance.sourceLocation } : {}),
+      ...(instance.replica ? { replica: { ...instance.replica } } : {}),
+      ...(owned.owns({ row: instance.instanceId, location: instance.sourceLocation }) ? { engineOwned: true as const } : {}),
+    };
+  }
+
+  private static occurrenceOf(occurrence: NonNullable<SerializedAssembly['occurrences']>[number]): SceneSummaryOccurrence {
+    return {
+      occurrenceId: occurrence.occurrenceId,
+      name: occurrence.name,
+      assemblyName: occurrence.assemblyName,
+      parentPath: occurrence.parentPath,
+      ...(occurrence.generated
+        ? { generated: { definition: occurrence.generated.definition, values: { ...occurrence.generated.values } } }
+        : {}),
+    };
+  }
+}
 
 export type ShapeListEntry = SceneSummaryShape & {
   sceneObjectId: string;

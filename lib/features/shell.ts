@@ -156,7 +156,7 @@ export class Shell extends SceneObject implements IShell {
         const faces = parent.getState('internal-faces') as Face[] || [];
         const transform = parent.getTransform();
         const originalFaces = transform
-          ? (this.getState('internal-faces') as Face[] || [])
+          ? (this.bucketOrigin().getState('internal-faces') as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
@@ -169,7 +169,7 @@ export class Shell extends SceneObject implements IShell {
         const edges = parent.getState('internal-edges') as Edge[] || [];
         const transform = parent.getTransform();
         const originalEdges = transform
-          ? (this.getState('internal-edges') as Edge[] || [])
+          ? (this.bucketOrigin().getState('internal-edges') as Edge[] || [])
           : null;
         return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);

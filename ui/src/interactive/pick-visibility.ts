@@ -35,7 +35,11 @@ export function hitIsSectioned(hit: Intersection): boolean {
   return (hitMaterial(hit)?.clippingPlanes?.length ?? 0) > 0;
 }
 
-/** Visibility along the sight line through the point itself, shared by edges and vertices. */
+/**
+ * Visibility along the sight line through the point itself: an edge or axis
+ * hit under the cursor. Vertex dots decide the same question on the GPU, for
+ * all of them at once (see occluder-depth.ts).
+ */
 export function pointIsVisible(
   point: Vector3,
   occluders: Object3D[],

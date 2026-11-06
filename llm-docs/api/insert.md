@@ -1,10 +1,10 @@
 ---
 id: api/insert
 title: "insert(definition, configuration?, overrides?)"
-summary: "Places a part or sub-assembly definition in the current assembly and returns a handle — Instance (part) or Occurrence (sub-assembly) — with .translate(), .rotate(), .grounded(), .name(), .transparent() chains, instance.connectors.<name> for mates and instance.features.<name> for tangent mates. A string second argument names a row of the definition's configurations() table (insert(def, 'Wide'), insert(def, 'Wide', { Depth: 1000 })). Overrides feed the definition's param() calls, in the part's own unit."
+summary: "Places a part or sub-assembly definition in the current assembly and returns a handle — Instance (part) or Occurrence (sub-assembly) — with .translate(), .rotate(), .grounded(), .name(), .transparent() chains, instance.connectors.<name> for mates and instance.features.<name> for tangent mates. A string second argument names a row of the definition's configurations() table (insert(def, 'Wide'), insert(def, 'Wide', { Depth: 1000 })). Overrides feed the definition's param() calls, in the part's own unit. A generated definition (definePart, defineAssembly) takes its values by id — insert(gearPart, { teeth: 18 }), insert(wardrobe, { drawers: 3 }) — checked by its declarations; an unknown id, a refused value or a configuration name is a build error on the insert's row (no configurations)."
 tags: [api, assembly]
 symbols: [insert]
-seeAlso: [api/assembly, api/mate, api/part, api/param, api/configurations, api/replicate, concepts/assemblies, concepts/configurations]
+seeAlso: [api/assembly, api/mate, api/part, api/param, api/configurations, api/replicate, api/define-part, api/define-assembly, concepts/assemblies, concepts/configurations]
 ---
 
 # insert
@@ -16,6 +16,8 @@ insert(definition: PartDefinition, overrides?: Record<string, value>): Instance
 insert(definition: PartDefinition, configuration: string, overrides?: Record<string, value>): Instance
 insert(definition: Assembly, overrides?: Record<string, value>): Occurrence
 insert(definition: Assembly, configuration: string, overrides?: Record<string, value>): Occurrence
+insert(definition: GeneratedPartDefinition, values?: { [id: string]: value }): Instance        // definePart
+insert(definition: GeneratedAssemblyDefinition, values?: { [id: string]: value }): Occurrence  // defineAssembly
 ```
 
 Places one instance of an exported `part()` or `assembly()` definition. The
@@ -86,3 +88,48 @@ Units: a part from a file with a different `unit()` is rescaled into the
 assembly's unit at render time, connectors and all. Overrides and
 configuration cells are **not** converted — `insert(def, { Length: 10 })`
 reads 10 in the part file's unit.
+
+## Generated definitions
+
+A definition made by `definePart()` ([[api/define-part]]) or
+`defineAssembly()` ([[api/define-assembly]]) is inserted the same way, with
+an object of **values by id** — the names its class declares, never the
+labels:
+
+```js
+import { assembly, insert, mate } from "fluidcad/core";
+import { gearPart } from "@fluidcad/gears";
+import { wardrobe } from "./assemblies/wardrobe.assembly.js";
+import { gearPlate } from "./parts/gear-plate.part.js";
+
+export const workshop = assembly("workshop", () => {
+  const plate = insert(gearPlate).grounded();
+  const pinion = insert(gearPart, { teeth: 18, module: 1.5, width: 12 });   // an Instance
+  mate("revolute", plate.connectors.pinionShaft, pinion.connectors.axis);
+  const unit = insert(wardrobe, { drawers: 3 }).translate(2000, 0, 0).grounded();   // an Occurrence
+  // unit.parts — what the generator's layout returned: unit.parts.carcass.connectors.top
+});
+```
+
+- **Checked by the definition's declarations**, as a custom feature's call
+  is: types, ranges, options; a value left out takes its default.
+- **Refusals are a build error on the insert's row**, not a compile error:
+  the insert is an empty part whose row says why, and the rest of the
+  assembly renders. A name the definition doesn't take (`part 'Gear':
+  'teth' is not one of its values — did you mean 'teeth'? …`), a value its
+  declaration refuses (`assembly 'Wardrobe': 'drawers' must be at most 4,
+  got 9`), a picked value of a generated part's feature, and a throw from a
+  generator's layout.
+- **No configurations.** A string second argument is refused on the row:
+  "`… 'Wide' names a configuration, and a generated part has none — insert
+  it with its values, such as insert(def, { … })`".
+- **Equal values, defaults filled, share one build**: `insert(gearPart)` and
+  `insert(gearPart, { teeth: 24 })` (the default) are one part.
+- A generated part's connectors are its feature's frames
+  (`pinion.connectors.axis`); a generated assembly's are its parts',
+  through `occurrence.parts`.
+- The values are not converted between units, as overrides aren't.
+- The parts and joints a generated definition makes are read-only; the
+  instance or occurrence the `insert()` makes is the assembly's own. **Edit
+  parameters…** on it opens the definition's dialog
+  ([[concepts/assemblies]]).

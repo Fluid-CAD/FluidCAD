@@ -3,6 +3,7 @@ import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { ShapeValidator } from "./shape-validator.js";
 import type { MeasurePose } from "./measure/measure-types.js";
+import { BooleanBuilders } from "./boolean-builders.js";
 
 /** Axis-aligned world bounds of a body, corners as [x, y, z]. */
 export type WorldBounds = { min: [number, number, number]; max: [number, number, number] };
@@ -108,9 +109,7 @@ export class ShapeInterference {
       }
       return use(common.Shape());
     } finally {
-      if (common) {
-        common.delete();
-      }
+      BooleanBuilders.release(common);
       progress.delete();
     }
   }

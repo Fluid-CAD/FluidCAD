@@ -36,7 +36,7 @@ const DEFAULT_CONFIGURATION = 'Default';
 export class EditParamsDialog {
   private overlay: HTMLDivElement;
   private form: ParamForm | null = null;
-  private target: { filePath: string; line: number } | null = null;
+  private target: { filePath: string; line: number; row?: string } | null = null;
   private applying = false;
   private configurationRow: HTMLElement;
   private configurationSelect: HTMLSelectElement;
@@ -105,10 +105,12 @@ export class EditParamsDialog {
     configuration?: string;
     /** The definition's `configurations()` row names; absent or empty hides the select. */
     configurations?: string[];
+    /** The record's id: the row the write comes from (G8). */
+    row?: string;
   }): void {
     this.form?.destroy();
     this.form = null;
-    this.target = { filePath: opts.filePath, line: opts.line };
+    this.target = { filePath: opts.filePath, line: opts.line, ...(opts.row ? { row: opts.row } : {}) };
     this.applying = false;
     this.showConfigurations(opts.configurations ?? [], opts.configuration);
     this.overlay.querySelector('[data-ref="title"]')!.textContent = opts.title;
@@ -210,14 +212,16 @@ export class EditParamsDialog {
     this.applying = true;
     this.setStatus('');
     const target = this.target;
-    const result = configurationChanged
-      ? await updateInsertParams(
-        target.filePath, target.line, set, unset, commit.newVariables,
-        configuration === DEFAULT_CONFIGURATION ? null : configuration,
-      )
-      : await updateInsertParams(
-        target.filePath, target.line, set, unset, commit.newVariables,
-      );
+    // The configuration travels only when it moved, the row only when the
+    // dialog was opened from one (the arguments stay as short as they can).
+    const args: Parameters<typeof updateInsertParams> = [target.filePath, target.line, set, unset, commit.newVariables];
+    if (configurationChanged || target.row) {
+      args.push(configurationChanged ? (configuration === DEFAULT_CONFIGURATION ? null : configuration) : undefined);
+    }
+    if (target.row) {
+      args.push(target.row);
+    }
+    const result = await updateInsertParams(...args);
     if (this.target !== target) return;
     this.applying = false;
     if (!result.success) {

@@ -4,14 +4,12 @@ import http from 'http';
 import { mkdtempSync, rmSync, realpathSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import JSZip from 'jszip';
 import { FluidCadServer } from '../src/fluidcad-server/index.ts';
 import type { SceneHost } from '../src/host/scene-host.ts';
 import { createExportRouter } from '../src/routes/export.ts';
 import { createScreenshotRouter } from '../src/routes/screenshot.ts';
 import { createConfigurationScreenshot } from '../src/routes/screenshot-configuration.ts';
 import { createSceneRouter } from '../src/routes/scene.ts';
-import { createPackRouter } from '../src/routes/pack.ts';
 import { packModel } from '../src/model-package/pack.ts';
 import { createManager, getSceneManager } from '../../lib/dist/scene-manager.js';
 import { getParamRegistry } from '../../lib/dist/index.js';
@@ -513,7 +511,7 @@ describe('POST /api/screenshot with a configuration', () => {
       (data) => broadcasts.push({ active: data.configurations?.active, width: data.params?.find(p => p.label === 'width')?.currentValue }),
       async () => { applied++; },
     );
-    app = await listen(createScreenshotRouter(requestScreenshot, undefined, undefined, hook));
+    app = await listen(createScreenshotRouter(requestScreenshot, undefined, undefined, undefined, hook));
   });
 
   afterEach(async () => {
@@ -605,8 +603,6 @@ describe('scene summary configurations', () => {
 });
 
 describe('package manifest configurations', () => {
-  const manifestOf = async (zip: Buffer) => JSON.parse(await (await JSZip.loadAsync(zip)).file('manifest.json')!.async('string'));
-
   it('packModel records the table and the opening row only when the model declares one', async () => {
     writeFileSync(join(ws, 'model.fluid.js'), SOURCE);
     const withTable = await packModel({
@@ -624,46 +620,4 @@ describe('package manifest configurations', () => {
     expect(without.manifest).not.toHaveProperty('configurations');
   });
 
-  describe('POST /api/pack', () => {
-    let app: { url: string; close: () => Promise<void> };
-
-    beforeEach(async () => {
-      writeFileSync(join(ws, 'model.fluid.js'), SOURCE);
-      app = await listen(createPackRouter(fluid, ws, '0.0.0', () => null));
-    });
-
-    afterEach(async () => {
-      await app.close();
-    });
-
-    const pack = async (body: unknown) => {
-      const res = await fetch(`${app.url}/api/pack`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      return { status: res.status, buffer: Buffer.from(await res.arrayBuffer()) };
-    };
-
-    it('records the active row, its tweaks and the table', async () => {
-      await renderTweakedCompact();
-      const res = await pack({});
-      expect(res.status).toBe(200);
-      const manifest = await manifestOf(res.buffer);
-      expect(manifest.configuration).toBe('Compact');
-      expect(manifest.configurations).toEqual({ names: ['Compact', 'Wide'], rows: { Compact: { width: 500 }, Wide: { width: 1200 } } });
-      expect(manifest.params).toEqual({ depth: 650 });
-    });
-
-    it('records a requested row without the active row\'s tweaks', async () => {
-      await renderTweakedCompact();
-      const manifest = await manifestOf((await pack({ configuration: 'Wide' })).buffer);
-      expect(manifest.configuration).toBe('Wide');
-      expect(manifest).not.toHaveProperty('params');
-      expect(fluid.getActiveConfiguration(file)).toBe('Compact');
-    });
-
-    it('refuses an unknown row', async () => {
-      await renderTweakedCompact();
-      const res = await pack({ configuration: 'Huge' });
-      expect(res.status).toBe(400);
-      expect(JSON.parse(res.buffer.toString()).names).toEqual(['Compact', 'Wide']);
-    });
-  });
 });

@@ -17,7 +17,6 @@ export class FaceOps {
   }
 
   static getPlaneRaw(face: TopoDS_Face): Plane {
-    console.log("Extracting plane from face...");
     const plane = FaceOps.tryGetPlaneRaw(face);
     if (!plane) {
       throw new Error("Face is not planar");
@@ -212,31 +211,92 @@ export class FaceOps {
     return axis;
   }
 
+  /**
+   * The face's outward normal at its surface's parameter origin, (u, v) =
+   * (0, 0): exact anywhere on a planar face, only a probe on a curved one
+   * (see {@link outwardNormalRaw}, which also takes a parameter). Throws
+   * where the normal is undefined there.
+   */
   static calculateNormalRaw(face: TopoDS_Face): Vector3d {
+    const normal = FaceOps.outwardNormalRaw(face, { u: 0, v: 0 });
+    if (!normal) {
+      throw new Error("The face normal is undefined at its surface's parameter origin");
+    }
+    return normal;
+  }
+
+  /**
+   * The face's OUTWARD (material-out) unit normal at surface parameters
+   * `uv`, by default the centre of the face's UV bounds
+   * ({@link uvCentreRaw}). It is the surface's parametric normal (D1U × D1V
+   * — not a plane's axis, which a left-handed frame reverses), reversed
+   * when the face is TopAbs_REVERSED. That flag is
+   * the face's orientation in its solid, so the face must carry it: take it
+   * from the solid through an Explorer (TopExp_Explorer composes it) or a
+   * list built that way, such as `Solid.getIndexedShapes('face')`. Without
+   * it the normal points into the material on about half the faces of a
+   * box. A located face (an assembly pose applied with `Moved`) is evaluated
+   * where it sits. Null where the normal is undefined (a degenerate apex).
+   */
+  static outwardNormalRaw(face: TopoDS_Face, uv?: { u: number; v: number }): Vector3d | null {
     const oc = getOC();
+    const rawFace = oc.TopoDS.Face(face);
+    const at = uv ?? FaceOps.uvCentreRaw(rawFace);
+    const surface = oc.BRep_Tool.Surface(rawFace);
+    const props = new oc.GeomLProp_SLProps(surface, at.u, at.v, 1, 1e-6);
+    try {
+      if (!props.IsNormalDefined()) {
+        return null;
+      }
+      const normal = props.Normal();
+      try {
+        const vector = Convert.toVector3dFromGpDir(normal);
+        return rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED ? vector.negate() : vector;
+      } finally {
+        normal.delete();
+      }
+    } finally {
+      props.delete();
+      surface.delete();
+      rawFace.delete();
+    }
+  }
 
-    const typed = oc.TopoDS.Face(face);
-    const surface = oc.BRep_Tool.Surface(typed);
-    typed.delete();
-    const props = new oc.GeomLProp_SLProps(surface, 0, 0, 1, 1e-6);
-    const normal = props.Normal();
+  /**
+   * The centre of the face's UV bounds, where {@link outwardNormalRaw}
+   * probes by default. A caller that pairs that normal with the surface
+   * point passes this to both, so they come from one parameter.
+   */
+  static uvCentreRaw(face: TopoDS_Face): { u: number; v: number } {
+    const oc = getOC();
+    const rawFace = oc.TopoDS.Face(face);
+    try {
+      const bounds = oc.BRepTools.UVBounds(rawFace);
+      return { u: (bounds.UMin + bounds.UMax) / 2, v: (bounds.VMin + bounds.VMax) / 2 };
+    } finally {
+      rawFace.delete();
+    }
+  }
 
-    const vector = Convert.toVector3dFromGpDir(normal);
-    const result = face.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED ? vector.negate() : vector;
-
-    surface.delete();
-    props.delete();
-    normal.delete();
-
-    return result;
+  /** The face's surface point at parameters `uv`, where the face sits (its location applied). */
+  static pointAtRaw(face: TopoDS_Face, uv: { u: number; v: number }): Point {
+    const oc = getOC();
+    const rawFace = oc.TopoDS.Face(face);
+    const adaptor = new oc.BRepAdaptor_Surface(rawFace, false);
+    try {
+      return Convert.toPoint(adaptor.Value(uv.u, uv.v), true);
+    } finally {
+      adaptor.delete();
+      rawFace.delete();
+    }
   }
 
   /**
    * The face's OUTWARD normal where `edge` runs along it — evaluated at the
    * mid-parameter by default (or at `fraction` along the pcurve), so it is exact on curved
    * faces (a cylinder's normal rotates along the rim; the UV-mid probe would
-   * be off by the angular distance). Orientation-corrected like
-   * `calculateNormalRaw`.
+   * be off by the angular distance). Oriented outward by
+   * {@link outwardNormalRaw}.
    *
    * The pcurve comes from the face-form `BRep_Tool::CurveOnSurface` (bound
    * as `BRep_ToolExt.CurveOnFace`), which also derives one on the fly for
@@ -257,27 +317,11 @@ export class FaceOps {
       rawEdge.delete(); rawFace.delete();
       return null;
     }
-    const surface = oc.BRep_Tool.Surface(rawFace);
+    const uv = pcurve.Value(rep.First + (rep.Last - rep.First) * fraction);
     try {
-      const uv = pcurve.Value(rep.First + (rep.Last - rep.First) * fraction);
-      const props = new oc.GeomLProp_SLProps(surface, uv.X(), uv.Y(), 1, 1e-6);
-      try {
-        if (!props.IsNormalDefined()) {
-          return null;
-        }
-        const normal = props.Normal();
-        try {
-          const vector = Convert.toVector3dFromGpDir(normal);
-          return rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED ? vector.negate() : vector;
-        } finally {
-          normal.delete();
-        }
-      } finally {
-        props.delete();
-        uv.delete();
-      }
+      return FaceOps.outwardNormalRaw(rawFace, { u: uv.X(), v: uv.Y() });
     } finally {
-      surface.delete();
+      uv.delete();
       pcurve.delete();
       rep[Symbol.dispose]?.();
       rawEdge.delete(); rawFace.delete();
@@ -329,7 +373,6 @@ export class FaceOps {
 
   static makeFace(wire: TopoDS_Wire): TopoDS_Face {
     const oc = getOC();
-    console.log("Creating face from wire:", wire);
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(wire, false);
 
     if (MakeFaceFn.IsDone()) {
@@ -378,7 +421,6 @@ export class FaceOps {
     const surfaceAdaptor = new oc.BRepAdaptor_Surface(topoFace, true);
 
     if (surfaceAdaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      console.log("Face is a plane, extracting axis");
       const plane = surfaceAdaptor.Plane();
 
       surfaceAdaptor.delete();
@@ -423,13 +465,10 @@ export class FaceOps {
       throw new Error("No wires provided to create a face.");
     }
 
-    console.log("Creating face from wires:");
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(wires[0], true);
-    console.log("Number of wires:", wires.length);
 
     try {
       for (let i = 1; i < wires.length; i++) {
-        console.log("Adding wire:", wires[i]);
         MakeFaceFn.Add(wires[i]);
       }
 

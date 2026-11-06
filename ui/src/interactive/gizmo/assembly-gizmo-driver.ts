@@ -5,6 +5,7 @@ import type { AssemblyController } from '../../scene/assembly-controller';
 import type { BodyFreedom } from '../../solver';
 import { resolveExpressionValue, type VariableInfo } from '../../ui/expression-core';
 import { isEditableTarget } from '../../editable-target';
+import { AssemblyPoseWrites } from '../../scene/assembly-pose-writes';
 import { TransformGizmo } from './transform-gizmo';
 import type { GizmoRingHandleId, GizmoTypableHandleId, GizmoAxisTypingContext } from './transform-gizmo';
 import type { GizmoExpressionCommit } from './gizmo-value-input';
@@ -32,6 +33,8 @@ export type AssemblyGizmoBindings = {
       translateExprs?: AxisExprs;
       rotateExprs?: AxisExprs;
       newVariables?: { name: string; initializer: string }[];
+      /** The instance's id: the row the write comes from (G8). */
+      row?: string;
     },
   ): Promise<{ success: boolean; reason?: string }>;
   /** The instance's exact `.translate()` arg and `.rotate()` angle texts;
@@ -256,29 +259,12 @@ export class AssemblyGizmoDriver {
     return this.bindings.viewer.getAssemblyController();
   }
 
-  /** The instance when a commit would write source; undefined for live-only
-   *  moves (no source location, mate-constrained ungrounded, or owned by a
-   *  sub-assembly occurrence). */
+  /** The instance when a commit would write source; undefined for a live-only
+   *  move ({@link AssemblyPoseWrites}: a preview on screen, a statement that
+   *  isn't the open file's own insert, a mated part that isn't grounded). */
   private persistableInstance(instanceId: string): SerializedAssemblyInstance | undefined {
     const inst = this.bindings.findInstance(instanceId);
-    if (!inst?.sourceLocation) {
-      return undefined;
-    }
-    // Occurrence-owned: the sourceLocation points into the SUB-ASSEMBLY's
-    // file, and the pose there is local to the occurrence frame — writing
-    // this view's world pose would corrupt every occurrence of it.
-    if (inst.owner) {
-      return undefined;
-    }
-    // A replica's statement is its replicate() call — its pose comes from
-    // the row's mates; there is no per-replica translate to write.
-    if (inst.replica) {
-      return undefined;
-    }
-    if (!inst.grounded && this.bindings.instanceHasMate(instanceId)) {
-      return undefined;
-    }
-    return inst;
+    return AssemblyPoseWrites.writable(inst, (id) => this.bindings.instanceHasMate(id)) ? inst : undefined;
   }
 
   // -------------------------------------------------------------------------
@@ -464,6 +450,7 @@ export class AssemblyGizmoDriver {
         {
           translateExprs: this.echoTranslateExprs(delta.handle),
           rotateExprs: rotateXYZ !== null ? this.echoRotateExprsForDrag(delta.handle) : undefined,
+          row: instanceId,
         },
       )
       .then((result) => this.settleCommit(result));
@@ -574,6 +561,7 @@ export class AssemblyGizmoDriver {
         {
           translateExprs: exprs,
           newVariables: commit.newVariable ? [commit.newVariable] : undefined,
+          row: instanceId,
         },
       )
       .then((result) => this.settleCommit(result));
@@ -648,6 +636,7 @@ export class AssemblyGizmoDriver {
           translateExprs: this.echoTranslateExprs(handle),
           rotateExprs,
           newVariables: commit.newVariable ? [commit.newVariable] : undefined,
+          row: instanceId,
         },
       )
       .then((result) => this.settleCommit(result));

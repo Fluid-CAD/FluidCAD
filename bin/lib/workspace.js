@@ -1,11 +1,11 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
-import { dirname, join, resolve } from 'path';
+import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Shared by `pack`, `publish` and `export`: all resolve the entry script the
-// same way and stamp the same fluidcad version onto the package.
+// Shared by the commands: the fluidcad version they stamp onto what they
+// make, and how `export` resolves the entry script.
 
 /** Script suffixes an entry can have — mirrors the server's file-kind table. */
 const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];
@@ -17,24 +17,6 @@ export function readPackageVersion() {
     return JSON.parse(readFileSync(pkgPath, 'utf8')).version ?? '0.0.0';
   } catch {
     return '0.0.0';
-  }
-}
-
-/**
- * Read the MODEL workspace's own `package.json` for publish prefills: name and
- * description (→ short description). Distinct from `readPackageVersion`, which
- * reads the fluidcad engine's version. Missing/unreadable fields come back
- * undefined. (The published version number is hub-assigned, not read here.)
- */
-export function readWorkspacePackage(workspace) {
-  try {
-    const pkg = JSON.parse(readFileSync(join(workspace, 'package.json'), 'utf8'));
-    return {
-      name: typeof pkg.name === 'string' ? pkg.name : undefined,
-      description: typeof pkg.description === 'string' ? pkg.description : undefined,
-    };
-  } catch {
-    return {};
   }
 }
 

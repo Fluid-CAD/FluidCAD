@@ -31,6 +31,7 @@ describe('assembly parameter UI endpoints', () => {
       // The scope-variables route reads the last render's property-bearing objects; there is none.
       getRenderedInstances: () => [],
       getRenderedParts: () => [],
+    getParamDefinitions: () => [],
     } as any;
     const send = (message: any) => { relayed.push(message); return false; };
     const dispatcher = new FeatureEditDispatcher(backend, send);
@@ -64,7 +65,7 @@ describe('assembly parameter UI endpoints', () => {
   it('returns assembly parameters for Insert autocomplete', async () => {
     const response = await post('/scope-variables', { sketchSourceLine: null, assembly: true });
     expect(response.status).toBe(200);
-    expect(response.body.variables).toContainEqual({ name: 'width', initializer: "param('Width', 100)", numeric: true });
+    expect(response.body.variables).toContainEqual({ name: 'width', initializer: "param('Width', 100)", numeric: true, value: 100 });
   });
 
   it('accepts expressions alongside literal values and declarations in a batch insert', async () => {

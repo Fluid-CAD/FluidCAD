@@ -1,15 +1,18 @@
 // Re-rendering a parsed feature statement with the edits a dialog committed.
 
 import { renderEditedBoolean } from '../features/boolean.ts';
+import { renderEditedColor } from '../features/color.ts';
 import { renderChamferValueArgs, validChamferOptions } from '../features/chamfer.ts';
 import {
   CONNECTOR_NAME,
   renderConnectorAnchorSuffix,
   renderConnectorChain,
   validConnectorAnchor,
+  validConnectorOffset,
   validConnectorRotate,
 } from '../features/connector.ts';
 import { renderEditedCopy } from '../features/copy.ts';
+import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderExtrudeStatement, renderFaceTargetExpr, type ExtrudeTargetKind } from '../features/extrude.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { renderLoftConnections, renderLoftStatement, resolveLoftSources, validEditCondition } from '../features/loft.ts';
@@ -23,10 +26,11 @@ import { renderHolePlacementExprs, renderHoleStatement, validHoleFasten, validHo
 import { renderEditedRotate } from '../features/rotate.ts';
 import { renderEditedTranslate } from '../features/translate.ts';
 import { renderEditedSplit } from '../features/split.ts';
-import { renderShellJoinChain, SHELL_JOIN_KINDS } from '../features/shell.ts';
+import { renderShellJoinChain, validShellJoin } from '../features/shell.ts';
 import { renderSweepStatement } from '../features/sweep.ts';
-import { renderTextStatement, textOptionsNeedPath, validTextStatementOptions } from '../features/text.ts';
+import { renderTextStatement, textLiteralBlank, textOptionsNeedPath, validTextStatementOptions } from '../features/text.ts';
 import { renderWrapStatement } from '../features/wrap.ts';
+import { CustomFeatureStatement } from '../features/custom.ts';
 import type { ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isAxisProducer, isPlaneProducer, isScopeTargetProducer } from '../producers/predicates.ts';
 import { editedSelectorArgs, editSourceVar } from './edit-sources.ts';
@@ -41,6 +45,7 @@ import {
   validValueExprOrNull,
   type RegionName,
 } from '../value-expr.ts';
+import { ValueSlots } from '../value-slots.ts';
 
 /**
  * Render the statement `spec`'s dialog options produce over the parsed
@@ -114,12 +119,29 @@ export function renderEditedStatement(
         + 'is the file in sync with the last render?',
     };
   }
+  if (parsed.feature === 'custom') {
+    // The statement's own callee and call shape; the values the dialog
+    // kept read from its own text.
+    const opts = spec.edit?.custom;
+    if (!opts) {
+      return { error: 'malformed custom feature edit spec' };
+    }
+    if (opts.id !== parsed.id) {
+      return {
+        error: `the statement builds '${parsed.id}', not '${opts.id}' — is the file in sync with the last render?`,
+      };
+    }
+    return CustomFeatureStatement.render(parsed.callee, opts, spec, varFor, parsed);
+  }
+  // The expressions the statement already holds: a dialog row left alone
+  // sends its own back, which the write takes whatever the text.
+  const kept = ValueSlots.kept(parsed);
   if (parsed.feature === 'extrude') {
     const opts = spec.edit?.extrude;
     if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
       || !validNonzeroOrNull(opts.distance2) || !validNonzeroOrNull(opts.draft)
       || !validNonzeroOrNull(opts.endOffset)
-      || typeof opts.symmetric !== 'boolean' || typeof opts.drill !== 'boolean') {
+      || typeof opts.symmetric !== 'boolean' || !ValueSlots.validBoolean(opts.drill, kept)) {
       return { error: 'malformed extrude edit spec' };
     }
     let faceExpr: string | null = null;
@@ -222,7 +244,7 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'hole') {
     const opts = spec.edit?.hole;
-    if (!opts || !validHoleOptions(opts)) {
+    if (!opts || !validHoleOptions(opts, { kept })) {
       return { error: 'malformed hole edit spec' };
     }
     // Absent placements keep every argument as written; a sent list replaces
@@ -247,7 +269,7 @@ export function renderEditedStatement(
     if (opts.fasten === undefined) {
       fasten = parsed.fasten && clearance ? parsed.fasten : null;
     } else if (opts.fasten !== null) {
-      if (!validHoleFasten(opts.fasten, opts)) {
+      if (!validHoleFasten(opts.fasten, opts, { kept })) {
         return { error: 'malformed hole edit spec: .fasten() goes with a clearance hole of a fastener size' };
       }
       fasten = opts.fasten;
@@ -345,6 +367,8 @@ export function renderEditedStatement(
         }
       } else if (opts.axis.kind === 'axis' && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.axis.producer)) {
         return { error: 'malformed revolve edit spec: the axis references a non-axis producer' };
+      } else if (opts.axis.kind === 'connector' && !ConnectorAxisSpecs.valid(spec, opts.axis)) {
+        return { error: 'malformed revolve edit spec: the axis references a non-connector producer' };
       } else if (opts.axis.kind === 'standard'
         && opts.axis.axis !== 'x' && opts.axis.axis !== 'y' && opts.axis.axis !== 'z') {
         return { error: 'malformed revolve edit spec: bad standard axis' };
@@ -396,6 +420,8 @@ export function renderEditedStatement(
       } else if (opts.source.kind === 'axis'
         && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.source.producer)) {
         return { error: 'malformed helix edit spec: the source references a non-axis producer' };
+      } else if (opts.source.kind === 'connector' && !ConnectorAxisSpecs.valid(spec, opts.source)) {
+        return { error: 'malformed helix edit spec: the source references a non-connector producer' };
       } else if (opts.source.kind === 'standard'
         && opts.source.axis !== 'x' && opts.source.axis !== 'y' && opts.source.axis !== 'z') {
         return { error: 'malformed helix edit spec: bad standard axis' };
@@ -409,7 +435,7 @@ export function renderEditedStatement(
   if (parsed.feature === 'loft') {
     const opts = spec.edit?.loft;
     if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
-      || !validEditCondition(opts.startCondition) || !validEditCondition(opts.endCondition)) {
+      || !validEditCondition(opts.startCondition, kept) || !validEditCondition(opts.endCondition, kept)) {
       return { error: 'malformed loft edit spec' };
     }
     const sources = resolveLoftSources(parsed, spec, varFor);
@@ -494,15 +520,18 @@ export function renderEditedStatement(
   if (parsed.feature === 'boolean') {
     return renderEditedBoolean(parsed, spec, varFor);
   }
+  if (parsed.feature === 'color') {
+    return renderEditedColor(parsed, spec, varFor);
+  }
   if (parsed.feature === 'plane') {
     return renderEditedPlane(parsed, spec, varFor);
   }
   if (parsed.feature === 'text') {
     const opts = spec.edit?.text;
-    if (!validTextStatementOptions(opts)) {
+    if (!validTextStatementOptions(opts, kept)) {
       return { error: 'malformed text edit spec' };
     }
-    if (opts.text.trim() === '') {
+    if (textLiteralBlank(opts.text)) {
       return { error: 'the text string is empty' };
     }
     // The path argument: the statement's own text stands unless the dialog
@@ -524,7 +553,7 @@ export function renderEditedStatement(
     if (pathExpr === null && textOptionsNeedPath(opts)) {
       return { error: 'the distributed alignments, offset, start-at and flip only apply to text following a path' };
     }
-    return { statement: renderTextStatement(opts, pathExpr) };
+    return { statement: renderTextStatement(opts, pathExpr, parsed.fontOptionsText) };
   }
   if (parsed.feature === 'project') {
     // No value slot: the args are the whole statement — the edited expression
@@ -535,11 +564,9 @@ export function renderEditedStatement(
   if (parsed.feature === 'connector') {
     const opts = spec.edit?.connector;
     if (!opts || typeof opts.name !== 'string' || !CONNECTOR_NAME.test(opts.name)
-      || !validConnectorRotate(opts.rotate ?? undefined)
+      || !validConnectorRotate(opts.rotate ?? undefined, kept)
       || !validConnectorAnchor(opts.anchor)
-      || (opts.offset !== null
-        && !(Array.isArray(opts.offset) && opts.offset.length === 3
-          && opts.offset.every(v => Number.isFinite(v))))) {
+      || !validConnectorOffset(opts.offset ?? undefined)) {
       return { error: 'malformed connector edit spec' };
     }
     const args = editedSelectorArgs(spec, parsed.argsText, varFor);
@@ -572,9 +599,11 @@ export function renderEditedStatement(
   }
   let joinChain = '';
   if (parsed.feature === 'shell') {
-    // An edit spec without shell options keeps the statement's own join type.
+    // An edit spec without shell options keeps the statement's own join type;
+    // the statement's own expression passes whatever its text, typed text is
+    // checked as a number row's is.
     const joinType = spec.edit?.shell?.joinType ?? parsed.joinType;
-    if (!SHELL_JOIN_KINDS.has(joinType)) {
+    if (!validShellJoin(joinType, kept)) {
       return { error: 'malformed shell edit spec' };
     }
     joinChain = renderShellJoinChain(joinType);

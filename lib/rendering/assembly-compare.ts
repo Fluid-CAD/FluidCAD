@@ -4,19 +4,59 @@ import { ActorRecords } from "./actor-records.js";
 import { Part } from "../features/part.js";
 import { canonicalVariantKey, toOverrideMap } from "../features/param-overrides.js";
 import type { RenderChangeTracker } from "./render-changes.js";
+import { SceneCompare, type SceneCompareOptions } from "./scene-compare.js";
+import { SceneDisposal } from "./scene-disposal.js";
+import { GeneratedTemplateCache } from "./generated-template-cache.js";
 
 type Pair = { newObj: SceneObject; oldObj: SceneObject };
 
 export class AssemblyCompare {
-  /** `changes`: the MCP-only change summary hook — see SceneCompare.compare. */
-  static compare(oldScene: AssemblyScene, newScene: AssemblyScene, changes?: RenderChangeTracker): AssemblyScene {
+  /**
+   * `changes`: the MCP-only change summary hook — see SceneCompare.compare.
+   * `options.rebuild`: feature types whose code changed — a part holding one
+   * rebuilds whole, as any part whose subtree differs does — and generated
+   * definitions whose code changed: their parts rebuild too, and the
+   * template cache drops what it holds of them.
+   *
+   * A part the template cache keeps (`Part.cacheKey`: a generator's
+   * template, a generated part's variant) that the new scene doesn't take
+   * over goes to the cache (`GeneratedTemplateCache.retire`) instead of
+   * staying with the old scene: its objects hand their build over and keep
+   * none, so a later render that declares it again — a value dragged back,
+   * an undo, a preview cancelled — finds it built. Only a part the old scene
+   * rendered goes: one it never built holds nothing to keep.
+   *
+   * **The compare frees what it replaced**, as SceneCompare does for a part
+   * scene, so a host drops the old scene once this returns (and frees a scene
+   * it drops without a compare itself — `SceneDisposal.disposeScene`):
+   * - every old object the new scene doesn't take over is destroyed — a part
+   *   that rebuilt (a changed insert value, a changed part file, an unpaired
+   *   variant, a sub-assembly's part) and everything under it — except the
+   *   parts the cache took, which the cache destroys when it lets go of
+   *   them;
+   * - every old shape wrapper the new scene doesn't reach is released. The
+   *   paired parts' state is cloned onto the new objects with the same
+   *   wrappers, so what they carry over survives; the cache's parts are
+   *   left out (the cache releases them, and no pass releases what it holds).
+   * A failure freeing is logged and never fails the render.
+   */
+  static compare(oldScene: AssemblyScene, newScene: AssemblyScene, changes?: RenderChangeTracker, options?: SceneCompareOptions): AssemblyScene {
+    if (oldScene === newScene) {
+      return newScene;
+    }
+
     const map = new Map<SceneObject, SceneObject>();
+    const cache = GeneratedTemplateCache.shared;
+    if (options?.rebuild) {
+      cache.dropDefinitions(options.rebuild);
+    }
 
     const newTopParts = topLevelParts(newScene);
     const oldTopParts = topLevelParts(oldScene);
 
     // Pair top-level parts by declared identity — part name plus the
-    // variant's resolved param values — not by scene position, so reordering
+    // variant's resolved param values, or a generated template's identity
+    // key (see pairingKey) — not by scene position, so reordering
     // insert()/definition statements between renders keeps caches alive.
     // Same-key duplicates pair in scene order (the old positional behavior).
     const oldByKey = new Map<string, Part[]>();
@@ -33,11 +73,14 @@ export class AssemblyCompare {
     // Tentative matches: a part whose OWN subtree compares equal.
     const matched = new Map<Part, Pair[]>();
     for (const newPart of newTopParts) {
+      if (newPart.generatedBy && options?.rebuild?.has(newPart.generatedBy.definition)) {
+        continue;
+      }
       const oldPart = oldByKey.get(pairingKey(newPart))?.shift();
       if (!oldPart) {
         continue;
       }
-      const subtreePairs = collectSubtreePairs(newPart, oldPart);
+      const subtreePairs = collectSubtreePairs(newPart, oldPart, options);
       if (subtreePairs) {
         matched.set(newPart, subtreePairs);
       }
@@ -75,6 +118,21 @@ export class AssemblyCompare {
       changes.captureBefore(oldScene, map);
     }
 
+    // The old parts the cache keeps that the new scene doesn't take over —
+    // built ones: the cache's from the retire below, with every object under
+    // them.
+    const leaving = oldTopParts.filter(part => part.cacheKey() !== null && !map.has(part)
+      && oldScene.getRenderedObject(part) !== null);
+    const handedOver = AssemblyCompare.subtreesOf(leaving);
+
+    // What the old scene holds, less what the cache is about to take —
+    // snapshot before the state transfer, as SceneCompare's: the transfer is
+    // where records naming a rebuilt actor drop out of the carried state, and
+    // the shapes only they held are the old scene's to free.
+    const oldSceneShapes = SceneDisposal.collectShapes(
+      oldScene.getAllSceneObjects().filter(obj => !handedOver.has(obj)),
+    );
+
     // State is cloned per new SceneObject; aliasing the old Map propagates
     // mutations (e.g. `clean()` pushing into removedShapes) across the
     // transitive sharing chains that build up over sequential renders.
@@ -99,11 +157,40 @@ export class AssemblyCompare {
 
       const oldError = oldObj.getError();
       if (oldError) {
-        newObj.setError(oldError);
+        newObj.setError(oldError, { kernelTrap: oldObj.isKernelTrap() });
       }
     }
 
+    // The keys the new scene holds unbuilt: its render takes them from the
+    // cache, so the old scene's templates mustn't push them out first.
+    const wanted = new Set<string>();
+    for (const part of newTopParts) {
+      const key = part.cacheKey();
+      if (key !== null && !matched.has(part)) {
+        wanted.add(key);
+      }
+    }
+    cache.retire(leaving, { rebuild: options?.rebuild, keep: wanted });
+
+    try {
+      SceneDisposal.disposeReplaced(oldScene, newScene, map, oldSceneShapes, handedOver);
+    } catch (error) {
+      console.error('Scene disposal after compare failed:', error);
+    }
+
     return newScene;
+  }
+
+  /** The parts and every object under them. */
+  private static subtreesOf(parts: readonly SceneObject[]): Set<SceneObject> {
+    const out = new Set<SceneObject>();
+    const pending = [...parts];
+    while (pending.length > 0) {
+      const obj = pending.pop()!;
+      out.add(obj);
+      pending.push(...obj.getChildren());
+    }
+    return out;
   }
 }
 
@@ -149,8 +236,15 @@ function owningTopLevelPart(obj: SceneObject): Part | null {
 
 // Declared identity a top-level part pairs on across renders: its name plus
 // the variant's resolved param values (label-sorted). Root-built parts carry
-// no paramValues and key on the name alone.
+// no paramValues and key on the name alone. A part a generator made pairs on
+// its build key instead (Part.generatedBuildKey: its template's identity —
+// definition, type, inputs, connectors, appearance, material — its units,
+// its detail tier and its code version): two templates of one type differ by
+// their inputs, not by a name, and their names say nothing of their geometry.
 function pairingKey(part: Part): string {
+  if (part.generatedBy) {
+    return `\u0000generated\u0000${part.generatedBuildKey()}`;
+  }
   return `${part.partName}\u0000${canonicalVariantKey(toOverrideMap(part.paramValues))}`;
 }
 
@@ -162,11 +256,8 @@ function topLevelParts(scene: AssemblyScene): Part[] {
 
 // Returns pairs only on complete subtree match — partial matches are
 // discarded so a single divergence leaves the whole Part for full rebuild.
-function collectSubtreePairs(newObj: SceneObject, oldObj: SceneObject): Pair[] | null {
-  if (newObj.getUniqueType() !== oldObj.getUniqueType()) {
-    return null;
-  }
-  if (!oldObj.compareTo(newObj)) {
+function collectSubtreePairs(newObj: SceneObject, oldObj: SceneObject, options?: SceneCompareOptions): Pair[] | null {
+  if (!SceneCompare.matches(oldObj, newObj, options)) {
     return null;
   }
 
@@ -178,7 +269,7 @@ function collectSubtreePairs(newObj: SceneObject, oldObj: SceneObject): Pair[] |
 
   const pairs: Pair[] = [{ newObj, oldObj }];
   for (let i = 0; i < newChildren.length; i++) {
-    const childPairs = collectSubtreePairs(newChildren[i], oldChildren[i]);
+    const childPairs = collectSubtreePairs(newChildren[i], oldChildren[i], options);
     if (!childPairs) {
       return null;
     }

@@ -66,9 +66,18 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
         res.status(422).json({ error: 'that feature lives in a different file than the one being edited' });
         return;
       }
-      const result = await parseFeatureStatement(code, line);
+      // The custom features the file imports read by their call shapes.
+      const callees = currentFile ? await services.callees.calleesFor(code, currentFile) : undefined;
+      const result = await parseFeatureStatement(code, line, callees);
       if (result.ok === false) {
         res.status(422).json({ error: result.reason });
+        return;
+      }
+      if (result.parsed.feature === 'custom') {
+        // The dialog seeds from the values and picks; the call shape, the
+        // raw texts and how the operation is spelled are the transform's.
+        const { shape: _shape, texts: _texts, operationWritten: _written, ...parsed } = result.parsed;
+        res.json({ ok: true, parsed, statement: result.statement });
         return;
       }
       res.json({ ok: true, parsed: result.parsed, statement: result.statement });

@@ -189,6 +189,21 @@ describe('scanFileForParts', () => {
     expect(manager.disposed).toHaveLength(3);
   });
 
+  it('frees every scene it started in one pass when the engine can (a kernel handle two scenes share goes once)', async () => {
+    const manager = fakeManager([[], [], []]);
+    const passes: any[][] = [];
+    const withPass = Object.assign(manager, { disposeScenes(scenes: any[]) { passes.push([...scenes]); } });
+    await scanFileForParts(
+      fakeHost({ a: () => fakePart('a1', 'A'), b: () => 1 }),
+      withPass,
+      '/ws/two.fluid.js',
+    );
+    expect(passes).toHaveLength(1);
+    expect(passes[0]).toHaveLength(3);
+    expect(new Set(passes[0]).size).toBe(3);
+    expect(manager.disposed).toEqual([]);
+  });
+
   it('classifies an assembly-file factory that inserted instances as a sub-assembly', async () => {
     const instances = [
       { instanceId: 'inst-0', partId: 'pA', partName: 'A', position: { x: 0, y: 0, z: 0 } },

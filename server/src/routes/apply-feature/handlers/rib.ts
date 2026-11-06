@@ -44,7 +44,7 @@ export async function handleRib(ctx: ApplyFeatureRequestContext, req: Request, r
     };
     // Truthful preview names: the same resolution the transform runs
     // (reused consts, collision-suffixed hints).
-    const names = await allocateProducerVars(producers, code);
+    const names = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const statement = renderRibStatement(
       options,
       request.spine.mode === 'bound' ? names[0] ?? 's' : null,

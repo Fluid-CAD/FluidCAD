@@ -5,7 +5,9 @@ import { AxisSlotControl } from '../src/interactive/create-feature/axis-slot';
 // The axis slot shared by every axis-picking dialog: no quick buttons — a
 // standard axis arrives only from the viewport (a world axis, a sketch
 // datum) or from a kept statement literal — and the chip/prompt follows the
-// selection state machine.
+// selection state machine. Every slot takes a connector too (its Z axis),
+// re-found by its site after renders, and an edit whose own axis is one
+// shows that connector's chip while keeping its text.
 
 function make(opts?: ConstructorParameters<typeof AxisSlotControl>[1]) {
   const host = document.createElement('div');
@@ -29,7 +31,7 @@ describe('AxisSlotControl', () => {
     const { host, control } = make();
     expect(control.selection).toBeNull();
     expect(host.querySelectorAll('button').length).toBe(0);
-    expect(chipText(host)).toContain('Pick a world axis, an axis or an edge');
+    expect(chipText(host)).toContain('Pick a world axis, an axis, an edge or a connector');
   });
 
   it('shows a picked world axis as the standard chip', () => {
@@ -118,5 +120,62 @@ describe('AxisSlotControl', () => {
     expect(control.selection).toEqual({ kind: 'axis', option: { ...option, label: 'ringAxis' } });
     control.setOptions([]);
     expect(control.selection).toBeNull();
+  });
+
+  const BOLT = { id: 'c1', label: 'bolt', name: 'bolt', filePath: 'm.part.js', line: 8, column: 15 };
+  const COPY = { ...BOLT, id: 'c2', label: 'bolt.instance(1)', slot: 1 };
+
+  it('holds a connector, re-found by its site after a render, and falls back when it is gone', () => {
+    const { host, control } = make();
+    control.selectConnector(COPY);
+    expect(control.selection).toEqual({ kind: 'connector', option: COPY });
+    expect(control.connector).toBe(COPY);
+    expect(chipText(host)).toContain('bolt.instance(1)');
+
+    // A render re-minted the ids: the copy is found again by seed site and slot, not the seed.
+    const rerendered = [{ ...BOLT, id: 'c7' }, { ...COPY, id: 'c8' }];
+    control.setConnectorOptions(rerendered);
+    expect(control.selection).toEqual({ kind: 'connector', option: rerendered[1] });
+
+    control.setConnectorOptions([{ ...BOLT, id: 'c9' }]);
+    expect(control.selection).toBeNull();
+
+    // Edit mode: a lost connector falls back to the statement's own axis.
+    control.seedKeep('pivot');
+    control.selectConnector(BOLT);
+    control.setConnectorOptions([]);
+    expect(control.selection).toEqual({ kind: 'keep' });
+  });
+
+  it("shows an edit's own connector axis as that connector's chip, still kept as written", () => {
+    const { host, control } = make();
+    control.seedKeep('bolt.instance(1)');
+    expect(chipText(host)).toContain('Current: bolt.instance(1)');
+    expect(control.connector).toBeNull();
+
+    control.setKeptConnector(COPY);
+    expect(control.selection).toEqual({ kind: 'keep' });
+    expect(control.connector).toBe(COPY);
+    expect(chipText(host)).toContain('bolt.instance(1)');
+    expect(chipText(host)).not.toContain('Current:');
+    // The kept chip can't be taken off — a re-pick is undone by its ✕, never the statement's own axis.
+    expect([...host.querySelectorAll('button')].some(b => b.textContent === '✕')).toBe(false);
+
+    // Re-found by its site after a render; a re-pick replaces it, its ✕ comes back to it.
+    const again = { ...COPY, id: 'c5' };
+    control.setConnectorOptions([again]);
+    expect(control.connector).toBe(again);
+    control.selectStandard('x');
+    expect(control.connector).toBeNull();
+    clickRemove(host);
+    expect(control.selection).toEqual({ kind: 'keep' });
+    expect(control.connector).toBe(again);
+
+    // Gone from the scene, the chip reads as the statement's text again; a fresh create forgets it.
+    control.setConnectorOptions([]);
+    expect(chipText(host)).toContain('Current: bolt.instance(1)');
+    control.setKeptConnector(COPY);
+    control.reset();
+    expect(control.connector).toBeNull();
   });
 });

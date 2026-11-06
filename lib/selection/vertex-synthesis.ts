@@ -3,7 +3,8 @@ import { Shape } from '../common/shape.js';
 import { Sketch } from '../features/2d/sketch.js';
 import { Point } from '../math/point.js';
 import { Explorer } from '../oc/explorer.js';
-import { anchorFromShape } from '../features/shape-anchor.js';
+import { anchorFrameFromShape, anchorFromShape } from '../features/shape-anchor.js';
+import { Plane } from '../math/plane.js';
 import { mmTol } from '../units/tolerance.js';
 import { attributePick } from './attribution.js';
 import { pickedVertexPoint } from './vertex-pick.js';
@@ -15,9 +16,20 @@ import { renderSolvedTarget, SOLVED_ENTITY_NAME_HINTS, type SketchExportRequest 
 import type { SelectionScene, PickRef, SynthesizeOptions } from './types.js';
 import type { SynthesizedForm, SynthesizedSelection, SynthesizedSelectionPart } from './synthesize-selection.js';
 
-type EdgePoint = { kind: 'edge'; selector: SelectorPart; role: 'start' | 'end' };
-type SketchPoint = { kind: 'sketch'; sketch: Sketch; request: SketchExportRequest; entities: Map<number, SceneObject> };
-type PointPart = EdgePoint | SketchPoint;
+/** A vertex of a solid, named as one end of an edge a selector names (`e.endEdges(0).start()`). */
+export type EdgePoint = {
+  kind: 'edge';
+  selector: SelectorPart;
+  role: 'start' | 'end';
+  /** The edge, by its index among the picked solid's edges. */
+  edge: number;
+};
+
+/** A vertex of a sketch, named as a point its sketch exports (`s.geometries.l1.start()`). */
+export type SketchPoint = { kind: 'sketch'; sketch: Sketch; request: SketchExportRequest; entities: Map<number, SceneObject> };
+
+/** How a picked vertex is written: the end of an edge, or a sketch point. */
+export type PointPart = EdgePoint | SketchPoint;
 
 /** One pick's candidates, best first — a sketch vertex has exactly one. */
 type PointGroup = PointPart[];
@@ -43,37 +55,96 @@ type PointNames = {
 export class VertexPointSynthesizer {
   static synthesize(scene: SelectionScene, refs: PickRef[], options: SynthesizeOptions): SynthesizedSelection {
     const index = new SelectionIndex(scene);
-    const bindable = makeStatementBindable(options.bindable);
     try {
-      const groups: PointGroup[] = [];
-      let scope: SceneObject | null | undefined;
-      for (const ref of refs) {
-        const located = VertexPointSynthesizer.locate(scene, ref);
-        if (!located) {
-          return { ok: false, reason: 'the vertex no longer resolves in the current scene', pick: ref };
-        }
-        const part = scene.findEnclosingPart(located.owner);
-        if (scope !== undefined && part !== scope) {
-          return { ok: false, reason: 'the picked vertices live in different part() scopes — one point list must stay inside one part', pick: ref };
-        }
-        scope = part;
-
-        const sketch = VertexPointSynthesizer.owningSketch(located.owner);
-        const group = sketch
-          ? VertexPointSynthesizer.sketchPoint(scene, index, sketch, located, ref, bindable)
-          : VertexPointSynthesizer.edgePoints(scene, index, located, ref, options, bindable);
-        if ('ok' in group) {
-          return group;
-        }
-        groups.push(group);
+      const groups = VertexPointSynthesizer.groups(scene, index, refs, options);
+      if ('ok' in groups) {
+        return groups;
       }
-
       const producers = VertexPointSynthesizer.producersOf(groups);
       const names = VertexPointSynthesizer.allocatePointNames(groups, producers, options);
       return VertexPointSynthesizer.result(groups, producers, names);
     } finally {
       index.dispose();
     }
+  }
+
+  /**
+   * Each pick's best way to be written, in pick order, over an index the
+   * caller owns — for a caller that names the producers itself (a custom
+   * feature's point values, synthesized with its other picks).
+   */
+  static best(
+    scene: SelectionScene, index: SelectionIndex, refs: PickRef[], options: SynthesizeOptions,
+  ): { ok: true; parts: PointPart[] } | Refusal {
+    const groups = VertexPointSynthesizer.groups(scene, index, refs, options);
+    if ('ok' in groups) {
+      return groups;
+    }
+    return { ok: true, parts: groups.map(group => group[0]) };
+  }
+
+  /**
+   * The frame the point a vertex pick writes stands on — what a feature
+   * reading it as a location sees: a sketch vertex on its sketch's plane, a
+   * solid's vertex as the end of the edge that names it, that edge's tangent
+   * its Z (see `anchorFromShape`). Null when the pick no longer resolves or
+   * nothing can name it.
+   */
+  static frameOf(scene: SelectionScene, ref: PickRef, options: SynthesizeOptions = {}): Plane | null {
+    const located = VertexPointSynthesizer.locate(scene, ref);
+    if (!located) {
+      return null;
+    }
+    const sketch = VertexPointSynthesizer.owningSketch(located.owner);
+    if (sketch) {
+      const plane = sketch.getPlane();
+      return new Plane(located.point, plane.xDirection, plane.normal);
+    }
+    const index = new SelectionIndex(scene);
+    try {
+      const group = VertexPointSynthesizer.edgePoints(scene, index, located, ref, options, makeStatementBindable(options.bindable));
+      if ('ok' in group) {
+        return null;
+      }
+      const best = group[0] as EdgePoint;
+      const edges = Explorer.findEdgesWrapped(located.shape);
+      try {
+        return anchorFrameFromShape(edges[best.edge], { kind: best.role });
+      } finally {
+        for (const edge of edges) {
+          edge.dispose();
+        }
+      }
+    } finally {
+      index.dispose();
+    }
+  }
+
+  private static groups(scene: SelectionScene, index: SelectionIndex, refs: PickRef[], options: SynthesizeOptions): PointGroup[] | Refusal {
+    const bindable = makeStatementBindable(options.bindable);
+    const groups: PointGroup[] = [];
+    let scope: SceneObject | null | undefined;
+    for (const ref of refs) {
+      const located = VertexPointSynthesizer.locate(scene, ref);
+      if (!located) {
+        return { ok: false, reason: 'the vertex no longer resolves in the current scene', pick: ref };
+      }
+      const part = scene.findEnclosingPart(located.owner);
+      if (scope !== undefined && part !== scope) {
+        return { ok: false, reason: 'the picked vertices live in different part() scopes — one point list must stay inside one part', pick: ref };
+      }
+      scope = part;
+
+      const sketch = VertexPointSynthesizer.owningSketch(located.owner);
+      const group = sketch
+        ? VertexPointSynthesizer.sketchPoint(scene, index, sketch, located, ref, bindable)
+        : VertexPointSynthesizer.edgePoints(scene, index, located, ref, options, bindable);
+      if ('ok' in group) {
+        return group;
+      }
+      groups.push(group);
+    }
+    return groups;
   }
 
   private static locate(scene: SelectionScene, ref: PickRef): LocatedVertex | null {
@@ -135,7 +206,7 @@ export class VertexPointSynthesizer {
           if (result.ok) {
             for (const group of result.groups) {
               for (const selector of [group.winner, ...group.alternatives]) {
-                candidates.push({ kind: 'edge', selector, role });
+                candidates.push({ kind: 'edge', selector, role, edge: edgeIndex });
               }
             }
           }
@@ -208,19 +279,27 @@ export class VertexPointSynthesizer {
         continue;
       }
       for (const entity of winner.entities.values()) {
-        if (entities.has(entity)) {
-          continue;
+        if (!entities.has(entity)) {
+          entities.set(entity, VertexPointSynthesizer.entityName(entity, used));
         }
-        const hint = SOLVED_ENTITY_NAME_HINTS[VertexPointSynthesizer.entityKind(entity)] ?? 'e';
-        let n = 1;
-        while (used.has(`${hint}${n}`)) {
-          n++;
-        }
-        used.add(`${hint}${n}`);
-        entities.set(entity, `${hint}${n}`);
       }
     }
     return { producers: names, tools, entities };
+  }
+
+  /**
+   * A provisional name for a sketch entity a point is exported through
+   * (`l1`, `c2`), free among `used`, which takes it — a preview only: the
+   * export transform owns the real one.
+   */
+  static entityName(entity: SceneObject, used: Set<string>): string {
+    const hint = SOLVED_ENTITY_NAME_HINTS[VertexPointSynthesizer.entityKind(entity)] ?? 'e';
+    let n = 1;
+    while (used.has(`${hint}${n}`)) {
+      n++;
+    }
+    used.add(`${hint}${n}`);
+    return `${hint}${n}`;
   }
 
   private static entityKind(entity: SceneObject): string {

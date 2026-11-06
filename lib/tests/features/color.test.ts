@@ -321,3 +321,55 @@ describe("color", () => {
     });
   });
 });
+
+describe("color several selections in one statement", () => {
+  setupOC();
+
+  it("paints every face of every object passed", () => {
+    sketch("xy", () => {
+        testRect(100, 50);
+      });
+    const a = extrude(30) as Extrude;
+    sketch("xy", () => {
+        testRect(20, 20, { at: [200, 0] });
+      });
+    const b = extrude(10) as Extrude;
+
+    const c = color("red", a, b) as Color;
+    const scene = render();
+
+    expect(c.getError()).toBeFalsy();
+    expect(c.selections).toHaveLength(2);
+    expect(c.selection).toBeNull();
+    for (const holder of [a, b]) {
+      const colors = faceColorsOf(scene, bodyOf(holder));
+      expect(colors.size).toBe(6);
+      for (const value of colors.values()) {
+        expect(value).toBe("#ff0000");
+      }
+    }
+  });
+
+  it("paints a face selection and a whole object side by side, the selection's faces on their own body", () => {
+    sketch("xy", () => {
+        testRect(100, 50);
+      });
+    const a = extrude(30) as Extrude;
+    sketch("xy", () => {
+        testRect(20, 20, { at: [200, 0] });
+      });
+    const b = extrude(10) as Extrude;
+
+    const c = color("steelblue", (a as any).endFaces(), b) as Color;
+    const scene = render();
+
+    expect(c.getError()).toBeFalsy();
+    expect(c.faceSelections).toHaveLength(1);
+    expect(c.objectSelections).toEqual([b]);
+    const aColors = faceColorsOf(scene, bodyOf(a));
+    expect(aColors.size).toBe(1);
+    expect(faceColorsOf(scene, bodyOf(b)).size).toBe(6);
+    // Both bodies still show — a paint consumes nothing.
+    expect(countShapes(scene)).toBe(2);
+  });
+});

@@ -2,10 +2,12 @@ import { FeaturePanel } from './feature-panel';
 import { AxisOption } from './axis-options';
 import { PlaneOption } from './plane-bases';
 import { AxisSelection, AxisSlotControl } from './axis-slot';
+import { ConnectorOption } from './connector-options';
 import { PlaneSelection, PlaneSlotControl } from './plane-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { DIRECTION_GROUP_CLASSES } from './panel-controls';
-import { NewVariable, ValueExpr } from '../../api';
+import { FlagControl } from './expression-rows';
+import { FeatureExprValue, NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { iconUrl } from '../../ui/icon-url';
@@ -34,7 +36,8 @@ export type RepeatValues =
   | {
       kind: 'linear';
       spacingMode: 'offset' | 'length';
-      centered: boolean;
+      /** The pattern is centered on the original: the flag, or the expression the Centered row holds under its ƒ. */
+      centered: boolean | FeatureExprValue;
       /** Count/value per active direction; the axes ride the service. */
       directions: { count: ValueExpr; value: ValueExpr }[];
       newVariables?: NewVariable[];
@@ -101,7 +104,7 @@ export class RepeatPanel extends FeaturePanel {
   private value2Label: HTMLElement;
   private addDirectionBtn: HTMLButtonElement;
   private centeredRow: HTMLElement;
-  private centeredInput: HTMLInputElement;
+  private centered: FlagControl;
   private angleRow: HTMLElement;
   private countField: ExpressionField;
   private spacingField: ExpressionField;
@@ -237,7 +240,8 @@ export class RepeatPanel extends FeaturePanel {
     this.value2Label = this.role('value2-label');
     this.addDirectionBtn = this.role('add-direction');
     this.centeredRow = this.role('centered-row');
-    this.centeredInput = this.role('centered');
+    // The Centered toggle takes an expression (`centered: flag`) under its ƒ.
+    this.centered = new FlagControl(this.role('centered'), { name: 'centered', label: 'Centered' });
     this.angleRow = this.role('angle-row');
 
     this.addDirectionBtn.addEventListener('click', () => {
@@ -268,7 +272,8 @@ export class RepeatPanel extends FeaturePanel {
       this.onChange?.();
     });
     this.sweepModeSelect.addEventListener('change', () => this.onChange?.());
-    this.centeredInput.addEventListener('change', () => this.onChange?.());
+    this.centered.onChange = () => this.onChange?.();
+    this.centered.onSubmit = () => this.onApply?.();
     this.countField = this.enhance('count');
     this.spacingField = this.enhance('spacing');
     this.sweepField = this.enhance('sweep');
@@ -284,11 +289,12 @@ export class RepeatPanel extends FeaturePanel {
     ];
   }
 
-  /** The variables the fields' dropdowns offer. */
+  /** The variables the fields' dropdowns offer, and the Centered row's expression resolves over. */
   setScopeVariables(variables: VariableInfo[]): void {
     for (const field of this.expressionFields()) {
       field.setVariables(variables);
     }
+    this.centered.setVariables(variables);
   }
 
   get repeatType(): RepeatType {
@@ -327,7 +333,7 @@ export class RepeatPanel extends FeaturePanel {
     this.sweepField.setValue(360);
     this.count2Field.setValue(2);
     this.value2Field.setValue(20);
-    this.centeredInput.checked = false;
+    this.centered.setValue(false);
     this.angleField.setValue(90);
     this.setTargets([]);
     // The empty features list is the first thing to fill — its slot opens
@@ -356,7 +362,8 @@ export class RepeatPanel extends FeaturePanel {
     kind: RepeatType;
     directions: { count: ValueExpr; value: ValueExpr }[] | null;
     spacingMode: 'offset' | 'length' | null;
-    centered: boolean;
+    /** The statement's centered flag, or the expression computing it — which opens the row in expression mode. */
+    centered: boolean | FeatureExprValue;
     count: ValueExpr | null;
     sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
     angle: ValueExpr | null;
@@ -377,7 +384,7 @@ export class RepeatPanel extends FeaturePanel {
     this.sweepField.setValue(state.sweep?.value ?? 360);
     this.count2Field.setValue(state.directions?.[1]?.count ?? 2);
     this.value2Field.setValue(state.directions?.[1]?.value ?? 20);
-    this.centeredInput.checked = state.centered;
+    this.centered.setValue(state.centered);
     this.angleField.setValue(state.angle ?? 90);
     this.axisSlots.get(1)!.seedKeep(state.axisLabels[0] ?? null);
     this.axisSlots.get(2)!.seedKeep(state.axisLabels[1] ?? null);
@@ -452,6 +459,38 @@ export class RepeatPanel extends FeaturePanel {
   }
 
   /**
+   * A connector picked as the axis (a gizmo or a connector row) — it lands
+   * in the armed direction's slot, standing for its Z axis. No change event
+   * fires.
+   */
+  selectConnectorAxis(option: ConnectorOption): void {
+    const direction = this.armedAxis;
+    this.axisSlots.get(direction)!.selectConnector(option);
+    this.armSlot(direction === 2 ? 'axis2' : 'axis1');
+  }
+
+  /**
+   * Re-find a connector axis after a re-render, by its site — the
+   * connector sibling of {@link setOptions}; a connector the scene lost
+   * falls back to the pick prompt (or the statement's own axis in edit mode).
+   */
+  setConnectorOptions(connectors: readonly ConnectorOption[]): void {
+    for (const direction of [1, 2] as const) {
+      this.axisSlots.get(direction)!.setConnectorOptions(connectors);
+    }
+  }
+
+  /** Edit mode: a direction's own axis is this connector (its sources said so); its chip shows it. */
+  setKeptConnector(direction: RepeatDirection, option: ConnectorOption | null): void {
+    this.axisSlots.get(direction)!.setKeptConnector(option);
+  }
+
+  /** The connector a direction's axis slot holds — picked, or the statement's own. */
+  axisConnector(direction: RepeatDirection): ConnectorOption | null {
+    return this.axisSlots.get(direction)!.connector;
+  }
+
+  /**
    * A plane feature picked in 3D or the timeline; arms the plane slot so the
    * border tracks where the pick landed. No change event fires.
    */
@@ -514,8 +553,12 @@ export class RepeatPanel extends FeaturePanel {
         reads.push(count, value);
         directions.push({ count: count.value, value: value.value });
       }
+      const centered = this.centered.read();
+      if ('error' in centered) {
+        return centered;
+      }
       return {
-        kind, spacingMode, centered: this.centeredInput.checked, directions,
+        kind, spacingMode, centered: centered.value, directions,
         newVariables: collectNewVariables(reads),
       };
     }
@@ -585,6 +628,8 @@ export class RepeatPanel extends FeaturePanel {
     this.addDirectionBtn.classList.toggle('hidden', !(linear && !this.dir2));
     this.centeredRow.classList.toggle('hidden', !linear);
     this.centeredRow.classList.toggle('flex', linear);
+    // The row's expression line sits after the row; it hides with the row, and shows again only while the mode holds an expression.
+    this.centered.mode.line.classList.toggle('hidden', !linear || !this.centered.on);
     this.angleRow.classList.toggle('hidden', kind !== 'rotate');
     this.angleRow.classList.toggle('flex', kind === 'rotate');
     // Circular and Rotate default their empty axis to the world Z axis;

@@ -30,6 +30,13 @@ let renderResponse: { status: number; body: unknown } = {
 // Default response for the fake `/api/lint-fluid-js`. Tests can override to
 // simulate missing imports. The default (200, empty `missing[]`) means lint
 // passes and the write proceeds.
+// The fake `/api/recompute`: what a write to a file that is not a model
+// asks of the open model (see OpenModelRender).
+let recomputeRequests: Record<string, unknown>[] = [];
+let recomputeResponse: { status: number; body: string; contentType?: string } = {
+  status: 200,
+  body: JSON.stringify({ success: true, state: 'rendered', objectErrors: [], uiApplied: true }),
+};
 let lintRequests: { code: string; filePath?: string }[] = [];
 let lintResponse: { status: number; body: unknown } = {
   status: 200,
@@ -88,6 +95,16 @@ function startFakeServer(): Promise<number> {
         });
         return;
       }
+      if (url === '/api/recompute' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+          recomputeRequests.push(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+          res.writeHead(recomputeResponse.status, { 'content-type': recomputeResponse.contentType ?? 'application/json' });
+          res.end(recomputeResponse.body);
+        });
+        return;
+      }
       if (url === '/api/lint-fluid-js' && req.method === 'POST') {
         const chunks: Buffer[] = [];
         req.on('data', (c) => chunks.push(c));
@@ -124,6 +141,11 @@ beforeEach(async () => {
   renderResponse = {
     status: 200,
     body: { state: 'rendered', version: 1, absPath: '', durationMs: 7 },
+  };
+  recomputeRequests = [];
+  recomputeResponse = {
+    status: 200,
+    body: JSON.stringify({ success: true, state: 'rendered', objectErrors: [], uiApplied: true }),
   };
   lintRequests = [];
   lintResponse = {
@@ -525,6 +547,116 @@ describe('write_file', () => {
   });
 });
 
+// A file that is not a model — a custom feature module, a helper, the
+// project's fluidcad.json — is never rendered as the model: rendering a
+// `*.feature.js` module as one left the viewport on an empty scene or a
+// compile error ("Class constructor … cannot be invoked without 'new'"). The
+// open model re-renders in full instead, so the module's new code builds.
+describe('writing a file that is not a model', () => {
+  const STANDOFF = [
+    "import { Feature, defineFeature } from 'fluidcad/sdk';",
+    "export class Standoff extends Feature.with({ height: { type: 'length', default: 10 } }) {",
+    "  static id = 'acme.standoff';",
+    '  buildTool() { return []; }',
+    '}',
+    "export const standoff = defineFeature(Standoff, { label: 'Standoff', group: 'create', call: [{ height: 'height' }] });",
+  ].join('\n');
+
+  it('re-renders the open model for a *.feature.js module, never the module itself', async () => {
+    const result = await writeFile({ path: 'standoff.feature.js', content: STANDOFF });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(fs.readFileSync(path.join(workspace, 'standoff.feature.js'), 'utf8')).toBe(STANDOFF);
+    expect(renderRequests).toEqual([]);
+    expect(lintRequests).toEqual([]);
+    expect(recomputeRequests).toEqual([{ awaitUi: true, changes: true }]);
+    expect(result.data.render).toEqual({ state: 'rendered', openModel: true, objectErrors: [], uiApplied: true });
+  });
+
+  it('carries the open model\'s build errors and change summary', async () => {
+    const objectErrors = [{
+      index: 4, id: 'o4', name: 'Standoff', uniqueKind: 'acme.standoff',
+      message: 'standoff: pick one planar face to stand on (got 0 faces)',
+      sourceLocation: { filePath: path.join(workspace, 'plate.part.js'), line: 12, column: 3 },
+    }];
+    const changes = { rebuilt: [], added: [], removed: [], reused: 0 };
+    recomputeResponse = { status: 200, body: JSON.stringify({ success: true, state: 'build-error', objectErrors, changes }) };
+    const result = await writeFile({ path: 'standoff.feature.js', content: STANDOFF });
+    expect(result.ok && result.data.render).toEqual({ state: 'build-error', openModel: true, objectErrors, changes });
+  });
+
+  it('includeChanges: false leaves the flag off the recompute', async () => {
+    await writeFile({ path: 'standoff.feature.js', content: STANDOFF, includeChanges: false });
+    expect(recomputeRequests).toEqual([{ awaitUi: true }]);
+  });
+
+  it('says so when no model is open', async () => {
+    recomputeResponse = { status: 404, body: JSON.stringify({ error: 'No active scene' }) };
+    const result = await writeFile({ path: 'standoff.feature.js', content: STANDOFF });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.render.state).toBe('no-open-model');
+    expect((result.data.render as { reason: string }).reason).toMatch(/No model is open/);
+  });
+
+  it('reads the error a failing re-render answered with out of the server\'s HTML error page', async () => {
+    recomputeResponse = {
+      status: 500,
+      contentType: 'text/html; charset=utf-8',
+      body: '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<title>Error</title>\n</head>\n<body>\n'
+        + '<pre>Error: feature &#39;acme.standoff&#39;: param &#39;face&#39;: unknown field &#39;surfce&#39; for a face picker'
+        + '<br> &nbsp; &nbsp;at FeatureMetaValidator.fail (file:///x/meta.js:1:1)<br> &nbsp; &nbsp;at Object.resolve (file:///x/meta.js:2:2)</pre>\n</body>\n</html>\n',
+    };
+    const result = await writeFile({ path: 'standoff.feature.js', content: STANDOFF });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.render.state).toBe('render-failed');
+    const error = (result.data.render as { error: string }).error;
+    expect(error).toContain("Error: feature 'acme.standoff': param 'face': unknown field 'surfce' for a face picker");
+    expect(error).not.toContain('FeatureMetaValidator.fail');
+    expect(error).not.toContain('<');
+  });
+
+  it('re-renders the open model for a helper module and for fluidcad.json', async () => {
+    await writeFile({ path: 'lib/sizes.js', content: 'export const M3 = 3.4;' });
+    await writeFile({ path: 'fluidcad.json', content: '{ "unit": "mm" }' });
+    expect(recomputeRequests).toHaveLength(2);
+    expect(renderRequests).toEqual([]);
+  });
+
+  it('re-renders nothing for a file no model reads', async () => {
+    const result = await writeFile({ path: 'standoff.svg', content: '<svg xmlns="http://www.w3.org/2000/svg"/>' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.render.state).toBe('not-rendered');
+    expect(recomputeRequests).toEqual([]);
+    expect(renderRequests).toEqual([]);
+  });
+
+  it('edit_range on a feature module re-renders the open model with the edited file on disk', async () => {
+    fs.writeFileSync(path.join(workspace, 'standoff.feature.js'), STANDOFF);
+    const column = STANDOFF.split('\n')[1].indexOf('10 }');
+    const result = await editRange({
+      path: 'standoff.feature.js',
+      start: { line: 1, column },
+      end: { line: 1, column: column + 2 },
+      newText: '12',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(fs.readFileSync(path.join(workspace, 'standoff.feature.js'), 'utf8')).toContain("default: 12 }");
+    expect(recomputeRequests).toHaveLength(1);
+    expect(renderRequests).toEqual([]);
+    expect(result.data.render).toMatchObject({ state: 'rendered', openModel: true });
+  });
+
+  it('a model file still renders itself', async () => {
+    await writeFile({ path: 'plate.part.js', content: 'export const x = 1;' });
+    expect(renderRequests.map((r) => r.filePath)).toEqual([path.join(workspace, 'plate.part.js')]);
+    expect(recomputeRequests).toEqual([]);
+  });
+});
+
 describe('edit_range', () => {
   it('replaces a contiguous range', async () => {
     const target = path.join(workspace, 'edit.fluid.js');
@@ -722,6 +854,19 @@ describe('list_fluid_files', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) { return; }
     expect(result.data.files.sort()).toEqual(['a.fluid.js', path.join('sub', 'b.fluid.js')].sort());
+  });
+
+  it('lists every FluidCAD file kind: parts, assemblies and custom feature modules too', async () => {
+    for (const name of ['plate.part.js', 'rig.assembly.js', 'standoff.feature.js', 'legacy.fluid.js', 'helper.js', 'standoff.svg']) {
+      fs.writeFileSync(path.join(workspace, name), '');
+    }
+    fs.mkdirSync(path.join(workspace, 'node_modules', 'pkg'), { recursive: true });
+    fs.writeFileSync(path.join(workspace, 'node_modules', 'pkg', 'x.feature.js'), '');
+
+    const result = await listFluidFiles({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.files.sort()).toEqual(['legacy.fluid.js', 'plate.part.js', 'rig.assembly.js', 'standoff.feature.js']);
   });
 });
 

@@ -14,6 +14,7 @@ import { EditSession, EditSessionInfo } from '../edit-session';
 import { TextPanel } from '../tools/text-panel';
 import { TextPreviewMesh } from '../tools/text-preview-mesh';
 import { ApplyRunner } from './apply-runner';
+import { refreshScopeVariables } from './option-relabeler';
 import { SketchUISuspender } from './sketch-suspender';
 
 const PREVIEW_DEBOUNCE_MS = 250;
@@ -123,7 +124,7 @@ export class TextEditService {
       // it chains the outline render under the same cancellation scope.
       validateApply: () => {
         const values = this.panel.values();
-        return !('error' in values) && values.text.trim() === ''
+        return !('error' in values) && TextPanel.blankText(values.text)
           ? { error: 'Enter the text to render.' }
           : null;
       },
@@ -188,8 +189,19 @@ export class TextEditService {
         this.panel.setFonts(families);
       }
     });
+    void this.refreshScopeVariables();
     this.schedulePreview();
     this.hooks.onActiveChange?.();
+  }
+
+  /** The variables in scope at the statement, for the rows' expressions; the outline re-draws from what they then come to. */
+  private async refreshScopeVariables(): Promise<void> {
+    const line = this.editTarget?.line ?? null;
+    await refreshScopeVariables(line, this.panel,
+      () => this.armed && (this.editTarget?.line ?? null) === line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.schedulePreview();
+    }
   }
 
   /**
@@ -505,11 +517,15 @@ export class TextEditService {
       return; // aborted
     }
 
-    if (values.text === '') {
+    // The outline lays out literals: the rows' own, or what their
+    // expressions come to. A blank text, or a row the dialog cannot resolve,
+    // leaves no outline — the statement preview says what will be written.
+    const resolved = this.panel.previewOptions();
+    if (resolved === null || resolved.text === '') {
       this.renderPreviewMesh([]);
       return;
     }
-    const { text, ...options } = values;
+    const { text, options } = resolved;
 
     // An effective path lays the glyphs along its geometry; unresolvable
     // paths (a keep whose seed refused, standalone text) keep the statement

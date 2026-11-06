@@ -1,18 +1,31 @@
 // Parsing loft conditions and connections.
 
+import type { ChoiceSlot, LoftConditionType } from '../../apply-feature-edit/index.ts';
+import { GhostSlots } from './slots.ts';
 import { isValueExpr, type ValueExpr } from './values.ts';
 import { CONDITION_TYPES } from './vocabulary.ts';
 
-/** A takeoff condition before its magnitude is resolved to a number. */
-type RawCondition = { type: 'normal' | 'tangent'; magnitude: ValueExpr };
+/**
+ * What a condition's type may come to for the preview: the two the kernel
+ * takes, and `'none'` — an expression that evaluates to it previews as no
+ * condition, the way the literal reads in the source.
+ */
+export const CONDITION_CHOICES = ['none', ...CONDITION_TYPES] as ('none' | LoftConditionType)[];
 
-/** A takeoff condition; 'none' never travels, so absent means unconstrained. */
+/** A takeoff condition before its type is resolved to one of the kernel's and its magnitude to a number. */
+export type RawCondition = { type: ChoiceSlot<LoftConditionType>; magnitude: ValueExpr };
+
+/**
+ * A takeoff condition; 'none' never travels as a literal, so absent means
+ * unconstrained. The type is a typed-in slot — a literal of the two, or a
+ * reference or an expression the router resolves once the scope is open.
+ */
 export function parseCondition(value: unknown): RawCondition | null | 'invalid' {
   if (value === null || value === undefined) {
     return null;
   }
   const condition = value as { type?: unknown; magnitude?: unknown };
-  if (typeof condition.type !== 'string' || !CONDITION_TYPES.includes(condition.type)
+  if (!GhostSlots.shaped(condition.type, literal => typeof literal === 'string' && CONDITION_TYPES.includes(literal))
     || !isValueExpr(condition.magnitude)) {
     return 'invalid';
   }

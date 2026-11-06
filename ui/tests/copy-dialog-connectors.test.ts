@@ -22,6 +22,7 @@ vi.mock('../src/api', async (importOriginal) => ({
   applyCopy: vi.fn(async () => ({ success: true, preview: 'copy(…)' })),
   applyCopyEdit: vi.fn(async () => ({ success: true, preview: 'copy(…)' })),
   applyRepeat: vi.fn(async () => ({ success: true, preview: 'repeat(…)' })),
+  applyRepeatEdit: vi.fn(async () => ({ success: true, preview: 'repeat(…)' })),
   rollback: vi.fn(),
   clearBreakpoints: vi.fn(),
 }));
@@ -364,6 +365,36 @@ describe('Copy dialog — connectors', () => {
     service.exit();
   });
 
+  it("opens an edit whose axis is a connector on that connector's chip — a copy's by its slot — and ghosts around it", async () => {
+    vi.mocked(api.fetchFeatureSources).mockResolvedValue({
+      ok: true, feature: 'copy',
+      targets: [{ kind: 'sketch', ...at(6, 15) }],
+      axes: [{ kind: 'connector', ...at(8, 14), slot: 1 }],
+    });
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [FRAME, FRAME], notice: null });
+    const { service, chips, text, state } = mountCopy();
+    const target = at(10, 2);
+    service.enterEdit(target, {
+      feature: 'copy', kind: 'circular', axisTexts: ['lug.instance(1)'], axisRefs: [null], directions: null, spacingMode: null,
+      centered: false, count: 3, sweep: { mode: 'angle', value: 360 }, center: null, skip: null,
+      targetTexts: ['bolt'], targetRefs: [{ line: 6, column: 15 }],
+    }, { index: 7, type: 'copy-circular', expectedStatement: "copy('circular', lug.instance(1), { count: 3, angle: 360 }, bolt)" });
+    expect(text('axis-slot-1')).toContain('Current: lug.instance(1)');
+    const edited = {
+      id: 'edited', type: 'copy-circular', name: 'Copy', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: target,
+    } as SceneObjectRender;
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
+    await vi.runAllTimersAsync();
+
+    expect(chips('axis-slot-1')).toEqual(['Connector lug.instance(1)']);
+    expect(state.picked).toContain('lug-1');
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)?.[0]).toMatchObject({
+      feature: 'copy', kind: 'circular', axes: [{ kind: 'connector', filePath: FILE, line: 8, slot: 1 }],
+    });
+    service.exit();
+  });
+
   it('ghosts an edited copy whose kept axis is an inline axis(<edge>), turning the edge it was built on', async () => {
     // What an edge pick writes: the axis lands inline, so the sources query
     // answers with the edge it names rather than a statement.
@@ -410,7 +441,7 @@ describe('Repeat dialog — connectors (B9)', () => {
     const service = new RepeatFeatureService(container, viewer, new Navbar(container), {});
     service.update(flangeScene());
     const text = (role: string) => container.querySelector<HTMLElement>(`[data-role="${role}"]`)?.textContent ?? '';
-    return { service, state, text };
+    return { service, state, text, container };
   }
 
   it('never offers a connector, or a copy of connectors, as a feature to repeat', () => {
@@ -439,6 +470,30 @@ describe('Repeat dialog — connectors (B9)', () => {
 
     service.exit();
     expect(state.connectorPicking?.armed).toBe(false);
+  });
+
+  it("takes a connector as an armed axis slot's axis — its gizmo, revealed, or its row — and sends it", async () => {
+    const { service, state, text, container } = mountRepeat();
+    service.enter();
+    service.handleTimelinePick(rowOf('plate'));
+    container.querySelector<HTMLElement>('[data-role="axis-slot-1"]')!.click();
+    expect(service.isConnectorPicking).toBe(true);
+    expect(state.connectorPicking).toEqual({ armed: true, reveal: true });
+
+    service.handleConnectorPick('pivot');
+    expect(text('axis-slot-1')).toContain('pivot');
+    expect(state.picked).toEqual(['pivot']);
+    // A copy's row: its seed's statement and its slot.
+    expect(service.handleTimelinePick(rowOf('lug-1'))).toBe(true);
+    expect(text('axis-slot-1')).toContain('lug.instance(1)');
+    expect(text('message')).toBe('');
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(vi.mocked(api.applyRepeat).mock.calls.at(-1)![0]).toMatchObject({
+      targets: [at(5, 12)],
+      directions: [{ axis: { kind: 'connector', ...at(8, 14), slot: 1 } }],
+    });
+    service.exit();
   });
 });
 
@@ -789,5 +844,76 @@ describe('Copy dialog — Along a repeat', () => {
     expect(options).toMatchObject({
       kind: 'pattern', pattern: { kind: 'keep' }, targets: [{ kind: 'verbatim', sourceIndex: 0 }],
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The Centered row as an expression: a linear copy or repeat whose statement
+// holds `centered: flag` opens the row in expression mode, and the service
+// passes the expression through — to the ghost body and to the apply payload
+// — unchanged, for the server to resolve and to write back bare.
+
+describe('Copy and Repeat dialogs — a centered expression', () => {
+  /** A linear pattern along the world X axis, the centered slot as the statement holds it. */
+  const linearEdit = (centered: boolean | { expr: string }) => ({
+    kind: 'linear' as const, axisTexts: ["'x'"], axisRefs: [null], directions: [{ count: 3, value: 20 }],
+    spacingMode: 'offset' as const, centered, count: null, sweep: null,
+  });
+
+  it('a copy carries its centered expression to the ghost and to the edit payload as it was', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [], notice: null });
+    const { service, container } = mountCopy();
+    const target = at(10, 2);
+    service.enterEdit(target, {
+      feature: 'copy', ...linearEdit({ expr: 'flag' }), center: null, skip: null,
+      targetTexts: ['bolt'], targetRefs: [{ line: 6, column: 15 }],
+    }, { index: 7, type: 'copy-linear', expectedStatement: "copy('linear', 'x', { count: 3, offset: 20, centered: flag }, bolt)" });
+    expect(container.querySelector<HTMLButtonElement>('[data-role="expression-centered"]')!.getAttribute('aria-pressed')).toBe('true');
+    const edited = {
+      id: 'edited', type: 'copy-linear', name: 'Copy', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: target,
+    } as SceneObjectRender;
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
+    await vi.runAllTimersAsync();
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)?.[0]).toMatchObject({
+      feature: 'copy', kind: 'linear', centered: { expr: 'flag' },
+    });
+
+    container.querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.runAllTimersAsync();
+    const [edit, options] = vi.mocked(api.applyCopyEdit).mock.calls.find(([, o]) => !o.preview)!;
+    expect(edit).toEqual(target);
+    expect(options).toMatchObject({ kind: 'linear', centered: { expr: 'flag' }, expectedStatement: expect.any(String) });
+    service.exit();
+  });
+
+  it('a repeat carries its centered expression to the ghost and to the edit payload as it was', async () => {
+    vi.mocked(api.fetchFeatureGhostResult).mockResolvedValue({ solids: [], frames: [], notice: null });
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const { viewer } = stubViewer();
+    const service = new RepeatFeatureService(container, viewer, new Navbar(container), {});
+    service.update(flangeScene());
+    const target = at(10, 2);
+    service.enterEdit(target, {
+      feature: 'repeat', ...linearEdit({ expr: 'count > 4' }), planeText: null, angle: null,
+      targetTexts: ['plate'], targetRefs: [{ line: 5, column: 12 }],
+    }, { index: 7, type: 'repeat-linear', expectedStatement: "repeat('linear', 'x', { count: 3, offset: 20, centered: count > 4 }, plate)" });
+    const edited = {
+      id: 'edited', type: 'repeat-linear', name: 'Repeat', parentId: 'part', visible: true, hideChildren: true,
+      sceneShapes: [], ownShapes: [], sourceLocation: target,
+    } as SceneObjectRender;
+    service.handleSceneRendered([...flangeScene(), edited], 6, true);
+    await vi.runAllTimersAsync();
+    expect(vi.mocked(api.fetchFeatureGhostResult).mock.calls.at(-1)?.[0]).toMatchObject({
+      feature: 'repeat', kind: 'linear', centered: { expr: 'count > 4' },
+    });
+
+    container.querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
+    await vi.runAllTimersAsync();
+    const [edit, options] = vi.mocked(api.applyRepeatEdit).mock.calls.find(([, o]) => !o.preview)!;
+    expect(edit).toEqual(target);
+    expect(options).toMatchObject({ kind: 'linear', centered: { expr: 'count > 4' } });
+    service.exit();
   });
 });

@@ -4,23 +4,23 @@ import { Revolve } from "../features/revolve.js";
 import { resolveAxis } from "../helpers/resolve.js";
 import { Extrudable } from "../helpers/types.js";
 import { SceneObject } from "../common/scene-object.js";
-import { IRevolve, ISceneObject } from "./interfaces.js";
+import { IConnector, IRevolve, ISceneObject } from "./interfaces.js";
 import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
 
 interface RevolveFunction {
   /**
    * Revolves the last sketch 360 degrees around an axis.
-   * @param axisLike - The axis to revolve around
+   * @param axisLike - The axis to revolve around — a world axis, an `axis()`, or a connector (its Z axis through its origin)
    * @param target - The sketch to revolve
    */
-  (axisLike: AxisLike, target?: ISceneObject): IRevolve;
+  (axisLike: AxisLike | IConnector, target?: ISceneObject): IRevolve;
   /**
    * Revolves the last sketch by a given angle around an axis.
-   * @param axisLike - The axis to revolve around
+   * @param axisLike - The axis to revolve around — a world axis, an `axis()`, or a connector (its Z axis through its origin)
    * @param angle - The sweep angle in degrees
    * @param target - The sketch to revolve
    */
-  (axisLike: AxisLike, angle: NumberParam, target?: ISceneObject): IRevolve;
+  (axisLike: AxisLike | IConnector, angle: NumberParam, target?: ISceneObject): IRevolve;
 }
 
 function isExtrudable(obj: any): obj is Extrudable {

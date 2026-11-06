@@ -1,5 +1,6 @@
 import { Scene } from "./scene.js";
 import { Part } from "../features/part.js";
+import type { GeneratedValues } from "../features/part.js";
 import { Connector } from "../features/connector.js";
 import { ConnectorCopy } from "../features/connector-copy.js";
 import { Exposed } from "../features/exposed.js";
@@ -105,6 +106,12 @@ export type AssemblyOccurrence = {
   configurations?: string[];
   /** Present on a replica: the seed occurrence, the replicate statement, the row. */
   replica?: ReplicaTag;
+  /**
+   * For an occurrence of a generated assembly (`defineAssembly`): its
+   * definition's id and the values the insert gave, by id — completed when
+   * they checked out, as given when they were refused.
+   */
+  generated?: GeneratedValues;
 };
 
 export type MateType =
@@ -258,6 +265,8 @@ export type SerializedInstance = {
   partName: string;
   /** The template part's material id (`part(...).material(id)`); absent when none. */
   material?: string;
+  /** The template part's appearance id (`part(...).appearance(id)`); absent when none. */
+  appearance?: string;
   /** World warm-start pose — occurrence-chain transforms already composed in. */
   position: Vec3;
   quaternion: Quat;
@@ -281,6 +290,14 @@ export type SerializedInstance = {
   sourceLocation?: SourceLocation;
   /** Present on a replica produced by a `replicate()` statement. */
   replica?: ReplicaTag;
+  /** A `definePart` instance: its definition's id and its variant's values by id. Absent for other parts. */
+  generated?: GeneratedValues;
+  /**
+   * A part a generator made (`defineAssembly`): the definition's id and the
+   * part's type. Engine-owned — no statement of its own declares it, so the
+   * editor writes nothing on its row. Absent for other parts.
+   */
+  generatedBy?: { definition: string; type: string };
 };
 
 export type SerializedOccurrence = {
@@ -313,6 +330,8 @@ export type SerializedOccurrence = {
   sourceLocation?: SourceLocation;
   /** Present on a replica produced by a `replicate()` statement. */
   replica?: ReplicaTag;
+  /** An occurrence of a generated assembly (`defineAssembly`): its definition's id and values by id. */
+  generated?: GeneratedValues;
 };
 
 export type SerializedMate = {
@@ -396,6 +415,16 @@ function serializeReplicateSide(side: ReplicateSide): SerializedReplicateSide {
   return { kind: 'geometry', instanceId: side.instanceId, exposeName: side.exposed.exposeName };
 }
 
+/** How many records of each kind an assembly scene held at one moment — see {@link AssemblyScene.markRecords}. */
+export type AssemblyRecordMark = Readonly<{
+  instances: number;
+  mates: number;
+  occurrences: number;
+  connectors: number;
+  replicates: number;
+  relations: number;
+}>;
+
 export class AssemblyScene extends Scene {
   private _instances: AssemblyInstance[] = [];
   private _mates: AssemblyMate[] = [];
@@ -453,6 +482,37 @@ export class AssemblyScene extends Scene {
 
   addInstance(instance: AssemblyInstance): void {
     this._instances.push(instance);
+  }
+
+  /**
+   * How many records of each kind the scene holds now — a mark
+   * {@link discardRecordsSince} can roll back to. A generated assembly's
+   * layout takes one before it runs: a layout that throws leaves none of its
+   * instances, mates or relations behind.
+   */
+  markRecords(): AssemblyRecordMark {
+    return {
+      instances: this._instances.length,
+      mates: this._mates.length,
+      occurrences: this._occurrences.length,
+      connectors: this._connectors.length,
+      replicates: this._replicates.length,
+      relations: this._relations.length,
+    };
+  }
+
+  /**
+   * Drop every record added since `mark`, of every kind. Records are only
+   * ever appended, and the ids a scope hands out count its records, so the
+   * ids stay what they would have been had the dropped records never run.
+   */
+  discardRecordsSince(mark: AssemblyRecordMark): void {
+    this._instances.length = Math.min(this._instances.length, mark.instances);
+    this._mates.length = Math.min(this._mates.length, mark.mates);
+    this._occurrences.length = Math.min(this._occurrences.length, mark.occurrences);
+    this._connectors.length = Math.min(this._connectors.length, mark.connectors);
+    this._replicates.length = Math.min(this._replicates.length, mark.replicates);
+    this._relations.length = Math.min(this._relations.length, mark.relations);
   }
 
   addMate(mate: AssemblyMate): void {
@@ -737,6 +797,7 @@ export class AssemblyScene extends Scene {
         partId: inst.part.id,
         partName: inst.part.partName,
         material: inst.part.getMaterial() ?? undefined,
+        appearance: inst.part.getAppearance() ?? undefined,
         position: pose.position,
         quaternion: pose.quaternion,
         grounded: (inst.grounded && (connected.get(inst.owner) ?? false)) || anchors.has(inst),
@@ -748,6 +809,10 @@ export class AssemblyScene extends Scene {
         properties: serializedProperties(inst.part),
         sourceLocation: inst.sourceLocation,
         replica: inst.replica,
+        ...(inst.part.generated ? { generated: inst.part.generated } : {}),
+        ...(inst.part.generatedBy
+          ? { generatedBy: { definition: inst.part.generatedBy.definition, type: inst.part.generatedBy.type } }
+          : {}),
       };
     });
   }
@@ -770,6 +835,7 @@ export class AssemblyScene extends Scene {
       exports: occ.exports ?? [],
       sourceLocation: occ.sourceLocation,
       replica: occ.replica,
+      ...(occ.generated ? { generated: occ.generated } : {}),
     }));
   }
 

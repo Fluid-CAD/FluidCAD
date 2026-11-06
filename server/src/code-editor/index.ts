@@ -1,7 +1,7 @@
 // Public surface of the code-editor toolkit: tree-sitter backed edits of .fluid.js source.
 // Every consumer imports from here; the modules behind it are grouped by concern.
 
-export { getJavaScriptParser, type TSNode, type TSTree } from './parser.ts';
+export { getJavaScriptParser, loadedJavaScriptParser, type TSNode, type TSTree } from './parser.ts';
 export { CallSites } from './call-sites.ts';
 export { isExpressionText } from './expression-text.ts';
 export {
@@ -38,6 +38,7 @@ export {
 export { addGuide, getPointExpression, insertPoint, removeGuide, removePoint } from './points.ts';
 export {
   addBreakpoint,
+  BreakpointMarker,
   breakpointRemovalEdit,
   breakpointSiteOf,
   clearBreakpoints,
@@ -60,7 +61,7 @@ export {
   type SetUnitResult,
   type UnitStatement,
 } from './units.ts';
-export { ensureSymbolImport, importLocalName, removeSymbolImport } from './imports.ts';
+export { ensureSymbolImport, importLocalName, namedImportBindings, removeSymbolImport, type NamedImportBinding } from './imports.ts';
 export {
   findSketchBody,
   insertGeometryCall,
@@ -74,6 +75,9 @@ export {
   setFeatureName,
   statementRemovalEdit,
   setPartMaterial,
+  setPartAppearance,
+  setPartStringChain,
+  type PartStringChain,
   setSectionOptions,
   setSketchClosed,
   insertSketchImage,
@@ -109,7 +113,9 @@ export {
   insertGeometryCallWithVariable,
   updateDimensionExpressionWithVariable,
   type NewVariableDecl,
+  type ParamValueSource,
   type ScopeGlobals,
   type VariableGlobalInfo,
   type VariableInfo,
+  type VariableLiteral,
 } from './variables.ts';

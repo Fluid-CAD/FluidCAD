@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 210" width="200" height="210" font-family="system-ui, sans-serif" font-size="13">
+  <!-- The wardrobe from the front, and from the side. -->
+  <rect x="40" y="40" width="80" height="160" fill="#d8d9da"/>
+  <g fill="#4faae5">
+    <rect x="42" y="42" width="37" height="116"/>
+    <rect x="81" y="42" width="37" height="116"/>
+    <rect x="42" y="160" width="76" height="18"/>
+    <rect x="42" y="180" width="76" height="18"/>
+  </g>
+  <rect x="144" y="40" width="48" height="160" fill="#c6c7c8"/>
+  <rect x="140" y="42" width="4" height="156" fill="#4faae5"/>
+  <g stroke="#8a94a6" stroke-width="1.5" fill="none">
+    <!-- Width, over the front. -->
+    <path d="M40 36 V16 M120 36 V16" stroke-dasharray="3 3"/>
+    <path d="M40 22 H120"/>
+    <path d="M46 18 L40 22 L46 26 M114 18 L120 22 L114 26"/>
+    <!-- Height, beside the front. -->
+    <path d="M36 40 H16 M36 200 H16" stroke-dasharray="3 3"/>
+    <path d="M22 40 V200"/>
+    <path d="M18 46 L22 40 L26 46 M18 194 L22 200 L26 194"/>
+    <!-- Depth, over the side: the carcass, without the fronts. -->
+    <path d="M144 36 V16 M192 36 V16" stroke-dasharray="3 3"/>
+    <path d="M144 22 H192"/>
+    <path d="M150 18 L144 22 L150 26 M186 18 L192 22 L186 26"/>
+  </g>
+  <g fill="#8a94a6">
+    <text x="80" y="12" text-anchor="middle">Width</text>
+    <text x="168" y="12" text-anchor="middle">Depth</text>
+    <text x="12" y="120" text-anchor="middle" transform="rotate(-90 12 120)">Height</text>
+  </g>
+</svg>

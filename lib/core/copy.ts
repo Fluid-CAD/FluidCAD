@@ -12,7 +12,7 @@ import { SketchDatum } from "../features/2d/solved/datum.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { CopyAxisSource, CopyBase } from "../features/copy-base.js";
 import { CopyPattern } from "../features/copy-pattern.js";
-import { BoundConnector, Connector } from "../features/connector.js";
+import { BoundConnector } from "../features/connector.js";
 import { ConnectorAxis } from "../features/connector-axis.js";
 import { ConnectorCopyRules, ConnectorCopyScope } from "../features/connector-copy.js";
 import { Sketch } from "../features/2d/sketch.js";
@@ -128,8 +128,9 @@ function resolveCopyAxis(arg: unknown, context: SceneParserContext, scope: Conne
   if (arg instanceof AxisObjectBase) {
     return arg;
   }
-  if (arg instanceof Connector) {
-    return new ConnectorAxis(arg);
+  const connector = ConnectorAxis.connectorOf(arg);
+  if (connector) {
+    return new ConnectorAxis(connector);
   }
   if (arg instanceof BoundConnector) {
     return new ConnectorAxis(arg.connector);

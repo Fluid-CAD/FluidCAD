@@ -5,7 +5,10 @@
 // When the slot holds exactly one repeated feature the instance ALSO
 // forwards that feature's bucket accessors, so `r.instance(1).endEdges()`
 // is the clone's own end-edge bucket — the constant-free way to address
-// one instance of a pattern.
+// one instance of a pattern. The standard accessors are written below; the
+// buckets a custom feature declares (`tipEdges`) get a forwarder of their
+// own on each instance, read off the repeated features' `bucketDefs()`. A
+// custom feature's named frames forward the same way: `r.instance(1).frame('axis')`.
 
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import type { SceneObject } from "../common/scene-object.js";
@@ -30,6 +33,7 @@ export class RepeatInstance extends LazySelectionSceneObject {
     // The resolver is never run — build() is a no-op and getShapes() reads
     // the slot's features live (see below).
     super(instanceName, () => [], owner);
+    this.installDeclaredForwarders();
   }
 
   /** The repeated features the instance stands for: its slot's, or their clones on a copy. */
@@ -119,12 +123,46 @@ export class RepeatInstance extends LazySelectionSceneObject {
   }
 
   /**
+   * One of the named frames of the slot's repeated feature, read as a plane
+   * (`r.instance(1).frame('axis')`): the clone's own frame, where the clone
+   * stands — what `g.frame('axis')` gives on the original.
+   */
+  frame(name: string): SceneObject {
+    return this.forward<SceneObject>('frame', [name]);
+  }
+
+  /**
+   * One forwarder for every bucket accessor the repeated features answer
+   * that the instance has no method for — the buckets a custom feature
+   * declares (`r.instance(2).tipEdges()`), asked of each feature through
+   * its `bucketDefs()`, never guessed from method names. A slot holding
+   * several features gets them too, so a call says the accessor is
+   * ambiguous rather than failing as no function. Own, non-enumerable
+   * properties; a copy of the instance installs its own (see createCopy).
+   */
+  private installDeclaredForwarders(): void {
+    for (const root of this.getRoots()) {
+      for (const def of [...root.bucketDefs('face'), ...root.bucketDefs('edge')]) {
+        const accessor = def.accessor;
+        if (accessor in this) {
+          continue;
+        }
+        Object.defineProperty(this, accessor, {
+          value: (...args: unknown[]) => this.forward(accessor, args),
+          writable: true,
+          configurable: true,
+        });
+      }
+    }
+  }
+
+  /**
    * Forward a bucket accessor to the slot's single repeated feature. The
    * result is that feature's own lazy selection — exactly what `e.endEdges()`
    * gives on the original — so filters, indices and scope injection behave
    * identically on every instance.
    */
-  private forward(accessor: string, args: unknown[]): LazySelectionSceneObject {
+  private forward<R = LazySelectionSceneObject>(accessor: string, args: unknown[]): R {
     const roots = this.getRoots();
     const call = `repeat().instance(${this.slot}).${accessor}()`;
     if (roots.length !== 1) {
@@ -138,7 +176,7 @@ export class RepeatInstance extends LazySelectionSceneObject {
     if (typeof fn !== 'function') {
       throw new Error(`${call}: the repeated ${root.getType()}() has no ${accessor}() accessor`);
     }
-    return (fn as (...a: unknown[]) => LazySelectionSceneObject).apply(root, args);
+    return (fn as (...a: unknown[]) => R).apply(root, args);
   }
 
   // A repeat is never copied — repeating one re-applies its features — so a

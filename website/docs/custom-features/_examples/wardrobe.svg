@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- The carcass: grey, its top lightest, its right side darkest. -->
+  <path d="M14 10 L26.12 3 L50.37 17 L38.25 24 Z" fill="#e5e6e7"/>
+  <path d="M14 10 L38.25 24 V60 L14 46 Z" fill="#d8d9da"/>
+  <path d="M38.25 24 L50.37 17 V53 L38.25 60 Z" fill="#c6c7c8"/>
+  <!-- The parts that move: two doors over two drawers, in blue. -->
+  <path d="M15.21 12.14 L25.88 18.3 V41.34 L15.21 35.18 Z" fill="#4faae5"/>
+  <path d="M26.37 18.58 L37.04 24.74 V47.78 L26.37 41.62 Z" fill="#4faae5"/>
+  <path d="M15.21 35.9 L37.04 48.5 V52.82 L15.21 40.22 Z" fill="#4faae5"/>
+  <path d="M15.21 40.94 L37.04 53.54 V57.86 L15.21 45.26 Z" fill="#4faae5"/>
+</svg>

@@ -15,7 +15,10 @@ export type EntitySummary = {
   form: FaceForm | EdgeForm | 'vertex';
   /** The entity's center, else its area centroid / midpoint. */
   center: SummaryVec;
-  /** Unit normal — planes, circles/arcs (their plane), tori (axis). */
+  /**
+   * Unit normal — planes (pointing out of the solid), circles/arcs (their
+   * plane), tori (axis).
+   */
   normal?: SummaryVec;
   /** Unit axis — lines, cylinders, cones. */
   axis?: SummaryVec;

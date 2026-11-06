@@ -15,11 +15,11 @@ import part from '../../lib/dist/core/part.js';
 
 const FILE = '/ws/pair.part.js';
 
-/** The host's own `loadModule`, with Vite's module loader answering `load()`. */
+/** The host's own `loadModule`, with Vite's module runner answering `load()`. */
 function hostReturning(load: () => Record<string, unknown>): LocalSceneHost {
   const host = new LocalSceneHost();
-  (host as unknown as { server: { ssrLoadModule: () => Promise<Record<string, unknown>> } }).server = {
-    ssrLoadModule: async () => load(),
+  (host as unknown as { runner: { import: () => Promise<Record<string, unknown>> } }).runner = {
+    import: async () => load(),
   };
   return host;
 }

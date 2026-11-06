@@ -14,6 +14,7 @@ import {
   makeProducerMerger,
 } from '../synthesis.ts';
 import { validateRotate } from '../validate/rotate.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 export async function handleRotate(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
@@ -38,35 +39,27 @@ export async function handleRotate(ctx: ApplyFeatureRequestContext, req: Request
     }));
 
     const synthesizePick = makePickSynthesizer({
-      res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+      res, fluidCadServer, code, filePath, mergeProducer, parts, imports, callees: ctx.currentCallees,
     });
 
     let axis: RotateEditOptions['axis'];
     const input = request.axis;
-    if (input.kind === 'standard') {
-      axis = { kind: 'standard', axis: input.axis };
-    } else if (input.kind === 'axis') {
-      axis = {
-        kind: 'axis',
-        producer: mergeProducer({
-          line: input.loc.line, column: input.loc.column,
-          featureType: 'axis', nameHint: 'a', bind: true,
-        }),
-      };
-    } else {
+    if (input.kind === 'edge') {
       const part = await synthesizePick(input.pick, 'revolve',
         { multi: 'a rotate axis must be a single edge selection', ...AXIS_PICK_ERRORS });
       if (part === null) {
         return;
       }
       axis = { kind: 'selector', part };
+    } else {
+      axis = AxisInputs.bind(input, mergeProducer);
     }
 
     const options: RotateEditOptions = {
       axis, angle: request.angle, copy: request.copy, targets,
     };
     // Truthful preview: the same allocation walk the transform runs.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const varFor = (i: number): string | null => producerVars[i];
     const statement = renderRotateStatement(
       options,

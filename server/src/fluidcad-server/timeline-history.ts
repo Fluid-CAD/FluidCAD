@@ -160,6 +160,7 @@ export class TimelineHistory {
   private static metadata(row: TimelineRow): TimelineRow {
     const { id, parentId, name, type, uniqueType, isContainer, hideChildren, internal, sourceLocation } = row;
     return { id, parentId, name, type, uniqueType, isContainer, hideChildren, internal,
-      ...(sourceLocation ? { sourceLocation: { ...sourceLocation, filePath: TimelineHistory.path(sourceLocation.filePath) } } : {}) };
+      ...(sourceLocation ? { sourceLocation: { ...sourceLocation, filePath: TimelineHistory.path(sourceLocation.filePath) } } : {}),
+      ...(row.package ? { package: { ...row.package } } : {}) };
   }
 }

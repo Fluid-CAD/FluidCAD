@@ -4,66 +4,10 @@ import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
-import { Hole } from "../features/hole/hole.js";
+import type { BucketDef, SubShapeKind } from "../common/bucket-defs.js";
 import { SelectionScene } from "./types.js";
 
-export type SubShapeKind = 'edge' | 'face';
-
-export type BucketDef = {
-  /** State key written at build time, e.g. `end-edges`. */
-  key: string;
-  /** Public accessor that resolves this bucket, e.g. `endEdges`. */
-  accessor: string;
-  kind: SubShapeKind;
-  /**
-   * Face-bucket state key the accessor derives edges from when the edge key
-   * was never written (`ExtrudeBase.getClassifiedEdges` fallback).
-   */
-  deriveFromFaceKey: string | null;
-};
-
-/**
- * Edge buckets in attribution-preference order. The specific positional
- * buckets come first; `section-edges` (a cut's superset of all its new edges)
- * is the fallback so a pocket-bottom edge reads as `c.endEdges(...)` rather
- * than `c.edges(...)`.
- */
-export const EDGE_BUCKETS: BucketDef[] = [
-  { key: 'end-edges', accessor: 'endEdges', kind: 'edge', deriveFromFaceKey: 'end-faces' },
-  { key: 'start-edges', accessor: 'startEdges', kind: 'edge', deriveFromFaceKey: 'start-faces' },
-  { key: 'side-edges', accessor: 'sideEdges', kind: 'edge', deriveFromFaceKey: null },
-  { key: 'cap-edges', accessor: 'capEdges', kind: 'edge', deriveFromFaceKey: 'cap-faces' },
-  { key: 'internal-edges', accessor: 'internalEdges', kind: 'edge', deriveFromFaceKey: 'internal-faces' },
-  { key: 'section-edges', accessor: 'edges', kind: 'edge', deriveFromFaceKey: null },
-];
-
-export const FACE_BUCKETS: BucketDef[] = [
-  { key: 'end-faces', accessor: 'endFaces', kind: 'face', deriveFromFaceKey: null },
-  { key: 'start-faces', accessor: 'startFaces', kind: 'face', deriveFromFaceKey: null },
-  { key: 'side-faces', accessor: 'sideFaces', kind: 'face', deriveFromFaceKey: null },
-  { key: 'cap-faces', accessor: 'capFaces', kind: 'face', deriveFromFaceKey: null },
-  { key: 'internal-faces', accessor: 'internalFaces', kind: 'face', deriveFromFaceKey: null },
-];
-
-/**
- * A hole records a cut's buckets, but every wall it makes is internal: its
- * `faces()` reads `internal-faces`, and it has no `internalFaces()`. Its edge
- * buckets keep the cut's accessors.
- */
-const HOLE_FACE_BUCKETS: BucketDef[] = [
-  { key: 'internal-faces', accessor: 'faces', kind: 'face', deriveFromFaceKey: null },
-];
-
-/**
- * The buckets `feature` can be addressed through, in preference order: only
- * those whose accessor it has. A feature that records a cut's buckets with
- * no accessor for them (a removing mirror) must not have its picks written
- * as calls it cannot answer.
- */
-function bucketDefsFor(feature: SceneObject, kind: SubShapeKind): BucketDef[] {
-  const defs = kind === 'edge' ? EDGE_BUCKETS : feature instanceof Hole ? HOLE_FACE_BUCKETS : FACE_BUCKETS;
-  return defs.filter(def => typeof (feature as unknown as Record<string, unknown>)[def.accessor] === 'function');
-}
+export type { BucketDef, SubShapeKind } from "../common/bucket-defs.js";
 
 export type BucketRecord = {
   feature: SceneObject;
@@ -163,13 +107,13 @@ export class SelectionIndex {
   }
 
   private indexObject(feature: SceneObject): void {
-    for (const def of bucketDefsFor(feature, 'edge')) {
+    for (const def of feature.bucketDefs('edge')) {
       const members = this.resolveEdgeBucket(feature, def);
       if (members && members.length > 0) {
         this.addBucket(feature, def, members);
       }
     }
-    for (const def of bucketDefsFor(feature, 'face')) {
+    for (const def of feature.bucketDefs('face')) {
       const members = feature.getState(def.key) as Face[] | undefined;
       if (members && members.length > 0) {
         this.addBucket(feature, def, members);

@@ -3,9 +3,9 @@ import { readFile, readdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import { basename, extname, join, relative } from 'path';
 import JSZip from 'jszip';
-import ignoreFactory, { type Ignore } from 'ignore';
 import { normalizePath } from '../normalize-path.ts';
-import { blockNodeBuiltinsPlugin } from './esbuild-plugins.ts';
+import { EsbuildPlugins } from '../packages/esbuild-plugins.ts';
+import { WorkspaceFiles } from '../files/workspace-files.ts';
 import { isScriptPath, readDeclaredUnit } from '../file-unit.ts';
 import { readProjectConfig, type LengthUnit } from '../project-config.ts';
 import type { ParamDefinition } from '../../../lib/dist/index.js';
@@ -29,8 +29,8 @@ export interface PackInputs {
   paramOverrides?: Record<string, ParamValue>;
   /**
    * Full param schema to embed in the manifest. `fluidcad publish` renders the
-   * model once to capture this (see `capture-params.ts`); `fluidcad pack` omits
-   * it. Kept as an input (rather than rendering inside `packModel`) so packing
+   * model once to capture this (see `capture-params.ts`); a caller that skips
+   * the render omits it. Kept as an input (rather than rendering inside `packModel`) so packing
    * stays a pure, engine-free file producer.
    */
   paramDefinitions?: ParamDefinition[];
@@ -57,11 +57,6 @@ export interface PackResult {
   zip: Buffer;
 }
 
-/**
- * Reject Node.js builtins that are off-limits in `.fluid.js` code. Same
- * defence the LocalSceneHost applies at SSR transform time; here it runs
- * at pack time so the produced bundle is verified before it ships.
- */
 /**
  * Bundle the model into a single ES module via a virtual wrapper. When
  * `init.js` exists it runs FIRST (its side effects set up the engine) and
@@ -98,7 +93,7 @@ async function bundleModel(
     write: false,
     platform: 'node',
     external: ['fluidcad', 'fluidcad/*'],
-    plugins: [blockNodeBuiltinsPlugin()],
+    plugins: [EsbuildPlugins.blockNodeBuiltins()],
     logLevel: 'silent',
   });
   if (result.errors.length) {
@@ -152,70 +147,6 @@ async function collectImportAssetPaths(workspacePath: string): Promise<string[]>
   return out.sort();
 }
 
-// Enforced on top of any `.gitignore`: dependency trees, prior pack outputs
-// (the latter would otherwise recurse into the next pack), and `fluidcad.json`
-// (the local hub binding — model id + name — which the hub already owns and
-// should never ship as model source). `node_modules` is also pruned during the
-// walk for speed. Hidden dot-entries are excluded by the walk directly (see
-// below), so VCS metadata (`.git`) and secrets (`.env`) need no pattern here.
-const ALWAYS_EXCLUDE = ['node_modules', '*.fluidpkg', 'fluidcad.json'];
-
-// `ignore` ships a CJS `module.exports = factory`, but its bundled types use
-// `export default`, which loses the call signature under `module: nodenext`.
-// Pin the factory's real signature; the runtime value is the callable factory.
-const ignore = ignoreFactory as unknown as (options?: object) => Ignore;
-
-/**
- * Pack v2 file selection: every non-ignored file in the workspace, so the hub
- * ships the whole project (README, package.json, configs, sources) — not just
- * the entry's transitive imports.
- *
- * A root `.gitignore` is honored via the mature `ignore` package (same matcher
- * eslint/prettier use). Hidden dot-entries (names starting with `.`) are ALWAYS
- * excluded — `.git`, `.env`, and tool/editor state like `.claude`/`.vscode` are
- * never model content and may hold secrets — regardless of whether they're
- * gitignored. `node_modules` is pruned too; `ALWAYS_EXCLUDE` (prior `.fluidpkg`
- * outputs) is enforced on top of any `.gitignore`. We walk and filter per-file
- * rather than pruning ignored directories so negation rules (`!keep/this`) work.
- */
-export async function collectWorkspaceFiles(workspaceAbs: string): Promise<string[]> {
-  const gitignorePath = join(workspaceAbs, '.gitignore');
-  const hasGitignore = existsSync(gitignorePath);
-  const ig = ignore().add(ALWAYS_EXCLUDE);
-  if (hasGitignore) {
-    ig.add(await readFile(gitignorePath, 'utf8'));
-  }
-
-  const out: string[] = [];
-
-  async function walk(dir: string) {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const name = entry.name;
-      // Skip dependency trees and ALL hidden dot-entries (VCS metadata, secrets,
-      // editor/tool state) — never packaged, gitignore or not.
-      if (name === 'node_modules' || name.startsWith('.')) continue;
-
-      const full = join(dir, name);
-      const rel = normalizePath(relative(workspaceAbs, full));
-      if (entry.isDirectory()) {
-        await walk(full);
-      } else if (entry.isFile()) {
-        if (ig.ignores(rel)) continue;
-        out.push(rel);
-      }
-    }
-  }
-
-  await walk(workspaceAbs);
-  return out.sort();
-}
-
 /**
  * Every shipped script's `unit()` declaration, keyed by its `files` path.
  * Static (tree-sitter) so packing stays engine-free; a file that declares
@@ -255,7 +186,7 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
   // The full human tree, minus anything already shipped under assets/ (so large
   // brep/STEP bytes aren't duplicated). assets + files together = the package.
   const assetSet = new Set(assetPaths);
-  const filePaths = (await collectWorkspaceFiles(workspaceAbs)).filter((p) => !assetSet.has(p));
+  const filePaths = (await WorkspaceFiles.collect(workspaceAbs)).filter((p) => !assetSet.has(p));
 
   const entryRelative = normalizePath(relative(workspaceAbs, entryAbs));
   const defaultName = basename(entryAbs).replace(/\.fluid\.js$/i, '');

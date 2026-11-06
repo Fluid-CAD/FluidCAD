@@ -9,6 +9,8 @@ import { edge } from "../../filters/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { RepeatBase } from "../../features/repeat-base.js";
 import { Solid } from "../../common/solid.js";
+import { Shape } from "../../common/shape.js";
+import { SceneObject } from "../../common/scene-object.js";
 import { Scene } from "../../rendering/scene.js";
 import { FaceProps } from "../../oc/face-props.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -233,6 +235,73 @@ describe("repeat instance() accessor", () => {
     const solids = solidsByX(scene);
     expect(solids.map(cylinderFaceCount)).toEqual([0, 0, 12]);
     expect(ShapeOps.getBoundingBox(solids[2]).minX).toBeCloseTo(80, 1);
+  });
+});
+
+describe("indices on a repeat's instance", () => {
+  setupOC();
+
+  /** What `selection` resolves to, built the way a consuming statement builds it. */
+  function resolved(selection: unknown): Shape[] {
+    const lazy = selection as SceneObject;
+    lazy.build();
+    return lazy.getShapes();
+  }
+
+  /** The centre of a face's or an edge's bounding box. */
+  function centre(shape: Shape): Point {
+    const box = ShapeOps.getBoundingBox(shape);
+    return new Point(box.centerX, box.centerY, box.centerZ);
+  }
+
+  /** A 20 × 30 box off the yz plane, so its mirror image lists its faces in another order. */
+  function offsetBox(): ExtrudeBase {
+    sketch("xy", () => {
+      testRect(20, 30, { at: [10, 0] });
+    });
+    return extrude(10).new() as ExtrudeBase;
+  }
+
+  it("names the mirror image of the original's member on a mirrored instance, as the original's carried selection does", () => {
+    const e = offsetBox();
+    const m = repeat("mirror", "yz", e);
+    const scene = render();
+    expect(scene.getAllSceneObjects().filter(o => o.getError()).map(o => o.getError())).toEqual([]);
+    const copy = (m as unknown as RepeatBase).getInstanceRoots(1)[0] as ExtrudeBase;
+    const mirror = (p: Point) => new Point(-p.x, p.y, p.z);
+
+    // The case the rule exists for: the copy's own order is not the original's mirrored.
+    const own = copy.getState('side-faces') as Shape[];
+    const originals = e.getState('side-faces') as Shape[];
+    expect(own.some((face, i) => centre(face).distanceTo(mirror(centre(originals[i]))) > 1e-6)).toBe(true);
+
+    for (let i = 0; i < 4; i++) {
+      const [original] = resolved(e.sideFaces(i));
+      const [onInstance] = resolved(m.instance(1).sideFaces(i));
+      expect(centre(onInstance).distanceTo(mirror(centre(original)))).toBeLessThan(1e-6);
+      // A selection made on the original and carried onto the copy picks the same face.
+      const [carried] = resolved((e.sideFaces(i) as unknown as SceneObject).createCopy(new Map([[e as SceneObject, copy as SceneObject]])));
+      expect(carried.getShape().IsSame(onInstance.getShape())).toBe(true);
+
+      const [originalEdge] = resolved(e.endEdges(i));
+      const [instanceEdge] = resolved(m.instance(1).endEdges(i));
+      expect(centre(instanceEdge).distanceTo(mirror(centre(originalEdge)))).toBeLessThan(1e-6);
+    }
+  });
+
+  it("keeps an index on an unmirrored instance as it is: the copy's own member, moved", () => {
+    const e = offsetBox();
+    const r = repeat("linear", "x", { count: 2, offset: 60 }, e);
+    render();
+    const copy = (r as unknown as RepeatBase).getInstanceRoots(1)[0] as ExtrudeBase;
+    const own = copy.getState('side-faces') as Shape[];
+
+    for (let i = 0; i < 4; i++) {
+      const [original] = resolved(e.sideFaces(i));
+      const [onInstance] = resolved(r.instance(1).sideFaces(i));
+      expect(onInstance).toBe(own[i]);
+      expect(centre(onInstance).distanceTo(centre(original).add(new Point(60, 0, 0)))).toBeLessThan(1e-6);
+    }
   });
 });
 

@@ -36,7 +36,7 @@ export async function handleWrap(ctx: ApplyFeatureRequestContext, req: Request, 
     }];
     const synthOptions = code
       ? {
-        namer: await makeProducerNamer(code),
+        namer: await makeProducerNamer(code, await ctx.currentCallees()),
         params: resolveParamValues(
           await extractNumericParams(code),
           fluidCadServer.getParamDefinitions(),
@@ -86,7 +86,7 @@ export async function handleWrap(ctx: ApplyFeatureRequestContext, req: Request, 
     // transform runs (reused const, collision-suffixed hint).
     let sketchVar: string | null = null;
     if (code) {
-      const namer = await makeProducerNamer(code);
+      const namer = await makeProducerNamer(code, await ctx.currentCallees());
       sketchVar = namer([{ line: request.sketch.line, nameHint: 's', featureType: 'sketch' }])[0];
     }
     const statement = renderWrapStatement(options, sketchVar ?? 's', faceArgs);

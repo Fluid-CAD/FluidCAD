@@ -2,23 +2,43 @@
 // tests import from here; the modules behind it are grouped by concern.
 
 export { isExpressionText } from '../code-editor/index.ts';
-export { validCountValue, validValueExpr, type RegionItemRefSpec, type RegionName, type RegionPickSpec, type ValueExpr } from './value-expr.ts';
+export {
+  exprShaped,
+  refShaped,
+  validCountValue,
+  validExpr,
+  validRef,
+  validValueExpr,
+  type ExprValue,
+  type RefValue,
+  type RegionItemRefSpec,
+  type RegionName,
+  type RegionPickSpec,
+  type ValueExpr,
+} from './value-expr.ts';
+export { refArgValue } from './ast/args.ts';
+export { ValueSlots, type BooleanSlot, type ChoiceSlot, type TextSlot } from './value-slots.ts';
 export type {
   ApplyFeatureEditResult,
   ApplyFeatureEditSpec,
   EditPathSource,
   EditSketchSource,
+  FeatureEditApply,
   FeatureStatementEditTarget,
   SketchClosedEditSpec,
 } from './spec.ts';
 export {
   renderConnectorAnchorSuffix,
   renderConnectorChain,
+  shapedConnectorRotate,
   validConnectorAnchor,
+  validConnectorOffset,
   validConnectorRotate,
   type ConnectorAnchorSpec,
   type ConnectorEditOptions,
+  type ConnectorOffsetSpec,
   type ConnectorRotateAxis,
+  type ConnectorRotateSpec,
 } from './features/connector.ts';
 export type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 export {
@@ -31,6 +51,7 @@ export {
 export { renderRibStatement, type RibEditOptions } from './features/rib.ts';
 export {
   HOLE_FITS,
+  HoleRefSlots,
   renderHolePlacementExprs,
   renderHoleStatement,
   validHoleFasten,
@@ -42,11 +63,13 @@ export {
   type HoleFit,
   type HolePlacementSpec,
   type HoleSizeSpec,
+  type HoleSlotCheck,
   type HoleStyleSpec,
   type HoleValueOptions,
   type ParsedHole,
 } from './features/hole.ts';
 export { HolePlacements } from './hole-placements.ts';
+export { CustomFeaturePoints } from './custom-feature-points.ts';
 export { SplitSeeds } from './split-seeds.ts';
 export {
   renderSplitOptionsArg,
@@ -59,11 +82,13 @@ export {
   type SplitEditOptions,
   type SplitEditPlane,
   type SplitKeep,
+  type SplitKeepSlot,
   type SplitPlaneSpec,
 } from './features/split.ts';
 export { renderSweepStatement, type SweepEditOptions } from './features/sweep.ts';
 export { renderWrapStatement, type WrapEditOptions } from './features/wrap.ts';
 export { PROJECTION_OPS, type ProjectEditOptions, type ProjectionOp } from './features/projection.ts';
+export { ConnectorAxisSpecs, type ConnectorAxisSpec } from './features/connector-axis.ts';
 export {
   renderRevolveAxisExpr,
   renderRevolveStatement,
@@ -118,7 +143,8 @@ export {
   type SectionEditOptions,
 } from './features/section.ts';
 export { renderBooleanStatement, type BooleanEditOptions, type BooleanKind } from './features/boolean.ts';
-export { renderShellJoinChain, type ShellEditOptions, type ShellJoinKind } from './features/shell.ts';
+export { ColorValues, renderColorStatement, type ColorEditOptions } from './features/color.ts';
+export { renderShellJoinChain, validShellJoin, SHELL_JOIN_KINDS, type ShellEditOptions, type ShellJoinKind, type ShellJoinSlot } from './features/shell.ts';
 export { renderChamferValueArgs, type ChamferEditOptions } from './features/chamfer.ts';
 export {
   parseOffsetTargetDescriptors,
@@ -132,6 +158,7 @@ export {
   type EditLoftGuide,
   type EditLoftProfile,
   type LoftConditionSpec,
+  type LoftConditionType,
   type LoftConnectionSpec,
   type LoftEditOptions,
   type LoftPointSpec,
@@ -140,6 +167,7 @@ export {
   renderPlaneBaseExpr,
   renderPlaneBaseExprs,
   renderPlaneStatement,
+  isLocalAxes,
   validPlaneRotationAxes,
   type ParsedPlaneBase,
   type PlaneBaseSpec,
@@ -148,7 +176,27 @@ export {
   type PlaneRotationAxes,
   type PlaneValueOptions,
 } from './features/plane.ts';
-export { renderTextStatement, type TextStatementOptions } from './features/text.ts';
+export {
+  renderTextStatement,
+  TEXT_ALIGNMENTS,
+  TEXT_FONT_LIMIT,
+  TEXT_LITERAL_LIMIT,
+  TEXT_WEIGHTS,
+  type TextAlignment,
+  type TextStatementOptions,
+} from './features/text.ts';
+export {
+  CustomFeatureImport,
+  CustomFeatureStatement,
+  type CustomFeatureOptions,
+  type CustomFeatureShape,
+  type CustomParamKind,
+  type CustomPickSource,
+  type CustomPickText,
+  type CustomValueSource,
+  type ParsedCustomFeature,
+} from './features/custom.ts';
+export { TypedInKinds, type TypedInExpr, type TypedInKind, type TypedInRef, type TypedInSource, type TypedInSpec, type TypedInValue } from './features/typed-in-kinds.ts';
 export {
   makeProducerBindable,
   makeProducerBoundProbe,
@@ -175,7 +223,12 @@ export type {
 } from './parse/parsed-statement.ts';
 export { parseFeatureStatement, resolveEditedStatementLine } from './parse/feature-statement.ts';
 export { resolvePartBodyInsertion, type Insertion } from './insertion.ts';
-export { applyFeatureEdit, type ApplyFeatureEditContext } from './apply/feature-edit.ts';
+export { applyFeatureEdit, type ApplyFeatureEditOptions } from './apply/feature-edit.ts';
+export {
+  FeatureCallees,
+  type CustomFeatureCallee,
+  type FeatureCalleeSource,
+} from './producers/callees.ts';
 export { GlobalImports } from './global-imports.ts';
 export { SketchExports } from './sketch-exports.ts';
 export { LoftConnections } from './loft-connections.ts';

@@ -136,8 +136,8 @@ describe('pauseAfter spec with a lift', () => {
   it('keeps a stop the user set further down', async () => {
     const code = `${CODE}chamfer(1);\nbreakpoint();\n`;
     const result = await applyFeatureEdit(code, spec(3, { line: 3, column: 1 }));
-    // (The blank line is how `addBreakpoint` always separates a new stop from a following statement.)
-    expect(result.newCode).toBe("import { extrude, fillet, breakpoint } from 'fluidcad/core';\nextrude(5);\nfillet(2);\nbreakpoint();\n\nchamfer(1);\nbreakpoint();\n");
+    // (The new stop takes a line of its own, nothing more — see `BreakpointMarker.insertion`.)
+    expect(result.newCode).toBe("import { extrude, fillet, breakpoint } from 'fluidcad/core';\nextrude(5);\nfillet(2);\nbreakpoint();\nchamfer(1);\nbreakpoint();\n");
   });
 
   it('never lifts another stop in place of one that is not there', async () => {

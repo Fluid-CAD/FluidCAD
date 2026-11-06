@@ -22,7 +22,6 @@
 // read by name off an occurrence of the assembly (`occ.parts.name`), or
 // through an import when its binding is exported from the top level.
 
-import { dirname, resolve as resolvePath } from 'path';
 import {
   applySpliceEdits,
   getJavaScriptParser,
@@ -59,6 +58,7 @@ import {
 } from './code-editor/declaration-calls.ts';
 import { renderKey } from './part-catalog/insert-edit.ts';
 import { normalizePath } from './normalize-path.ts';
+import { ModuleSpecifiers } from './files/module-specifiers.ts';
 
 export type DeclarationKind = 'param' | 'property';
 
@@ -323,17 +323,21 @@ export function declarationValue(declaration: DeclarationCall): TSNode | null {
   return declaration.value;
 }
 
-/** Suffixes a workspace import may leave off: `./a.part` reaches `a.part.js`. */
-const OMITTABLE_SUFFIXES: readonly string[] = ['', '.js'];
-
-/** Whether a relative module specifier written in `fromFile` reaches `target`. */
-export function specifierReaches(fromFile: string, specifier: string, target: string): boolean {
-  if (!specifier.startsWith('./') && !specifier.startsWith('../')) {
-    return false;
-  }
-  const wanted = normalizePath(target);
-  const base = resolvePath(dirname(fromFile), specifier);
-  return OMITTABLE_SUFFIXES.some((suffix) => normalizePath(base + suffix) === wanted);
+/**
+ * Whether a module specifier written in `fromFile` reaches `target` — the
+ * one rule {@link ModuleSpecifiers.reaches} keeps (a relative path, `.js`
+ * optional; a pinned package's bare name). The declarations these usages
+ * track live in files an edit can change, and an installed package's
+ * files are read-only (K8), so the project-less {@link ModuleSpecifiers.LOCAL}
+ * — workspace modules only — is the default.
+ */
+export function specifierReaches(
+  fromFile: string,
+  specifier: string,
+  target: string,
+  specifiers: ModuleSpecifiers = ModuleSpecifiers.LOCAL,
+): boolean {
+  return specifiers.reaches(fromFile, specifier, target);
 }
 
 /**

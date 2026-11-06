@@ -233,6 +233,120 @@ describe('FolderPicker: New project', () => {
   });
 });
 
+describe('FolderPicker: New package', () => {
+  async function type(input: HTMLInputElement, value: string) {
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+    await vi.advanceTimersByTimeAsync(200);
+  }
+  const q = (p: ReturnType<typeof picker>, name: string) => p.view.element.querySelector<HTMLElement>(`[data-ref="${name}"]`)!;
+
+  it('offers Project or Package, and on Package asks the name and fills the folder in from it', async () => {
+    const p = picker();
+    await p.view.show('create', null, { kind: 'package' });
+    expect(q(p, 'title').textContent).toBe('New package');
+    expect(q(p, 'lede').textContent).toContain('the package should live in');
+    expect(q(p, 'kind-row').classList.contains('hidden')).toBe(false);
+    expect(q(p, 'kind-package').getAttribute('aria-checked')).toBe('true');
+    expect(q(p, 'kind-project').getAttribute('aria-checked')).toBe('false');
+    expect(q(p, 'package-row').classList.contains('hidden')).toBe(false);
+    expect(q(p, 'package-row').textContent).toContain('The part before the slash is your hub handle');
+    expect(q(p, 'name-label').textContent).toBe('Folder name');
+    expect(p.action().textContent).toBe('Create package');
+    expect(p.action().disabled).toBe(true);
+    expect(p.status().textContent).toBe('Name the package. The part after the slash becomes its folder.');
+    const packageInput = q(p, 'package') as HTMLInputElement;
+    expect(document.activeElement).toBe(packageInput);
+
+    await type(packageInput, '@acme');
+    expect(q(p, 'package-problem').classList.contains('hidden')).toBe(false);
+    expect(q(p, 'package-problem').textContent).toBe('A package name is @handle/name: lowercase letters, digits and single dashes, each part starting with a letter.');
+    expect(p.name().value).toBe('');
+    expect(p.action().disabled).toBe(true);
+
+    await type(packageInput, '@acme/kit');
+    expect(q(p, 'package-problem').classList.contains('hidden')).toBe(true);
+    expect(p.name().value).toBe('kit');
+    expect(p.page.check).toHaveBeenLastCalledWith('/home/you/cad', 'kit');
+    expect(p.status().textContent).toBe('Creates ~/cad/kit and opens it in a new tab.');
+    expect(p.action().disabled).toBe(false);
+    p.action().click();
+    expect(p.handlers.create).toHaveBeenCalledWith('/home/you/cad/kit', { package: '@acme/kit' });
+    expect(p.view.isOpen()).toBe(false);
+  });
+
+  it('keeps a folder name the user typed, and needs both the name and the folder to check out', async () => {
+    const p = picker({ kit: 'not-empty' });
+    await p.view.show('create', null, { kind: 'package' });
+    const packageInput = q(p, 'package') as HTMLInputElement;
+    await type(packageInput, '@acme/kit');
+    expect(p.status().textContent).toContain('is not empty');
+    expect(p.action().disabled).toBe(true);
+
+    await type(p.name(), 'kit-v2');
+    expect(p.status().textContent).toBe('Creates ~/cad/kit-v2 and opens it in a new tab.');
+    expect(p.action().disabled).toBe(false);
+    // The folder is the user's now: the package name stops filling it in.
+    await type(packageInput, '@acme/kit-three');
+    expect(p.name().value).toBe('kit-v2');
+    // A name that no longer fits holds Create back, folder or not.
+    await type(packageInput, '@acme/Kit');
+    expect(p.action().disabled).toBe(true);
+    await type(packageInput, '@acme/kit-three');
+    p.name().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(p.handlers.create).toHaveBeenCalledWith('/home/you/cad/kit-v2', { package: '@acme/kit-three' });
+  });
+
+  it('starts on Project from New Project, switches to Package and back, and creates a plain project on Project', async () => {
+    const p = picker();
+    await p.view.show('create');
+    expect(q(p, 'title').textContent).toBe('New project');
+    expect(q(p, 'kind-project').getAttribute('aria-checked')).toBe('true');
+    expect(q(p, 'package-row').classList.contains('hidden')).toBe(true);
+    expect(q(p, 'name-label').textContent).toBe('Project name');
+    expect(document.activeElement).toBe(p.name());
+
+    q(p, 'kind-package').click();
+    expect(q(p, 'title').textContent).toBe('New package');
+    expect(q(p, 'package-row').classList.contains('hidden')).toBe(false);
+    expect(p.action().textContent).toBe('Create package');
+    expect(document.activeElement).toBe(q(p, 'package'));
+    await type(q(p, 'package') as HTMLInputElement, '@acme/kit');
+    expect(p.name().value).toBe('kit');
+
+    q(p, 'kind-project').click();
+    expect(q(p, 'title').textContent).toBe('New project');
+    expect(q(p, 'package-row').classList.contains('hidden')).toBe(true);
+    expect(p.action().textContent).toBe('Create project');
+    // The folder name stays; it is a project's name now.
+    await vi.advanceTimersByTimeAsync(200);
+    expect(p.status().textContent).toBe('Creates ~/cad/kit and opens it in a new tab.');
+    p.action().click();
+    expect(p.handlers.create).toHaveBeenCalledWith('/home/you/cad/kit');
+    expect(p.handlers.create).not.toHaveBeenCalledWith('/home/you/cad/kit', expect.anything());
+  });
+
+  it('in a projects folder asks the package name and a folder name, and makes it there', async () => {
+    const ROOT: FolderListing = { path: '/home/you/cad', project: false, parent: null, home: '/home/you', roots: ['/home/you/cad'], entries: [] };
+    const page = dialogs();
+    (page.browse as ReturnType<typeof vi.fn>).mockImplementation(async () => ROOT);
+    const handlers = { open: vi.fn(), create: vi.fn() };
+    const view = new FolderPicker(page, handlers);
+    document.body.appendChild(view.element);
+    const ref = <T extends HTMLElement>(name: string) => view.element.querySelector<T>(`[data-ref="${name}"]`)!;
+    await view.show('create', ROOT.path, { kind: 'package' });
+    expect(ref('lede').classList.contains('hidden')).toBe(true);
+    expect(ref('list').classList.contains('hidden')).toBe(true);
+    expect(ref('package-row').classList.contains('hidden')).toBe(false);
+    expect(ref('name-label').textContent).toBe('Folder Name');
+    await type(ref<HTMLInputElement>('package'), '@acme/kit');
+    expect(ref('folder').textContent).toBe('~/cad/kit');
+    expect(ref('status').textContent).toBe('');
+    ref<HTMLButtonElement>('action').click();
+    expect(handlers.create).toHaveBeenCalledWith('/home/you/cad/kit', { package: '@acme/kit' });
+  });
+});
+
 describe('FolderPicker: New project in a projects folder', () => {
   const ROOT: FolderListing = {
     path: '/home/you/cad',

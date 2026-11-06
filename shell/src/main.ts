@@ -129,7 +129,7 @@ function installSmokeHooks(): void {
  * the window that already holds the project, open it in the start screen that
  * asked (or an idle one), or open a new window for it.
  */
-function requestOpen(request: OpenRequest, options: { create?: boolean } = {}): void {
+function requestOpen(request: OpenRequest, options: { create?: boolean; package?: string } = {}): void {
   const route = routeOpen(AppWindow.snapshots(), request);
   switch (route.action) {
     case 'focus':
@@ -173,9 +173,24 @@ async function newProjectFromMenu(): Promise<void> {
   }
 }
 
+/**
+ * File › New Package…: a native dialog cannot ask the package's name, so the
+ * start screen's own dialog does — in the focused window when it shows the
+ * start screen, else in a window that does, else in a new one. The native
+ * folder dialog then follows from the page, as the bar's button has it.
+ */
+function newPackageFromMenu(): void {
+  const focused = AppWindow.focused();
+  const window =
+    (focused?.phase === 'home' ? focused : undefined) ?? AppWindow.all().find((candidate) => candidate.phase === 'home') ?? AppWindow.create();
+  window.focus();
+  window.sendStartCommand('new-package');
+}
+
 const menuActions: MenuActions = {
   openProject: openFromMenu,
   newProject: newProjectFromMenu,
+  newPackage: newPackageFromMenu,
   newWindow: () => void AppWindow.create(),
 };
 
@@ -288,7 +303,7 @@ function registerIpcHandlers(): void {
       }
     },
     promptForProject: (window) => promptForProject(window.browserWindow),
-    promptForNewProject: (window) => chooseNewProjectFolder(window.browserWindow),
+    promptForNewProject: (window, options) => chooseNewProjectFolder(window.browserWindow, options),
   });
 }
 

@@ -37,6 +37,13 @@ describe('tab URLs and names', () => {
     expect(projectOfTab('')).toBeNull();
   });
 
+  it('carry the name of a package to set up, with the create and never without it', () => {
+    expect(projectTabUrl('/cad/kit', { create: true, package: '@acme/kit' })).toBe('/?project=%2Fcad%2Fkit&create=1&package=%40acme%2Fkit');
+    expect(projectTabUrl('/cad/kit', { package: '@acme/kit' })).toBe('/?project=%2Fcad%2Fkit');
+    expect(projectOfTab('?project=%2Fcad%2Fkit&create=1&package=%40acme%2Fkit')).toEqual({ path: '/cad/kit', create: true, package: '@acme/kit' });
+    expect(projectOfTab('?project=%2Fcad%2Fkit&package=%40acme%2Fkit')).toEqual({ path: '/cad/kit', create: false });
+  });
+
   it("reads a project's name off its path, whichever way the slashes lean", () => {
     expect(projectNameOf('/home/you/cad/bracket')).toBe('bracket');
     expect(projectNameOf('/home/you/cad/bracket/')).toBe('bracket');

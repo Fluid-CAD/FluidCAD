@@ -1,6 +1,6 @@
 import { RenderedShape, Scene, SceneObjectMesh, SceneObjectRender } from "./scene.js";
 import { MeshBuilder } from "./mesh-builder.js";
-import { SceneObject } from "../common/scene-object.js";
+import { SceneObject, type BuildSceneObjectContext } from "../common/scene-object.js";
 import { callSiteKey } from "../common/call-site.js";
 import { BodyLineage } from "./lineage.js";
 import { DefaultNames } from "./default-names.js";
@@ -13,7 +13,10 @@ import { Exposed } from "../features/exposed.js";
 import { SelectSceneObject } from "../features/select.js";
 import { Part } from "../features/part.js";
 import { scaleForeignPart } from "../features/part-scale.js";
+import { GeneratedTemplateCache } from "./generated-template-cache.js";
+import { GeneratedBuildReports } from "./generated-build-report.js";
 import { MeshPieces, type ShapeMeshPieces } from "./mesh-pieces.js";
+import { MeshKeys } from "./mesh-keys.js";
 import { attachSketchSnapVertices } from "./sketch-snap.js";
 import { attachConnectorHosts } from "./connector-host.js";
 import { ShapeOps } from "../oc/shape-ops.js";
@@ -21,6 +24,8 @@ import { Mesh, bboxDiagonal, bucketDiagonal, meshSizeBucket, resolveMeshConfig }
 import type { MeshQuality, MeshSettings } from "../oc/mesh.js";
 import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
+import { BuildScope } from "../common/build-scope.js";
+import { KernelTraps } from "../oc/kernel-traps.js";
 import { BuildError } from "../common/build-error.js";
 import { withUnit } from "../units/registry.js";
 import type { LengthUnit } from "../units/units.js";
@@ -135,6 +140,13 @@ export class SceneRenderer {
     console.log("============ Rendering ==============", sceneObjects.length);
     this.occurrenceIndexes = computeCallSiteOccurrences(sceneObjects);
 
+    // Generated parts (generator templates, generated parts' variants) the
+    // compare did not carry over but the template cache holds built take
+    // their build from it — marked cached, so the loop below skips them.
+    // Here and not when the module declared them: a scene dropped before it
+    // renders must not have taken anything.
+    GeneratedTemplateCache.shared.takeInto(scene);
+
     const skippedContainers = new Set<SceneObject>();
     // Members of a part a part rule refused (PartRules) after its body had
     // already run — read while the module was still evaluating. They never
@@ -160,6 +172,7 @@ export class SceneRenderer {
           const result = this.buildObject(object, scene);
           buildDurations.set(object, result.totalMs);
           profilers.set(object, result.profiler);
+          GeneratedBuildReports.recordMemberBuild(object, result.totalMs);
         }
 
         // After building, mark cloned sketches so their children are skipped —
@@ -457,7 +470,7 @@ export class SceneRenderer {
       object.validate();
       // A deferred build runs outside its statement's call stack: re-enter
       // the unit the statement was authored in (a foreign part's features).
-      withUnit(object.getUnit(), () => object.build({
+      const context: BuildSceneObjectContext = {
         getSceneObjects: () => scene.getPartScopedObjectsUpTo(object),
         getActiveSceneObjects: () => scene.getPartScopedActiveObjectsUpTo(object),
         getSceneObjectsFromTo: (from: SceneObject, to: SceneObject) => scene.getSceneObjectsFromTo(from, to),
@@ -473,7 +486,8 @@ export class SceneRenderer {
           return null;
         },
         getProfiler: () => profiler,
-      }));
+      };
+      withUnit(object.getUnit(), () => BuildScope.run(object, context, () => object.build(context)));
 
       const appliedTransform = object.getAppliedTransform();
       if (appliedTransform && !object.isContainer()) {
@@ -483,9 +497,18 @@ export class SceneRenderer {
         }
       }
     } catch (error) {
-      const message = describeError(error);
-      console.error(`Error building object ${object.getUniqueType()}:`, message);
-      object.setError(message);
+      if (KernelTraps.isTrap(error)) {
+        // The wasm module trapped mid-operation: the row fails, the rest of
+        // the model still builds, and the host hears the heap may be corrupt.
+        const name = object.hasCustomName() ? object.getName() : object.getDisplayType();
+        KernelTraps.record(error, { type: object.getType(), name, during: 'build' });
+        console.error(`The OpenCascade kernel trapped building ${object.getUniqueType()}:`, error);
+        object.setError(KernelTraps.buildMessage(name, error), { kernelTrap: true });
+      } else {
+        const message = describeError(error);
+        console.error(`Error building object ${object.getUniqueType()}:`, message);
+        object.setError(message);
+      }
     }
 
     const totalMs = performance.now() - start;
@@ -533,24 +556,26 @@ export class SceneRenderer {
    * per wrapper, scope-free) grouped by the colours `holder` resolves for it
    * under `scope` — the records whose painter the pass shows. The same
    * wrapper thus draws unpainted in a rollback before its paint and in the
-   * earlier colour between two paints, with no re-meshing.
+   * earlier colour between two paints, with no re-meshing. Answers the
+   * pieces and the colour each face resolved to as well: what the shape's
+   * mesh key names (`MeshKeys`).
    */
   private getOrBuildMeshes(
     shape: Shape,
     holder: SceneObject,
     scope: Set<SceneObject> | undefined,
     profiler?: Profiler,
-  ): SceneObjectMesh[] | null {
+  ): { meshes: SceneObjectMesh[]; pieces: ShapeMeshPieces; faceColors: (string | undefined)[] | null } | null {
     const pieces = this.getOrBuildPieces(shape, holder, profiler);
     if (!pieces) {
       return null;
     }
     if (pieces.faces.length === 0) {
-      return MeshPieces.group(pieces);
+      return { pieces, ...MeshPieces.groupResolved(pieces) };
     }
     const colors = holder.getFaceColors(shape, scope);
     try {
-      return MeshPieces.group(pieces, colors, shape);
+      return { pieces, ...MeshPieces.groupResolved(pieces, colors, shape) };
     } finally {
       colors.delete();
     }
@@ -596,17 +621,24 @@ export class SceneRenderer {
     scope: Set<SceneObject> | undefined,
     profiler?: Profiler,
   ): RenderedShape {
+    // Meta shapes carry no topology vertices — except a lone vertex (a
+    // circle's centre mark, a point entity's guide), which IS its position:
+    // the vertex pick channel offers it as a sketch point.
+    const vertices = shape.isMetaShape() && shape.getType() !== 'vertex' ? undefined : topologyVertices(shape);
+    const faceVertices = shape.isMetaShape() || shape.isEdge() || shape.isWire() ? undefined : topologyFaceVertices(shape);
+    const grouped = this.getOrBuildMeshes(shape, holder, scope, profiler);
     return {
       shapeId: shape.id,
       lineageKey: shape.getType() === 'solid' && !shape.isMetaShape() && !shape.isGuideShape()
         ? this.lineageKeys.get(shape)
         : undefined,
-      // Meta shapes carry no topology vertices — except a lone vertex (a
-      // circle's centre mark, a point entity's guide), which IS its position:
-      // the vertex pick channel offers it as a sketch point.
-      vertices: shape.isMetaShape() && shape.getType() !== 'vertex' ? undefined : topologyVertices(shape),
-      faceVertices: shape.isMetaShape() || shape.isEdge() || shape.isWire() ? undefined : topologyFaceVertices(shape),
-      meshes: this.getOrBuildMeshes(shape, holder, scope, profiler),
+      meshKey: grouped
+        ? MeshKeys.of(grouped.pieces, { vertices, faceVertices, faceColors: grouped.faceColors })
+        : undefined,
+      vertices,
+      faceVertices,
+      // A shape the mesher could not mesh sends null meshes, as it always has.
+      meshes: grouped ? grouped.meshes : null,
       shapeType: shape.getType(),
       isMetaShape: shape.isMetaShape() || undefined,
       isGuide: shape.isGuideShape() || undefined,
@@ -779,6 +811,7 @@ export class SceneRenderer {
       hideChildren: obj.hidesChildren() || undefined,
       hasError,
       errorMessage,
+      kernelTrap: hasError && obj.isKernelTrap() ? true : undefined,
       sourceLocation,
       buildDurationMs: opts.buildDurationMs,
       profileCategories,

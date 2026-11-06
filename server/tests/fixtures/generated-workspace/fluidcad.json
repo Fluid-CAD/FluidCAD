@@ -1,0 +1,9 @@
+{
+  "unit": "mm",
+  "package": {
+    "name": "@acme/generated",
+    "version": "0.1.0",
+    "description": "A spur gear part and a crate assembly, both generated",
+    "license": "MIT"
+  }
+}

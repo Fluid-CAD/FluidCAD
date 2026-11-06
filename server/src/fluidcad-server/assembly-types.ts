@@ -21,6 +21,10 @@ export type SerializedAssembly = {
     sourceLocation?: { filePath: string; line: number; column: number };
     /** Present on a replica produced by a `replicate()` statement. */
     replica?: { of: string; statement: string; row: number };
+    /** A `definePart` instance: its definition's id and its variant's values by id. Absent for other parts. */
+    generated?: { definition: string; values: Record<string, unknown> };
+    /** A part a generator made (`defineAssembly`): engine-owned, read-only. Absent for other parts. */
+    generatedBy?: { definition: string; type: string };
   }>;
   /** Sub-assembly occurrences — absent on engines predating assembly() definitions. */
   occurrences?: Array<{
@@ -45,9 +49,15 @@ export type SerializedAssembly = {
     sourceLocation?: { filePath: string; line: number; column: number };
     /** Present on a replica produced by a `replicate()` statement. */
     replica?: { of: string; statement: string; row: number };
+    /** An occurrence of a generated assembly (`defineAssembly`): its definition's id and values by id; everything under it is engine-owned. */
+    generated?: { definition: string; values: Record<string, unknown> };
   }>;
   mates: Array<{
     mateId: string;
+    /** The authored `.name('…')`, when the statement has one. */
+    name?: string;
+    /** Scope the mate() statement ran in: "" for root, else an occurrence path. Engines predating sub-assemblies omit it. */
+    owner?: string;
     type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
     connectorA?: { instanceId: string; connectorId: string };
     connectorB?: { instanceId: string; connectorId: string };
@@ -55,6 +65,11 @@ export type SerializedAssembly = {
     geometryB?: { instanceId: string; exposeName: string };
     frameA?: { connectorId: string };
     frameB?: { connectorId: string };
+    /**
+     * A parse-time placeholder, always 'satisfied': mates are solved only in
+     * the viewer, which evaluates their health per solve and never sends it
+     * back. Nothing server-side may report it as a solve result.
+     */
     status: 'satisfied' | 'redundant' | 'inconsistent';
     options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
     sourceLocation?: { filePath: string; line: number; column: number };

@@ -129,7 +129,7 @@ export async function handleLoft(ctx: ApplyFeatureRequestContext, req: Request, 
     // and would be invisible to a later merge (one statement, two producers).
     const connectionResult = await synthesizeLoftConnections(fluidCadServer, request.connections,
       filePath!, mergeProducer, { filePath: filePath!, line: producers[0].line, column: producers[0].column },
-      loftProfileOwners(request.profiles));
+      loftProfileOwners(request.profiles), await ctx.currentCallees());
     if ('error' in connectionResult) {
       res.status(422).json({ success: false, reason: connectionResult.error });
       return;
@@ -168,7 +168,7 @@ export async function handleLoft(ctx: ApplyFeatureRequestContext, req: Request, 
       res.status(422).json({ success: false, reason: staged.error });
       return;
     }
-    const producerVars = await allocateProducerVars(staged.spec.producers, staged.code);
+    const producerVars = await allocateProducerVars(staged.spec.producers, staged.code, await ctx.currentCallees());
     const profileExprs = profiles.map(profile => {
       if (profile.kind === 'sketch') {
         return producerVars[profile.producer] ?? 's';

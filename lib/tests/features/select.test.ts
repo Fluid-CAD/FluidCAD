@@ -1347,4 +1347,21 @@ describe("select", () => {
       expect(sel!.getShapes()).toHaveLength(2);
     });
   });
+
+  describe("the resolved count", () => {
+    // The scene summary reports a select's `selectionLength`; a feature that
+    // takes the selection consumes its shapes, so the count is kept from
+    // the build rather than read off what the select still holds.
+    it("survives the feature that consumes the selection", () => {
+      sketch("xy", () => {
+        testRect(40, 30);
+      });
+      extrude(10);
+      fillet(2, select(edge().verticalTo("xy")));
+      const scene = render();
+      const sel = scene.getAllSceneObjects().find(o => o instanceof SelectSceneObject)!;
+      expect(sel.getShapes()).toHaveLength(0);
+      expect(sel.serialize()).toEqual({ selectionLength: 4, type: "edge" });
+    });
+  });
 });

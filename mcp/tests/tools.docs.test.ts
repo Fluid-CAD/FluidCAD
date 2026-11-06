@@ -181,6 +181,87 @@ describe('doc tools (unit)', () => {
     expect(result.code).toBe('invalid-input');
   });
 
+  // The custom-feature SDK is documented by hand, outside api/types/: a
+  // capitalized symbol of a doc tagged `type` is a type, its functions are not.
+  it('get_type_definition resolves the custom-feature SDK types from their docs', () => {
+    for (const [name, docId, definition] of [
+      ['Feature', 'api/feature', /class MyFeature extends Feature\.with\(params, \{ buckets, frames \}\)/],
+      ['FeatureBuckets', 'api/feature', /type FeatureBuckets = \{/],
+      ['FeatureWithOptions', 'api/feature-buckets', /type FeatureWithOptions = \{ buckets\?: FeatureBucketSpecs; frames\?: FeatureFrameSpecs \}/],
+      ['FeatureBucketSpec', 'api/feature-buckets', /type FeatureBucketSpec = \{ label\?: string \}/],
+      ['ParamSpec', 'api/feature-params', /type ParamSpec = ScalarParamSpec \| PickerParamSpec/],
+      ['ChoiceOption', 'api/feature-params', /ChoiceOption — one option of a select or a radio/],
+      ['RadioParamSpec', 'api/feature-params', /type: 'radio'; options: ChoiceOption\[\]/],
+      ['SelectParamSpec', 'api/feature-params', /type: 'select'; multiple: true/],
+      ['FeatureLayout', 'api/feature-layout', /layout\?: FeatureLayout;/],
+      ['FeatureLayoutItem', 'api/feature-layout', /aside\?: FeatureStaticItem\[\];/],
+      ['CallShape', 'api/define-feature', /type CallShape =/],
+      ['FeatureMeta', 'api/register-builder', /type FeatureMeta = \{/],
+      ['OccScope', 'api/sdk-occt', /class OccScope \{/],
+      ['Primitives', 'api/sdk-kernel', /Primitives\.makeCylinder\(radius: number, height: number\): Solid/],
+    ] as const) {
+      const result = getTypeDefinition(index, { name });
+      expect(result.ok, name).toBe(true);
+      if (!result.ok) {
+        continue;
+      }
+      expect(result.data.docId, name).toBe(docId);
+      expect(result.data.definition, name).toMatch(definition);
+    }
+  });
+
+  it('get_type_definition leaves the SDK functions to get_api_signature', () => {
+    for (const name of ['defineFeature', 'registerBuilder', 'parseCall', 'getOC']) {
+      expect(getTypeDefinition(index, { name }).ok, name).toBe(false);
+      const signature = getApiSignature(index, { name });
+      expect(signature.ok, name).toBe(true);
+    }
+    const defineFeature = getApiSignature(index, { name: 'defineFeature' });
+    expect(defineFeature.ok && defineFeature.data.signature).toMatch(/^defineFeature\(FeatureClass, \{/);
+  });
+
+  // Generated parts and assemblies (definePart, defineAssembly, Generator)
+  // and named frames are documented by hand too: their functions resolve
+  // through get_api_signature, their types through get_type_definition.
+  it('resolves the generated-definition SDK and named frames from their docs', () => {
+    for (const [name, docId, signature] of [
+      ['definePart', 'api/define-part', /^definePart\(FeatureClass, meta: DefinePartMeta\): GeneratedPartDefinition/],
+      ['defineAssembly', 'api/define-assembly', /^defineAssembly\(GeneratorClass, meta: DefineAssemblyMeta\): GeneratedAssemblyDefinition/],
+    ] as const) {
+      expect(getTypeDefinition(index, { name }).ok, name).toBe(false);
+      const result = getApiSignature(index, { name });
+      expect(result.ok, name).toBe(true);
+      if (!result.ok) {
+        continue;
+      }
+      expect(result.data.docId, name).toBe(docId);
+      expect(result.data.signature, name).toMatch(signature);
+    }
+    for (const [name, docId, definition] of [
+      ['DefinePartMeta', 'api/define-part', /type DefinePartMeta = Omit<GeneratedMeta, 'layout'>/],
+      ['GeneratedPartDefinition', 'api/define-part', /class GeneratedPartDefinition extends PartDefinition/],
+      ['GeneratedSchema', 'api/define-part', /type GeneratedSchema = \{/],
+      ['GeneratedMeta', 'api/define-part', /type GeneratedMeta = \{/],
+      ['DefineAssemblyMeta', 'api/define-assembly', /type DefineAssemblyMeta = /],
+      ['GeneratedAssemblyDefinition', 'api/define-assembly', /class GeneratedAssemblyDefinition<T = LayoutResult<C>> extends Assembly<T>/],
+      ['Generator', 'api/generator', /class MyGenerator extends Generator\.with\(params\)/],
+      ['GeneratorLayout', 'api/generator', /part\(type: string, spec\?: GeneratedPartSpec\): GeneratedInstance;/],
+      ['GeneratorBuildContext', 'api/generator', /type GeneratorBuildContext = \{/],
+      ['GeneratedFrameSpec', 'api/generator', /type GeneratedFrameSpec = \{ origin: JsonVector; z: JsonVector; x\?: JsonVector \}/],
+      ['GeneratedPose', 'api/generator', /type GeneratedPose = \{ position\?/],
+      ['FeatureFrameSpec', 'api/feature-frames', /type FeatureFrameSpec = \{ label\?: string \}/],
+      ['NamedFrames', 'api/feature-frames', /type NamedFrames<F> = \{ \[K in F\]\?: Plane \}/],
+    ] as const) {
+      const result = getTypeDefinition(index, { name });
+      expect(result.ok, name).toBe(true);
+      if (!result.ok) {
+        continue;
+      }
+      expect(result.data.docId, name).toBe(docId);
+      expect(result.data.definition, name).toMatch(definition);
+    }
+  });
+
   it('get_type_definition rejects an unknown name', () => {
     const result = getTypeDefinition(index, { name: 'NotARealType' });
     expect(result.ok).toBe(false);

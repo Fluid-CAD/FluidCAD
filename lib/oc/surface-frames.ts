@@ -116,7 +116,13 @@ export class SurfaceFrames {
     }
     // b's axis point must lie on a's axis: strip the along-axis component.
     const off = Math.hypot(d[0] - along * a.dir[0], d[1] - along * a.dir[1], d[2] - along * a.dir[2]);
-    return off <= lin;
+    if (off > lin) {
+      return false;
+    }
+    // A cylinder is the same surface anywhere along its axis; a torus (its
+    // centre) and a cone (its reference circle, whose radius was compared
+    // above) are not: two grooves around one axis are two tori.
+    return a.type === 'cylinder' || Math.abs(along) <= lin;
   }
 
   /** `position` is a copy the caller received; it is consumed here. */

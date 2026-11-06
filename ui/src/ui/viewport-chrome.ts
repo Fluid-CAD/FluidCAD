@@ -20,6 +20,11 @@ class ViewportChrome {
     return this.openDialogs.size > 0;
   }
 
+  /** The open dialogs' ids, as {@link subscribeDialogs} reports them. */
+  get openDialogIds(): ReadonlySet<string> {
+    return new Set(this.openDialogs);
+  }
+
   /**
    * The open dialogs' root elements — for overlays that share screen space
    * with the mobile bottom sheet and need to measure clear of it.

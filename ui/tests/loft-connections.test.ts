@@ -416,3 +416,44 @@ describe('loft ghost value scope', () => {
       .toEqual({ kind: 'statement', filePath, line: 31, column: 1 });
   });
 });
+
+// A condition's type as an expression: a loft whose statement holds
+// `.startCondition(smooth ? 'tangent' : 'normal', 2)` opens the row in
+// expression mode, and the service passes the condition through — to the ghost
+// body and to the apply payload — unchanged, for the server to resolve (an
+// expression coming to 'none' previews as no condition) and to write back bare.
+describe('loft dialog — a condition-type expression', () => {
+  const conditioned = {
+    ...parsed,
+    startCondition: { type: { expr: "smooth ? 'tangent' : 'normal'" }, magnitude: 2 },
+    endCondition: { type: { ref: 'takeoff' }, magnitude: 1 },
+  };
+
+  it('carries both conditions to the ghost and to the edit payload as the statement holds them', async () => {
+    const m = mount();
+    // The statement's profiles resolve to their sketches, so the ghost has sections to skin.
+    vi.mocked(api.fetchFeatureSources).mockResolvedValue({ ok: true, feature: 'loft', guides: [],
+      profiles: [1, 11].map(line => ({ kind: 'sketch', filePath, line, column: 1 })), connections: [[[0, 0, 0], [0, 0, 10]]] });
+    m.service.enterEdit({ filePath, line: 31, column: 1 }, conditioned,
+      { index: 6, type: 'loft', expectedStatement: "loft(a, b).startCondition(smooth ? 'tangent' : 'normal', 2).endCondition(takeoff, 1)" });
+    expect(m.panel.querySelector<HTMLButtonElement>('[data-role="expression-start-type"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(m.panel.querySelector<HTMLInputElement>('[data-role="expr-end-type"]')!.value).toBe('takeoff');
+    m.service.handleSceneRendered([...fixture(), {
+      id: 'loft', type: 'loft', sourceLocation: { filePath, line: 31, column: 1 }, ownShapes: [], sceneShapes: [],
+    } as SceneObjectRender], 5, true);
+    await preview();
+    const conditions = {
+      startCondition: { type: { expr: "smooth ? 'tangent' : 'normal'" }, magnitude: 2 },
+      // The reference seeds as the expression of its name — the same text, written bare either way.
+      endCondition: { type: { expr: 'takeoff' }, magnitude: 1 },
+    };
+    expect(api.fetchFeatureGhostResult).toHaveBeenLastCalledWith(expect.objectContaining({ feature: 'loft', ...conditions }),
+      expect.anything(), expect.anything());
+    expect(api.applyLoftEdit).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ ...conditions, preview: true }));
+
+    m.apply.click();
+    await vi.runAllTimersAsync();
+    const applied = vi.mocked(api.applyLoftEdit).mock.calls.find(([, options]) => !options.preview)!;
+    expect(applied[1]).toEqual(expect.objectContaining(conditions));
+  });
+});

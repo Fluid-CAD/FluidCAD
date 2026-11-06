@@ -722,6 +722,10 @@ export class SelectionResolver {
   ): ResolvedSelectionMatch {
     const kind = SelectionResolver.kindOf(shape);
     const part = scene.findEnclosingPart(owner.object);
+    // Summarize the entity as its solid's explorer lists it rather than as
+    // the filter or a feature bucket wrapped it: that face is the one sure
+    // to carry the orientation an outward normal is read from.
+    const indexed = SelectionResolver.indexedShapes(owner.solid, kind)[owner.index] ?? shape;
     const match: ResolvedSelectionMatch = {
       shapeId: owner.solid.id,
       kind,
@@ -729,7 +733,7 @@ export class SelectionResolver {
       sceneObjectId: owner.object.id,
       sceneObjectName: owner.object.getName(),
       part: part?.partName ?? null,
-      summary: SelectionResolver.summarize(shape, kind, scene.unit, instance?.pose),
+      summary: SelectionResolver.summarize(indexed, kind, scene.unit, instance?.pose),
     };
     if (instance) {
       match.instanceId = instance.instanceId;

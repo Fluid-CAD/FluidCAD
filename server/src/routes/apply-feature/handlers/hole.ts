@@ -3,7 +3,6 @@
 import type { Request, Response } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../../../fluidcad-server/index.ts';
 import {
-  applyFeatureEdit,
   extractNumericParams,
   HolePlacements,
   makeProducerBindable,
@@ -15,6 +14,7 @@ import {
   type ApplyFeatureEditSpec,
   type HoleEditOptions,
   type HolePlacementSpec,
+  type FeatureCallees,
 } from '../../../apply-feature-edit/index.ts';
 import { normalizePath } from '../../../normalize-path.ts';
 import { scopeCrossFileError } from '../locations.ts';
@@ -46,6 +46,7 @@ export async function resolveHolePlacements(
   inputs: HolePlacementInput[],
   sink: HolePlacementSink,
   synthesisOptionsForFile: ApplyFeatureRequestContext['synthesisOptionsForFile'],
+  callees: FeatureCallees,
   before?: SelectionBoundary,
 ): Promise<Resolved> {
   const placements: HolePlacementSpec[] = [];
@@ -70,7 +71,7 @@ export async function resolveHolePlacements(
       return { error: 'no current source buffer is available for sketch vertex placements', status: 422 };
     }
     const resolved = server.resolveSelection({ picks: vertexPicks, ...(before ? { before: before.index } : {}) }, {
-      namer: await makeProducerNamer(code), bindable: await makeProducerBindable(code),
+      namer: await makeProducerNamer(code, callees), bindable: await makeProducerBindable(code, callees),
       params: resolveParamValues(await extractNumericParams(code), server.getParamDefinitions()),
     });
     if (resolved.ok === false) {
@@ -200,7 +201,9 @@ export async function handleHole(ctx: ApplyFeatureRequestContext, req: Request, 
     const { producers, merge } = makeProducerMerger();
     const parts: ApplyFeatureEditSpec['parts'] = [];
     const imports = new Set<string>();
-    const resolved = await resolveHolePlacements(fluidCadServer, request.placements, { merge, parts, imports }, synthesisOptionsForFile);
+    const resolved = await resolveHolePlacements(
+      fluidCadServer, request.placements, { merge, parts, imports }, synthesisOptionsForFile, await ctx.currentCallees(),
+    );
     if ('error' in resolved) {
       res.status(resolved.status).json({ success: false, reason: resolved.error });
       return;
@@ -230,12 +233,12 @@ export async function handleHole(ctx: ApplyFeatureRequestContext, req: Request, 
     };
     // Truthful preview: stage the exports and new connectors the way the
     // transform will, then name producers the way its binding walk does.
-    const staged = code ? await HolePlacements.prepare(code, spec, applyFeatureEdit) : { code, spec };
+    const staged = code ? await HolePlacements.prepare(code, spec, ctx.applyEdit) : { code, spec };
     if ('error' in staged) {
       res.status(422).json({ success: false, reason: staged.error });
       return;
     }
-    const vars = await allocateProducerVars(staged.spec.producers, staged.code);
+    const vars = await allocateProducerVars(staged.spec.producers, staged.code, await ctx.currentCallees());
     const exprs = renderHolePlacementExprs(staged.spec.hole!.placements, staged.spec.parts, i => vars[i] ?? null);
     if ('error' in exprs) {
       res.status(422).json({ success: false, reason: exprs.error });

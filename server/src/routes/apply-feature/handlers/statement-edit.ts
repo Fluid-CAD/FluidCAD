@@ -2,7 +2,6 @@
 
 import type { Request, Response } from 'express';
 import {
-  applyFeatureEdit,
   enclosingSketchLine,
   extractNumericParams,
   HolePlacements,
@@ -25,12 +24,14 @@ import { normalizePath } from '../../../normalize-path.ts';
 import type { SketchLoc } from '../locations.ts';
 import { validateBoundary, type Pick } from '../picks.ts';
 import { allocateProducerVars, makeProducerMerger } from '../synthesis.ts';
+import { AxisInputs } from '../axis-inputs.ts';
 import type { CopyEditAxisInput } from '../validate/copy.ts';
 import { loftProfileOwners, synthesizeLoftConnections } from '../validate/loft.ts';
 import { projectSketchRefusal } from '../validate/project.ts';
 import type { RepeatEditAxisInput } from '../validate/repeat.ts';
 import { validateStatementEdit } from '../validate/statement-edit.ts';
 import { resolveHolePlacements } from './hole.ts';
+import { handleCustomFeatureEdit } from './custom-feature.ts';
 import type { ApplyFeatureRequestContext } from '../context.ts';
 
 // In-place statement edit (timeline double-click → edit dialog): the
@@ -39,6 +40,11 @@ import type { ApplyFeatureRequestContext } from '../context.ts';
 // profiles, paths) synthesize selectors against the scene truncated to
 // the `before` boundary — the world the statement's arguments see.
 export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: Request, res: Response): Promise<void> {
+  // A custom feature's statement reads and writes through its call shape.
+  if (req.body?.feature === 'custom') {
+    await handleCustomFeatureEdit(ctx, req, res);
+    return;
+  }
   const { fluidCadServer, dispatcher, foreignPicks, preview, newVariables } = ctx;
   const request = validateStatementEdit(req.body);
   if ('error' in request) {
@@ -72,13 +78,13 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.sweepProfile ? [request.sweepProfile] : []),
       ...(request.wrapSketch ? [request.wrapSketch] : []),
       ...(request.revolveProfile ? [request.revolveProfile] : []),
-      ...(request.revolveAxis?.kind === 'axis' ? [request.revolveAxis.loc] : []),
-      ...(request.helixSource?.kind === 'axis' ? [request.helixSource.loc] : []),
+      ...(request.revolveAxis?.kind === 'axis' || request.revolveAxis?.kind === 'connector' ? [request.revolveAxis.loc] : []),
+      ...(request.helixSource?.kind === 'axis' || request.helixSource?.kind === 'connector' ? [request.helixSource.loc] : []),
       ...(request.loftProfiles ?? []).filter((p): p is { kind: 'sketch' } & SketchLoc => p.kind === 'sketch'),
       ...(request.loftGuides ?? []).filter((g): g is { kind: 'sketch' } & SketchLoc => g.kind === 'sketch'),
       ...(request.sketchTarget?.kind === 'planeRef' ? [request.sketchTarget.loc] : []),
-      ...(request.repeatDirections ?? []).flatMap(d => d.axis.kind === 'axis' ? [d.axis.loc] : []),
-      ...(request.repeatAxis?.kind === 'axis' ? [request.repeatAxis.loc] : []),
+      ...(request.repeatDirections ?? []).flatMap(d => d.axis.kind === 'axis' || d.axis.kind === 'connector' ? [d.axis.loc] : []),
+      ...(request.repeatAxis?.kind === 'axis' || request.repeatAxis?.kind === 'connector' ? [request.repeatAxis.loc] : []),
       ...(request.repeatPlane?.kind === 'plane' ? [request.repeatPlane.loc] : []),
       ...(request.repeatTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.copyDirections ?? []).flatMap(d => d.axis.kind === 'axis' || d.axis.kind === 'connector' ? [d.axis.loc] : []),
@@ -90,10 +96,11 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.splitPlane?.kind === 'plane' ? [request.splitPlane.loc] : []),
       ...(request.splitPlane?.kind === 'sketchEdge' ? [request.splitPlane.sketch, request.splitPlane.line] : []),
       ...(request.splitTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
-      ...(request.rotateAxis?.kind === 'axis' ? [request.rotateAxis.loc] : []),
+      ...(request.rotateAxis?.kind === 'axis' || request.rotateAxis?.kind === 'connector' ? [request.rotateAxis.loc] : []),
       ...(request.rotateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.translateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+      ...(request.colorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
     ];
     for (const loc of sketchLocs) {
@@ -127,7 +134,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     if ((request.needsPicks || request.sketchPicks || request.copySketchTargets
       || request.copyAxisPicks) && code) {
       synthOptions = {
-        namer: await makeProducerNamer(code),
+        namer: await makeProducerNamer(code, await ctx.currentCallees()),
         params: resolveParamValues(
           await extractNumericParams(code),
           fluidCadServer.getParamDefinitions(),
@@ -138,7 +145,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     /** Synthesize one re-picked slot against the pre-statement scene. */
     const synthesizeSlot = (
       picks: Pick[],
-      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector',
+      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color',
       value: ValueExpr | undefined,
       chains: { seed: Pick; members: Pick[] }[],
       extra?: { connector?: { anchor?: ConnectorAnchorSpec } },
@@ -234,7 +241,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     if (request.holePlacements) {
       const resolved = await resolveHolePlacements(
         fluidCadServer, request.holePlacements, { merge: mergeProducer, parts, imports: importSet },
-        ctx.synthesisOptionsForFile, before ?? undefined,
+        ctx.synthesisOptionsForFile, await ctx.currentCallees(), before ?? undefined,
       );
       if ('error' in resolved) {
         res.status(resolved.status).json({ success: false, reason: resolved.error });
@@ -296,16 +303,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       edit.revolve!.regionSketch = { line: request.revolveProfile.line, column: request.revolveProfile.column };
     }
     if (request.revolveAxis) {
-      if (request.revolveAxis.kind === 'standard') {
-        edit.revolve!.axis = { kind: 'standard', axis: request.revolveAxis.axis };
-      } else if (request.revolveAxis.kind === 'axis') {
-        edit.revolve!.axis = {
-          kind: 'axis',
-          producer: mergeProducer({
-            line: request.revolveAxis.loc.line, column: request.revolveAxis.loc.column,
-            featureType: 'axis', nameHint: 'a', bind: true,
-          }),
-        };
+      if (request.revolveAxis.kind !== 'edge') {
+        edit.revolve!.axis = AxisInputs.bind(request.revolveAxis, mergeProducer);
       } else {
         const synthesis = synthesizeSlot([request.revolveAxis.pick], 'revolve', undefined, []);
         if (!synthesis) {
@@ -323,16 +322,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       }
     }
     if (request.helixSource) {
-      if (request.helixSource.kind === 'standard') {
-        edit.helix!.source = { kind: 'standard', axis: request.helixSource.axis };
-      } else if (request.helixSource.kind === 'axis') {
-        edit.helix!.source = {
-          kind: 'axis',
-          producer: mergeProducer({
-            line: request.helixSource.loc.line, column: request.helixSource.loc.column,
-            featureType: 'axis', nameHint: 'a', bind: true,
-          }),
-        };
+      if (request.helixSource.kind !== 'edge' && request.helixSource.kind !== 'face') {
+        edit.helix!.source = AxisInputs.bind(request.helixSource, mergeProducer);
       } else {
         const synthesis = synthesizeSlot([request.helixSource.pick], 'helix', undefined, []);
         if (!synthesis) {
@@ -386,7 +377,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     if (request.loftConnections !== undefined) {
       const connections = await synthesizeLoftConnections(fluidCadServer, request.loftConnections,
         request.target.filePath, mergeProducer, request.target,
-        loftProfileOwners(request.loftProfiles), before ?? undefined);
+        loftProfileOwners(request.loftProfiles), await ctx.currentCallees(), before ?? undefined);
       if ('error' in connections) {
         res.status(422).json({ success: false, reason: connections.error });
         return;
@@ -468,7 +459,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       // the re-picked source reads exactly like a freshly created one.
       const synthesis = synthesizeSlot(
         request.picks,
-        request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset' | 'connector',
+        request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset' | 'connector' | 'color',
         request.feature === 'connector' ? edit.connector!.name : request.value,
         request.chains ?? [],
         request.feature === 'connector' ? { connector: { anchor: request.connectorAnchor } } : undefined,
@@ -486,24 +477,16 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     if (request.feature === 'repeat') {
       const rp = edit.repeat!;
       // One repeat axis input as its edit spec form; null after refusing.
-      // Keeps and standard axes pass through; an axis statement binds a
-      // producer; a picked edge synthesizes its own selector part against
-      // the pre-statement boundary, wrapped in `axis(…)` at render time.
+      // Keeps and standard axes pass through; an axis statement or a
+      // connector binds a producer; a picked edge synthesizes its own
+      // selector part against the pre-statement boundary, wrapped in
+      // `axis(…)` at render time.
       const resolveAxis = (input: RepeatEditAxisInput): RepeatEditAxis | null => {
         if (input.kind === 'keep') {
           return { kind: 'keep', sourceIndex: input.sourceIndex };
         }
-        if (input.kind === 'standard') {
-          return { kind: 'standard', axis: input.axis };
-        }
-        if (input.kind === 'axis') {
-          return {
-            kind: 'axis',
-            producer: mergeProducer({
-              line: input.loc.line, column: input.loc.column,
-              featureType: 'axis', nameHint: 'a', bind: true,
-            }),
-          };
+        if (input.kind !== 'edge') {
+          return AxisInputs.bind(input, mergeProducer);
         }
         const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
         if (!synthesis) {
@@ -631,9 +614,6 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         if (input.kind === 'keep') {
           return { kind: 'keep', sourceIndex: input.sourceIndex };
         }
-        if (input.kind === 'standard') {
-          return { kind: 'standard', axis: input.axis };
-        }
         if (input.kind === 'local') {
           importSet.add(`${input.axis}Axis`);
           return { kind: 'local', axis: input.axis };
@@ -642,24 +622,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
           importSet.add('axis');
           return { kind: 'selector', part: sketchAxisParts[sketchAxisIndex++] };
         }
-        if (input.kind === 'axis') {
-          return {
-            kind: 'axis',
-            producer: mergeProducer({
-              line: input.loc.line, column: input.loc.column,
-              featureType: 'axis', nameHint: 'a', bind: true,
-            }),
-          };
-        }
-        if (input.kind === 'connector') {
-          return {
-            kind: 'connector',
-            producer: mergeProducer({
-              line: input.loc.line, column: input.loc.column,
-              featureType: 'connector', nameHint: 'c', bind: true,
-            }),
-            ...(input.slot !== undefined ? { slot: input.slot } : {}),
-          };
+        if (input.kind !== 'edge') {
+          return AxisInputs.bind(input, mergeProducer);
         }
         const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
         if (!synthesis) {
@@ -890,16 +854,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         let axis: RotateEditAxis | null;
         if (input.kind === 'keep') {
           axis = { kind: 'keep' };
-        } else if (input.kind === 'standard') {
-          axis = { kind: 'standard', axis: input.axis };
-        } else if (input.kind === 'axis') {
-          axis = {
-            kind: 'axis',
-            producer: mergeProducer({
-              line: input.loc.line, column: input.loc.column,
-              featureType: 'axis', nameHint: 'a', bind: true,
-            }),
-          };
+        } else if (input.kind !== 'edge') {
+          axis = AxisInputs.bind(input, mergeProducer);
         } else {
           const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
           if (!synthesis) {
@@ -1024,7 +980,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       for (const producer of sketchProducers) {
         parts.push({ producer, accessor: '', indices: null, filterArgs: null });
       }
-      const producerVars = await allocateProducerVars(producers, code);
+      const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
       const sketchArgs = sketchProducers.map((producer, i) => producerVars[producer] ?? `s${i === 0 ? '' : i + 1}`);
       const withSketches = (own: string | undefined): string =>
         [own ?? '', ...sketchArgs].filter(arg => arg !== '').join(', ');
@@ -1037,6 +993,19 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       // Every re-picked target is a bound feature producer; keeps stay
       // text-addressed by their position in the statement.
       edit.boolean!.targets = request.booleanTargets.map(target => target.kind === 'verbatim'
+        ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+        : {
+          kind: 'feature' as const,
+          producer: mergeProducer({
+            line: target.loc.line, column: target.loc.column,
+            featureType: 'feature', nameHint: 'f', bind: true,
+          }),
+        });
+    }
+    if (request.feature === 'color' && request.colorTargets) {
+      // The Solid tab's list, the boolean's way; an empty list makes the
+      // paint implicit again.
+      edit.color!.targets = request.colorTargets.map(target => target.kind === 'verbatim'
         ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
         : {
           kind: 'feature' as const,
@@ -1090,7 +1059,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       const staged = spec.feature === 'loft'
         ? await LoftConnections.prepare(code, spec)
         : spec.feature === 'hole'
-          ? await HolePlacements.prepare(code, spec, applyFeatureEdit)
+          ? await HolePlacements.prepare(code, spec, ctx.applyEdit)
           : spec.feature === 'split'
             ? await SplitSeeds.prepare(code, spec)
             : { code, spec };
@@ -1098,7 +1067,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         res.status(422).json({ success: false, reason: staged.error });
         return;
       }
-      const vars = await allocateProducerVars(staged.spec.producers, staged.code);
+      const vars = await allocateProducerVars(staged.spec.producers, staged.code, await ctx.currentCallees());
       const rendered = renderEditedStatement(parsed.parsed, staged.spec, i => vars[i] ?? null);
       if ('error' in rendered) {
         res.status(422).json({ success: false, reason: rendered.error });

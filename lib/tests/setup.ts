@@ -11,6 +11,10 @@ const renderer = new SceneRenderer(DEFAULT_MESH_CONFIG);
 export function setupOC() {
   beforeEach(() => {
     getSceneManager().startScene();
+    // No entry file unless the test sets one: the files share one manager
+    // (isolate: false), and a file left current by an earlier test would
+    // decide which part() definitions this test's render builds.
+    getSceneManager().setCurrentFile("");
   });
 }
 

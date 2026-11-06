@@ -1,9 +1,9 @@
 export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText,
-  IConnector, IPart, ILoadFile, LoadOptions,
+  IConnector, IPart, ILoadFile, LoadOptions, FontOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
-  IRepeat, IRepeatInstance, IRegionTarget, IRegionSide, ISection, ISplit,
+  IRepeat, IRepeatInstance, RepeatAccessorsOf, RepeatTargetOf, IRegionTarget, IRegionSide, ISection, ISplit,
 } from "./interfaces.js";
 export type { SketchImageOptions, SketchImageSpec } from "../features/2d/sketch-image.js";
 export { default as axis } from "./axis.js";

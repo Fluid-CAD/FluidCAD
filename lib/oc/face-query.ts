@@ -9,6 +9,7 @@ import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { mmTol } from "../units/tolerance.js";
+import { SurfaceFrames } from "./surface-frames.js";
 
 /**
  * What the surface-class filters (`planar()`, `cylinder()`,
@@ -190,6 +191,15 @@ export class FaceQuery {
       c1.delete();
       c2.delete();
       return sameShape && FaceQuery.areAxesCollinear(axis1, axis2, tolerance);
+    }
+    if (type === 'sphere' || type === 'torus') {
+      // A sphere's frame is only a parametrization — two faces of one sphere
+      // may carry any pole axis (a rotated copy, a mirrored half) — and a
+      // torus is its axis and two radii: compare the geometry the frames
+      // define, handedness aside.
+      const a = SurfaceFrames.of(face1.getShape());
+      const b = SurfaceFrames.of(face2.getShape());
+      return a !== null && b !== null && SurfaceFrames.same(a, b, { lin: tolerance, ang: 1e-7 });
     }
     return false;
   }

@@ -11,18 +11,21 @@ export type {
   ValidateUnavailable,
 } from './query-types.ts';
 export type { SerializedAssembly } from './assembly-types.ts';
-export type { ObjectBuildError, ObjectBuildWarning, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
+export type { ObjectBuildError, ObjectBuildWarning, PreviewRender, PreviewRendered, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
+export { RenderClock, type RenderPhase } from './render-clock.ts';
 export { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection, type UnmappedShape } from './shape-export-selection.ts';
 export { PartPropertiesAggregator, type PartMaterialSummary, type PartProperties } from './part-properties.ts';
 export type {
   Copy2DGhostRequest,
   CopyGhostRequest,
+  CustomGhostRequest,
   ExtrudeGhostRequest,
   FeatureGhostOutcome,
   FeatureGhostRequest,
   Fillet2DGhostRequest,
   FilletGhostRequest,
   GhostAxisRef,
+  GhostCustomRef,
   GhostEntityRef,
   GhostFaceRef,
   GhostExtrudeTargetRef,
@@ -60,10 +63,21 @@ export type {
   SweepGhostRequest,
 } from './ghost-requests.ts';
 export {
+  scenePreviewFields,
   sceneStopFields,
   sceneUnitFields,
   type SceneSummary,
+  type SceneSummaryInstance,
+  type SceneSummaryInstancePose,
+  type SceneSummaryInstancePoses,
+  type SceneSummaryJoints,
+  type SceneSummaryMate,
+  type SceneSummaryMateOptions,
+  type SceneSummaryMateSide,
   type SceneSummaryObject,
+  type SceneSummaryOccurrence,
+  type SceneSummaryRelation,
+  type SceneSummaryRelationMate,
   type SceneSummaryShape,
   type ShapeList,
   type ShapeListEntry,

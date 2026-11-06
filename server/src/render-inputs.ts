@@ -25,6 +25,13 @@ export type RenderInputSources = {
   extraFiles: readonly string[];
   /** The session's param overrides, canonically serialized. */
   params: string;
+  /**
+   * Files the render evaluated as other text than their buffer or disk
+   * holds — an assembly preview's edited entry (`SceneHost.RenderOverlay`):
+   * fingerprinted as what was evaluated, so the render is served again
+   * exactly when the editor's buffer comes to hold that text (Apply).
+   */
+  contents?: ReadonlyMap<string, string>;
 };
 
 /**
@@ -72,7 +79,8 @@ export class RenderInputs {
     }
     const files = new Map<string, string>();
     for (const file of inputs) {
-      files.set(file, this.contentHash(file));
+      const evaluated = sources.contents?.get(file);
+      files.set(file, evaluated !== undefined ? RenderInputs.hashOf(evaluated) : this.contentHash(file));
     }
     return { files, params: sources.params };
   }

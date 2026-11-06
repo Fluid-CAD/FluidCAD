@@ -5,15 +5,19 @@ import {
   GRID_MIN_CELL_PX_RANGE,
   MAX_WORKERS_RANGE,
   MEASURE_LENGTH_UNITS,
+  PACKAGE_INSTALL_TARGETS,
   PICK_RADIUS_PX_RANGE,
   SNAP_RADIUS_PX_RANGE,
   TIMELINE_SKETCH_CHILDREN,
   loadPreferences,
+  parseToolbarPackages,
   resetPreferences,
   savePreferences,
   type Preferences,
 } from '../preferences.ts';
 import { parseProjectMaterials } from '../project-config.ts';
+import { LibraryMove } from '../packages/library-move.ts';
+import { PackageRoots } from '../packages/package-roots.ts';
 
 /** Bounds an editor font family: one line of plain text, no CSS injection surface. */
 const MAX_FONT_FAMILY_CHARS = 120;
@@ -58,6 +62,16 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
   router.post('/preferences', async (req, res) => {
     try {
       const body = req.body;
+      // The one setting refused out loud rather than dropped: a library
+      // folder the user typed that can't hold packages. Nothing is saved.
+      const libraryProblem = typeof body.packageLibraryPath === 'string' && body.packageLibraryPath.trim() !== ''
+        ? PackageRoots.checkLibraryPath(body.packageLibraryPath.trim())
+        : null;
+      if (libraryProblem) {
+        res.status(400).json({ error: libraryProblem, key: 'packageLibraryPath' });
+        return;
+      }
+      const libraryBefore = PackageRoots.libraryPath();
       const saved = await serialized(async () => {
         const current = await loadPreferences();
         if (body.theme && typeof body.theme === 'string') {
@@ -156,9 +170,25 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
             current.materials = materials.materials;
           }
         }
+        // Empty puts the library back at its default.
+        if (typeof body.packageLibraryPath === 'string') {
+          current.packageLibraryPath = body.packageLibraryPath.trim();
+        }
+        if (PACKAGE_INSTALL_TARGETS.includes(body.packageInstallTarget)) {
+          current.packageInstallTarget = body.packageInstallTarget;
+        }
+        // The whole list, as the toolbar holds it (an empty one unpins all).
+        const toolbarPackages = parseToolbarPackages(body.toolbarPackages);
+        if (toolbarPackages !== null) {
+          current.toolbarPackages = toolbarPackages;
+        }
         await savePreferences(current);
         return current;
       });
+      // The library may have moved: every cached package-root verdict goes,
+      // and the folder it left is remembered for the copy offer.
+      PackageRoots.forget();
+      LibraryMove.note(libraryBefore, PackageRoots.libraryPath());
       onSaved(saved);
       res.json(saved);
     } catch (err: any) {
@@ -171,7 +201,10 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
   // cannot resurrect the old file.
   router.post('/preferences/reset', async (_req, res) => {
     try {
+      const libraryBefore = PackageRoots.libraryPath();
       const prefs = await serialized(() => resetPreferences());
+      PackageRoots.forget();
+      LibraryMove.note(libraryBefore, PackageRoots.libraryPath());
       onSaved(prefs);
       res.json(prefs);
     } catch (err: any) {

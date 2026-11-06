@@ -12,6 +12,7 @@ import { ColorTransfer, type CarriedColor, type SourceColors } from "./color-tra
 import { Explorer } from "./explorer.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { RenderSeams } from "./render-seams.js";
+import { FaceQuery } from "./face-query.js";
 
 export type FilletResult = {
   solids: Solid[];
@@ -21,7 +22,91 @@ export type FilletResult = {
   colors: CarriedColor[];
 };
 
+/** The two edge breaks, for the messages they share. */
+export type EdgeBreak = 'fillet' | 'chamfer';
+
 export class FilletOps {
+  /**
+   * The edges of `edges` that lie between two faces of one surface: the
+   * seam a boolean leaves when the kernel cannot merge such faces back into
+   * one (see SameDomainMerge), not a corner. The surfaces meet at 180°
+   * there, so a fillet or chamfer has nothing to break and the kernel
+   * refuses the whole operation.
+   */
+  static seamsAmong(solid: Solid, edges: Edge[]): Edge[] {
+    return edges.filter(edge => {
+      const faces = solid.getFacesOfEdge(edge);
+      return faces.length === 2 && FaceQuery.isSameSurface(faces[0], faces[1]);
+    });
+  }
+
+  /**
+   * How many seams (as `seamsAmong` finds them) bound the faces on either
+   * side of `edges`: where a blend along those edges would have to end or
+   * turn on a corner that is not there.
+   */
+  static seamsAround(solid: Solid, edges: Edge[]): number {
+    const faces = new Set<Face>();
+    for (const edge of edges) {
+      for (const face of solid.getFacesOfEdge(edge)) {
+        faces.add(face);
+      }
+    }
+    const seen = new Set<Edge>();
+    let count = 0;
+    for (const face of faces) {
+      for (const edge of face.getEdges()) {
+        if (seen.has(edge) || edges.includes(edge)) {
+          continue;
+        }
+        seen.add(edge);
+        if (FilletOps.seamsAmong(solid, [edge]).length > 0) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
+
+  /** The surface kinds the seams lie on, for a message: "sphere", or "sphere or torus". */
+  private static seamSurfaces(solid: Solid, seams: Edge[]): string {
+    const kinds = new Set<string>();
+    for (const seam of seams) {
+      const faces = solid.getFacesOfEdge(seam);
+      if (faces.length > 0) {
+        kinds.add(FaceQuery.getSurfaceType(faces[0]));
+      }
+    }
+    return [...kinds].join(' or ') || 'surface';
+  }
+
+  /** The message for seams found in a selection: what they are, and whether anything was left to break. */
+  static seamsMessage(op: EdgeBreak, solid: Solid, seams: Edge[], breakable: number): string {
+    const total = seams.length + breakable;
+    const where = `lie between two faces of one ${FilletOps.seamSurfaces(solid, seams)} — a seam left where a ` +
+      `boolean could not merge the faces, not a corner — `;
+    if (breakable === 0) {
+      return `${op}: the ${total} selected edge(s) ${where}so there is nothing to ${op}. ` +
+        `The solid was left un${op}ed.\n` +
+        `Hint: select the edges where two different surfaces meet, e.g. ` +
+        `edge().belongsToFace(<face>).belongsToFace(<neighbouring face>).`;
+    }
+    return `${op}: ${seams.length} of the ${total} selected edge(s) ${where}and were skipped; ` +
+      `the other ${breakable} were ${op}ed.`;
+  }
+
+  /** The message for a kernel refusal: the usual cause, and the seam cause when seams bound the selection's faces. */
+  static refusedMessage(op: EdgeBreak, value: string, solid: Solid, edges: Edge[]): string {
+    const around = FilletOps.seamsAround(solid, edges);
+    const seamCause = around > 0
+      ? `, or the chain ends on a seam between two faces of one surface that a boolean left unmerged ` +
+        `(${around} such seam(s) bound the faces next to the selection)`
+      : '';
+    return `${op}: the kernel could not build ${value} on the ${edges.length} selected edge(s). ` +
+      `The ${op === 'fillet' ? 'radius' : 'distance'} may be too large for the adjacent faces${seamCause}. ` +
+      `The solid was left un${op}ed.`;
+  }
+
   static makeFillet(source: SourceColors, edges: Edge[], radius: number): FilletResult {
     const oc = getOC();
     const solid = source.shape;

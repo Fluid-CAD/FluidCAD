@@ -1,5 +1,5 @@
 import {
-  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
+  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions, resolveExpressionValue,
   suggestionItemHtml, suggestsExistingName, trailingIdentifier, ParamDeclareMode, Suggestion,
   VariableInfo,
 } from './expression-core';
@@ -64,6 +64,11 @@ export function collectNewVariablesChecked(
  * dropdown, Enter fills the selection or submits, Escape closes the dropdown
  * before it closes the dialog) — hosts wire `onSubmit` instead of their own
  * Enter listener.
+ *
+ * With `arithmeticOnly` the field serves hosts that write numbers, not source
+ * expressions: declarations are off (no new-variable offer, no P toggle), the
+ * dropdown still completes existing names, and `read()` returns the text
+ * evaluated to a finite number.
  */
 export class ExpressionField {
   /** Enter pressed with no suggestion selected — the dialogs apply. */
@@ -101,7 +106,7 @@ export class ExpressionField {
   };
   private readonly onParamViewportChange = () => this.positionParamBtn();
 
-  constructor(private input: HTMLInputElement) {
+  constructor(private input: HTMLInputElement, private opts: { arithmeticOnly?: boolean } = {}) {
     input.type = 'text';
     input.autocomplete = 'off';
     input.spellcheck = false;
@@ -214,6 +219,13 @@ export class ExpressionField {
     if (this.isPlainNumber(raw)) {
       return { value: Number(raw) };
     }
+    if (this.opts.arithmeticOnly) {
+      const classified = classifyCommit(raw, this.variables, this.seedValue, false, false, true);
+      if (classified.kind === 'error') {
+        return { error: classified.message };
+      }
+      return { value: resolveExpressionValue(raw, this.variables)! };
+    }
     if (this.committed && raw === this.committed.expression) {
       return { value: raw, newVariable: this.committed.newVariable };
     }
@@ -309,7 +321,7 @@ export class ExpressionField {
     const raw = this.input.value.trim();
     // A bare name the open dropdown matches is hidden from, not barred
     // from, declaring: read() still honours the session's toggle.
-    if (this.isUnchangedSource(raw) || declaredVariableName(raw, this.variables, this.seedValue) === null
+    if (this.opts.arithmeticOnly || this.isUnchangedSource(raw) || declaredVariableName(raw, this.variables, this.seedValue) === null
       || suggestsExistingName(raw, this.filtered)) {
       this.hideParamBtn();
       return;
@@ -355,7 +367,8 @@ export class ExpressionField {
       this.closeDropdown();
       return;
     }
-    this.filtered = filterSuggestions(query, this.variables, this.input.value, this.seedValue);
+    this.filtered = filterSuggestions(query, this.variables, this.input.value, this.seedValue)
+      .filter((s) => !(this.opts.arithmeticOnly && s.isNew));
     if (this.filtered.length === 0) {
       this.closeDropdown();
       return;

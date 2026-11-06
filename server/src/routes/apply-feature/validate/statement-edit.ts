@@ -1,8 +1,9 @@
 // In-place statement edit request validation: the per-feature option slots an edit dialog commits.
 
 import {
+  shapedConnectorRotate,
   validConnectorAnchor,
-  validConnectorRotate,
+  validConnectorOffset,
   validValueExpr,
   type ApplyFeatureEditSpec,
   type ConnectorAnchorSpec,
@@ -20,6 +21,7 @@ import { validateChains, validatePick, validatePicks, validateSketchPicks, type 
 import { validateRegionEdits } from '../regions.ts';
 import { normalizePath } from '../../../normalize-path.ts';
 import { validateBooleanEdit } from './boolean.ts';
+import { validateColorEdit } from './color.ts';
 import { isKeepSlot, validateProfileFeature, validateThinOffsets } from './common.ts';
 import { validateCopyEdit, type CopyEditAxisInput } from './copy.ts';
 import { validateExtrudeOptions } from './extrude.ts';
@@ -52,7 +54,7 @@ import { validateSplitEdit, type SplitPlaneInput } from './split.ts';
 import { validateSweepExtend } from './sweep.ts';
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color']);
 
 export type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
@@ -178,6 +180,8 @@ export type StatementEditRequest = {
   translateTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement boolean target list; absent keeps the statement's. */
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /** Full replacement colour target list (the Solid tab); absent keeps the statement's arguments, `[]` makes the paint implicit. */
+  colorTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement plane base list; absent keeps the statement's. */
   planeBases?: PlaneEditBaseInput[];
   /**
@@ -668,6 +672,10 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     return validateBooleanEdit(body, base, edit);
   }
 
+  if (feature === 'color') {
+    return validateColorEdit(body, base, edit);
+  }
+
   if (feature === 'plane') {
     return validatePlaneEdit(body, base, edit);
   }
@@ -725,14 +733,16 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     if (typeof name !== 'string' || name.length > 64 || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
       return { error: 'name must be a plain identifier (max 64 chars)' };
     }
+    // The axis is a typed-in slot, checked for shape here and against the
+    // statement's own expressions by the transform; the angle and the
+    // offsets are values like any number row's.
     const rotate = body?.rotate ?? undefined;
-    if (!validConnectorRotate(rotate)) {
-      return { error: "rotate must be { axis: 'x'|'y'|'z', angle } with a finite angle in degrees" };
+    if (!shapedConnectorRotate(rotate)) {
+      return { error: "rotate must be { axis: 'x'|'y'|'z' or an expression, angle } with a finite angle in degrees or an expression" };
     }
     const frameOffset = body?.offset ?? undefined;
-    if (frameOffset !== undefined
-      && !(Array.isArray(frameOffset) && frameOffset.length === 3 && frameOffset.every((v: unknown) => Number.isFinite(v)))) {
-      return { error: 'offset must be [x, y, z] finite numbers' };
+    if (!validConnectorOffset(frameOffset)) {
+      return { error: 'offset must be [x, y, z] finite numbers or expressions' };
     }
     if (selectorOverride !== undefined
       && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {

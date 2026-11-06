@@ -24,6 +24,7 @@ const KEEPS_SCENES_ACROSS_TESTS = new Set([
   "browser-host.test.ts",
   "browser-host-materials.test.ts",
   "browser-host-unit.test.ts",
+  "browser-host-generated.test.ts",
 ]);
 
 let startedInTest: Scene[] | null = null;
@@ -46,4 +47,8 @@ afterEach(() => {
   if (scenes && scenes.length > 0) {
     getSceneManager()?.disposeScenes(scenes);
   }
+  // Generated parts the tests' compares retired outlive their scenes in the
+  // process-wide template cache: each test starts with it empty, so a build
+  // count never reads a part an earlier test built.
+  getSceneManager()?.clearGeneratedTemplates();
 });

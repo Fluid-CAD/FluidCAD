@@ -2,8 +2,10 @@ import { ChamferKind, ModifyFeatureKind, featureIconImg } from './feature-config
 import { ExpressionRow } from './expression-row';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { ExpressionField } from '../../ui/expression-field';
-import { ShellJoinType } from '../../api';
+import { VariableInfo } from '../../ui/expression-core';
+import { FeatureExprValue, FeatureRefValue, ShellJoinType } from '../../api';
 import { viewportChrome } from '../../ui/viewport-chrome';
+import { choiceSeed, SelectControl } from '../create-feature/expression-rows';
 import { DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, PanelShell } from '../create-feature/panel-controls';
 
 /**
@@ -46,7 +48,8 @@ export class ModifyPanel {
   private readonly value2Label: HTMLElement;
   private readonly value2Input: HTMLInputElement;
   private readonly joinWrap: HTMLElement;
-  private readonly joinSelect: HTMLSelectElement;
+  /** The shell's join dropdown with its ƒ mode — `.join(smooth ? 'tangent' : 'arc')` opens it on the expression. */
+  private readonly join: SelectControl<ShellJoinType>;
   private readonly selectionSlot: PickSlot;
   private readonly applyBtn: HTMLButtonElement;
   private readonly message: HTMLDivElement;
@@ -82,7 +85,7 @@ export class ModifyPanel {
               class="input input-sm input-bordered w-full text-xs" />
           </label>
           <label data-role="join-wrap" class="flex flex-col gap-1.5 hidden">
-            <span class="text-base-content/70">Join type</span>
+            <span data-role="join-label" class="text-base-content/70">Join type</span>
             <select data-role="join" class="select select-sm select-bordered w-full text-xs">
               <option value="arc">Arc</option>
               <option value="intersection">Intersection</option>
@@ -110,7 +113,11 @@ export class ModifyPanel {
     this.value2Label = this.root.querySelector('[data-role="value2-label"]')!;
     this.value2Input = this.root.querySelector('[data-role="value2"]')!;
     this.joinWrap = this.root.querySelector('[data-role="join-wrap"]')!;
-    this.joinSelect = this.root.querySelector('[data-role="join"]')!;
+    this.join = new SelectControl(
+      this.root.querySelector('[data-role="join"]')!,
+      this.root.querySelector('[data-role="join-label"]')!,
+      { name: 'join', label: 'Join type' },
+    );
     this.selectionSlot = new PickSlot(
       this.root.querySelector('[data-role="selection-slot"]')!,
       { label: 'Selection', multiple: true },
@@ -139,7 +146,8 @@ export class ModifyPanel {
     this.value2Field.onSubmit = () => this.onApply?.();
     this.value2Input.addEventListener('input', () => this.onValue2Input?.());
     this.chamferTypeSelect.addEventListener('change', () => this.onChamferTypeChange?.());
-    this.joinSelect.addEventListener('change', () => this.onJoinChange?.());
+    this.join.onChange = () => this.onJoinChange?.();
+    this.join.onSubmit = () => this.onApply?.();
   }
 
   /**
@@ -203,22 +211,32 @@ export class ModifyPanel {
     return this.chamferTypeSelect.value as ChamferKind;
   }
 
-  /** Whether the value or args input owns the keyboard (Enter-to-apply). */
+  /** Whether the value, args or join-expression input owns the keyboard (Enter-to-apply). */
   ownsFocus(target: Element | null): boolean {
     return target === this.valueInput || target === this.value2Input
-      || target === this.expression.inputElement;
+      || target === this.expression.inputElement
+      || (target !== null && this.join.mode.line.contains(target));
   }
 
   setJoinVisible(visible: boolean): void {
     this.joinWrap.classList.toggle('hidden', !visible);
   }
 
-  get joinValue(): ShellJoinType {
-    return this.joinSelect.value as ShellJoinType;
+  /** What the join row writes: the chosen option, the expression under its ƒ, or why there is nothing to write. */
+  readJoin(): { value: ShellJoinType | FeatureExprValue } | { error: string } {
+    return this.join.read();
   }
 
-  set joinValue(value: ShellJoinType) {
-    this.joinSelect.value = value;
+  /** Seed the join row (an arming's default, an edited statement's own); a reference or an expression opens it in expression mode. No change fires. */
+  setJoin(value: ShellJoinType | FeatureRefValue | FeatureExprValue): void {
+    this.join.setValue(choiceSeed(value));
+  }
+
+  /** The variables the value fields' dropdowns offer, and the join row's expression resolves over. */
+  setScopeVariables(variables: VariableInfo[]): void {
+    this.valueField.setVariables(variables);
+    this.value2Field.setVariables(variables);
+    this.join.setVariables(variables);
   }
 
   setChips(chips: PickSlotChip[]): void {

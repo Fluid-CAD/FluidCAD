@@ -1,8 +1,10 @@
 // plane request validation (create and edit).
 
 import {
-  validPlaneRotationAxes,
+  isLocalAxes,
   validValueExpr,
+  ValueSlots,
+  type ChoiceSlot,
   type FeatureStatementEditTarget,
   type PlaneRotationAxes,
   type ValueExpr,
@@ -28,7 +30,8 @@ type PlaneValues = {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
-  rotationAxes: PlaneRotationAxes;
+  /** The axes the rotations turn around: a literal, or the expression computing the name. */
+  rotationAxes: ChoiceSlot<PlaneRotationAxes>;
   position: ValueExpr | null;
 };
 
@@ -48,9 +51,11 @@ function validatePlaneValues(body: any): PlaneValues | { error: string } {
   if (type !== 'offset' && type !== 'mid' && type !== 'edge') {
     return { error: 'type must be "offset", "mid" or "edge"' };
   }
-  const axes: PlaneRotationAxes = body?.rotationAxes ?? 'local';
-  if (!validPlaneRotationAxes(axes)) {
-    return { error: 'rotationAxes must be "local" or "world"' };
+  // A typed-in slot: a literal of the two, or an expression the transform
+  // checks against the statement's own (never `validExpr` here).
+  const axes: ChoiceSlot<PlaneRotationAxes> = body?.rotationAxes ?? 'local';
+  if (!ValueSlots.shaped(axes, literal => literal === 'local' || literal === 'world')) {
+    return { error: 'rotationAxes must be "local", "world" or an expression' };
   }
   const numbers: Record<string, ValueExpr | null> = {};
   for (const key of ['offset', 'rotateX', 'rotateY', 'rotateZ', 'position'] as const) {
@@ -70,7 +75,7 @@ function validatePlaneValues(body: any): PlaneValues | { error: string } {
       return { error: 'position must be a number between 0 (start) and 1 (end), or an expression' };
     }
     if (numbers.offset !== null || numbers.rotateX !== null || numbers.rotateY !== null || numbers.rotateZ !== null
-      || axes === 'world') {
+      || !isLocalAxes(axes)) {
       return { error: 'an edge plane takes a position only — no offset or rotation' };
     }
   } else if (numbers.position !== null) {

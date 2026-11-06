@@ -2,6 +2,8 @@
 
 import {
   validValueExpr,
+  ValueSlots,
+  type BooleanSlot,
   type ExtrudeFaceTarget,
   type RegionPickSpec,
   type ValueExpr,
@@ -19,7 +21,8 @@ type ExtrudeOptionSet = {
   symmetric: boolean;
   draft: ValueExpr | null;
   endOffset: ValueExpr | null;
-  drill: boolean;
+  /** The drill flag, or the expression computing it. */
+  drill: BooleanSlot;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
 };
 
@@ -91,8 +94,8 @@ export function validateExtrudeOptions(body: any, toFace = false): ExtrudeOption
   if (endOffset !== undefined && endOffset !== null && !validValueExpr(endOffset, { nonzero: true })) {
     return { error: 'endOffset must be a nonzero pull-back distance' };
   }
-  if (drill !== undefined && typeof drill !== 'boolean') {
-    return { error: 'drill must be a boolean' };
+  if (drill !== undefined && !ValueSlots.shaped(drill, literal => typeof literal === 'boolean')) {
+    return { error: 'drill must be a boolean or an expression' };
   }
   const thinResult = validateThinOffsets(thin);
   if ('error' in thinResult) {
@@ -105,7 +108,7 @@ export function validateExtrudeOptions(body: any, toFace = false): ExtrudeOption
     symmetric: symmetric === true,
     draft: draft ?? null,
     endOffset: endOffset ?? null,
-    drill: drill !== false,
+    drill: drill ?? true,
     thin: thinResult.offsets,
   };
 }

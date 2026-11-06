@@ -36,7 +36,7 @@ export async function handleMirror(ctx: ApplyFeatureRequestContext, req: Request
     }));
 
     const synthesizePick = makePickSynthesizer({
-      res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+      res, fluidCadServer, code, filePath, mergeProducer, parts, imports, callees: ctx.currentCallees,
     });
     // The picked mirror face synthesizes into its own selector part — the
     // repeat mirror's exact input, through the same single-selection
@@ -69,7 +69,7 @@ export async function handleMirror(ctx: ApplyFeatureRequestContext, req: Request
 
     const options: MirrorEditOptions = { plane, op: request.op, targets };
     // Truthful preview: the same allocation walk the transform runs.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const varFor = (i: number): string | null => producerVars[i];
     const statement = renderMirrorStatement(
       options,

@@ -14,6 +14,7 @@ import {
   checkUpgradeProgress,
 } from './contract-guards';
 import type {
+  OpeningStatus,
   ProjectDialogs,
   SessionView,
   StartProject,
@@ -22,7 +23,7 @@ import type {
   WindowState,
 } from './host';
 import type { TabOpening } from './project-tab-screen';
-import { ProjectTabs, projectNameOf, projectOfTab } from './project-tabs';
+import { ProjectTabs, projectNameOf, projectOfTab, type TabProject } from './project-tabs';
 
 /**
  * The start screen's host under `npx fluidcad`: the launcher's start server,
@@ -96,7 +97,7 @@ export function browserEnvironment(): HttpHostEnvironment {
 export class HttpStartHost implements StartScreenHost {
   readonly dialogs: ProjectDialogs;
   /** The project this tab opens, or null on the start screen. */
-  private readonly tabProject: { path: string; create: boolean } | null;
+  private readonly tabProject: TabProject | null;
   private readonly events: EventSourceLike;
   private readonly eventsReady: Promise<void>;
   /** Projects the last list said are open: a card for one of them looks for its tab first. */
@@ -124,7 +125,7 @@ export class HttpStartHost implements StartScreenHost {
       browse: async (path) =>
         checkFolderListing(await this.request('GET', path === null ? 'api/folders' : `api/folders?${new URLSearchParams({ path })}`)),
       check: async (parent, name) => checkFolderCheck(await this.request('POST', 'api/folders/check', { parent, name })),
-      create: async (path) => this.showTab(path, { running: false, create: true }),
+      create: async (path, options) => this.showTab(path, { running: false, create: true, package: options?.package }),
     };
     if (!this.tabProject) {
       // A browser tab gives no notice before it closes, so the start screen
@@ -144,9 +145,17 @@ export class HttpStartHost implements StartScreenHost {
       ? {
           phase: 'opening',
           project: { path: tab.path, name: projectNameOf(tab.path) },
-          status: { step: tab.create ? 'creating' : 'resolving' },
+          status: HttpStartHost.firstStatus(tab),
         }
       : null;
+  }
+
+  /** Where a tab's open starts: setting the project (or the package named) up, or finding its engine. */
+  private static firstStatus(tab: TabProject): OpeningStatus {
+    if (!tab.create) {
+      return { step: 'resolving' };
+    }
+    return tab.package ? { step: 'creating', package: tab.package } : { step: 'creating' };
   }
 
   async hello(protocol: number) {
@@ -263,9 +272,12 @@ export class HttpStartHost implements StartScreenHost {
     this.events.addEventListener('changed', () => handler());
   }
 
+  /** `npx fluidcad` has no menu of its own: nothing is ever asked of the page. */
+  onCommand(): void {}
+
   // -------------------------------------------------------------------------
 
-  private showTab(path: string, options: { running: boolean; create?: boolean }): void {
+  private showTab(path: string, options: { running: boolean; create?: boolean; package?: string }): void {
     if (!this.env.tabs.show(path, options)) {
       throw new Error('The browser blocked the new tab. Allow pop-ups for this page, then try again.');
     }

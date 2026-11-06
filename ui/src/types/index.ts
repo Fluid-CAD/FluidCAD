@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ContactEntity } from '../solver/types';
+import type { Appearance } from '../../../lib/common/appearances';
 
 export type SourceLocation = {
   filePath: string;
@@ -157,6 +158,8 @@ export type ObjectType =
   | 'mirror'
   /** A 3D `split(plane | line, …)` — parts solids at a plane. */
   | 'split'
+  /** A `color(value, …)` — paints faces or whole solids; a reference row that holds no body. */
+  | 'color'
   | 'linear-pattern'
   // 3D copies — `copy('linear' | 'circular', …)`, and `copy(pattern, …)`
   // following a repeat
@@ -199,6 +202,19 @@ export type FaceMeshOptions = {
    * (a cut tool's ghost, an extrusion sweeping back into the model).
    */
   depthTest?: boolean;
+  /**
+   * Push the faces back by their depth slope as well as a constant — for a
+   * solid whose edge lines carry no face sides (an older engine's scene),
+   * which draw at their centerline depth. See face-depth-offset.ts.
+   */
+  slopeOffset?: boolean;
+  /**
+   * Draw a mesh the page's mesh cache holds with the geometry the cache
+   * shares (S6b, P6: every instance of a template, every render keeping the
+   * shape) — only for meshes nothing rewrites in place: a solid's faces.
+   * Off, the mesh gets geometry of its own.
+   */
+  sharedGeometry?: boolean;
 };
 
 export type EdgeMeshOptions = {
@@ -207,11 +223,22 @@ export type EdgeMeshOptions = {
   opacity?: number;
   depthWrite?: boolean;
   transparent?: boolean;
+  /**
+   * {@link FaceMeshOptions.sharedGeometry} for edge lines: a solid's edges
+   * only — a sketch's lines are rewritten in place while they are dragged.
+   */
+  sharedGeometry?: boolean;
 };
 
 export type MeshRenderOptions = {
   face?: FaceMeshOptions;
   edge?: EdgeMeshOptions;
+  /**
+   * The enclosing part's `.appearance(id)`, resolved: its unpainted solid
+   * faces take the preset's PBR material instead of the Phong default. A
+   * `color()`-painted face group keeps its flat colour.
+   */
+  appearance?: Appearance;
 };
 
 // ---------------------------------------------------------------------------
@@ -228,6 +255,14 @@ export type SceneObjectMesh = {
   edgeIndex?: number;
   /** solid-edges only — a tangent (G1) junction between two faces (dimmed when dimTangentEdges is on). */
   smooth?: boolean;
+  /**
+   * solid-edges only — per segment (`indices` pair), the vectors into the
+   * faces either side of it, as long as each face runs flat, six numbers,
+   * zeros where a side has no face; their order gives the edge's convexity.
+   * The line is drawn on its faces (see face-edge-line.ts). Absent from an
+   * older engine's scenes.
+   */
+  faceSides?: number[];
 };
 
 export type SubSelection =
@@ -291,6 +326,12 @@ export type CompileError = {
   message: string;
   filePath?: string;
   sourceLocation?: SourceLocation;
+  /**
+   * The packages the project can't load, structured for an Install action:
+   * `code: 'missing'` for a pin installed in neither the project copy nor
+   * the library.
+   */
+  packageProblems?: { code: string; name: string; version: string | null; message: string }[];
 };
 
 /**
@@ -313,6 +354,12 @@ export type SceneObjectRender = {
   name?: string;
   /** True when `name` comes from a user's `.name('…')` chain, not the type. */
   hasCustomName?: boolean;
+  /**
+   * The installed package whose file made the row (the engine server stamps
+   * it): installed packages are read-only, so the row offers no edit,
+   * rename or removal.
+   */
+  package?: { name: string; version: string };
   parentId?: string | null;
   isContainer?: boolean;
   hideChildren?: boolean;
@@ -566,6 +613,14 @@ export type InstanceParamDef = {
   multiControlType?: string;
 };
 
+/**
+ * What a record made from a generated definition carries (`definePart`,
+ * `defineAssembly`): the definition's id and the values it was built with,
+ * by id — defaults included, as the engine completed them. The Edit
+ * parameters dialog opens the definition's schema dialog on it.
+ */
+export type GeneratedValues = { definition: string; values: Record<string, InstanceParamValue> };
+
 export type SerializedAssemblyInstance = {
   instanceId: string;
   partId: string;
@@ -603,6 +658,14 @@ export type SerializedAssemblyInstance = {
    * it — edit the replicate statement's row instead.
    */
   replica?: ReplicaTag;
+  /** An insert of a generated part (`definePart`): its definition and values. */
+  generated?: GeneratedValues;
+  /**
+   * An engine-owned part a generator made (`defineAssembly`): its definition
+   * and template type. Read-only (G8): its statement is the generator's, and
+   * its values are the insert's that made it.
+   */
+  generatedBy?: { definition: string; type: string };
 };
 
 /**
@@ -667,6 +730,12 @@ export type SerializedAssemblyOccurrence = {
   sourceLocation?: { filePath: string; line: number; column: number };
   /** Present on a replica produced by a `replicate()` statement — see SerializedAssemblyInstance.replica. */
   replica?: ReplicaTag;
+  /**
+   * An occurrence of a generated assembly (`defineAssembly`): its definition
+   * and values. Everything under it is engine-owned (read-only); its own
+   * header keeps its actions.
+   */
+  generated?: GeneratedValues;
 };
 
 export type SerializedAssemblyMate = {

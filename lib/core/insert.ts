@@ -35,9 +35,17 @@ import { IPart } from "./interfaces.js";
  * values feed the part's own `param()` calls, whose numbers are the part
  * file's numbers.
  *
- * @param definition - A `part()` or `assembly()` definition.
- * @param configuration - A row name from the definition's `configurations()`.
- * @param overrides - `{ label: value }` for the definition's `param()` calls.
+ * A generated definition (`definePart()`, `defineAssembly()`) takes its
+ * values by id, as its schema declares them — `insert(gearPart, { teeth:
+ * 18 })`, `insert(wardrobe, { width: 1200, drawers: 3 })` — each checked
+ * and defaulted as its feature's or generator's declaration says. It has no
+ * configurations. An id it doesn't take, a value its declaration refuses,
+ * or a configuration name is a build error on this statement; the render
+ * goes on.
+ *
+ * @param definition - A `part()` or `assembly()` definition, or a generated one (`definePart()`, `defineAssembly()`).
+ * @param configuration - A row name from the definition's `configurations()` (never for a generated definition).
+ * @param overrides - `{ label: value }` for the definition's `param()` calls; a generated definition's values by id.
  */
 function insert<T>(definition: PartDefinition<T>, overrides?: ParamOverrides): Instance<T>;
 function insert<T>(definition: PartDefinition<T>, configuration: string, overrides?: ParamOverrides): Instance<T>;

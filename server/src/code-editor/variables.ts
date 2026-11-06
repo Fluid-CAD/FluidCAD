@@ -12,7 +12,7 @@ import { updateDimensionExpression } from './dimensions.ts';
 import { ensureSymbolImport } from './imports.ts';
 import { RenderedProperties, type PropertySourceCall, type RenderedPropertyValue } from './rendered-properties.ts';
 import { indentOf, joinLines, resolveSourceRow, splitLines, type CodeEditResult } from './lines.ts';
-import { findEditableCallAt, walkTree } from './nodes.ts';
+import { findEditableCallAt, numericLiteralValue, stringLiteralValue, walkTree } from './nodes.ts';
 import { getParser, type TSNode, type TSTree } from './parser.ts';
 import {
   bareProperties, declarationImports, declareParamStatementsFor, findEnclosingPart, findPartAt,
@@ -158,6 +158,15 @@ export type VariableGlobalInfo = {
  * parameter from a `*.params.js` file; its `name` is the identifier usable
  * in this file and its initializer the literal value, so the client-side
  * evaluator reads it like any local.
+ *
+ * `value` is the declaration's literal, when one can be read without
+ * evaluating anything: a `const`'s string, number, boolean or list literal,
+ * a `param()`'s current value when the registry has one for the call site
+ * (the configuration's), else its default (its second argument), a
+ * `property()`'s published literal, a global's value, a rendered property's
+ * value. A choice row matches it against its options, an expression row
+ * works its value out over it; it is left out for an initializer that is
+ * no literal (`extrude(...)`, `width / 2`, an import).
  */
 export type VariableInfo = {
   name: string;
@@ -165,7 +174,19 @@ export type VariableInfo = {
   numeric?: boolean;
   unbound?: boolean;
   global?: VariableGlobalInfo;
+  value?: VariableLiteral;
 };
+
+/** The literal a variable's declaration holds — the shapes a `param()` default can take. */
+export type VariableLiteral = string | number | boolean | (string | number)[];
+
+/**
+ * Where a `param()` call's current value is read: the registry's definition
+ * for that call site — a configuration's value, an override — matched the
+ * way the ghost's value scope matches it (`ParamSites`). Without one, a
+ * `param()`'s value is the default it declares.
+ */
+export type ParamValueSource = { definitionOf(call: TSNode): { currentValue: unknown } | null };
 
 /** The project parameters to offer after a file's own variables, and the file they are offered in. */
 export type ScopeGlobals = {
@@ -219,11 +240,91 @@ function isNumericValueNode(node: TSNode, numericByName: Map<string, boolean>): 
   }
 }
 
+/**
+ * The literal a declaration's initializer holds, read off the syntax alone:
+ * a string, a number (a minus allowed), `true`/`false`, an array of strings
+ * and numbers, a `param()`'s default or a `property()`'s published value
+ * when that is one of these. Undefined for anything that would need
+ * evaluating — the dialogs show a value they can vouch for or none.
+ */
+class LiteralInitializers {
+  /** The declaration calls whose literal sits in an argument: `param(label, default, …)`, `property(label, name, value)`. */
+  private static readonly LITERAL_ARGUMENT: Readonly<Record<string, number>> = { param: 1, property: 2 };
+
+  static of(node: TSNode, params?: ParamValueSource): VariableLiteral | undefined {
+    switch (node.type) {
+      case 'string':
+        return stringLiteralValue(node) ?? undefined;
+      case 'true':
+        return true;
+      case 'false':
+        return false;
+      case 'number':
+      case 'unary_expression':
+        return numericLiteralValue(node) ?? undefined;
+      case 'array':
+        return LiteralInitializers.list(node);
+      case 'call_expression':
+        return LiteralInitializers.declared(node, params);
+      default:
+        return undefined;
+    }
+  }
+
+  /** A value the registry holds as a variable's literal, or undefined for any other type. */
+  private static asLiteral(value: unknown): VariableLiteral | undefined {
+    if (typeof value === 'string' || typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : undefined;
+    }
+    if (Array.isArray(value) && value.every(entry => typeof entry === 'string' || (typeof entry === 'number' && Number.isFinite(entry)))) {
+      return [...value] as (string | number)[];
+    }
+    return undefined;
+  }
+
+  /** An array of strings and numbers, in order; undefined when any element is anything else. */
+  private static list(array: TSNode): (string | number)[] | undefined {
+    const values: (string | number)[] = [];
+    for (const element of array.namedChildren) {
+      if (element.type === 'comment') {
+        continue;
+      }
+      const value = element.type === 'string' ? stringLiteralValue(element) : numericLiteralValue(element);
+      if (value === null) {
+        return undefined;
+      }
+      values.push(value);
+    }
+    return values;
+  }
+
+  /** A `param()`'s current value when the registry has one for the call, else the literal argument of a `param()` or `property()` call, when it is one. */
+  private static declared(call: TSNode, params?: ParamValueSource): VariableLiteral | undefined {
+    const fn = call.childForFieldName('function');
+    const slot = fn?.type === 'identifier' ? LiteralInitializers.LITERAL_ARGUMENT[fn.text] : undefined;
+    if (slot === undefined) {
+      return undefined;
+    }
+    if (fn!.text === 'param' && params) {
+      const current = LiteralInitializers.asLiteral(params.definitionOf(call)?.currentValue);
+      if (current !== undefined) {
+        return current;
+      }
+    }
+    const argument = call.childForFieldName('arguments')?.namedChildren.filter(a => a.type !== 'comment')[slot];
+    return argument ? LiteralInitializers.of(argument) : undefined;
+  }
+}
+
 export async function extractVariablesInScope(
   code: string,
   sketchSourceLine: number,
   rendered: RenderedProperties = RenderedProperties.none(),
   globals?: ScopeGlobals,
+  params?: ParamValueSource,
 ): Promise<VariableInfo[]> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -232,7 +333,7 @@ export async function extractVariablesInScope(
   if (sketchRow < 0) {
     return [];
   }
-  return collectVariablesInScope(tree, sketchRow, findEditableCallAt(tree, lines, sketchSourceLine), rendered, globals);
+  return collectVariablesInScope(tree, sketchRow, findEditableCallAt(tree, lines, sketchSourceLine), rendered, globals, params);
 }
 
 /**
@@ -247,6 +348,7 @@ export async function extractVariablesInPart(
   partLine: number,
   rendered: RenderedProperties = RenderedProperties.none(),
   globals?: ScopeGlobals,
+  params?: ParamValueSource,
 ): Promise<VariableInfo[]> {
   const p = await getParser();
   const tree = p.parse(code);
@@ -255,7 +357,7 @@ export async function extractVariablesInPart(
   if ('error' in part) {
     return [];
   }
-  return collectVariablesInScope(tree, part.body.endPosition.row, null, rendered, globals);
+  return collectVariablesInScope(tree, part.body.endPosition.row, null, rendered, globals, params);
 }
 
 /**
@@ -267,17 +369,18 @@ export async function extractVariablesInAssembly(
   code: string,
   rendered: RenderedProperties = RenderedProperties.none(),
   globals?: ScopeGlobals,
+  params?: ParamValueSource,
 ): Promise<VariableInfo[]> {
   const parser = await getParser();
   const tree = parser.parse(code);
   const bodies = assemblyBodies(tree.rootNode);
   if (bodies.length !== 1) {
-    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null, rendered, globals);
+    return collectVariablesInScope(tree, tree.rootNode.endPosition.row, null, rendered, globals, params);
   }
   const body = bodies[0];
   const { lastInsert, returnStmt } = assemblyInsertAnchors(body);
   const row = lastInsert?.endPosition.row ?? returnStmt?.startPosition.row ?? body.endPosition.row;
-  return collectVariablesInScope(tree, row, null, rendered, globals);
+  return collectVariablesInScope(tree, row, null, rendered, globals, params);
 }
 
 /** How a dropdown shows a property's rendered value: source-shaped, so `480` reads as a number and `'oak'` as text. */
@@ -318,6 +421,7 @@ function collectVariablesInScope(
   sketchCall: TSNode | null,
   rendered: RenderedProperties,
   globals?: ScopeGlobals,
+  params?: ParamValueSource,
 ): VariableInfo[] {
   const variables: VariableInfo[] = [];
   const seen = new Set<string>();
@@ -328,7 +432,8 @@ function collectVariablesInScope(
       seen.add(name);
       const numeric = valueNode ? isNumericValueNode(valueNode, numericByName) : true;
       numericByName.set(name, numeric);
-      variables.push({ name, initializer, numeric });
+      const value = valueNode ? LiteralInitializers.of(valueNode, params) : undefined;
+      variables.push({ name, initializer, numeric, ...(value !== undefined ? { value } : {}) });
     }
   }
 
@@ -348,7 +453,7 @@ function collectVariablesInScope(
       const dotted = `${name}.properties.${property}`;
       if (!seen.has(dotted)) {
         seen.add(dotted);
-        variables.push({ name: dotted, initializer: propertyInitializer(value), numeric: typeof value === 'number' });
+        variables.push({ name: dotted, initializer: propertyInitializer(value), numeric: typeof value === 'number', value });
       }
     }
   }
@@ -462,11 +567,13 @@ function collectVariablesInScope(
       continue;
     }
     seen.add(bare.name);
+    const value = LiteralInitializers.of(bare.value);
     variables.push({
       name: bare.name,
       initializer: bare.call.text,
       numeric: isNumericValueNode(bare.value, numericByName),
       unbound: true,
+      ...(value !== undefined ? { value } : {}),
     });
   }
 
@@ -507,6 +614,7 @@ function appendGlobals(
       name,
       ...(initializer !== undefined ? { initializer } : {}),
       numeric: global.numeric,
+      ...(global.value !== null ? { value: global.value } : {}),
       global: {
         file: global.relPath,
         label: global.label,

@@ -1,9 +1,12 @@
-import { Scene } from "./rendering/scene.js";
+import { Scene, type SceneOptions } from "./rendering/scene.js";
 import { AssemblyScene, SerializedAssemblyConnector, SerializedInstance, SerializedMate, SerializedOccurrence, SerializedRelation, SerializedReplicate } from "./rendering/assembly-scene.js";
 import { SceneRenderer } from "./rendering/render.js";
-import { SceneCompare } from "./rendering/scene-compare.js";
+import { SceneCompare, type SceneCompareOptions } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
 import { SceneDisposal } from "./rendering/scene-disposal.js";
+import { GeneratedTemplateCache, type GeneratedCacheStats } from "./rendering/generated-template-cache.js";
+import { GeneratedBuildReports, type GeneratedBuildReport } from "./rendering/generated-build-report.js";
+import { GeneratedCode } from "./sdk/generated-code.js";
 import { RenderChangeTracker } from "./rendering/render-changes.js";
 import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
@@ -18,6 +21,7 @@ import type { MeshQuality } from "./oc/mesh.js";
 import type { FluidCADOptions } from "./index.js";
 import { createUnitRegistry, getUnitRegistry } from "./units/registry.js";
 import { MM_PER_UNIT } from "./units/units.js";
+import { Shape } from "./common/shape.js";
 import type { LengthUnit } from "./units/units.js";
 import { createProjectUnitLookup, resolveProjectUnit } from "./project-unit.js";
 import { FileImport } from "./io/file-import.js";
@@ -32,6 +36,12 @@ import type { StepFileUnits } from "./oc/step-units.js";
 export type AssemblyExportOutcome =
   | { ok: true; data: string | Uint8Array; fileName: string; posesSource: 'live' | 'statement' }
   | { ok: false; reason: string };
+
+/**
+ * What a render did with generated parts (see GeneratedBuildReport) and
+ * what the template cache holds after it.
+ */
+export type GeneratedRenderReport = GeneratedBuildReport & { cache: GeneratedCacheStats };
 
 export type ImportReport = {
   solidCount: number;
@@ -56,6 +66,8 @@ import { Convert } from "./oc/convert.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasurePose, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
+import { FeatureSlotSynthesizer } from "./selection/feature-slots.js";
+import type { FeatureSlotRequest, FeatureSlotSynthesis } from "./selection/feature-slots.js";
 import {
   AnchorPurpose, ConnectorAnchorFrames, ConnectorAnchorSuggestions, suggestConnectorAnchors, suggestConnectorFrames,
 } from "./selection/connector-anchors.js";
@@ -76,6 +88,7 @@ import { SceneValidator } from "./validation/scene-validator.js";
 import type { ValidateSceneRequest, SceneValidationOutcome } from "./validation/scene-validator.js";
 import { SceneInterference } from "./validation/scene-interference.js";
 import type { InterferenceMesher, InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
+import { RenderedSolidPool } from "./validation/rendered-pool.js";
 import { MeshBuilder } from "./rendering/mesh-builder.js";
 import { ColoredSolids, type ColoredSolid } from "./common/colored-solid.js";
 import type { SceneObjectMesh } from "./rendering/scene.js";
@@ -96,6 +109,13 @@ class SceneManager {
    * here; the next startScene() picks it up.
    */
   projectUnit: LengthUnit;
+  /**
+   * The files' unit() declarations a host read before running them (a
+   * package manifest's `fileUnits`), by file as setCurrentFile() names it;
+   * empty unless a host sets it. Each render's unit registry gets it — see
+   * UnitRegistryOptions.knownFileUnits.
+   */
+  knownFileUnits: ReadonlyMap<string, LengthUnit> = new Map();
   /**
    * Workspace files the current render read that no module import shows — a
    * load()'s imported asset. A host that re-serves a finished render checks
@@ -122,6 +142,7 @@ class SceneManager {
       projectUnit: this.projectUnit,
       rootFile: this.currentFile,
       projectUnitForFile: createProjectUnitLookup(this.rootPath),
+      knownFileUnits: this.knownFileUnits,
     });
   }
 
@@ -135,19 +156,25 @@ class SceneManager {
     return [...this.renderInputs];
   }
 
-  startScene() {
+  /**
+   * Start the next render's scene. `options.detail` is the tier its
+   * generated parts are built at — `'preview'` while the user is still
+   * changing a value, `'full'` (the default) otherwise (see RenderDetail).
+   */
+  startScene(options: SceneOptions = {}) {
     this.startUnitRegistry();
     this.renderInputs = new Set();
-    this.currentScene = new Scene();
+    this.currentScene = new Scene(options);
     console.log("Starting new scene");
     this.notifySceneStarted(this.currentScene);
     return this.currentScene;
   }
 
-  startAssemblyScene(): AssemblyScene {
+  /** Start the next render's assembly scene; `options` as {@link startScene}'s. */
+  startAssemblyScene(options: SceneOptions = {}): AssemblyScene {
     this.startUnitRegistry();
     this.renderInputs = new Set();
-    const scene = new AssemblyScene();
+    const scene = new AssemblyScene(options);
     this.currentScene = scene;
     console.log("Starting new assembly scene");
     this.notifySceneStarted(scene);
@@ -156,10 +183,11 @@ class SceneManager {
 
   /**
    * Hear every scene startScene()/startAssemblyScene() creates. Starting a
-   * scene replaces the current one without disposing it — the host frees a
-   * replaced scene itself after the compare — so whoever else starts scenes
-   * (the test suite, per test) tracks them here to release them. Returns
-   * the unsubscribe.
+   * scene replaces the current one without disposing it — a host's compare
+   * frees what a replaced scene held ({@link compare}), and a scene dropped
+   * without one goes through {@link disposeScene} — so whoever else starts
+   * scenes (the test suite, per test) tracks them here to release them.
+   * Returns the unsubscribe.
    */
   onSceneStarted(listener: (scene: Scene) => void): () => void {
     this.sceneStartedListeners.add(listener);
@@ -252,15 +280,26 @@ class SceneManager {
   }
 
   /**
+   * Carry `previous`'s builds over to `current` where they still hold, and
+   * free the rest: every object of `previous` that `current` doesn't take
+   * over is destroyed and every shape only `previous` reached is released —
+   * a part scene's (SceneCompare) and an assembly scene's (AssemblyCompare,
+   * which hands its unpaired generated templates to the template cache
+   * instead). A host drops `previous` once this returns, and never compares
+   * it again.
+   *
    * `changes` asks the compare to record what it replaces, for a change
    * summary after the render (see RenderChangeTracker). Only a render the
    * MCP flagged passes one; without it the compare is exactly the host's.
+   * `options.rebuild` names the feature types whose code changed since
+   * `previous` was built (a saved feature module): their statements rebuild
+   * though their values match (see SceneCompareOptions).
    */
-  compare(previous: Scene, current: Scene, changes?: RenderChangeTracker) {
+  compare(previous: Scene, current: Scene, changes?: RenderChangeTracker, options?: SceneCompareOptions) {
     if (previous instanceof AssemblyScene && current instanceof AssemblyScene) {
-      return AssemblyCompare.compare(previous, current, changes);
+      return AssemblyCompare.compare(previous, current, changes, options);
     }
-    return SceneCompare.compare(previous, current, changes);
+    return SceneCompare.compare(previous, current, changes, options);
   }
 
   /**
@@ -287,6 +326,43 @@ class SceneManager {
    */
   disposeScenes(scenes: Scene[]) {
     SceneDisposal.disposeScenes(scenes);
+  }
+
+  /**
+   * What `scene`'s render did with generated parts — each layout it ran
+   * with its time, each part template and each generated part's variant it
+   * holds with where its shapes came from (`built`, `kept` from the previous
+   * render, `cached` from the template cache) and its build time — and what
+   * the template cache holds now. Always on, kept beside the scene; nothing
+   * is logged.
+   */
+  getGeneratedReport(scene: Scene): GeneratedRenderReport {
+    return { ...GeneratedBuildReports.of(scene), cache: GeneratedTemplateCache.shared.getStats() };
+  }
+
+  /**
+   * Workspace modules changed on disk — `files`: a saved file and every
+   * workspace module that imports it, directly or through another. Every
+   * generated definition one of them defines — a generated assembly
+   * (`defineAssembly`'s module) or a generated part (`definePart`'s module,
+   * or its feature class's) — takes a new code version, so nothing built
+   * with its old code is served again, and the template cache drops what it
+   * holds of it. Answers those definitions' ids — what a host notes for the
+   * sessions that render them (a generated part's id is its feature's, which
+   * the compare's `rebuild` reads too).
+   */
+  noteCodeChanged(files: Iterable<string>): string[] {
+    const ids = GeneratedCode.modulesChanged(files);
+    GeneratedTemplateCache.shared.dropDefinitions(ids);
+    return ids;
+  }
+
+  /**
+   * Dispose every generated part the template cache holds — a recompute
+   * from scratch, a model unloaded. Parts a scene holds stay its own.
+   */
+  clearGeneratedTemplates(): void {
+    GeneratedTemplateCache.shared.clear();
   }
 
   importFile(workspacePath: string, fileName: string, data: Uint8Array): ImportReport {
@@ -323,6 +399,43 @@ class SceneManager {
       }
     }
     return null;
+  }
+
+  /**
+   * The features whose buckets hold a face or an edge of a rendered solid —
+   * the hole whose wall or rim it is, the extrude whose end face — in scene
+   * order, oldest first: what a dialog's feature picker takes a click on
+   * geometry as. Empty when no feature names it (a face a later feature
+   * remade) or the shape is not in the scene.
+   */
+  getShapeOwners(scene: Scene, shapeId: string, sub: { type: 'face' | 'edge'; index: number }): ShapeOwner[] {
+    const shape = findShapeById(scene, shapeId);
+    if (!shape) {
+      return [];
+    }
+    const subs = sub.type === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape);
+    try {
+      const picked = subs[sub.index];
+      if (!picked) {
+        return [];
+      }
+      const owners: ShapeOwner[] = [];
+      for (const obj of scene.getAllSceneObjects()) {
+        if (obj.isInternal()) {
+          continue;
+        }
+        const holds = obj.bucketDefs(sub.type).some(def => {
+          const members = obj.getState(def.key);
+          return Array.isArray(members) && members.some(member => member instanceof Shape && member.getShape().IsSame(picked.getShape()));
+        });
+        if (holds) {
+          owners.push({ id: obj.id, type: obj.getType(), uniqueType: obj.getUniqueType(), name: obj.getName() });
+        }
+      }
+      return owners;
+    } finally {
+      for (const entry of subs) entry.dispose();
+    }
   }
 
   getEdgeProperties(scene: Scene, shapeId: string, edgeIndex: number): EdgeProperties | null {
@@ -429,6 +542,15 @@ class SceneManager {
   }
 
   /**
+   * Instance id → the ids of the rendered solids each assembly instance
+   * shows — the same pool `validate` and `interfere` address it by (see
+   * RenderedSolidPool.solidIdsByInstance). Null for a part scene.
+   */
+  getInstanceShapeIds(scene: Scene): Map<string, string[]> | null {
+    return RenderedSolidPool.solidIdsByInstance(scene);
+  }
+
+  /**
    * Meshes a shared volume at the scene's density, every solid of the
    * boolean's result (two bodies may meet in more than one place) as the
    * scene renders its own solids — faces and edges, world space.
@@ -503,6 +625,20 @@ class SceneManager {
     return withBoundary(
       scene, before, scoped => synthesizeApplyFeature(scoped, refs, feature, value, chains, options),
     );
+  }
+
+  /**
+   * The selectors a custom feature's picked values write, each slot checked
+   * against its picker (see FeatureSlotSynthesizer). An edit's picks
+   * resolve against the world before the edited statement.
+   */
+  synthesizeFeatureSlots(
+    scene: Scene,
+    request: FeatureSlotRequest,
+    options: SynthesizeOptions = {},
+    before?: SelectionBoundary,
+  ): FeatureSlotSynthesis | BoundaryFailure {
+    return withBoundary(scene, before, scoped => FeatureSlotSynthesizer.synthesize(scoped, request, options));
   }
 
   /**
@@ -709,6 +845,9 @@ function serializedInstancePose(scene: Scene, instanceId: string): MeasurePose |
   }
   return { position: inst.position, quaternion: inst.quaternion };
 }
+
+/** A feature that holds a face or an edge in one of its buckets (see SceneManager.getShapeOwners). */
+export type ShapeOwner = { id: string; type: string; uniqueType: string; name: string };
 
 function findShapeById(scene: Scene, shapeId: string) {
   for (const obj of scene.getAllSceneObjects()) {

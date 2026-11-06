@@ -4,7 +4,7 @@ title: "connector(name, source, options?) / connector(name, [x, y, z])"
 summary: "Declares a named mate frame. Inside part() it is attached to real geometry (a face, edge, vertex, anchored vertex or plane) and appears on every instance as instance.connectors.name; at the top level of an assembly file it is a free frame at a world point. Chain .offset(x, y, z) and .rotate(axis, deg) to move it in its own axes. copy() patterns it into read-only copies addressed bolt.instance(k)."
 tags: [api, part, assembly, mate]
 symbols: [connector]
-seeAlso: [api/mate, api/part, api/insert, api/select, api/copy, api/replicate, concepts/assemblies]
+seeAlso: [api/mate, api/part, api/insert, api/select, api/copy, api/replicate, concepts/assemblies, api/feature-params, api/feature-frames, api/define-part, api/generator]
 ---
 
 # connector
@@ -31,6 +31,7 @@ Where the frame comes from:
 | vertex | the point | world Z |
 | anchored vertex — `e.endFaces().center()`, `sel.start()` | the anchor | the face / edge direction |
 | plane — `plane('-xy')` | plane origin | plane normal |
+| a custom feature's frame — `g.frame('axis')` | the frame's origin (X its X) | the frame's Z |
 
 The source must resolve to exactly one face, edge or vertex; a raw point is
 refused inside a part (frames must re-derive from geometry). Chain
@@ -41,6 +42,13 @@ Rules: declare connectors **directly in the part body** (not in a nested
 callback); names are unique within a part. Face frames point Z out of the
 solid, and a mate aligns two Zs against each other by default — so
 connectors on the touching faces of two parts mate face-to-face.
+
+A custom feature's named frame ([[api/feature-frames]]) is a source:
+`connector('axis', g.frame('axis'))` stands on the frame the feature's build
+set. Generated parts get connectors with no `connector()` statement: a
+`definePart` part one per frame of its feature ([[api/define-part]]), a
+generator's part the frames its `g.part(type, { connectors })` gives
+([[api/generator]]).
 
 The assembly-level form, `connector('name', [x, y, z])` at the top level of
 a `*.assembly.js` file, is a free frame in the assembly's space with world
@@ -192,3 +200,9 @@ export const flange = part("Flange", () => {
   copy(holes, bolt);
 });
 ```
+
+A custom feature takes connectors too: a `connector` picker (or a union such
+as `['connector', 'point', 'anchor']`) reads one as a location with
+`frameOf()` — its own frame, a copy's included — and an `axis` picker as its
+Z axis with `axisOf()`. See [[api/feature-params]] and [[api/feature]]; bosses
+standing at a connector and its copy: [[api/feature-example-bosses]].

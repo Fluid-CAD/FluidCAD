@@ -4,7 +4,7 @@ title: draft(angle, ...faces?)
 summary: Applies a draft angle to selected faces — pulls them outward (positive) or inward (negative) along a reference direction.
 tags: [api, 3d, modifier]
 symbols: [draft]
-seeAlso: [api/extrude, api/shell]
+seeAlso: [api/extrude, api/shell, concepts/custom-features, api/feature]
 ---
 
 # draft
@@ -50,3 +50,9 @@ draft(5, e.sideFaces());
 ```
 
 See [[api/extrude]] for inline draft and [[api/shell]] for hollowing.
+
+`draft()` is the engine's own feature written on the base a custom feature
+extends (`Feature` from `fluidcad/sdk`, as a modifier) with metadata
+(`['angle', '...faces']` is its call shape), so its toolbar dialog, preview
+and row edits are the ones every custom feature gets. See
+[[concepts/custom-features]].

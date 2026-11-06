@@ -51,6 +51,32 @@ export class ShapeOps {
   }
 
   /**
+   * {@link transform}, also answering where each of `subShapes` (faces and
+   * edges of `shape`) went: its image in the moved shape, parallel to
+   * `subShapes`, or null for one `shape` does not hold.
+   */
+  static transformTracking<T extends Shape>(shape: Shape, matrix: Matrix4, subShapes: readonly T[]): { shape: Shape; images: (T | null)[] } {
+    let images: (T | null)[] = [];
+    const moved = ShapeOps.transformThrough(shape, matrix, transformer => {
+      if (subShapes.length === 0) {
+        return;
+      }
+      const oc = getOC();
+      const held = new oc.TopTools_IndexedMapOfShape();
+      try {
+        oc.TopExp.MapShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum, held);
+        oc.TopExp.MapShapes(shape.getShape(), oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, held);
+        images = subShapes.map(sub => held.FindIndex(sub.getShape()) === 0
+          ? null
+          : ShapeFactory.fromShape(transformer.ModifiedShape(sub.getShape())) as Shape as T);
+      } finally {
+        held.delete();
+      }
+    });
+    return { shape: moved, images };
+  }
+
+  /**
    * A transformed copy of a held solid with its colours carried onto the
    * moved faces, authors kept — what a move, a mirror or a copy records on
    * itself as the new holder.

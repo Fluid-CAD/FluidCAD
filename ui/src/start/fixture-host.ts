@@ -6,6 +6,7 @@ import type {
   FolderCheck,
   FolderListing,
   HelloReply,
+  OpeningStatus,
   ProjectDialogs,
   StartFeed,
   StartProject,
@@ -228,8 +229,8 @@ export class FixtureStartHost implements StartScreenHost {
               await delay(80);
               return folderCheck(parent, name);
             },
-            create: async (path) => {
-              await this.walkOpen({ path, name: path.split('/').pop() ?? path }, { create: true });
+            create: async (path, options) => {
+              await this.walkOpen({ path, name: path.split('/').pop() ?? path }, { create: true, package: options?.package });
             },
           }
         : {
@@ -238,9 +239,9 @@ export class FixtureStartHost implements StartScreenHost {
               await delay(300);
               console.info('[fixture] the native Open dialog was cancelled');
             },
-            create: async () => {
+            create: async (options) => {
               await delay(300);
-              console.info('[fixture] the native New Project dialog was cancelled');
+              console.info(`[fixture] the native New ${options?.package ? `Package (${options.package})` : 'Project'} dialog was cancelled`);
             },
           };
   }
@@ -364,6 +365,10 @@ export class FixtureStartHost implements StartScreenHost {
     this.changedHandlers.push(handler);
   }
 
+  onCommand(): void {
+    // The fixture has no menu to send one from.
+  }
+
   private diffFor(from: string, to: string): UpgradeDiff | null {
     const models = ['bracket.part.js', 'parts/lid.part.js', 'assembly.assembly.js'];
     if (to === LATEST) {
@@ -397,11 +402,12 @@ export class FixtureStartHost implements StartScreenHost {
     return null;
   }
 
-  private async walkOpen(target: { path: string; name: string }, options: { create?: boolean } = {}): Promise<void> {
+  private async walkOpen(target: { path: string; name: string }, options: { create?: boolean; package?: string } = {}): Promise<void> {
     const generation = ++this.openGeneration;
     const live = () => generation === this.openGeneration;
     if (options.create) {
-      this.setState({ phase: 'opening', project: target, status: { step: 'creating' } });
+      const status: OpeningStatus = options.package ? { step: 'creating', package: options.package } : { step: 'creating' };
+      this.setState({ phase: 'opening', project: target, status });
       await delay(700);
       if (!live()) {
         return;

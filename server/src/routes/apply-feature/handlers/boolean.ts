@@ -28,7 +28,7 @@ export async function handleBoolean(ctx: ApplyFeatureRequestContext, req: Reques
       })),
     };
     // Truthful preview: the same allocation walk the transform runs.
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const statement = renderBooleanStatement(
       options.kind, options.targets.map(t => producerVars[t.producer] ?? 'f'),
     );

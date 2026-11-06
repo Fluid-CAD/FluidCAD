@@ -72,6 +72,17 @@ describe('engine chip', () => {
 });
 
 describe('project card', () => {
+  it("badges a package workspace with its name and version, and nothing else", () => {
+    const { card } = mount(project({ package: { name: '@acme/gears', version: '1.2.0' } }));
+    const badge = card.querySelector<HTMLElement>('[data-ref="package-badge"]')!;
+    expect(badge.textContent).toBe('Package');
+    expect(badge.title).toBe('@acme/gears 1.2.0');
+    document.body.innerHTML = '';
+    expect(mount(project()).card.querySelector('[data-ref="package-badge"]')).toBeNull();
+    document.body.innerHTML = '';
+    expect(mount(project({ package: null })).card.querySelector('[data-ref="package-badge"]')).toBeNull();
+  });
+
   it('shows the name, the ~ path, when it was opened and a placeholder without a preview', () => {
     const { card } = mount(project());
     expect(card.textContent).toContain('bracket');

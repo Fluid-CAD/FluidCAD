@@ -30,6 +30,7 @@ import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
 import { runFrameHooks } from '../meshes/frame-hooks';
 import { setScreenScaleSource } from '../meshes/screen-scale';
 import { worldFromMm } from '../units/scene-scale';
+import { disposeEnvironmentOf, environmentFor } from '../meshes/appearance/environment';
 
 // Install camera-controls with only the Three.js submodules it needs
 CameraControls.install({
@@ -142,6 +143,9 @@ export class SceneContext {
     // Scene
     this.scene = new Scene();
     this.scene.background = themeColors.backgroundColor.clone();
+    // Reflections for the appearance (PBR) materials only — the Phong faces
+    // of the default look ignore it.
+    this.scene.environment = environmentFor(this.renderer);
 
     // Dual cameras — frustum, eye and clip planes come from the document
     // unit; see applyUnitDefaults.
@@ -633,6 +637,7 @@ export class SceneContext {
     this.transition.dispose();
     this._cc.dispose();
     this.scene.clear();
+    disposeEnvironmentOf(this.renderer);
     this.renderer.dispose();
   }
 

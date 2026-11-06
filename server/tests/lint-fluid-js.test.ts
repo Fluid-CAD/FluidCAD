@@ -132,6 +132,25 @@ describe('lintFluidJs', () => {
     expect(result.missing).toEqual([]);
   });
 
+  it('treats a name declared in a callback as a binding there, and only there', async () => {
+    const code = [
+      'import { part, sketch, point } from "fluidcad/core";',
+      'part("Wheel", () => {',
+      '  const axis = sketch("xy", () => { point([0, 0]); });',
+      '  console.log(axis.geometries);',
+      '});',
+      'part("Other", (plane) => {',
+      '  for (const [i, { edge }] of []) { edge(i); }',
+      '  try { plane(); } catch (extrude) { extrude(); }',
+      '  return axis;',
+      '});',
+      '',
+    ].join('\n');
+    const result = await lintFluidJs(code);
+    // `axis` on line 3 is the callback's own; on line 8 it is the FluidCAD one.
+    expect(result.missing).toEqual([{ symbol: 'axis', module: 'fluidcad/core', line: 8, column: 9 }]);
+  });
+
   it('records the first occurrence line/column for each missing symbol', async () => {
     const code = [
       '// line 0',
@@ -389,5 +408,63 @@ describe('lintFluidJs — part rules', () => {
 
   it('leaves a file without part() alone', async () => {
     expect(await lint("sketch('xy', () => {});\nextrude(5);\n")).toEqual([]);
+  });
+});
+
+describe('lintFluidJs — generated definitions', () => {
+  // A package's parts/gear.part.js and assemblies/cabinet.assembly.js, as
+  // generators S4 lints them: definePart and defineAssembly modules (with a
+  // generator class declared and exported beside the definition) raise
+  // nothing, and the SDK's generated-definition symbols need their import
+  // like the core's.
+  const PART = [
+    `import { definePart } from 'fluidcad/sdk';`,
+    `import { Gear } from '../features/gear.feature.js';`,
+    ``,
+    `export const gearPart = definePart(Gear, { label: 'Gear', icon: '../features/icons/gear.png' });`,
+    ``,
+  ].join('\n');
+
+  const ASSEMBLY = [
+    `import { defineAssembly, Generator } from 'fluidcad/sdk';`,
+    `import { ShapeFactory } from 'fluidcad/sdk/kernel';`,
+    ``,
+    `export class Cabinet extends Generator.with({ width: { type: 'length', default: 600 } }) {`,
+    `  static id = 'cabinet';`,
+    `  layout(g) {`,
+    `    const { width } = this.values;`,
+    `    const offset = 3, angle = 110, line = 'A';`,
+    `    const carcass = g.part('carcass', { name: 'Carcass', inputs: { width, offset, line } }).grounded();`,
+    `    const door = g.part('door', { inputs: { width } });`,
+    `    g.mate('revolute', carcass.connectors.hinge, door.connectors.hinge).limits(0, angle);`,
+    `    return { carcass, door };`,
+    `  }`,
+    `  static build(type, inputs, ctx) {`,
+    `    return [ctx.occ(({ oc, track }) => ShapeFactory.fromShape(track(new oc.BRepPrimAPI_MakeBox(inputs.width, 10, 10).Shape())))];`,
+    `  }`,
+    `}`,
+    ``,
+    `export const cabinet = defineAssembly(Cabinet, { label: 'Cabinet' });`,
+    ``,
+  ].join('\n');
+
+  it('accepts a definePart module and a defineAssembly module that exports its generator class', async () => {
+    for (const [code, filePath] of [[PART, '/ws/parts/gear.part.js'], [ASSEMBLY, '/ws/assemblies/cabinet.assembly.js']]) {
+      const result = await lintFluidJs(code, { filePath });
+      expect(result.missing).toEqual([]);
+      expect(result.diagnostics).toEqual([]);
+    }
+  });
+
+  it('reports definePart, defineAssembly and Generator used without their fluidcad/sdk import', async () => {
+    const result = await lintFluidJs(ASSEMBLY.replace(`import { defineAssembly, Generator } from 'fluidcad/sdk';\n`, '').concat(
+      `export const gearPart = definePart(Gear, { label: 'Gear' });\n`,
+    ), { filePath: '/ws/assemblies/cabinet.assembly.js' });
+    expect(result.missing.map((m) => [m.symbol, m.module])).toEqual([
+      ['defineAssembly', 'fluidcad/sdk'],
+      ['definePart', 'fluidcad/sdk'],
+      ['Generator', 'fluidcad/sdk'],
+    ]);
+    expect(result.suggestion).toBe('import { defineAssembly, definePart, Generator } from "fluidcad/sdk";');
   });
 });

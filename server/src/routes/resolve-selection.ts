@@ -3,7 +3,16 @@ import { readFile } from 'fs/promises';
 import type { FluidCadServer, SelectionSynthesisOptions } from '../fluidcad-server/index.ts';
 import type { SynthesizedProducer, SynthesizedSelection } from '../../../lib/dist/index.js';
 import { SelectionRequests } from './selection-requests.ts';
-import { SketchExports, makeProducerNamer, makeProducerBindable, makeProducerBoundProbe, extractNumericParams, resolveParamValues } from '../apply-feature-edit/index.ts';
+import {
+  FeatureCallees,
+  SketchExports,
+  extractNumericParams,
+  makeProducerBindable,
+  makeProducerBoundProbe,
+  makeProducerNamer,
+  resolveParamValues,
+  type FeatureCalleeSource,
+} from '../apply-feature-edit/index.ts';
 import { normalizePath } from '../normalize-path.ts';
 
 /**
@@ -14,9 +23,14 @@ import { normalizePath } from '../normalize-path.ts';
  * for the matches (SelectionSynthesizer) with the variable names the code
  * transform would bind. Zero matches is a 200; an unknown scope, an
  * ambiguous part name, a bad boundary, an unresolvable pick or an expression
- * that does not evaluate is a 4xx naming the problem.
+ * that does not evaluate is a 4xx naming the problem. `callees` follows a
+ * file's imports to the custom features its calls build, whose picks bind
+ * like the built-ins'.
  */
-export function createResolveSelectionRouter(fluidCadServer: FluidCadServer): Router {
+export function createResolveSelectionRouter(
+  fluidCadServer: FluidCadServer,
+  callees: FeatureCalleeSource = FeatureCallees.BUILT_IN_SOURCE,
+): Router {
   const router = Router();
 
   router.post('/resolve-selection', async (req, res) => {
@@ -32,7 +46,7 @@ export function createResolveSelectionRouter(fluidCadServer: FluidCadServer): Ro
     }
 
     try {
-      const context = await SynthesisContext.forCurrentFile(fluidCadServer);
+      const context = await SynthesisContext.forCurrentFile(fluidCadServer, callees);
       const result = fluidCadServer.resolveSelection({
         ...(expression !== undefined ? { expression } : { picks: SelectionRequests.asPicks(picks) }),
         scope: SelectionRequests.asScope(scope),
@@ -80,19 +94,25 @@ class SynthesisContext {
     private readonly currentFile: string | null,
     private readonly currentProbe: BoundProbe,
     private readonly code: string,
+    private readonly callees: FeatureCalleeSource,
   ) {}
 
-  static async forCurrentFile(fluidCadServer: FluidCadServer): Promise<SynthesisContext | undefined> {
+  static async forCurrentFile(
+    fluidCadServer: FluidCadServer,
+    callees: FeatureCalleeSource,
+  ): Promise<SynthesisContext | undefined> {
     const code = fluidCadServer.getCurrentCode();
     if (!code) {
       return undefined;
     }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    const fileCallees = currentFile ? await callees.calleesFor(code, currentFile) : FeatureCallees.BUILT_IN;
     const options: SelectionSynthesisOptions = {
-      namer: await makeProducerNamer(code),
-      bindable: await makeProducerBindable(code),
+      namer: await makeProducerNamer(code, fileCallees),
+      bindable: await makeProducerBindable(code, fileCallees),
       params: resolveParamValues(await extractNumericParams(code), fluidCadServer.getParamDefinitions()),
     };
-    return new SynthesisContext(options, fluidCadServer.getCurrentFileName(), await makeProducerBoundProbe(code), code);
+    return new SynthesisContext(options, currentFile, await makeProducerBoundProbe(code, fileCallees), code, callees);
   }
 
   /** Dry-run the same producer transform the consuming edit will stage. */
@@ -145,7 +165,9 @@ class SynthesisContext {
     }
     let probe = this.probes.get(filePath);
     if (!probe) {
-      probe = readFile(filePath, 'utf8').then(code => makeProducerBoundProbe(code)).catch((): undefined => undefined);
+      probe = readFile(filePath, 'utf8')
+        .then(async code => makeProducerBoundProbe(code, await this.callees.calleesFor(code, filePath)))
+        .catch((): undefined => undefined);
       this.probes.set(filePath, probe);
     }
     return probe;

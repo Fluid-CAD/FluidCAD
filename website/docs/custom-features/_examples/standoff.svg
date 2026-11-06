@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="tube" x1="0" x2="1">
+      <stop offset="0" stop-color="#5cb2ea"/>
+      <stop offset="1" stop-color="#3f91c9"/>
+    </linearGradient>
+  </defs>
+  <!-- The plate: grey, its top lightest, its right side darkest. -->
+  <path d="M4 40 L32 23.8 L60 40 L32 56.2 Z" fill="#e5e6e7"/>
+  <path d="M4 40 L32 56.2 V60.2 L4 44 Z" fill="#d8d9da"/>
+  <path d="M32 56.2 L60 40 V44 L32 60.2 Z" fill="#c6c7c8"/>
+  <!-- The standoff: what the feature makes, in blue. -->
+  <path d="M21 14 V40 A11 6.35 0 0 0 43 40 V14 Z" fill="url(#tube)"/>
+  <ellipse cx="32" cy="14" rx="11" ry="6.35" fill="#74bff0"/>
+  <ellipse cx="32" cy="14" rx="5" ry="2.9" fill="#3a86bb"/>
+</svg>

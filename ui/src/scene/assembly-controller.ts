@@ -1,4 +1,6 @@
 import { Box3, Camera, Group, Material, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
+import { MeshCache, meshCache } from './mesh-cache';
+import { InstanceContent } from './instance-content';
 import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, SerializedAssemblyRelation, connectorLabel } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { SceneIndex } from '../helpers/scene-index';
@@ -42,7 +44,12 @@ type InstanceState = {
   connectors: ConnectorState[];
   /** Classified exposures of the instance's part — tangent-mate geometry. */
   contacts: ContactState[];
+  /** What the group draws, as built (null: not nameable — rebuilt on any render that re-mints the part). */
+  content: InstanceContent | null;
 };
+
+/** How the last {@link AssemblyController.update} treated the instances (measuring, tests). */
+export type InstanceUpdateStats = { kept: number; rebuilt: number; removed: number };
 
 export type InstanceDragReleaseHandler = (
   instanceId: string,
@@ -98,6 +105,7 @@ type ReadoutEdge = {
 export class AssemblyController {
   private container = new Group();
   private instances = new Map<string, InstanceState>();
+  private lastUpdateStats: InstanceUpdateStats = { kept: 0, rebuilt: 0, removed: 0 };
   private partTemplates = new Map<string, SceneObjectRender>();
   private allObjects: SceneObjectRender[] = [];
   private mates: MateRecord[] = [];
@@ -286,6 +294,11 @@ export class AssemblyController {
   ) {
     this.gizmoPicker = new ConnectorGizmoPicker(() => this.camera, renderer.domElement);
     this.container.name = 'assemblyContainer';
+    // The instances draw from the page's mesh cache — every instance of a
+    // template the same geometry (P6) — and stay alive while a part file is
+    // on screen (the container detached): the cache frees nothing they use.
+    // The viewer keeps one controller per session.
+    meshCache.watch(this.container);
     this.worldGroup.name = 'assemblyWorldConnectors';
     this.container.add(this.worldGroup);
     this.provisionalGroup.name = 'assemblyProvisionalReplicas';
@@ -338,6 +351,27 @@ export class AssemblyController {
     return this.container;
   }
 
+  /** How the last {@link update} treated the instances: kept (its group drew the part already), rebuilt, removed. */
+  getLastUpdateStats(): InstanceUpdateStats {
+    return { ...this.lastUpdateStats };
+  }
+
+  /**
+   * Drop the instance highlight's tint from a group a render keeps: the
+   * render wipes the selection, as a rebuilt group would show it.
+   */
+  private static restoreTint(group: Object3D): void {
+    group.traverse((child) => {
+      if (child.userData.assemblyOriginalColor !== undefined) {
+        const mat = (child as any).material;
+        if (mat?.color) {
+          mat.color.setHex(child.userData.assemblyOriginalColor);
+        }
+        delete child.userData.assemblyOriginalColor;
+      }
+    });
+  }
+
   /**
    * Diff incoming assembly data against current state. The source is the
    * source of truth for poses (phase 03b: drag-release writes `.translate(...)` back
@@ -375,9 +409,26 @@ export class AssemblyController {
       }
     }
 
+    const stats: InstanceUpdateStats = { kept: 0, rebuilt: 0, removed: 0 };
+    // A part's content, once per part (instances of a template share it) —
+    // what keeps an unchanged instance's group across a render that
+    // re-minted every id (S6b). Off with the mesh cache's switch.
+    const reuse = MeshCache.enabled();
+    const contents = new Map<string, InstanceContent | null>();
+    const contentOf = (partId: string): InstanceContent | null => {
+      if (!reuse) {
+        return null;
+      }
+      if (!contents.has(partId)) {
+        contents.set(partId, InstanceContent.of(partId, this.allObjects));
+      }
+      return contents.get(partId)!;
+    };
+
     const incomingIds = new Set(assembly.instances.map(i => i.instanceId));
     for (const [id, state] of this.instances) {
       if (!incomingIds.has(id)) {
+        stats.removed++;
         this.container.remove(state.group);
         this.disposeGroup(state.group);
         this.instances.delete(id);
@@ -413,7 +464,20 @@ export class AssemblyController {
       const livePose = existing && (isDragging || keepLivePoses)
         ? { position: existing.group.position.clone(), quaternion: existing.group.quaternion.clone() }
         : null;
-      if (existing && !partChanged && (!subtreeFresh || isDragging)) {
+      // The same ids and nothing rebuilt — or, ids re-minted, the very same
+      // content (rows and mesh keys): the group already draws this part.
+      const content = contentOf(inst.partId);
+      const sameIds = existing !== undefined && !partChanged && (!subtreeFresh || isDragging);
+      const sameContent = existing !== undefined && content !== null && content.equals(existing.content);
+      if (existing && (sameIds || sameContent)) {
+        if (!sameIds && existing.content && content) {
+          content.restamp(existing.group, existing.content);
+        }
+        // Kept mid-drag over a rebuilt part, the group draws what it drew:
+        // no content, so the render after the drag rebuilds it.
+        existing.content = sameContent || !subtreeFresh ? content : null;
+        AssemblyController.restoreTint(existing.group);
+        stats.kept++;
         existing.data = inst;
         existing.connectors = connectors;
         existing.contacts = contacts;
@@ -438,14 +502,16 @@ export class AssemblyController {
       }
       const group = this.buildInstanceGroup(inst);
       if (!group) continue;
+      stats.rebuilt++;
       if (livePose) {
         group.position.copy(livePose.position);
         group.quaternion.copy(livePose.quaternion);
       }
       group.visible = visible;
-      this.instances.set(inst.instanceId, { data: inst, group, connectors, contacts });
+      this.instances.set(inst.instanceId, { data: inst, group, connectors, contacts, content });
       this.container.add(group);
     }
+    this.lastUpdateStats = stats;
 
     // Rebuilt groups start with their connectors hidden and unhighlighted;
     // re-assert the reveal/highlight state so a render mid-pick doesn't
@@ -1029,7 +1095,25 @@ export class AssemblyController {
     return state ? this.transparencyOf(state.data) : 0;
   }
 
+  /**
+   * Free what a group the controller drops drew with — a rebuilt or removed
+   * instance's, a replaced world connector's: its materials and its
+   * geometry. Each such group is built afresh, so its geometry is its own,
+   * except the solids' the mesh cache shares across instances and renders:
+   * their `dispose()` is a no-op, and the cache frees them on eviction.
+   */
   private disposeGroup(group: Object3D): void {
+    group.traverse(child => {
+      (child as { geometry?: { dispose?: () => void } }).geometry?.dispose?.();
+    });
+    AssemblyController.disposeMaterials(group);
+  }
+
+  /**
+   * Free a group's materials only — a replica ghost's: it draws with its
+   * seed's geometry (`buildGhostClone`), which the seed's group frees.
+   */
+  private static disposeMaterials(group: Object3D): void {
     group.traverse(child => {
       const mat = (child as any).material;
       if (mat) {
@@ -1636,8 +1720,8 @@ export class AssemblyController {
     }
     for (const ghost of replicas.ghosts.values()) {
       this.provisionalGroup.remove(ghost.group);
-      // Ghosts share the seed's geometry; disposeGroup only releases materials.
-      this.disposeGroup(ghost.group);
+      // Ghosts share the seed's geometry: only their materials are theirs.
+      AssemblyController.disposeMaterials(ghost.group);
     }
     this.provisionalReplicas = null;
   }
@@ -2082,15 +2166,7 @@ export class AssemblyController {
   }
 
   clearHighlight(): void {
-    this.container.traverse((child) => {
-      if (child.userData.assemblyOriginalColor !== undefined) {
-        const mat = (child as any).material;
-        if (mat?.color) {
-          mat.color.setHex(child.userData.assemblyOriginalColor);
-        }
-        delete child.userData.assemblyOriginalColor;
-      }
-    });
+    AssemblyController.restoreTint(this.container);
     if (this.mateRevealedConnectors.size > 0) {
       this.mateRevealedConnectors.clear();
       for (const state of this.instances.values()) {

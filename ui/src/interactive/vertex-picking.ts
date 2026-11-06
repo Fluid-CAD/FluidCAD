@@ -1,82 +1,90 @@
-import { type BufferAttribute, type BufferGeometry, type InterleavedBufferAttribute, Group, type Material, Mesh, MeshBasicMaterial, Object3D, Vector3 } from 'three';
+import { Group, Matrix4, type Object3D, Vector2, type Vector3, Vector4 } from 'three';
 import type { SceneContext } from '../scene/scene-context';
 import type { SelectedEntity } from '../viewer';
 import type { SubSelection } from '../types';
 import { entityKey } from '../helpers/entities';
 import { addFrameHook } from '../meshes/frame-hooks';
-import { createPointMarker } from '../meshes/point-marker';
 import { onThemeChange, themeColors } from '../scene/theme-colors';
 import { worldFromMm } from '../units/scene-scale';
-import { collectPickCandidates, type VertexCandidate } from './pick-candidates';
+import { collectVertexSources, expandVertexSource, type VertexCandidate, type VertexSource } from './pick-candidates';
 import { viewerSettings } from '../scene/viewer-settings';
+import { OccluderDepthMap, type PointOcclusion } from './occluder-depth';
+import { VertexDots, type VertexDot } from './vertex-dots';
 
-/** Same grab radius as solved sketch vertices. */
 /** The live pick radius, screen px — the `pickRadiusPx` preference. */
 export function vertexPickPx(): number {
   return viewerSettings.current.pickRadiusPx;
 }
 type VertexEntity = SelectedEntity & { sub: Extract<SubSelection, { type: 'vertex' }> };
-type PointGroup = { position: Vector3; members: VertexCandidate[] };
+/** Coincident vertices (edge endpoints, shared corners) drawn and picked as one dot. */
+type PointGroup = { position: Vector3; members: VertexCandidate[]; keys: string[] };
 type MarkerState = 'candidate' | 'hover' | 'selected';
+
+/** Dot radius per state, CSS pixels. */
+const RADIUS_PX: Record<MarkerState, number> = { candidate: 2.5, hover: 4.5, selected: 3.5 };
+/** Selected dots draw over candidates, the hovered one over both. */
+const DRAW_ORDER: Record<MarkerState, number> = { candidate: 0, selected: 1, hover: 2 };
 
 /** Restrict a shape to explicit topology vertices; an omitted list includes all. */
 export type VertexPickScope = string | { shapeId: string; indices: readonly number[] };
 
 /**
- * Everything the visibility of the candidate dots depends on. While two
- * snapshots are equal the previous answer still holds, so a pointer move (a
- * pick, then the hover repaint) and a repaint with nothing changed cost one
- * linear comparison instead of a sight-line raycast per vertex.
+ * Opt-in vertex channel: the candidate dots and the vertex picks, over the
+ * viewer's topology vertices.
+ *
+ * Nothing here costs per vertex per frame. The candidates are collected and
+ * merged only when a shape, its placement, its clipping or the scope
+ * changes; the dots are one instanced draw whose shader hides a dot an
+ * occluder covers, against a depth map of the faces redrawn only when the
+ * camera or a face moves ({@link PointOcclusion}); and a pick projects the
+ * candidates once and asks the same map about the few under the cursor, so
+ * a dot is pickable exactly when it is drawn.
  */
-type VisibilitySnapshot = {
-  camera: number[];
-  scope: ReadonlySet<string> | null;
-  vertices: VertexCandidate[];
-  occluders: OccluderState[];
-};
-type OccluderState = {
-  object: Object3D;
-  geometry: BufferGeometry | null;
-  positionVersion: number;
-  indexVersion: number;
-  matrix: number[];
-  clipping: number[];
-};
-
-/** Opt-in vertex channel, using the viewer's candidates, visibility test and markers. */
 export class VertexPicking {
   private active = false;
   private scope: ReadonlySet<string> | null = null;
   private indices = new Map<string, Set<number> | null>();
+  private scopeVersion = 0;
   private selected = new Set<string>();
   private emphasized: Set<string> | null = null;
   private hovered: string | null = null;
   private readonly group = new Group();
-  private readonly markers = new Map<string, { group: Group; state: MarkerState }>();
+  private readonly dots = new VertexDots();
+  private readonly occlusion: PointOcclusion;
   private readonly removeFrameHook: () => void;
   private readonly removeThemeListener: () => void;
-  private cache: { snapshot: VisibilitySnapshot; groups: PointGroup[] } | null = null;
+  /** The merged candidates and what they were built from; rebuilt only when that changes. */
+  private cache: { signature: unknown[]; groups: PointGroup[] } | null = null;
+  /** The dots no longer match the groups or their states. */
+  private displayDirty = true;
   private sketchDots = new Map<Object3D, boolean>();
+  private readonly drawingBuffer = new Vector2();
 
   constructor(
     private readonly ctx: Pick<SceneContext, 'scene' | 'camera' | 'renderer' | 'requestRender'>,
-    private readonly isVisible: (point: Vector3, occluders: Object3D[]) => boolean,
     private readonly extraOccluders: () => Object3D[] = () => [],
+    occlusion?: PointOcclusion,
   ) {
+    this.occlusion = occlusion ?? new OccluderDepthMap(ctx);
     this.group.userData.isMetaShape = true;
     this.group.name = 'vertex-pick-dots';
+    this.group.add(this.dots);
     ctx.scene.add(this.group);
     this.removeFrameHook = addFrameHook(renderer => {
       if (renderer === this.ctx.renderer) {
         this.refresh();
       }
     });
-    this.removeThemeListener = onThemeChange(() => this.ctx.requestRender());
+    this.removeThemeListener = onThemeChange(() => {
+      this.displayDirty = true;
+      this.ctx.requestRender();
+    });
   }
 
   setActive(active: boolean): void {
     this.active = active;
     this.hovered = null;
+    this.displayDirty = true;
     this.syncSketchDots();
     this.ctx.requestRender();
   }
@@ -97,6 +105,7 @@ export class VertexPicking {
       }
     }
     this.scope = shapes === null ? null : new Set(this.indices.keys());
+    this.scopeVersion++;
     this.hovered = null;
     this.ctx.requestRender();
   }
@@ -104,153 +113,183 @@ export class VertexPicking {
   /** null uses the ordinary selected tint; a list dims the other selected dots. */
   setEmphasized(entities: SelectedEntity[] | null): void {
     this.emphasized = entities === null ? null : new Set(entities.map(entityKey));
+    this.displayDirty = true;
     this.ctx.requestRender();
   }
 
   setSelected(entities: SelectedEntity[]): void {
     this.selected = new Set(entities.filter(entity => entity.sub.type === 'vertex').map(entityKey));
+    this.displayDirty = true;
     this.ctx.requestRender();
   }
 
   setHover(entity: SelectedEntity | null): void {
     this.hovered = entity?.sub.type === 'vertex' ? entityKey(entity) : null;
+    this.displayDirty = true;
     this.ctx.requestRender();
   }
 
+  /**
+   * The visible dot nearest the cursor within the pick radius (the nearer to
+   * the camera on a tie), or null. Projects every candidate once, then asks
+   * the occlusion about only the ones under the cursor.
+   */
   pick(clientX: number, clientY: number): VertexEntity | null {
     if (!this.active) {
       return null;
     }
+    const { groups, occluders } = this.scan();
+    const camera = this.ctx.camera;
+    camera.updateMatrixWorld();
+    const viewProjection = new Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     const rect = this.ctx.renderer.domElement.getBoundingClientRect();
-    let best: PointGroup | null = null;
-    let bestDistance = vertexPickPx() ** 2;
-    let bestDepth = Infinity;
-    for (const group of this.visibleGroups()) {
-      const projected = group.position.clone().project(this.ctx.camera);
-      const x = rect.left + (projected.x + 1) * rect.width / 2;
-      const y = rect.top + (1 - projected.y) * rect.height / 2;
-      const distance = (x - clientX) ** 2 + (y - clientY) ** 2;
-      if (distance < bestDistance || (distance === bestDistance && projected.z < bestDepth)) {
-        best = group;
-        bestDistance = distance;
-        bestDepth = projected.z;
+    const radius = vertexPickPx() ** 2;
+    const near: { group: PointGroup; distance: number; depth: number }[] = [];
+    const clip = new Vector4();
+    for (const group of groups) {
+      clip.set(group.position.x, group.position.y, group.position.z, 1).applyMatrix4(viewProjection);
+      if (!(clip.w > 0)) {
+        continue;
+      }
+      const x = clip.x / clip.w;
+      const y = clip.y / clip.w;
+      const z = clip.z / clip.w;
+      if (!Number.isFinite(x + y + z) || Math.abs(x) > 1 || Math.abs(y) > 1 || Math.abs(z) > 1) {
+        continue;
+      }
+      const distance = (rect.left + (x + 1) * rect.width / 2 - clientX) ** 2
+        + (rect.top + (1 - y) * rect.height / 2 - clientY) ** 2;
+      if (distance < radius) {
+        near.push({ group, distance, depth: z });
       }
     }
-    return best ? VertexPicking.vertexEntity(best.members[0], best.members) : null;
+    if (near.length === 0) {
+      return null;
+    }
+    near.sort((a, b) => a.distance - b.distance || a.depth - b.depth);
+    const visible = this.occlusion.visible(near.map(({ group }) => group.position), occluders);
+    const best = near.find((_, i) => visible[i]);
+    return best ? VertexPicking.vertexEntity(best.group.members[0], best.group.members) : null;
   }
 
-  /** The frame hook and picks use this same visibility decision. No depth offsets. */
-  private visibleGroups(): PointGroup[] {
-    this.ctx.scene.updateMatrixWorld(true);
-    const candidates = collectPickCandidates(this.ctx.scene, {
-      sketchWires: false, profileWires: false, axes: false, planes: false,
-      vertices: true, vertexScope: this.scope,
-    });
-    const occluders = [...candidates.faces, ...this.extraOccluders()];
-    candidates.vertices = candidates.vertices.filter(candidate => {
-      const indices = this.indices.get(candidate.shapeId);
-      return !indices || indices.has(candidate.index);
-    });
-
-    const snapshot = this.snapshot(candidates.vertices, occluders);
-    if (this.cache && VertexPicking.sameSnapshot(this.cache.snapshot, snapshot)) {
-      return this.cache.groups;
+  /** Before each frame: the dots' states when they changed, and the occlusion map for this camera. */
+  refresh(): void {
+    if (!this.active && this.selected.size === 0) {
+      this.syncSketchDots();
+      if (this.dots.drawn.length > 0) {
+        this.dots.setDots([]);
+      }
+      this.occlusion.release();
+      this.displayDirty = true;
+      return;
     }
+    const { groups, occluders, sketchDots } = this.scan();
+    this.syncSketchDots(sketchDots);
+    if (this.displayDirty) {
+      this.dots.setDots(this.dotsFor(groups));
+      this.displayDirty = false;
+    }
+    this.dots.setOcclusion(this.dots.drawn.length > 0 ? this.occlusion.update(occluders) : null);
+    const renderer = this.ctx.renderer;
+    renderer.getDrawingBufferSize(this.drawingBuffer);
+    this.dots.setViewport(this.drawingBuffer, renderer.getPixelRatio());
+  }
 
+  /** The dots to draw: every candidate while armed, else only the selected ones; hovered and selected on top. */
+  private dotsFor(groups: PointGroup[]): VertexDot[] {
+    const drawn: (VertexDot & { order: number })[] = [];
+    for (const group of groups) {
+      const selected = group.keys.some(key => this.selected.has(key));
+      if (!this.active && !selected) {
+        continue;
+      }
+      const state: MarkerState = selected ? 'selected'
+        : this.hovered !== null && group.keys.includes(this.hovered) ? 'hover' : 'candidate';
+      drawn.push({
+        position: group.position,
+        color: state === 'selected' ? themeColors.vertexSelectedColor
+          : state === 'hover' ? themeColors.vertexHoverColor : themeColors.vertexColor,
+        opacity: selected && this.emphasized !== null && !group.keys.some(key => this.emphasized!.has(key)) ? 0.6 : 1,
+        radiusPx: RADIUS_PX[state],
+        order: DRAW_ORDER[state],
+      });
+    }
+    // A stable sort: candidates keep their order, the few highlighted dots move last.
+    return drawn.sort((a, b) => a.order - b.order);
+  }
+
+  /**
+   * The merged candidates and the faces that occlude them. The scene walk
+   * is per object, never per vertex; the vertices are expanded and merged
+   * only when a source, its placement, its clipping or the scope changed.
+   */
+  private scan(): { groups: PointGroup[]; occluders: Object3D[]; sketchDots: Object3D[] } {
+    // Only what moved: the renderer does the same before drawing, so this is the scene it draws.
+    this.ctx.scene.updateMatrixWorld();
+    const sketchDots: Object3D[] = [];
+    const { faces, sources } = collectVertexSources(this.ctx.scene, this.scope, obj => {
+      if (obj.userData.isVertexDot) {
+        sketchDots.push(obj);
+      }
+    });
+    const occluders: Object3D[] = [...faces, ...this.extraOccluders()];
+    const signature = this.signatureOf(sources);
+    if (!this.cache || !VertexPicking.sameValues(this.cache.signature, signature)) {
+      this.cache = { signature, groups: this.mergeCandidates(sources) };
+      this.displayDirty = true;
+    }
+    return { groups: this.cache.groups, occluders, sketchDots };
+  }
+
+  /** Everything the candidates depend on, compared by identity and value. */
+  private signatureOf(sources: VertexSource[]): unknown[] {
+    const out: unknown[] = [this.scopeVersion];
+    for (const source of sources) {
+      out.push(source.object, source.coordinates, source.instanceId, ...source.object.matrixWorld.elements);
+      for (const material of source.materials) {
+        out.push(material, material.clipIntersection);
+        for (const plane of material.clippingPlanes ?? []) {
+          out.push(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** The candidates in scope, coincident ones merged into one group. */
+  private mergeCandidates(sources: VertexSource[]): PointGroup[] {
+    const candidates: VertexCandidate[] = [];
+    for (const source of sources) {
+      expandVertexSource(source, candidates);
+    }
     const buckets = new Map<string, PointGroup[]>();
     const groups: PointGroup[] = [];
     const tolerance = worldFromMm(1e-6);
-    for (const candidate of candidates.vertices) {
-      const point = candidate.position;
-      const ndc = point.clone().project(this.ctx.camera);
-      if (!Number.isFinite(ndc.x + ndc.y + ndc.z)
-        || Math.abs(ndc.x) > 1 || Math.abs(ndc.y) > 1 || Math.abs(ndc.z) > 1) {
+    for (const candidate of candidates) {
+      const indices = this.indices.get(candidate.shapeId);
+      if (indices && !indices.has(candidate.index)) {
         continue;
       }
+      const point = candidate.position;
+      const key = entityKey(VertexPicking.vertexEntity(candidate, []));
       const cell = [point.x, point.y, point.z].map(value => Math.floor(value / tolerance));
       const group = VertexPicking.coincidentGroup(buckets, cell, point, tolerance);
       if (group) {
         group.members.push(candidate);
-      } else if (this.isVisible(point, occluders)) {
-        const added = { position: point, members: [candidate] };
-        const key = cell.join(':');
-        const bucket = buckets.get(key) ?? [];
-        bucket.push(added);
-        buckets.set(key, bucket);
-        groups.push(added);
+        group.keys.push(key);
+        continue;
       }
+      const added = { position: point, members: [candidate], keys: [key] };
+      const cellKey = cell.join(':');
+      const bucket = buckets.get(cellKey) ?? [];
+      bucket.push(added);
+      buckets.set(cellKey, bucket);
+      groups.push(added);
     }
-    this.cache = { snapshot, groups };
     return groups;
   }
 
-  private snapshot(vertices: VertexCandidate[], occluders: Object3D[]): VisibilitySnapshot {
-    const camera = this.ctx.camera;
-    return {
-      camera: [...camera.matrixWorld.elements, ...camera.projectionMatrix.elements],
-      scope: this.scope,
-      vertices,
-      occluders: occluders.map(object => VertexPicking.occluderState(object)),
-    };
-  }
-
-  private static occluderState(object: Object3D): OccluderState {
-    const mesh = object as Mesh;
-    const geometry = mesh.geometry ?? null;
-    const materials: Material[] = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
-    const clipping: number[] = [];
-    for (const material of materials) {
-      clipping.push(material.clipIntersection ? 1 : 0);
-      for (const plane of material.clippingPlanes ?? []) {
-        clipping.push(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
-      }
-    }
-    return {
-      object,
-      geometry,
-      positionVersion: VertexPicking.attributeVersion(geometry?.attributes.position),
-      indexVersion: geometry?.index?.version ?? 0,
-      matrix: [...object.matrixWorld.elements],
-      clipping,
-    };
-  }
-
-  private static attributeVersion(attribute: BufferAttribute | InterleavedBufferAttribute | undefined): number {
-    if (!attribute) {
-      return 0;
-    }
-    return 'data' in attribute ? attribute.data.version : attribute.version;
-  }
-
-  private static sameSnapshot(a: VisibilitySnapshot, b: VisibilitySnapshot): boolean {
-    if (a.scope !== b.scope
-      || a.vertices.length !== b.vertices.length
-      || a.occluders.length !== b.occluders.length
-      || !VertexPicking.sameNumbers(a.camera, b.camera)) {
-      return false;
-    }
-    for (let i = 0; i < a.vertices.length; i++) {
-      const p = a.vertices[i];
-      const q = b.vertices[i];
-      if (p.shapeId !== q.shapeId || p.index !== q.index || p.instanceId !== q.instanceId
-        || !p.position.equals(q.position)) {
-        return false;
-      }
-    }
-    for (let i = 0; i < a.occluders.length; i++) {
-      const p = a.occluders[i];
-      const q = b.occluders[i];
-      if (p.object !== q.object || p.geometry !== q.geometry
-        || p.positionVersion !== q.positionVersion || p.indexVersion !== q.indexVersion
-        || !VertexPicking.sameNumbers(p.matrix, q.matrix)
-        || !VertexPicking.sameNumbers(p.clipping, q.clipping)) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private static sameNumbers(a: number[], b: number[]): boolean {
+  private static sameValues(a: unknown[], b: unknown[]): boolean {
     if (a.length !== b.length) {
       return false;
     }
@@ -293,63 +332,35 @@ export class VertexPicking {
     };
   }
 
-  refresh(): void {
-    this.syncSketchDots();
-    const keep = new Set<string>();
-    const groups = this.active || this.selected.size > 0 ? this.visibleGroups() : [];
-    for (const points of groups) {
-      const keys = points.members.map(candidate => entityKey(VertexPicking.vertexEntity(candidate, [])));
-      const selected = keys.some(key => this.selected.has(key));
-      if (!this.active && !selected) {
-        continue;
-      }
-      const state: MarkerState = selected ? 'selected' : keys.includes(this.hovered) ? 'hover' : 'candidate';
-      const key = keys[0];
-      keep.add(key);
-      let marker = this.markers.get(key);
-      if (marker && marker.state !== state) {
-        this.removeMarker(key);
-        marker = undefined;
-      }
-      if (!marker) {
-        const group = createPointMarker(points.position, 0xffffff, {
-          pixelRadius: state === 'candidate' ? 2.5 : state === 'hover' ? 4.5 : 3.5,
-        });
-        group.userData.vertexState = state;
-        marker = { group, state };
-        this.group.add(group);
-        this.markers.set(key, marker);
-      }
-      marker.group.position.copy(points.position);
-      marker.group.quaternion.copy(this.ctx.camera.quaternion);
-      const dot = marker.group.children[0] as Mesh;
-      const material = dot.material as MeshBasicMaterial;
-      material.transparent = true;
-      material.opacity = selected && this.emphasized !== null
-        && !keys.some(key => this.emphasized!.has(key)) ? 0.6 : 1;
-      material.color.copy(state === 'selected' ? themeColors.vertexSelectedColor
-        : state === 'hover' ? themeColors.vertexHoverColor : themeColors.vertexColor);
-    }
-    for (const key of [...this.markers.keys()]) {
-      if (!keep.has(key)) {
-        this.removeMarker(key);
-      }
-    }
-  }
-
-  /** The topology channel owns point states while armed; hide the sketch's larger endpoint dots. */
-  private syncSketchDots(): void {
+  /**
+   * The topology channel owns point states while armed; hide the sketch's
+   * larger endpoint dots. `shown` is the endpoint dots a walk of the visible
+   * scene just passed: those, and the ones already hidden while they stay in
+   * the scene, are the armed set. Without it, the whole scene is walked.
+   */
+  private syncSketchDots(shown?: readonly Object3D[]): void {
     const found = new Set<Object3D>();
     if (this.active) {
-      this.ctx.scene.traverse(node => {
-        if (node.userData.isVertexDot) {
-          found.add(node);
-          if (!this.sketchDots.has(node)) {
-            this.sketchDots.set(node, node.visible);
+      if (shown) {
+        shown.forEach(node => found.add(node));
+        for (const node of this.sketchDots.keys()) {
+          if (VertexPicking.inScene(node, this.ctx.scene)) {
+            found.add(node);
           }
-          node.visible = false;
         }
-      });
+      } else {
+        this.ctx.scene.traverse(node => {
+          if (node.userData.isVertexDot) {
+            found.add(node);
+          }
+        });
+      }
+      for (const node of found) {
+        if (!this.sketchDots.has(node)) {
+          this.sketchDots.set(node, node.visible);
+        }
+        node.visible = false;
+      }
     }
     for (const [node, visible] of this.sketchDots) {
       if (!found.has(node)) {
@@ -359,13 +370,17 @@ export class VertexPicking {
     }
   }
 
-  private removeMarker(key: string): void {
-    const marker = this.markers.get(key)!;
-    marker.group.removeFromParent();
-    const dot = marker.group.children[0] as Mesh;
-    dot.geometry.dispose();
-    (dot.material as MeshBasicMaterial).dispose();
-    this.markers.delete(key);
+  private static inScene(node: Object3D, scene: Object3D): boolean {
+    let current: Object3D | null = node;
+    while (current && current !== scene) {
+      current = current.parent;
+    }
+    return current === scene;
+  }
+
+  /** The dots drawn now, in draw order — for tests and probes. */
+  get drawnDots(): readonly VertexDot[] {
+    return this.dots.drawn;
   }
 
   dispose(): void {
@@ -373,9 +388,9 @@ export class VertexPicking {
     this.syncSketchDots();
     this.removeFrameHook();
     this.removeThemeListener();
-    for (const key of [...this.markers.keys()]) {
-      this.removeMarker(key);
-    }
+    this.occlusion.dispose();
+    this.dots.dispose();
     this.group.removeFromParent();
   }
 }
+

@@ -11,6 +11,7 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { orientCameraForView, resolveView, type ScreenshotView } from './screenshot-view';
 import { findGeometryRoot, geometryBoundsOf } from './scene/scene-geometry-bounds';
 import { runFrameHooks } from './meshes/frame-hooks';
+import { disposeEnvironmentOf, environmentFor, sceneUsesEnvironment } from './meshes/appearance/environment';
 import { withSketchConstraintVisibility } from './meshes/containers/sketch-constraint-visibility';
 import {
   MultiViewLayout,
@@ -22,9 +23,11 @@ import {
   type ScreenshotHighlightRef,
 } from './screenshot-overlays';
 import { SectionController, SectionPlaneMath, SectionStyles, type SectionSpec } from './scene/section-controller';
+import { ScreenshotShapeFraming, type ScreenshotShapeFit } from './screenshot-shape-framing';
 
 export type { ScreenshotAnnotation, ScreenshotHighlightRef } from './screenshot-overlays';
 export type { SectionSpec } from './scene/section-controller';
+export type { ScreenshotShapeFit } from './screenshot-shape-framing';
 
 /**
  * Padding on a highlight-fitted frame: looser than a whole-model fit so a
@@ -38,6 +41,11 @@ export interface ScreenshotOptions {
   showGrid: boolean;
   showAxes: boolean;
   transparent: boolean;
+  /**
+   * The capture's background, a CSS colour (`'#ffffff'`), in place of the
+   * scene's own (the theme's base colour). Ignored when `transparent`.
+   */
+  background: string | null;
   autoCrop: boolean;
   /** Fit camera to the model without cropping the canvas. */
   fitToModel: boolean;
@@ -90,8 +98,15 @@ export interface ScreenshotOptions {
   focus: string[];
   /** Labelled point-to-point lines in document units, painted in screen space over the capture. */
   annotations: ScreenshotAnnotation[];
-  /** `'highlight'` frames the highlighted entities (and annotation points) instead of the model. */
-  fitTo: 'highlight' | null;
+  /**
+   * What to frame instead of the model. `'highlight'` frames the highlighted
+   * entities (and annotation points). `{ shapes, margin? }` frames those shape
+   * or instance ids as drawn, instance poses included, with the page's tight
+   * fit from the view's direction (see {@link ScreenshotShapeFraming}) and
+   * draws everything as it is; an id the page draws nothing for fails the
+   * capture.
+   */
+  fitTo: 'highlight' | ScreenshotShapeFit | null;
   /** Multi captures: the cells' views, 2-6, laid out two per row. */
   views: ScreenshotView[];
   /**
@@ -109,6 +124,7 @@ const DEFAULTS: ScreenshotOptions = {
   showGrid: false,
   showAxes: false,
   transparent: false,
+  background: null,
   autoCrop: false,
   fitToModel: false,
   margin: 0,
@@ -185,13 +201,17 @@ export function captureScreenshotMulti(
  */
 function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
   const {
-    width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view, solidsOnly,
+    width, height, showGrid, showAxes, transparent, background, autoCrop, fitToModel, margin, view, solidsOnly,
     showDimensions, showPositional, framePlanes, pixelRatio, highlight, hide, focus, annotations, fitTo, section,
   } = options;
 
   const scene = sceneCtx.scene;
   const camera = sceneCtx.camera;
   const cc = sceneCtx.cameraControls;
+
+  // Measured before anything below changes the scene: an id the page draws
+  // nothing for throws here, with nothing yet to undo.
+  const shapeFraming = fitTo !== null && typeof fitTo === 'object' ? ScreenshotShapeFraming.measure(scene, fitTo) : null;
 
   // --- Save state ---
   // Solids-only goes first so the grid/axes toggles below still win over it,
@@ -228,7 +248,11 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   if (gridObj) { gridObj.visible = showGrid; }
   if (defaultAxes) { defaultAxes.visible = showAxes; }
   if (sketchAxes) { sketchAxes.visible = showAxes; }
-  if (transparent) { scene.background = null; }
+  if (transparent) {
+    scene.background = null;
+  } else if (background) {
+    scene.background = new Color(background);
+  }
 
   // Adjust camera projection for export aspect ratio BEFORE applying a view,
   // so view fitting computes zoom against the correct frustum dimensions.
@@ -242,7 +266,8 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     cam.right = exportAspect * currentHeight / 2;
     cam.updateProjectionMatrix();
   } else {
-    savedCameraState = { aspect: cam.aspect };
+    // near/far too: a shape-framed close-up widens the clip range for the shot.
+    savedCameraState = { aspect: cam.aspect, near: cam.near, far: cam.far };
     cam.aspect = exportAspect;
     cam.updateProjectionMatrix();
   }
@@ -250,9 +275,15 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // --- Apply requested view (if any) ---
   // Stateless: we mutate the camera directly and restore it below. The user's
   // CameraControls are never moved, so the interactive view is preserved.
-  const resolved = ScreenshotFraming.frameFor(sceneCtx, framePlanes, fitBox);
-  if (view.kind !== 'current') {
-    const resolvedSection = section ? SectionPlaneMath.resolve(section) : null;
+  // The `section` view kind looks at the capture's section; resolved once for
+  // both framings (null without a section sends that kind to iso-ftr).
+  const resolvedSection = section ? SectionPlaneMath.resolve(section) : null;
+  if (shapeFraming) {
+    // Every view kind, `current` included: the view lends the direction and
+    // the tight fit places the camera on the shapes.
+    shapeFraming.pose(camera, view, { eye: savedCamPos, target: savedCamTarget }, { width, height }, resolvedSection);
+  } else if (view.kind !== 'current') {
+    const resolved = ScreenshotFraming.frameFor(sceneCtx, framePlanes, fitBox);
     const target = resolveView(view, resolved.center, resolved.diameter, savedCamPos, savedCamTarget, resolvedSection);
     if (target) {
       orientCameraForView(camera, target.eye, target.target);
@@ -333,7 +364,19 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // viewport's zoom made them; the next live frame lays them out again for
   // the screen.
   runFrameHooks(tmpRenderer, camera);
+  // The live environment texture belongs to the viewport's GL context: an
+  // appearance part is shaded against one generated for this renderer, and
+  // the scene gets its own back before the viewport draws again.
+  const liveEnvironment = scene.environment;
+  const ownsEnvironment = sceneUsesEnvironment(scene);
+  if (ownsEnvironment) {
+    scene.environment = environmentFor(tmpRenderer);
+  }
   tmpRenderer.render(scene, camera);
+  if (ownsEnvironment) {
+    scene.environment = liveEnvironment;
+    disposeEnvironmentOf(tmpRenderer);
+  }
   // Project while the camera is still posed for the capture; painted below.
   const plannedAnnotations = ScreenshotAnnotationPlan.project(annotations, camera, width, height);
   // Before the crop measures bounds, and before the overlays it clipped go.
@@ -376,6 +419,8 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     cam.bottom = savedCameraState.bottom;
   } else {
     cam.aspect = savedCameraState.aspect;
+    cam.near = savedCameraState.near;
+    cam.far = savedCameraState.far;
   }
   camera.zoom = savedZoom;
   camera.up.copy(savedUp);
@@ -510,8 +555,8 @@ class ScreenshotSection {
 /**
  * What a capture frames: the whole model (a named view, `fitToModel`), or
  * the highlighted entities when the capture asks for `fitTo: "highlight"` —
- * the same centre-plus-bounding-diameter that `screenshot_shape` frames one
- * shape with, so every view kind fits the same way.
+ * one centre-plus-bounding-diameter, so every view kind fits the same way.
+ * `fitTo: { shapes }` is framed by {@link ScreenshotShapeFraming} instead.
  */
 class ScreenshotFraming {
 

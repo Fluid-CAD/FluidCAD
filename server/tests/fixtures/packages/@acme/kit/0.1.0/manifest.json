@@ -1,0 +1,114 @@
+{
+  "manifestVersion": 1,
+  "name": "@acme/kit",
+  "version": "0.1.0",
+  "description": "A hand-written installed package for the engine tests: the standoff feature and a spacer part",
+  "license": "MIT",
+  "author": "Acme Robotics",
+  "keywords": [
+    "test"
+  ],
+  "engine": "0.0.46",
+  "minEngine": "0.0.46",
+  "sdkVersion": 1,
+  "unit": "in",
+  "fileUnits": {},
+  "contents": [
+    "features",
+    "parts"
+  ],
+  "features": [
+    {
+      "id": "acme.standoff",
+      "exportName": "standoff",
+      "module": "standoff.feature.js",
+      "meta": {
+        "id": "acme.standoff",
+        "label": "Standoff",
+        "description": "A boss with a bore through it, standing on a planar face",
+        "icon": "./standoff.svg",
+        "group": "create",
+        "kind": "tool",
+        "operations": [
+          "add",
+          "new"
+        ],
+        "defaultOperation": "add",
+        "params": {
+          "face": {
+            "picker": "face",
+            "label": "On face",
+            "surface": "planar",
+            "description": "Exactly one planar face to stand on. The standoff is centred on the face's centre and grows along its normal, so pick a face sized for one standoff, such as a raised pad's top (pad.endFaces())."
+          },
+          "height": {
+            "type": "length",
+            "default": 10,
+            "min": 0,
+            "label": "Height",
+            "description": "How far the standoff rises from the face, along its normal: the gap the board sits above the face."
+          },
+          "outer": {
+            "type": "length",
+            "default": 6,
+            "min": 0,
+            "label": "Boss diameter",
+            "description": "The outside diameter of the cylindrical boss. Must be larger than hole."
+          },
+          "hole": {
+            "type": "length",
+            "default": 3,
+            "min": 0,
+            "label": "Hole diameter",
+            "description": "The diameter of the bore, always through the boss's full height: about 3.2 for an M3 clearance hole, 2.5 for an M3 thread-forming screw. Must be smaller than outer."
+          }
+        },
+        "call": [
+          "face",
+          {
+            "height": "height",
+            "outer": "outer",
+            "hole": "hole"
+          }
+        ],
+        "ghost": true,
+        "contexts": [
+          "part"
+        ],
+        "layout": [
+          "face",
+          "height",
+          "outer",
+          "hole"
+        ]
+      },
+      "usesOcct": false
+    }
+  ],
+  "parts": [
+    {
+      "exportName": "spacer",
+      "module": "parts/spacer.part.js",
+      "name": "Spacer",
+      "kind": "part",
+      "exportKind": "value",
+      "params": [
+        {
+          "label": "Length",
+          "defaultValue": 0.5,
+          "currentValue": 0.5,
+          "controlType": "number",
+          "min": 0.1
+        }
+      ]
+    }
+  ],
+  "files": [
+    "fluidcad.json",
+    "index.js",
+    "standoff.feature.js",
+    "standoff.svg",
+    "parts/spacer.part.js",
+    "helpers/sizes.js"
+  ]
+}

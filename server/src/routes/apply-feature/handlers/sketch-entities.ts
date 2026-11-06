@@ -72,7 +72,7 @@ export async function handleSketchEntities(ctx: ApplyFeatureRequestContext, req:
       const options = {
         ...(code
           ? {
-            namer: await makeProducerNamer(code),
+            namer: await makeProducerNamer(code, await ctx.currentCallees()),
             params: resolveParamValues(
               await extractNumericParams(code),
               fluidCadServer.getParamDefinitions(),
@@ -136,7 +136,7 @@ export async function handleSketchEntities(ctx: ApplyFeatureRequestContext, req:
         newVariables,
       };
       // Truthful preview: the same allocation walk the transform runs.
-      const producerVars = await allocateProducerVars(spec.producers, code);
+      const producerVars = await allocateProducerVars(spec.producers, code, await ctx.currentCallees());
       const varFor = (i: number): string | null => producerVars[i];
       const inputExprs = request.kind === 'linear'
         ? copyOptions.directions!.map(d => renderCopyAxisExpr(d.axis, spec.parts, varFor))
@@ -182,7 +182,7 @@ export async function handleSketchEntities(ctx: ApplyFeatureRequestContext, req:
       const options = {
         ...(code
           ? {
-            namer: await makeProducerNamer(code),
+            namer: await makeProducerNamer(code, await ctx.currentCallees()),
             params: resolveParamValues(
               await extractNumericParams(code),
               fluidCadServer.getParamDefinitions(),
@@ -228,7 +228,7 @@ export async function handleSketchEntities(ctx: ApplyFeatureRequestContext, req:
         imports: [...imports],
       };
       // Truthful preview: the same allocation walk the transform runs.
-      const producerVars = await allocateProducerVars(spec.producers, code);
+      const producerVars = await allocateProducerVars(spec.producers, code, await ctx.currentCallees());
       const varFor = (i: number): string | null => producerVars[i];
       const statement = renderMirrorStatement(
         mirrorOptions,
@@ -297,7 +297,7 @@ export async function handleSketchEntities(ctx: ApplyFeatureRequestContext, req:
     const code = fluidCadServer.getCurrentCode();
     const options = code
       ? {
-        namer: await makeProducerNamer(code),
+        namer: await makeProducerNamer(code, await ctx.currentCallees()),
         params: resolveParamValues(
           await extractNumericParams(code),
           fluidCadServer.getParamDefinitions(),

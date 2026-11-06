@@ -15,6 +15,8 @@ export type TSNode = {
   namedChild(i: number): TSNode | null;
   childForFieldName(name: string): TSNode | null;
   descendantForPosition(pos: { row: number; column: number }): TSNode | null;
+  /** Whether the grammar had to recover from a syntax error anywhere under the node. */
+  hasError: boolean;
 };
 
 export type TSTree = { rootNode: TSNode };
@@ -43,6 +45,15 @@ let parser: TSParser | null = null;
  */
 export async function getJavaScriptParser(): Promise<TSParser> {
   return getParser();
+}
+
+/**
+ * The parser {@link getJavaScriptParser} has loaded, or null before its
+ * first load — for a synchronous check in a flow that has parsed already
+ * (every statement edit parses the file before it writes a value).
+ */
+export function loadedJavaScriptParser(): TSParser | null {
+  return parser;
 }
 
 export async function getParser(): Promise<TSParser> {

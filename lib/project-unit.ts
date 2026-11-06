@@ -9,6 +9,8 @@ import type { LengthUnit } from "./units/units.js";
 import type { FluidCADOptions } from "./index.js";
 
 export const PROJECT_CONFIG_FILENAME = "fluidcad.json";
+/** The generated file that marks an installed package's root. */
+export const PACKAGE_MANIFEST_FILENAME = "manifest.json";
 
 function isNode(): boolean {
   return typeof process !== "undefined" && typeof fs.readFileSync === "function";
@@ -68,6 +70,20 @@ function isNodeModulesPackageRoot(dir: string): boolean {
   }
 }
 
+/**
+ * An installed FluidCAD package: its `manifest.json` sits beside the reduced
+ * `fluidcad.json` it ships. The package's unit is its own business, so the
+ * walk stops there even when that file names none — it must never climb out
+ * of the user library into whatever `fluidcad.json` lies above it.
+ */
+function isInstalledPackageRoot(dir: string): boolean {
+  try {
+    return fs.existsSync(join(dir, PACKAGE_MANIFEST_FILENAME)) && fs.existsSync(join(dir, PROJECT_CONFIG_FILENAME));
+  } catch {
+    return false;
+  }
+}
+
 function sameDir(a: string, b: string): boolean {
   const norm = (p: string) => p.replace(/[\\/]+$/, "").replace(/\\/g, "/");
   return norm(a) === norm(b);
@@ -75,9 +91,10 @@ function sameDir(a: string, b: string): boolean {
 
 /**
  * The nearest `fluidcad.json` unit walking UP from a file's directory,
- * stopping at the workspace root or at a package root inside node_modules
- * (a published part library carries its own project unit). Results are
- * cached per hook instance, i.e. per registry / render.
+ * stopping at the workspace root, at a package root inside node_modules
+ * (a published part library carries its own project unit) or at an
+ * installed FluidCAD package's root. Results are cached per hook instance,
+ * i.e. per registry / render.
  */
 export function createProjectUnitLookup(rootPath: string): ((file: string) => LengthUnit | null) | undefined {
   if (!isNode()) {
@@ -91,7 +108,10 @@ export function createProjectUnitLookup(rootPath: string): ((file: string) => Le
     }
     let result = readProjectUnit(dir);
     const parent = dirname(dir);
-    const atBoundary = (rootPath && sameDir(dir, rootPath)) || isNodeModulesPackageRoot(dir) || parent === dir;
+    const atBoundary = (rootPath && sameDir(dir, rootPath))
+      || isNodeModulesPackageRoot(dir)
+      || isInstalledPackageRoot(dir)
+      || parent === dir;
     if (result === null && !atBoundary) {
       result = lookup(parent);
     }

@@ -91,6 +91,11 @@ export interface EngineEditorClient {
    * statement at `sourceLocation`. Acked: resolves once the edit landed.
    */
   setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult>;
+  /**
+   * Set (null: remove) the `.appearance('id')` chain on the `part(...)`
+   * statement at `sourceLocation`. Acked: resolves once the edit landed.
+   */
+  setPartAppearance(sourceLocation: SourceLocationParam, appearance: string | null): Promise<SetUnitResult>;
 }
 
 /**

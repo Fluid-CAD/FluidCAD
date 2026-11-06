@@ -47,12 +47,32 @@ export class MeshPieces {
    * one unpainted mesh and `shape` is never opened.
    */
   static group(pieces: ShapeMeshPieces, colors?: FaceColorView, shape?: Shape): SceneObjectMesh[] {
+    return MeshPieces.groupResolved(pieces, colors, shape).meshes;
+  }
+
+  /**
+   * {@link group}, and the colour each face piece resolved to, in piece
+   * order — null when no face is painted. The meshes are a function of the
+   * pieces and that sequence alone, which is what a mesh key names
+   * (`MeshKeys`).
+   */
+  static groupResolved(
+    pieces: ShapeMeshPieces,
+    colors?: FaceColorView,
+    shape?: Shape,
+  ): { meshes: SceneObjectMesh[]; faceColors: (string | undefined)[] | null } {
     const colorOf = MeshPieces.colorLookup(pieces, colors, shape);
     const groups = new Map<string | undefined, SceneObjectMesh>();
     const vertexOffsets = new Map<string | undefined, number>();
+    const faceColors: (string | undefined)[] = [];
+    let painted = false;
 
     for (const piece of pieces.faces) {
       const color = colorOf(piece.faceIdx);
+      faceColors.push(color);
+      if (color) {
+        painted = true;
+      }
       let group = groups.get(color);
       if (!group) {
         group = { vertices: [], normals: [], indices: [], faceMapping: [], label: "solid-faces" };
@@ -84,11 +104,11 @@ export class MeshPieces {
       vertexOffsets.set(color, vertexOffset + verts.length / 3);
     }
 
-    const result: SceneObjectMesh[] = [...groups.values()];
+    const meshes: SceneObjectMesh[] = [...groups.values()];
     for (const mesh of pieces.meshes) {
-      result.push(mesh);
+      meshes.push(mesh);
     }
-    return result;
+    return { meshes, faceColors: painted ? faceColors : null };
   }
 
   /** Face index → resolved colour, reading `shape`'s faces only when there is something to resolve. */

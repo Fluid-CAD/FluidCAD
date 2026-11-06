@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
+import { scenePreviewFields, sceneStopFields, sceneUnitFields } from '../fluidcad-server/index.ts';
 import type { FluidCadServer } from '../fluidcad-server/index.ts';
-import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
-import type { ApplyFeatureEditSpec } from '../apply-feature-edit/index.ts';
+import { FeatureEditDispatcher } from '../edit-dispatch.ts';
+import { FeatureCallees, type ApplyFeatureEditSpec, type FeatureCalleeSource } from '../apply-feature-edit/index.ts';
 import type { SketchImageEdit } from '../code-editor/index.ts';
 import { MaterialCatalog } from '../material-catalog.ts';
+import { isAppearanceId } from '../../../lib/dist/common/appearances.js';
 import { MoveToPart } from '../move-to-part.ts';
 import { PartRename } from '../part-rename.ts';
 import { DeclarationRefactor } from '../declaration-refactor.ts';
@@ -79,6 +80,8 @@ export function createTimelineRouter(
     loadGlobalMaterials?: () => Promise<ProjectMaterials>;
     /** Where the other model files live — the ones that may read a removed hole's connectors by name. */
     workspacePath?: string;
+    /** The workspace's custom features, whose statements a move carries along like the built-ins'. */
+    callees?: FeatureCalleeSource;
     /**
      * The newest render pass's version (the `render-version` lifecycle
      * counter) — `/pause-after` reports it so the page can wait for the
@@ -114,15 +117,19 @@ export function createTimelineRouter(
       res.status(404).json({ error: 'No active scene' });
       return;
     }
-    sendToExtension({
-      type: 'scene-rendered',
-      absPath: data.absPath,
-      sceneKind: data.sceneKind,
-      ...sceneUnitFields(data),
-      result: data.result,
-      ...sceneStopFields(data),
-      ...(data.assembly ? { assembly: data.assembly } : {}),
-    });
+    // An assembly preview's scene rolled back stays the preview's: the
+    // pages are told so, and the editor, whose code it isn't, never sees it.
+    if (!data.preview) {
+      sendToExtension({
+        type: 'scene-rendered',
+        absPath: data.absPath,
+        sceneKind: data.sceneKind,
+        ...sceneUnitFields(data),
+        result: data.result,
+        ...sceneStopFields(data),
+        ...(data.assembly ? { assembly: data.assembly } : {}),
+      });
+    }
     broadcastToUI({
       type: 'scene-rendered',
       result: data.result,
@@ -135,6 +142,7 @@ export function createTimelineRouter(
       // scene message went out last, and the indicator must survive it.
       breakpointHit: data.breakpointHit,
       objectWarnings: data.objectWarnings,
+      ...scenePreviewFields(data),
     });
     // Features inside the rollback scope that failed to build are still
     // broken — a rollback re-emits them, it doesn't repair them.
@@ -160,6 +168,11 @@ export function createTimelineRouter(
       typeof sourceLocation.line !== 'number'
     ) {
       res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    // An engine-owned row (a generated part, a generator's record) is never
+    // removed — whichever form asks (G8).
+    if (options.dispatcher?.refuseRow(res, { location: sourceLocation, row: FeatureEditDispatcher.rowOf(req.body) })) {
       return;
     }
     if (dryRun || cascade) {
@@ -254,6 +267,10 @@ export function createTimelineRouter(
       return;
     }
     const { filePath, line } = sourceLocation;
+    // A generated part's row is read-only (G8): refused before any importer follows.
+    if (options.dispatcher.refuseRow(res, { location: sourceLocation, row: FeatureEditDispatcher.rowOf(req.body) })) {
+      return;
+    }
     const code = await refactor.readFile(filePath);
     // A name another part of the file has is refused before any importer
     // follows the rename (part names are unique within a file).
@@ -361,6 +378,14 @@ export function createTimelineRouter(
       res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
       return;
     }
+    // A package's part is read-only (K8), and so is a generated part's row
+    // (G8): refused before the material is copied into this project's
+    // fluidcad.json for nothing.
+    const row = FeatureEditDispatcher.rowOf(req.body);
+    if (options.dispatcher.refuseReadOnly(res, sourceLocation.filePath)
+      || options.dispatcher.refuseRow(res, { location: sourceLocation, row })) {
+      return;
+    }
     // A global material is copied into fluidcad.json before the source
     // names it, so the render that follows the edit resolves the id (the
     // file is re-read per render) and the project carries what it uses.
@@ -379,6 +404,38 @@ export function createTimelineRouter(
       parts: [],
       imports: [],
       partMaterial: { sourceLine: sourceLocation.line, material },
+      row,
+    };
+    await options.dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // The part row menu's "Set appearance…" (a built-in appearance id) and
+  // its "None" (null). Acked like set-part-material. Unlike a material, an
+  // appearance has no custom table: an id the built-in list lacks is a bad
+  // request, never written.
+  router.post('/set-part-appearance', async (req, res) => {
+    const { sourceLocation, appearance } = req.body ?? {};
+    if (
+      !sourceLocation ||
+      typeof sourceLocation.filePath !== 'string' ||
+      typeof sourceLocation.line !== 'number' ||
+      (appearance !== null && !isAppearanceId(appearance))
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (!options.dispatcher) {
+      res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the edit' });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'part',
+      filePath: sourceLocation.filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      partAppearance: { sourceLine: sourceLocation.line, appearance },
+      row: FeatureEditDispatcher.rowOf(req.body),
     };
     await options.dispatcher.dispatch(res, spec, { success: true });
   });
@@ -532,7 +589,8 @@ export function createTimelineRouter(
     }
     const moveToPart = { statements: captured.statements, part: { line: part.line, column: part.column } };
     if (dryRun) {
-      const analysis = await MoveToPart.analyze(code, moveToPart);
+      const callees = await (options.callees ?? FeatureCallees.BUILT_IN_SOURCE).calleesFor(code, filePath);
+      const analysis = await MoveToPart.analyze(code, moveToPart, callees);
       if (analysis.ok === false) {
         res.json({ success: false, reason: analysis.reason, ...(analysis.needs ? { needs: analysis.needs } : {}) });
       } else {

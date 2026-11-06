@@ -31,7 +31,9 @@ and a `from()` scope (`select(edge().from(r.instance(1)).circle())`).
 When the repeat clones exactly one feature per instance, the instance
 also forwards that feature's bucket accessors: `r.instance(1).endEdges()`
 is the clone's own end-edge bucket, with the same index and filter
-arguments the original's accessor takes.
+arguments the original's accessor takes — an index names the original's
+member, moved with the instance (on a mirror, its mirror image). A custom
+feature's declared buckets are forwarded too (`r.instance(1).tipEdges()`).
 
 Extends [[api/types/select]].
 

@@ -10,6 +10,7 @@ import {
 } from '../ast/args.ts';
 import { decomposeChain, type ChainSegment } from '../ast/chain.ts';
 import { parseBooleanChain, type BooleanKind } from '../features/boolean.ts';
+import { parseColorChain } from '../features/color.ts';
 import { parseConnectorChain } from '../features/connector.ts';
 import { parseCopyChain } from '../features/copy.ts';
 import type { ExtrudeTargetKind } from '../features/extrude.ts';
@@ -26,6 +27,8 @@ import { parseJoinSegment } from '../features/shell.ts';
 import { parseSweepExtendSegments } from '../features/sweep.ts';
 import { parseTextChain } from '../features/text.ts';
 import { parseHoleChain } from '../features/hole.ts';
+import { CustomFeatureStatement } from '../features/custom.ts';
+import { FeatureCallees } from '../producers/callees.ts';
 import {
   EDITABLE_CALLEES,
   OPTION_MEMBERS,
@@ -34,6 +37,7 @@ import {
   type ParsedScopeChain,
 } from './parsed-statement.ts';
 import type { RegionName, ValueExpr } from '../value-expr.ts';
+import { ValueSlots, type BooleanSlot } from '../value-slots.ts';
 
 /**
  * The `.region(…)` chain's arguments: the names of the sketch's `region()`
@@ -64,10 +68,32 @@ function parseScopeSegment(recognized: Map<string, ChainSegment>, start: number)
   };
 }
 
-export function parseFeatureChain(call: TSNode, code: string, bindings: LexicalBindings): ChainParse {
+/**
+ * Read a feature call chain into its dialog-editable options. `callees` are
+ * the custom features the file imports: a call to one reads by its call
+ * shape, ahead of the built-in names (an import may shadow one).
+ */
+export function parseFeatureChain(
+  call: TSNode,
+  code: string,
+  bindings: LexicalBindings,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
+): ChainParse {
   const chain = decomposeChain(call);
   if (!chain) {
     return { error: 'the call at that line is not a plain feature call chain' };
+  }
+  // Text the grammar could not read (`{ keep: ...sides }`) has no shape a
+  // dialog can show or write back — the source editor is where it is fixed.
+  if (call.hasError) {
+    return { error: 'the statement has a syntax error — fix it in the source' };
+  }
+  const custom = callees.feature(chain.root.name);
+  if (custom) {
+    if (!custom.shape) {
+      return { error: `${chain.root.name}() is a custom feature the editor has no call shape for — edit it in the source` };
+    }
+    return CustomFeatureStatement.parse(chain, call, bindings, { id: custom.id, shape: custom.shape });
   }
   const feature = EDITABLE_CALLEES[chain.root.name];
   if (!feature) {
@@ -149,6 +175,10 @@ export function parseFeatureChain(call: TSNode, code: string, bindings: LexicalB
       return { parsed: { feature, value, argsText, distance2, isAngle }, start, end };
     }
     return { parsed: { feature, value, argsText }, start, end };
+  }
+
+  if (feature === 'color') {
+    return parseColorChain(args, code, start, end);
   }
 
   if (feature === 'offset') {
@@ -405,20 +435,19 @@ export function parseFeatureChain(call: TSNode, code: string, bindings: LexicalB
       }
     }
 
-    let drill = true;
+    // `.drill(flag)` takes a literal or the expression computing it; a bare
+    // `.drill()` means true — the API default.
+    let drill: BooleanSlot = true;
     const drillSeg = recognized.get('drill');
     if (drillSeg) {
       if (drillSeg.args.length > 1) {
         return { error: 'the .drill() chain has more arguments than the dialog understands' };
       }
-      if (drillSeg.args.length === 1) {
-        const value = booleanArgValue(drillSeg.args[0]);
-        if (value === null) {
-          return { error: 'the .drill() argument is not a plain boolean — edit it in the source' };
-        }
-        drill = value;
+      const value = drillSeg.args.length === 1 ? ValueSlots.boolean(drillSeg.args[0]) : true;
+      if (value === null) {
+        return { error: 'the .drill() argument is not one the dialog can carry — edit it in the source' };
       }
-      // A bare .drill() means true — the API default.
+      drill = value;
     }
 
     const regionParse = parseRegionSegment(recognized);

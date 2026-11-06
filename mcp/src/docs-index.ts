@@ -69,10 +69,12 @@ export class DocsIndex {
   /** Symbol -> docId (from `llm-docs/api/index.json`). */
   public readonly symbols: Readonly<Record<string, string>>;
   /**
-   * Type-name -> docId, restricted to docs under `api/types/`. Populated by
-   * filtering `symbols` so the same symbol map drives both `get_api_signature`
-   * and `get_type_definition`, but the latter rejects function symbols with a
-   * clear "not a type" error rather than returning a feature signature.
+   * Type-name -> docId: the symbols of docs under `api/types/`, and the
+   * capitalized symbols of hand-written docs tagged `type` (see
+   * `isTypeSymbol`). Populated by filtering `symbols` so the same symbol map
+   * drives both `get_api_signature` and `get_type_definition`, but the latter
+   * rejects function symbols with a clear "not a type" error rather than
+   * returning a feature signature.
    */
   public readonly types: Readonly<Record<string, string>>;
 
@@ -85,11 +87,27 @@ export class DocsIndex {
     this.root = root;
     this.docs = index.docs;
     this.symbols = apiIndex.symbols;
-    this.types = Object.fromEntries(
-      Object.entries(apiIndex.symbols).filter(([, docId]) => docId.startsWith('api/types/')),
-    );
     this.byId = new Map(index.docs.map((d) => [d.id, d]));
+    this.types = Object.fromEntries(
+      Object.entries(apiIndex.symbols).filter(([symbol, docId]) => DocsIndex.isTypeSymbol(symbol, this.byId.get(docId))),
+    );
     this.inverted = this.buildInverted();
+  }
+
+  /**
+   * Whether `symbol` names a type: every symbol of a generated type doc
+   * (`api/types/`), and a capitalized one (`FeatureBuckets`, `ParamSpec`,
+   * `OccScope`) claimed by a hand-written doc tagged `type`, such as the
+   * custom-feature SDK's — its functions (`defineFeature`) stay out.
+   */
+  private static isTypeSymbol(symbol: string, doc: DocRecord | undefined): boolean {
+    if (!doc) {
+      return false;
+    }
+    if (doc.id.startsWith('api/types/')) {
+      return true;
+    }
+    return /^[A-Z]/.test(symbol) && (doc.tags ?? []).includes('type');
   }
 
   /** All docs, optionally filtered to those carrying a given tag. */

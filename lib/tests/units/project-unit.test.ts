@@ -90,6 +90,34 @@ describe("fluidcad.json project unit", () => {
     expect(lookup(join(ws, "node_modules/plain/x.part.js"))).toBeNull();
   });
 
+  it("stops at an installed package's root, even when its fluidcad.json names no unit", () => {
+    // A user library outside the workspace, under a folder whose own
+    // fluidcad.json the walk must never reach.
+    const home = join(root, "home");
+    const pkg = (name: string, config: object, manifest: boolean) => {
+      const dir = join(home, "library/@acme", name, "0.1.0");
+      fs.mkdirSync(join(dir, "parts"), { recursive: true });
+      fs.writeFileSync(join(dir, "fluidcad.json"), JSON.stringify(config));
+      if (manifest) {
+        fs.writeFileSync(join(dir, "manifest.json"), JSON.stringify({ manifestVersion: 1, name: `@acme/${name}`, version: "0.1.0" }));
+      }
+      fs.writeFileSync(join(dir, "parts/x.part.js"), "");
+      return join(dir, "parts/x.part.js");
+    };
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(join(home, "fluidcad.json"), JSON.stringify({ unit: "ft" }));
+    const unitless = pkg("unitless", {}, true);
+    const inches = pkg("inches", { unit: "in" }, true);
+    const unmarked = pkg("unmarked", {}, false);
+
+    const lookup = createProjectUnitLookup(ws)!;
+    expect(lookup(unitless)).toBeNull();
+    expect(lookup(inches)).toBe("in");
+    // The marker is what makes the boundary: without manifest.json the
+    // walk climbs on, as for any folder.
+    expect(lookup(unmarked)).toBe("ft");
+  });
+
   it("caches per lookup instance", () => {
     const lookup = createProjectUnitLookup(ws)!;
     expect(lookup(join(ws, "other/model.part.js"))).toBe("in");

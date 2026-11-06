@@ -1,5 +1,6 @@
 import { Box3, BufferAttribute, BufferGeometry, Color, Group, Intersection, LineSegments, Material, Mesh, MeshPhongMaterial, Object3D, Plane, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
+import { meshCache } from './scene/mesh-cache';
 import type { FitMode } from './scene/camera-fit';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager, sketchCameraDistance } from './scene/scene-mode';
@@ -25,7 +26,7 @@ import { CentroidIndicator } from './scene/centroid-indicator';
 import { connectorHostHidden } from './scene/connector-host';
 import { LineageShapeState } from './scene/shape-state';
 import { viewerSettings } from './scene/viewer-settings';
-import { themeColors } from './scene/theme-colors';
+import { SceneLook, themeColors, type SceneLookName } from './scene/theme-colors';
 import { STANDARD_PLANE_IDS, StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
@@ -175,6 +176,8 @@ const SKETCH_GHOST_EDGE_TINT_FACTOR = 0.3;
  */
 export class Viewer {
   private ctx: SceneContext;
+  /** Stops the mesh cache counting this viewport's objects as drawing (see {@link MeshCache.watch}). */
+  private readonly unwatchMeshes: () => void;
   private modeManager: SceneModeManager;
   /** The sketches' reference pictures: loaded once per path, placed on every render, previewed by the Image tool. */
   readonly referenceImage: ReferenceImageController;
@@ -432,10 +435,11 @@ export class Viewer {
     // coordinate offsets. UI chrome stays on the full-size outer container.
     const sceneContainer = document.getElementById('fluidcad-scene') ?? container;
     this.ctx = new SceneContext(sceneContainer);
+    // What the viewport draws counts as drawn: the mesh cache frees no
+    // geometry an object of this scene still uses.
+    this.unwatchMeshes = meshCache.watch(this.ctx.scene);
     this.connectorPicker = new ConnectorGizmoPicker(() => this.ctx.camera, this.ctx.renderer.domElement);
-    this.vertexPicking = new VertexPicking(this.ctx,
-      (point, occluders) => this.isPointVisible(point, occluders, worldFromMm(1e-5)),
-      () => this.standardPlanes.pickTargets);
+    this.vertexPicking = new VertexPicking(this.ctx, () => this.standardPlanes.pickTargets);
     this.modeManager = new SceneModeManager(this.ctx);
     this.referenceImage = new ReferenceImageController(this.ctx.scene, new ReferenceImageLoader(), () => this.ctx.requestRender());
     new DialogViewOffset(this.ctx);
@@ -825,9 +829,27 @@ export class Viewer {
     this.ctx.setViewShift(y, x);
   }
 
-  /** The current scene as a PNG blob. See {@link captureScreenshot}. */
-  captureView(options: Partial<ScreenshotOptions> = {}): Promise<Blob> {
-    return captureScreenshot(this.ctx, options);
+  /**
+   * The current scene as a PNG blob. See {@link captureScreenshot}.
+   *
+   * `look` takes the shot in that theme's scene colours (`'light'`: the
+   * light faces, edges and background) whatever the page's theme is, and
+   * puts the page's back once the pixels are read; the live view never
+   * shows the switch, since nothing draws to the screen in between.
+   */
+  captureView(options: Partial<ScreenshotOptions> & { look?: SceneLookName } = {}): Promise<Blob> {
+    const { look, ...screenshot } = options;
+    if (!look) {
+      return captureScreenshot(this.ctx, screenshot);
+    }
+    try {
+      return SceneLook.during(look, () => {
+        this.rebuildSceneMesh();
+        return captureScreenshot(this.ctx, screenshot);
+      });
+    } finally {
+      this.rebuildSceneMesh();
+    }
   }
 
   setParamsToggleHandler(fn: () => void): void {
@@ -1747,9 +1769,12 @@ export class Viewer {
     // doesn't waste time on them.
     sceneObjects = filterToReferencedParts(sceneObjects, assembly.instances);
     this.sceneObjects = sceneObjects;
-    this.highlightedShapeId = null;
+    // The render wipes the selection and the hover. The controller keeps the
+    // groups of unchanged instances (S6b), so their marks are taken off here
+    // — not left to the groups being thrown away.
+    this.clearHighlightState({ render: false });
+    this.removeHoverDecorations();
     this.hoverState = null;
-    this.hoverFaceOverlayMeshes = [];
 
     this.removeCompiledMesh();
     this.activeSketchId = null;
@@ -1821,7 +1846,7 @@ export class Viewer {
   }
 
   /** Tint one whole shape (all faces of a solid, or its edges) in place. */
-  private applyShapeHighlight(shapeId: string, instanceId: string | null = null): void {
+  private applyShapeHighlight(shapeId: string, instanceId: string | null = null, tint: Color | null = null): void {
     const part = this.findShapeById(shapeId);
     if (!part) return;
 
@@ -1840,7 +1865,7 @@ export class Viewer {
       if (isFaceHighlight && child instanceof Mesh && !isEdge) {
         const mat = (child as any).material;
         child.userData.originalColor = mat.color.getHex();
-        mat.color.set(themeColors.highlightColor);
+        mat.color.set(tint ?? themeColors.highlightColor);
         if (mat.opacity < 1 || mat.transparent) {
           child.userData.originalOpacity = mat.opacity;
           child.userData.originalTransparent = mat.transparent;
@@ -2031,9 +2056,12 @@ export class Viewer {
     }
   }
 
-  /** Drop every highlight; the rows a highlight revealed stay drawn (the caller decides). */
-
-  private clearHighlightState(): void {
+  /**
+   * Drop every highlight; the rows a highlight revealed stay drawn (the
+   * caller decides). Draws a frame without it unless `render` is false (a
+   * scene update draws its own).
+   */
+  private clearHighlightState({ render = true }: { render?: boolean } = {}): void {
     if (!this.highlightedShapeId && this.highlightedEntities.length === 0
       && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0
       && this.highlightedSolidShapeIds.length === 0 && this.highlightedPlaneQuads.length === 0
@@ -2089,7 +2117,9 @@ export class Viewer {
     this.highlightedSketchWires = [];
     this.highlightedPlaneQuads = [];
     this.vertexPicking?.setSelected([]);
-    this.ctx.render();
+    if (render) {
+      this.ctx.render();
+    }
   }
 
   /**
@@ -2106,8 +2136,17 @@ export class Viewer {
     solidShapeIds: string[] = [],
     planeQuadShapeIds: string[] = [],
     instanceId: string | null = null,
+    options: {
+      /**
+       * A colour in place of the theme's highlight for the faces and whole
+       * solids — the Color dialog's live paint; edges and wires keep the
+       * highlight colour, so a tinted pick still reads as selected.
+       */
+      tint?: string;
+    } = {},
   ): void {
     this.clearHighlightState();
+    const tint = options.tint ? new Color(options.tint) : null;
     // A consumed sketch's wire, axis line or plane quad has no mesh until
     // its row is drawn: reveal the rows these shapes belong to first, then
     // highlight.
@@ -2124,7 +2163,7 @@ export class Viewer {
       // light up for one pick.
       const scopeId = entity.instanceId ?? instanceId;
       if (entity.sub.type === 'face') {
-        this.applyFaceHighlight(entity.shapeId, entity.sub.index, scopeId);
+        this.applyFaceHighlight(entity.shapeId, entity.sub.index, scopeId, tint);
       } else if (entity.sub.type === 'edge') {
         this.applyEdgeHighlight(entity.shapeId, entity.sub.index, scopeId);
       }
@@ -2133,7 +2172,7 @@ export class Viewer {
       this.applySketchWireHighlight(shapeId);
     }
     for (const shapeId of solidShapeIds) {
-      this.applyShapeHighlight(shapeId);
+      this.applyShapeHighlight(shapeId, null, tint);
     }
     for (const shapeId of planeQuadShapeIds) {
       this.applyPlaneQuadHighlight(shapeId);
@@ -2180,7 +2219,9 @@ export class Viewer {
     this.highlightEntities([{ shapeId, sub: { type: 'edge', index: edgeIndex } }], [], [], [], instanceId);
   }
 
-  private applyFaceHighlight(shapeId: string, faceIndex: number, instanceId: string | null = null): void {
+  private applyFaceHighlight(
+    shapeId: string, faceIndex: number, instanceId: string | null = null, tint: Color | null = null,
+  ): void {
     const scope = this.resolveScope(instanceId);
     if (!scope) {
       return;
@@ -2194,7 +2235,7 @@ export class Viewer {
       // base face and draw on top, so boundaries between two highlighted
       // faces stay visible.
       const overlayMat = new MeshPhongMaterial({
-        color: themeColors.highlightColor,
+        color: tint ?? themeColors.highlightColor,
         depthWrite: false,
         polygonOffset: true,
         polygonOffsetFactor: -2,
@@ -2433,29 +2474,7 @@ export class Viewer {
 
   clearHover(): void {
     this.vertexPicking?.setHover(null);
-    // Remove face hover overlays
-    for (const m of this.hoverFaceOverlayMeshes) {
-      m.parent?.remove(m);
-      m.geometry.dispose();
-      (m.material as MeshPhongMaterial).dispose();
-    }
-    this.hoverFaceOverlayMeshes = [];
-
-    // Restore edge hover colors
-    this.ctx.scene.traverse((child) => {
-      if (child.userData.hoverOriginalColor !== undefined) {
-        (child as any).material.color.setHex(child.userData.hoverOriginalColor);
-        delete child.userData.hoverOriginalColor;
-      }
-      if (child.userData.hoverOriginalLineWidth !== undefined) {
-        (child as any).material.linewidth = child.userData.hoverOriginalLineWidth;
-        delete child.userData.hoverOriginalLineWidth;
-      }
-      if (child.userData.hoverOriginalOpacity !== undefined) {
-        (child as any).material.opacity = child.userData.hoverOriginalOpacity;
-        delete child.userData.hoverOriginalOpacity;
-      }
-    });
+    this.removeHoverDecorations();
 
     if (this.hoverState?.sub?.type === 'connector') {
       this.setHoveredConnector(null);
@@ -2654,6 +2673,7 @@ export class Viewer {
   }
 
   dispose(): void {
+    this.unwatchMeshes();
     this.vertexPicking?.dispose();
     this.referenceImage.dispose();
     this.ctx.dispose();
@@ -3078,6 +3098,34 @@ export class Viewer {
     this.sectionClipper.clear(compiled);
 
     this.ctx.requestRender();
+  }
+
+  /**
+   * Take the hover's marks off the scene: the face overlays (parented in the
+   * hovered object's group) and the edge tints.
+   */
+  private removeHoverDecorations(): void {
+    for (const m of this.hoverFaceOverlayMeshes) {
+      m.parent?.remove(m);
+      m.geometry.dispose();
+      (m.material as MeshPhongMaterial).dispose();
+    }
+    this.hoverFaceOverlayMeshes = [];
+
+    this.ctx.scene.traverse((child) => {
+      if (child.userData.hoverOriginalColor !== undefined) {
+        (child as any).material.color.setHex(child.userData.hoverOriginalColor);
+        delete child.userData.hoverOriginalColor;
+      }
+      if (child.userData.hoverOriginalLineWidth !== undefined) {
+        (child as any).material.linewidth = child.userData.hoverOriginalLineWidth;
+        delete child.userData.hoverOriginalLineWidth;
+      }
+      if (child.userData.hoverOriginalOpacity !== undefined) {
+        (child as any).material.opacity = child.userData.hoverOriginalOpacity;
+        delete child.userData.hoverOriginalOpacity;
+      }
+    });
   }
 
   /** Remove the previous compiled mesh tree and dispose its GPU resources. */

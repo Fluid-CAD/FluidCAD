@@ -5,6 +5,7 @@ import type { SourceLocation } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { Part } from "../features/part.js";
 import { getUnitRegistry } from "../units/registry.js";
+import { EntryFile } from "./entry-file.js";
 import type { LengthUnit } from "../units/units.js";
 
 export type SceneObjectMesh = {
@@ -16,6 +17,7 @@ export type SceneObjectMesh = {
   faceMapping?: number[];  // faceMapping[triangleIdx] = OCC face index (solid-faces meshes only)
   edgeIndex?: number;      // solid-edges meshes only
   smooth?: boolean;        // solid-edges meshes only — a tangent (G1) junction between two faces (dimmed when dimTangentEdges is on)
+  faceSides?: number[];    // solid-edges meshes only — per segment, the vectors into the face triangles either side (see oc/edge-face-sides.ts)
 }
 
 export type RenderedShape = {
@@ -26,6 +28,17 @@ export type RenderedShape = {
    * is minted afresh whenever the holder rebuilds. Solids only.
    */
   lineageKey?: string;
+  /**
+   * Names this shape's mesh payload — `meshes`, `vertices`, `faceVertices`
+   * — by content: the same key is always the same payload, and a change to
+   * any of it (geometry, triangulation, face colours, which topology arrays
+   * ride along) is another key. Stable across renders while the payload is
+   * (a compare's cached object, a generated template taken from the cache,
+   * a shape rebuilt into the same mesh), and shared by shapes with equal
+   * payloads. A host that already holds a key's payload need not be sent it
+   * again (see `MeshKeys`). Absent when the shape has no meshes.
+   */
+  meshKey?: string;
   /** Packed world xyz per topological vertex, in Explorer order. */
   vertices?: number[];
   /** Vertex indices belonging to each face, in the viewport's topology order. */
@@ -94,11 +107,23 @@ export type SceneObjectRender = {
   hasError: boolean;
   errorMessage?: string;
   /**
+   * The build error is a trap of the OpenCascade kernel (a wasm
+   * `RuntimeError`), not an error the feature raised: the engine's memory
+   * may be damaged from here on (see `KernelTraps`).
+   */
+  kernelTrap?: boolean;
+  /**
    * `occurrence` is render-derived, never stamped: the 0-based execution
    * index of this object's call site, present only when a loop/helper ran
    * the statement more than once in this render.
    */
   sourceLocation?: { filePath: string; line: number; column: number; occurrence?: number };
+  /**
+   * The installed package whose file made the object, stamped by the
+   * engine server (never by the kernel): installed packages are read-only,
+   * so the timeline offers no edit on such a row.
+   */
+  package?: { name: string; version: string };
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
   /**
@@ -149,7 +174,27 @@ type SceneStructure = {
 
 const NO_OBJECTS: SceneObject[] = [];
 
+/**
+ * How much a render asks generators to make: `'full'`, every detail, or
+ * `'preview'`, what is quick to make while the user is still changing a
+ * value (no drilling, no small hardware). A generator reads it as
+ * `ctx.detail`; each tier builds and caches its parts apart.
+ */
+export type RenderDetail = 'preview' | 'full';
+
+/** What a scene is started with (`SceneManager.startScene` / `startAssemblyScene`). */
+export type SceneOptions = {
+  /** The detail its generated parts are built at (see {@link RenderDetail}); `'full'` when left out. */
+  detail?: RenderDetail;
+};
+
 export class Scene {
+
+  /** The tiers {@link RenderDetail} names. */
+  static readonly DETAILS: readonly RenderDetail[] = ['preview', 'full'];
+
+  /** The detail this scene's generated parts are built at — fixed when it starts. */
+  readonly detail: RenderDetail;
 
   private sceneObjects: SceneObject[] = [];
   /** Each object's position in `sceneObjects` — kept in step with every add and replace. */
@@ -173,7 +218,17 @@ export class Scene {
   /** Where a breakpoint() stopped this build — see markBreakpoint. */
   private breakpointStop: { part: Part | null; last: SceneObject | null } | null = null;
 
-  constructor() {
+  /**
+   * `options.detail` is the tier the scene's generated parts are built at
+   * (see {@link RenderDetail}); anything but `'preview'` or `'full'` is
+   * refused.
+   */
+  constructor(options: SceneOptions = {}) {
+    const detail = options.detail ?? 'full';
+    if (!Scene.DETAILS.includes(detail)) {
+      throw new Error(`a scene's detail is ${Scene.DETAILS.map(d => `'${d}'`).join(' or ')}, got ${JSON.stringify(detail)}`);
+    }
+    this.detail = detail;
   }
 
   private _units: { unit: LengthUnit; declaredUnit: LengthUnit | null } | null = null;
@@ -269,20 +324,46 @@ export class Scene {
   }
 
   /**
-   * Build every tracked definition that has no variant in this scene yet —
-   * the entry-file pass that keeps an open part file WYSIWYG: `part()` no
-   * longer builds at call time, so a definition nothing built would
-   * otherwise silently vanish from the render. One a part rule refused
+   * Build every tracked definition the entry file declares that has no
+   * variant in this scene yet — the pass that keeps an open part file
+   * WYSIWYG: `part()` is lazy, so a definition nothing built would
+   * otherwise silently vanish from its own render. One a part rule refused
    * (an unexported part, a second name) builds as its empty error row.
-   * Called after module evaluation for part-kind entry scenes only;
-   * assembly scenes build strictly via insert().
+   * A definition another file declares — an imported `.part.js`, every part
+   * a package's index re-exports next to the feature the file imported — is
+   * left unbuilt: a part file shows the parts it declares, and other files'
+   * parts reach a scene through insert() in an assembly. Called after module
+   * evaluation for part-kind entry scenes only; assembly scenes build
+   * strictly via insert().
    */
   materializeLeftoverDefinitions(): void {
+    // The entry document of this render: what the host passed to
+    // setCurrentFile(), mirrored on the unit registry (scene.ts never
+    // imports the scene manager).
+    const rootFile = getUnitRegistry().rootFile;
+    const entry = rootFile ? new EntryFile(rootFile) : null;
     for (const { definition } of this.partDefinitions) {
-      if (!definition.hasVariantIn(this)) {
+      if (!definition.hasVariantIn(this) && Scene.isDeclaredIn(definition, entry)) {
         definition.materializeInto(this);
       }
     }
+  }
+
+  /**
+   * Whether `definition`'s `part()` call is written in the entry file. The
+   * call site is the first script frame of the capture, so a `part()`
+   * reached through a plain-module helper the entry file calls counts as
+   * the entry's. A definition with no location (the capture found no script
+   * frame — a bundled browser model, a test) and a scene with no entry file
+   * (a bare scene nothing rendered from a file) keep the behaviour from
+   * before the rule: the definition builds.
+   */
+  private static isDeclaredIn(definition: TrackedPartDefinition, entry: EntryFile | null): boolean {
+    const location = definition.getSourceLocation();
+    if (!location || !entry) {
+      return true;
+    }
+    return entry.matches(location.filePath);
   }
 
   /**

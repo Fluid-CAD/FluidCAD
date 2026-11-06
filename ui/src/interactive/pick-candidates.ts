@@ -39,6 +39,78 @@ export interface PickCandidates {
   vertices: VertexCandidate[];
 }
 
+/** A shape carrying topology vertices, before its positions are expanded. */
+export type VertexSource = {
+  object: Object3D;
+  shapeId: string;
+  coordinates: readonly number[];
+  instanceId: string | null;
+  /** Its visible materials: a vertex every one of them clips is no candidate. */
+  materials: Material[];
+};
+
+/** A solid's face mesh: what hides a vertex or an edge behind it. */
+function isFaceOccluder(obj: Object3D): obj is Mesh {
+  return Boolean((obj as Mesh).isMesh && obj.userData.faceMapping);
+}
+
+/** The vertex source `obj` is, or null: no topology vertices, or outside `scope`. */
+function vertexSourceOf(obj: Object3D, scope: ReadonlySet<string> | null): VertexSource | null {
+  const { shapeId, topologyVertices } = obj.userData;
+  if (typeof shapeId !== 'string' || !Array.isArray(topologyVertices) || (scope && !scope.has(shapeId))) {
+    return null;
+  }
+  const materials: Material[] = [];
+  obj.traverseVisible(child => {
+    const material = (child as Mesh).material;
+    if (material) {
+      materials.push(...(Array.isArray(material) ? material : [material]));
+    }
+  });
+  return { object: obj, shapeId, coordinates: topologyVertices, instanceId: pickInstanceId(obj), materials };
+}
+
+/** The world positions of a source's vertices, the clipped ones left out. */
+export function expandVertexSource(source: VertexSource, out: VertexCandidate[]): void {
+  const { coordinates, materials, object, shapeId, instanceId } = source;
+  for (let i = 0; i + 2 < coordinates.length; i += 3) {
+    const position = new Vector3(coordinates[i], coordinates[i + 1], coordinates[i + 2])
+      .applyMatrix4(object.matrixWorld);
+    if (materials.length > 0 && materials.every(material => clippedByMaterial(position, material))) {
+      continue;
+    }
+    out.push({ shapeId, index: i / 3, position, instanceId });
+  }
+}
+
+/**
+ * The vertex sources and the face occluders under `root`, walked exactly as
+ * {@link collectPickCandidates} walks them but expanding no positions: the
+ * cheap half a per-frame check can afford, the vertices expanded only when
+ * a source changed. `visit` sees every visible object the walk passes, so a
+ * caller with more to find needs no walk of its own.
+ */
+export function collectVertexSources(
+  root: Object3D, scope: ReadonlySet<string> | null, visit?: (obj: Object3D) => void,
+): { faces: Mesh[]; sources: VertexSource[] } {
+  const faces: Mesh[] = [];
+  const sources: VertexSource[] = [];
+  root.traverseVisible((obj) => {
+    visit?.(obj);
+    if (obj.userData.isMetaShape) {
+      return;
+    }
+    const source = vertexSourceOf(obj, scope);
+    if (source) {
+      sources.push(source);
+    }
+    if (isFaceOccluder(obj)) {
+      faces.push(obj);
+    }
+  });
+  return { faces, sources };
+}
+
 /**
  * Collect the raycast targets under `root`.
  *
@@ -63,27 +135,11 @@ export function collectPickCandidates(root: Object3D, channels: PickChannels): P
     if (obj.userData.isMetaShape) {
       return;
     }
-    const { shapeId, topologyVertices } = obj.userData;
-    if (channels.vertices && typeof shapeId === 'string' && Array.isArray(topologyVertices)
-      && (!channels.vertexScope || channels.vertexScope.has(shapeId))) {
-      const instanceId = pickInstanceId(obj);
-      const materials: Material[] = [];
-      obj.traverseVisible(child => {
-        const material = (child as Mesh).material;
-        if (material) {
-          materials.push(...(Array.isArray(material) ? material : [material]));
-        }
-      });
-      for (let i = 0; i + 2 < topologyVertices.length; i += 3) {
-        const position = new Vector3(topologyVertices[i], topologyVertices[i + 1], topologyVertices[i + 2])
-          .applyMatrix4(obj.matrixWorld);
-        if (materials.length > 0 && materials.every(material => clippedByMaterial(position, material))) {
-          continue;
-        }
-        candidates.vertices.push({ shapeId, index: i / 3, position, instanceId });
-      }
+    const source = channels.vertices ? vertexSourceOf(obj, channels.vertexScope ?? null) : null;
+    if (source) {
+      expandVertexSource(source, candidates.vertices);
     }
-    if ((obj as Mesh).isMesh && obj.userData.faceMapping) {
+    if (isFaceOccluder(obj)) {
       candidates.faces.push(obj as Mesh);
     } else if (channels.profileWires && obj.userData.isProfileWire) {
       // Before the edge bucket: a top-level offset's edges wear BOTH stamps

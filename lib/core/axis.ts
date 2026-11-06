@@ -5,6 +5,8 @@ import { normalizeAxis } from "../helpers/normalize.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisMiddle } from "../features/axis-mid.js";
+import { AxisFromConnector } from "../features/axis-from-connector.js";
+import { ConnectorAxis } from "../features/connector-axis.js";
 import { SceneObject } from "../common/scene-object.js";
 import { IAxis, ISceneObject } from "./interfaces.js";
 
@@ -21,13 +23,15 @@ interface AxisFunction {
    */
   (axis: AxisLike, options: AxisTransformOptions): IAxis;
   /**
-   * Creates an axis from a scene object's edge.
-   * @param source - The scene object whose edge defines the axis
+   * Creates an axis from a scene object's edge — or from a connector, along
+   * its Z axis through its origin.
+   * @param source - The scene object whose edge defines the axis, or a connector
    */
   (source: ISceneObject): IAxis;
   /**
-   * Creates an axis from a scene object's edge with transform options.
-   * @param source - The scene object whose edge defines the axis
+   * Creates an axis from a scene object's edge — or from a connector, along
+   * its Z axis through its origin — with transform options.
+   * @param source - The scene object whose edge defines the axis, or a connector
    * @param options - Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes
    */
   (source: ISceneObject, options: AxisTransformOptions): IAxis;
@@ -55,6 +59,15 @@ interface AxisFunction {
 
 function build(context: SceneParserContext): AxisFunction {
   return function axis() {
+    // A connector's Z axis: `axis(bolt)`, `axis(bolt.instance(1), { offsetX: 5 })`.
+    const connector = ConnectorAxis.connectorOf(arguments[0]);
+    if (connector && (arguments.length === 1
+        || (arguments.length === 2 && typeof arguments[1] === 'object' && !(arguments[1] instanceof SceneObject)))) {
+      const a = new AxisFromConnector(connector, arguments[1]);
+      context.addSceneObject(a);
+      return a;
+    }
+
     if (arguments.length === 1) {
       if (arguments[0] instanceof SceneObject) {
         context.addSceneObject(arguments[0]);

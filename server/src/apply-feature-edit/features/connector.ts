@@ -1,9 +1,11 @@
 // connector(): option types, chain rendering and chain parsing.
 
 import type { TSNode } from '../../code-editor/index.ts';
-import { numericArgValue, stringArgValue } from '../ast/args.ts';
+import { stringArgValue } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
 import type { ChainParse } from '../parse/parsed-statement.ts';
+import { formatValue, validValueExpr, type ValueExpr } from '../value-expr.ts';
+import { ValueSlots, type ChoiceSlot } from '../value-slots.ts';
 
 /**
  * A well-known point on the connector's source face/edge, rendered as a
@@ -14,6 +16,19 @@ export type ConnectorAnchorSpec =
   | { kind: 'offset'; mode: 'relative' | 'absolute'; value: number };
 
 export type ConnectorRotateAxis = 'x' | 'y' | 'z';
+
+/** The three axes a connector's `.rotate()` turns around, as its dialog lists them. */
+export const CONNECTOR_ROTATE_AXES: readonly ConnectorRotateAxis[] = ['x', 'y', 'z'];
+
+/**
+ * The `.rotate(axis, angle)` chain as the dialog holds it: the axis one of
+ * the three names, or the expression the statement computes it with; the
+ * angle in degrees, a number or an expression.
+ */
+export type ConnectorRotateSpec = { axis: ChoiceSlot<ConnectorRotateAxis>; angle: ValueExpr };
+
+/** The `.offset(x, y, z)` chain as the dialog holds it: each component a number or an expression. */
+export type ConnectorOffsetSpec = [ValueExpr, ValueExpr, ValueExpr];
 
 /**
  * The identifier a connector may register under — mirrors the kernel's
@@ -34,11 +49,18 @@ export type ConnectorEditOptions = {
   /** The `part(...)` call site whose callback body receives the statement. */
   part?: { line: number; column: number };
   anchor?: ConnectorAnchorSpec;
-  rotate?: { axis: ConnectorRotateAxis; angle: number };
-  offset?: [number, number, number];
+  /** The rotation chain; absent writes none. */
+  rotate?: ConnectorRotateSpec;
+  /** The offset chain; absent writes none. */
+  offset?: ConnectorOffsetSpec;
 };
 
-export function validConnectorRotate(rotate: unknown): rotate is ConnectorEditOptions['rotate'] {
+/**
+ * A rotation a dialog may write: absent, or an axis — one of the three, or
+ * an expression under {@link ValueSlots.validChoice} (`kept` being the
+ * statement's own) — with an angle that is a finite number or an expression.
+ */
+export function validConnectorRotate(rotate: unknown, kept?: ReadonlySet<string>): rotate is ConnectorRotateSpec | undefined {
   if (rotate === undefined) {
     return true;
   }
@@ -46,7 +68,30 @@ export function validConnectorRotate(rotate: unknown): rotate is ConnectorEditOp
   if (r === null || typeof r !== 'object') {
     return false;
   }
-  return (r.axis === 'x' || r.axis === 'y' || r.axis === 'z') && Number.isFinite(r.angle);
+  return ValueSlots.validChoice(r.axis, CONNECTOR_ROTATE_AXES, kept) && validValueExpr(r.angle);
+}
+
+/**
+ * A rotation as a route takes it, before the statement is known: the axis a
+ * literal of the three, a reference, or an expression holding text — never
+ * {@link validExpr}, which would refuse a kept template string.
+ */
+export function shapedConnectorRotate(rotate: unknown): rotate is ConnectorRotateSpec | undefined {
+  if (rotate === undefined) {
+    return true;
+  }
+  const r = rotate as { axis?: unknown; angle?: unknown };
+  if (r === null || typeof r !== 'object') {
+    return false;
+  }
+  return ValueSlots.shaped(r.axis, literal => (CONNECTOR_ROTATE_AXES as readonly unknown[]).includes(literal))
+    && validValueExpr(r.angle);
+}
+
+/** An offset a dialog may write: absent, or three components each a finite number or an expression. */
+export function validConnectorOffset(offset: unknown): offset is ConnectorOffsetSpec | undefined {
+  return offset === undefined
+    || (Array.isArray(offset) && offset.length === 3 && offset.every(v => validValueExpr(v)));
 }
 
 /** `.center()` / `.offset('relative', 0.3)` — kernel-mirrored rendering. */
@@ -77,16 +122,23 @@ export function validConnectorAnchor(anchor: unknown): anchor is ConnectorAnchor
   return false;
 }
 
+/** A literal angle that turns the frame back onto itself — the one rotation the statement leaves unwritten. */
+function isFullTurn(angle: ValueExpr): boolean {
+  return typeof angle === 'number' && (!Number.isFinite(angle) || angle % 360 === 0);
+}
+
 /**
  * `.offset(0, 0, 5).rotate('x', 90)` — kernel-mirrored rendering. The offset
  * comes FIRST: the kernel applies the chain in order and `.rotate()` pivots at
  * the frame's current origin, so offsetting first turns the connector in place
- * at its offset position instead of swinging it around the anchor.
+ * at its offset position instead of swinging it around the anchor. A literal
+ * zero component or full turn is left unwritten; an expression is always
+ * written, bare.
  */
 export function renderConnectorChain(
   options: {
-    rotate?: { axis: ConnectorRotateAxis; angle: number };
-    offset?: [number, number, number];
+    rotate?: ConnectorRotateSpec;
+    offset?: ConnectorOffsetSpec;
   } | undefined,
 ): string {
   if (!options) {
@@ -95,15 +147,15 @@ export function renderConnectorChain(
   let out = '';
   const offset = options.offset;
   if (offset && offset.some(v => v !== 0)) {
-    const values = [...offset];
+    const values: ValueExpr[] = [...offset];
     while (values.length > 1 && values[values.length - 1] === 0) {
       values.pop();
     }
-    out += `.offset(${values.join(', ')})`;
+    out += `.offset(${values.map(formatValue).join(', ')})`;
   }
   const rotate = options.rotate;
-  if (rotate && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0) {
-    out += `.rotate('${rotate.axis}', ${rotate.angle})`;
+  if (rotate && !isFullTurn(rotate.angle)) {
+    out += `.rotate(${ValueSlots.source(rotate.axis, axis => `'${axis}'`)}, ${formatValue(rotate.angle)})`;
   }
   return out;
 }
@@ -113,14 +165,16 @@ export function renderConnectorChain(
  * source argument is kept verbatim (anchor suffix and all) — the dialog shows
  * it as the source row's text and only a re-pick replaces it.
  *
- * The two adjustment chains must read exactly as the dialog writes them:
- * plain numeric literals (a variable rotation has no stepper to seed), and
- * offset BEFORE rotate — the dialog's own order, which a re-emission restores.
- * A rotate-first pair (the order an earlier dialog wrote) folds into it
- * exactly when the turn is a right angle ({@link foldRotatedOffset}) — same
- * built frame, so opening the dialog never moves the connector. Other
- * rotate-first chains refuse honestly: folding an arbitrary angle would turn
- * clean offset literals into trigonometric decimals.
+ * The two adjustment chains must read as the dialog writes them: each value
+ * a number or the expression computing it (the axis a name or an
+ * expression), and offset BEFORE rotate — the dialog's own order, which a
+ * re-emission restores. A rotate-first pair (the order an earlier dialog
+ * wrote) folds into it exactly when every value is a literal and the turn
+ * is a right angle ({@link foldRotatedOffset}) — same built frame, so
+ * opening the dialog never moves the connector. Other rotate-first chains
+ * refuse honestly: folding an arbitrary angle would turn clean offset
+ * literals into trigonometric decimals, and folding an expression would
+ * mean arithmetic on its text.
  */
 export function parseConnectorChain(
   args: TSNode[],
@@ -138,26 +192,28 @@ export function parseConnectorChain(
   }
   const argsText = code.slice(args[1].startIndex, args[1].endIndex);
 
-  let rotate: { axis: ConnectorRotateAxis; angle: number } | null = null;
+  let rotate: ConnectorRotateSpec | null = null;
   const rotateSeg = recognized.get('rotate');
   if (rotateSeg) {
-    const axis = rotateSeg.args.length === 2 ? stringArgValue(rotateSeg.args[0]) : null;
-    const angle = rotateSeg.args.length === 2 ? numericArgValue(rotateSeg.args[1]) : null;
-    if ((axis !== 'x' && axis !== 'y' && axis !== 'z') || angle === null) {
-      return { error: "the .rotate() chain is not a plain ('x'|'y'|'z', angle) pair — edit it in the source" };
+    // The axis is a typed-in slot: a literal must be one of the three names
+    // (the select has nothing to show for another), an expression is carried.
+    const axis = rotateSeg.args.length === 2 ? ValueSlots.choice(rotateSeg.args[0], CONNECTOR_ROTATE_AXES) : null;
+    const angle = rotateSeg.args.length === 2 ? ValueSlots.number(rotateSeg.args[1]) : null;
+    if (axis === null || angle === null) {
+      return { error: "the .rotate() chain is not an ('x'|'y'|'z', angle) pair the dialog can carry — edit it in the source" };
     }
     rotate = { axis, angle };
   }
 
-  let offset: [number, number, number] | null = null;
+  let offset: ConnectorOffsetSpec | null = null;
   const offsetSeg = recognized.get('offset');
   if (offsetSeg) {
     if (offsetSeg.args.length < 1 || offsetSeg.args.length > 3) {
       return { error: 'the .offset() chain takes one to three distances — edit it in the source' };
     }
-    const values = offsetSeg.args.map(numericArgValue);
+    const values = offsetSeg.args.map(node => ValueSlots.number(node));
     if (values.some(v => v === null)) {
-      return { error: 'the connector offsets are not plain numbers — edit them in the source' };
+      return { error: 'the connector offsets are not numbers or expressions the dialog can carry — edit them in the source' };
     }
     // The API defaults the omitted components to 0 (`offset(x, y = 0, z = 0)`).
     offset = [values[0]!, values[1] ?? 0, values[2] ?? 0];
@@ -168,10 +224,17 @@ export function parseConnectorChain(
     && order.indexOf('rotate') < order.indexOf('offset')) {
     // A rotate-first chain: its offset walked the ROTATED axes. Fold the
     // components into the dialog's offset-first order so the connector opens
-    // — and re-applies — exactly where it was built.
-    const folded = foldRotatedOffset(rotate, offset);
+    // — and re-applies — exactly where it was built. Only literals fold: an
+    // expression among the angle, the axis or the offsets would take
+    // arithmetic on its text, so such a chain refuses the way a non-right
+    // angle does.
+    const axis = ValueSlots.literal(rotate.axis);
+    const literal = axis !== undefined && typeof rotate.angle === 'number' && offset.every(v => typeof v === 'number');
+    const folded = literal ? foldRotatedOffset(axis, rotate.angle as number, offset as [number, number, number]) : null;
     if (folded === null) {
-      return { error: 'the connector rotates before it offsets by a non-right angle — edit the statement in the source' };
+      return {
+        error: `the connector rotates before it offsets by ${literal ? 'a non-right angle' : 'an expression'} — edit the statement in the source`,
+      };
     }
     offset = folded;
   }
@@ -188,19 +251,20 @@ export function parseConnectorChain(
  * literals); anything else returns null.
  */
 function foldRotatedOffset(
-  rotate: { axis: ConnectorRotateAxis; angle: number },
+  axis: ConnectorRotateAxis,
+  angle: number,
   offset: [number, number, number],
 ): [number, number, number] | null {
-  if (rotate.angle % 90 !== 0) {
+  if (angle % 90 !== 0) {
     return null;
   }
-  const quarter = ((rotate.angle / 90) % 4 + 4) % 4;
+  const quarter = ((angle / 90) % 4 + 4) % 4;
   const cos = [1, 0, -1, 0][quarter];
   const sin = [0, 1, 0, -1][quarter];
   const [x, y, z] = offset;
   const folded: [number, number, number] =
-    rotate.axis === 'x' ? [x, y * cos - z * sin, y * sin + z * cos]
-    : rotate.axis === 'y' ? [x * cos + z * sin, y, z * cos - x * sin]
+    axis === 'x' ? [x, y * cos - z * sin, y * sin + z * cos]
+    : axis === 'y' ? [x * cos + z * sin, y, z * cos - x * sin]
     : [x * cos - y * sin, x * sin + y * cos, z];
   // ±1·0 products can land on -0 — pin them so emitted literals stay plain.
   return folded.map(v => v === 0 ? 0 : v) as [number, number, number];

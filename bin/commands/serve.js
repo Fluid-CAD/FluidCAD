@@ -28,6 +28,15 @@ function pickOpeningFile(workspacePath) {
   return findFluidFiles(workspacePath)[0] ?? null;
 }
 
+/**
+ * The exit code an engine ends with when the page asks for a restart
+ * (`POST /api/engine/restart`, offered once its OpenCascade kernel trapped
+ * and its memory may be damaged). `serve` then starts a fresh engine on the
+ * same port, where the page reconnects by itself. The engine learns the
+ * code from FLUIDCAD_RESTART_EXIT_CODE.
+ */
+const RESTART_EXIT_CODE = 75;
+
 async function runServe(opts) {
   const workspacePath = resolve(opts.workspace);
   const requestedPort = Number(opts.port);
@@ -41,54 +50,79 @@ async function runServe(opts) {
   if (freePort !== requestedPort) {
     console.log(`Port ${requestedPort} is in use — starting on ${freePort} instead.`);
   }
-  const port = String(freePort);
+  let port = String(freePort);
 
-  const server = fork(serverEntry, [], {
-    env: {
-      ...process.env,
-      FLUIDCAD_SERVER_PORT: port,
-      FLUIDCAD_WORKSPACE_PATH: workspacePath,
-    },
-    // Load-bearing: without it the engine's sourceLocations shift by the SSR
-    // transform's line offset, mis-targeting breakpoints and feature edits.
-    execArgv: ['--enable-source-maps'],
-    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-  });
-
-  server.stdout.on('data', (data) => { process.stdout.write(data); });
-  server.stderr.on('data', (data) => { process.stderr.write(data); });
-
+  let server;
   let watcher;
+  let openedBrowser = false;
 
-  server.on('message', (msg) => {
-    if (msg.type === 'ready') {
-      console.log(`FluidCAD ready at ${msg.url}`);
-      if (opts.open) {
-        open(msg.url).catch((err) => {
-          console.error(`Failed to open browser: ${err.message}`);
-        });
-      }
-    }
-    if (msg.type === 'init-complete') {
-      if (msg.success) {
-        console.log('FluidCAD initialized successfully.');
-        watcher = createFileWatcher(workspacePath, server);
+  const startServer = () => {
+    server = fork(serverEntry, [], {
+      env: {
+        ...process.env,
+        FLUIDCAD_SERVER_PORT: port,
+        FLUIDCAD_WORKSPACE_PATH: workspacePath,
+        FLUIDCAD_RESTART_EXIT_CODE: String(RESTART_EXIT_CODE),
+      },
+      // Load-bearing: without it the engine's sourceLocations shift by the SSR
+      // transform's line offset, mis-targeting breakpoints and feature edits.
+      execArgv: ['--enable-source-maps'],
+      stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+    });
+    const child = server;
 
-        const opening = pickOpeningFile(workspacePath);
-        if (opening) {
-          server.send({ type: 'process-file', filePath: opening });
+    child.stdout.on('data', (data) => { process.stdout.write(data); });
+    child.stderr.on('data', (data) => { process.stderr.write(data); });
+
+    child.on('message', (msg) => {
+      if (msg.type === 'ready') {
+        console.log(`FluidCAD ready at ${msg.url}`);
+        if (opts.open && !openedBrowser) {
+          openedBrowser = true;
+          open(msg.url).catch((err) => {
+            console.error(`Failed to open browser: ${err.message}`);
+          });
         }
-      } else {
-        console.error(`FluidCAD initialization failed: ${msg.error}`);
-        process.exit(1);
       }
-    }
-  });
+      if (msg.type === 'init-complete') {
+        if (msg.success) {
+          console.log('FluidCAD initialized successfully.');
+          watcher = createFileWatcher(workspacePath, child);
 
-  server.on('exit', (code) => {
-    if (watcher) { watcher.close(); }
-    process.exit(code || 0);
-  });
+          const opening = pickOpeningFile(workspacePath);
+          if (opening) {
+            child.send({ type: 'process-file', filePath: opening });
+          }
+        } else {
+          console.error(`FluidCAD initialization failed: ${msg.error}`);
+          process.exit(1);
+        }
+      }
+    });
+
+    child.on('exit', (code) => {
+      if (watcher) { watcher.close(); watcher = undefined; }
+      if (code === RESTART_EXIT_CODE) {
+        // The page asked for a fresh engine. Same port when it is still
+        // free, so the open page reconnects without a reload.
+        console.log('Restarting the FluidCAD engine…');
+        findFreePort(Number(port)).then((next) => {
+          if (String(next) !== port) {
+            console.log(`Port ${port} is in use — the engine starts on ${next} instead; reload the page there.`);
+            port = String(next);
+          }
+          startServer();
+        }).catch((err) => {
+          console.error(`Failed to restart the engine: ${err?.message ?? err}`);
+          process.exit(1);
+        });
+        return;
+      }
+      process.exit(code || 0);
+    });
+  };
+
+  startServer();
 
   process.on('SIGINT', () => {
     if (watcher) { watcher.close(); }

@@ -11,8 +11,8 @@ import {
   Vector3,
 } from 'three';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineResolutionRegistry } from './meshes/shape-meshes/line-resolution';
+import { createEdgeLineMaterial } from './meshes/shape-meshes/face-edge-line';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { themeColors } from './scene/theme-colors';
 import type { ScreenshotView } from './screenshot-view';
@@ -156,7 +156,9 @@ export class ScreenshotHighlightOverlay {
       if (!source.geometry) {
         continue;
       }
-      const material = new LineMaterial({
+      // The material the source geometry draws with — a solid edge's band
+      // has a centerline column only its face-edge material reads.
+      const material = createEdgeLineMaterial(source.geometry, {
         color: themeColors.highlightColor.getHex(),
         linewidth: ScreenshotHighlightOverlay.EDGE_LINE_WIDTH,
         transparent: true,

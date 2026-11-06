@@ -1,0 +1,216 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, symlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { collectEntryFiles, entryPath } from '../../src/files/entry-files.ts';
+import { PackageRoots } from '../../src/packages/package-roots.ts';
+
+let ws: string;
+
+function write(rel: string, contents: string) {
+  const abs = join(ws, rel);
+  mkdirSync(join(abs, '..'), { recursive: true });
+  writeFileSync(abs, contents);
+}
+
+beforeEach(() => {
+  ws = mkdtempSync(join(tmpdir(), 'fluidshare-'));
+});
+
+afterEach(() => {
+  rmSync(ws, { recursive: true, force: true });
+});
+
+describe('collectEntryFiles — the source tree a viewer link carries', () => {
+  it('gathers the entry and its transitive workspace imports with their paths', async () => {
+    write('main.assembly.js', "import { insert } from 'fluidcad/core';\nimport { leaf } from './parts/leaf.part.js';\ninsert(leaf);\n");
+    write('parts/leaf.part.js', "import { hole } from '../lib/hole.js';\nexport const leaf = hole(3);\n");
+    write('lib/hole.js', 'export const hole = (d) => d;\n');
+    write('parts/unused.part.js', 'export const unused = 1;\n');
+    write('README.md', '# not code');
+
+    const files = await collectEntryFiles(join(ws, 'main.assembly.js'), ws);
+
+    expect(Object.keys(files).sort()).toEqual(['lib/hole.js', 'main.assembly.js', 'parts/leaf.part.js']);
+    expect(files['parts/leaf.part.js']).toContain('export const leaf');
+  });
+
+  it('adds init.js when the workspace has one', async () => {
+    write('init.js', "import { init } from 'fluidcad';\nexport default await init();\n");
+    write('model.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
+
+    const files = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+
+    expect(Object.keys(files).sort()).toEqual(['init.js', 'model.fluid.js']);
+  });
+
+  it('ships only the unit of fluidcad.json, and nothing when the project sets none', async () => {
+    write('model.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
+    write('fluidcad.json', JSON.stringify({ modelId: 'hub-secret-binding', engine: '0.0.42', unit: 'inches' }));
+
+    const files = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(Object.keys(files).sort()).toEqual(['fluidcad.json', 'model.fluid.js']);
+    expect(JSON.parse(files['fluidcad.json'])).toEqual({ unit: 'in' });
+
+    write('fluidcad.json', JSON.stringify({ modelId: 'hub-secret-binding' }));
+    const noUnit = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(Object.keys(noUnit)).toEqual(['model.fluid.js']);
+
+    // package.json's fluidcad.unit is the alternative home; it lands in the same file.
+    rmSync(join(ws, 'fluidcad.json'));
+    write('package.json', JSON.stringify({ name: 'w', fluidcad: { unit: 'cm' } }));
+    const fromPkg = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(JSON.parse(fromPkg['fluidcad.json'])).toEqual({ unit: 'cm' });
+  });
+
+  it('ships the materials map beside the unit, and alone when the project sets no unit', async () => {
+    write('model.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
+    const materials = { 'alloy-steel': { name: 'Alloy Steel', density: 7.7, densityUnit: 'g/cm³' } };
+    write('fluidcad.json', JSON.stringify({ modelId: 'hub-secret-binding', unit: 'in', materials }));
+
+    const files = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(JSON.parse(files['fluidcad.json'])).toEqual({ unit: 'in', materials });
+
+    write('fluidcad.json', JSON.stringify({ modelId: 'hub-secret-binding', materials }));
+    const noUnit = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(JSON.parse(noUnit['fluidcad.json'])).toEqual({ materials });
+
+    // An invalid map is a config error the desktop reports; the link ships none.
+    write('fluidcad.json', JSON.stringify({ unit: 'in', materials: { bad: { name: 'x' } } }));
+    const invalid = await collectEntryFiles(join(ws, 'model.fluid.js'), ws);
+    expect(JSON.parse(invalid['fluidcad.json'])).toEqual({ unit: 'in' });
+  });
+
+  it('collects a workspace reached through a symlink, whichever spelling each path uses', async () => {
+    write('main.part.js', "import { hole } from './lib/hole.js';\nexport const main = hole(3);\n");
+    write('lib/hole.js', 'export const hole = (d) => d;\n');
+    const real = realpathSync(ws);
+    const links = mkdtempSync(join(tmpdir(), 'fluidshare-link-'));
+    try {
+      const link = join(links, 'workspace');
+      symlinkSync(real, link, 'junction');
+      const expected = { 'main.part.js': expect.any(String), 'lib/hole.js': expect.any(String) };
+      expect(await collectEntryFiles(join(link, 'main.part.js'), link)).toEqual(expected);
+      expect(await collectEntryFiles(join(real, 'main.part.js'), link)).toEqual(expected);
+      expect(await collectEntryFiles(join(link, 'main.part.js'), real)).toEqual(expected);
+      expect(entryPath(join(link, 'main.part.js'), real)).toBe('main.part.js');
+      expect(entryPath(join(real, 'main.part.js'), link)).toBe('main.part.js');
+    } finally {
+      rmSync(links, { recursive: true, force: true });
+    }
+  });
+
+  it('carries the asset files the render read that exist, keyed by their workspace path', async () => {
+    write('model.fluid.js', "import { load } from 'fluidcad/core';\nload('motor.step');\n");
+    write('imports/motor.brep', 'DBRep_DrawableShape\nCASCADE Topology V1\n');
+    write('imports/motor.colors.json', '[{"faces":[]}]');
+    write('imports/spare.brep', 'an import the model never loads');
+    // As the engine records them: all three sidecars, the missing .import.json included.
+    const assets = ['.brep', '.colors.json', '.import.json'].map((suffix) => join(ws, 'imports', `motor${suffix}`));
+
+    const files = await collectEntryFiles(join(ws, 'model.fluid.js'), ws, { assets });
+
+    expect(Object.keys(files).sort()).toEqual(['imports/motor.brep', 'imports/motor.colors.json', 'model.fluid.js']);
+    expect(files['imports/motor.brep']).toBe('DBRep_DrawableShape\nCASCADE Topology V1\n');
+    expect(files['imports/motor.colors.json']).toBe('[{"faces":[]}]');
+  });
+
+  it('carries a binary asset (a workspace font) as base64, and a UTF-8 one as its text', async () => {
+    write('label.part.js', "import { text } from 'fluidcad/core';\ntext('xy', 'Hi').font('./fonts/brand.ttf');\n");
+    const font = Uint8Array.from([0x00, 0x01, 0x00, 0x00, 0xff, 0xfe, 0x80, 0x41]);
+    mkdirSync(join(ws, 'fonts'), { recursive: true });
+    writeFileSync(join(ws, 'fonts', 'brand.ttf'), font);
+    write('imports/motor.colors.json', '﻿[{"faces":[]}] — ünïcödé');
+
+    const files = await collectEntryFiles(join(ws, 'label.part.js'), ws, {
+      assets: [join(ws, 'fonts', 'brand.ttf'), join(ws, 'imports', 'motor.colors.json')],
+    });
+
+    expect(files['fonts/brand.ttf']).toEqual({ b64: Buffer.from(font).toString('base64') });
+    expect(files['imports/motor.colors.json']).toBe('﻿[{"faces":[]}] — ünïcödé');
+    expect(typeof files['label.part.js']).toBe('string');
+  });
+
+  it('keys an asset by its workspace path whichever spelling the engine and the workspace use', async () => {
+    write('model.fluid.js', "import { load } from 'fluidcad/core';\nload('motor');\n");
+    write('imports/motor.brep', 'brep');
+    const real = realpathSync(ws);
+    const links = mkdtempSync(join(tmpdir(), 'fluidshare-link-'));
+    try {
+      const link = join(links, 'workspace');
+      symlinkSync(real, link, 'junction');
+      const viaLink = await collectEntryFiles(join(real, 'model.fluid.js'), real, { assets: [join(link, 'imports', 'motor.brep')] });
+      expect(Object.keys(viaLink).sort()).toEqual(['imports/motor.brep', 'model.fluid.js']);
+      const viaReal = await collectEntryFiles(join(link, 'model.fluid.js'), link, { assets: [join(real, 'imports', 'motor.brep')] });
+      expect(Object.keys(viaReal).sort()).toEqual(['imports/motor.brep', 'model.fluid.js']);
+    } finally {
+      rmSync(links, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses an asset outside the workspace or in node_modules', async () => {
+    write('model.fluid.js', "import { load } from 'fluidcad/core';\nload('../outside');\n");
+    const outside = mkdtempSync(join(tmpdir(), 'fluidshare-outside-'));
+    try {
+      writeFileSync(join(outside, 'outside.brep'), 'brep');
+      await expect(collectEntryFiles(join(ws, 'model.fluid.js'), ws, { assets: [join(outside, 'outside.brep')] }))
+        .rejects.toThrow(/outside the workspace/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+    write('node_modules/fonts/brand.ttf', 'font');
+    await expect(collectEntryFiles(join(ws, 'model.fluid.js'), ws, { assets: [join(ws, 'node_modules', 'fonts', 'brand.ttf')] }))
+      .rejects.toThrow(/node_modules/);
+  });
+
+  // An installed package's own load() and .font() read its own directory;
+  // a link can't carry packages yet, so none of its files travel — not a
+  // project copy's either, though it sits inside the workspace.
+  it('refuses a file of an installed package, a project copy inside the workspace included', async () => {
+    write('label.part.js', "import { text } from 'fluidcad/core';\ntext('xy', 'Hi');\n");
+    write('packages/@acme/kit/1.0.0/manifest.json', '{"name":"@acme/kit","version":"1.0.0"}');
+    write('packages/@acme/kit/1.0.0/fonts/brand.ttf', 'font');
+    await expect(collectEntryFiles(join(ws, 'label.part.js'), ws, { assets: [join(ws, 'packages/@acme/kit/1.0.0/fonts/brand.ttf')] }))
+      .rejects.toThrow("Links can't carry packages yet (`@acme/kit`): the model reads packages/@acme/kit/1.0.0/fonts/brand.ttf, which belongs to it.");
+
+    const library = mkdtempSync(join(tmpdir(), 'fluidshare-library-'));
+    const previous = process.env.FLUIDCAD_PACKAGES;
+    process.env.FLUIDCAD_PACKAGES = library;
+    PackageRoots.forget();
+    try {
+      mkdirSync(join(library, '@acme/gears/2.0.0/imports'), { recursive: true });
+      writeFileSync(join(library, '@acme/gears/2.0.0/manifest.json'), '{}');
+      writeFileSync(join(library, '@acme/gears/2.0.0/imports/spur.brep'), 'brep');
+      await expect(collectEntryFiles(join(ws, 'label.part.js'), ws, { assets: [join(library, '@acme/gears/2.0.0/imports/spur.brep')] }))
+        .rejects.toThrow("Links can't carry packages yet (`@acme/gears`): the model reads imports/spur.brep, which belongs to it.");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.FLUIDCAD_PACKAGES;
+      } else {
+        process.env.FLUIDCAD_PACKAGES = previous;
+      }
+      PackageRoots.forget();
+      rmSync(library, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses npm dependencies, Node built-ins, and files outside the workspace', async () => {
+    mkdirSync(join(ws, 'node_modules', 'dep'), { recursive: true });
+    write('node_modules/dep/index.js', 'export const dep = 1;\n');
+    write('node_modules/dep/package.json', JSON.stringify({ name: 'dep', main: 'index.js' }));
+    write('npm.fluid.js', "import { dep } from 'dep';\nexport { dep };\n");
+    await expect(collectEntryFiles(join(ws, 'npm.fluid.js'), ws)).rejects.toThrow(/npm dependency/);
+
+    write('fs.fluid.js', "import { readFileSync } from 'fs';\nexport { readFileSync };\n");
+    await expect(collectEntryFiles(join(ws, 'fs.fluid.js'), ws)).rejects.toThrow(/not allowed/);
+
+    const outside = mkdtempSync(join(tmpdir(), 'fluidshare-outside-'));
+    try {
+      writeFileSync(join(outside, 'helper.js'), 'export const h = 1;\n');
+      write('escape.fluid.js', `import { h } from '${join(outside, 'helper.js').replace(/\\\\/g, '/')}';\nexport { h };\n`);
+      await expect(collectEntryFiles(join(ws, 'escape.fluid.js'), ws)).rejects.toThrow(/outside the workspace/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});

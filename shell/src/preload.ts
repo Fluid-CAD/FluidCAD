@@ -105,7 +105,8 @@ const startApi = {
 
   open: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-open', workspacePath),
   openDialog: (): Promise<void> => ipcRenderer.invoke('shell:start-open-dialog'),
-  newProject: (): Promise<void> => ipcRenderer.invoke('shell:start-new-project'),
+  /** The native New Project dialog; with `{ package }`, the New Package one, for the package of that name. */
+  newProject: (options: { package?: string } = {}): Promise<void> => ipcRenderer.invoke('shell:start-new-project', options),
   /** Close an open project, from its card: its window goes back to the start screen, as File › Close Project does it. */
   close: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-close', workspacePath),
   forget: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-forget', workspacePath),
@@ -126,6 +127,10 @@ const startApi = {
   /** The recents changed under the page (a project closed, a preview landed). */
   onChanged: (handler: () => void): void => {
     ipcRenderer.on('shell:start-changed', () => handler());
+  },
+  /** The shell asks the page to do something: File › New Package… opens the page's name dialog. */
+  onCommand: (handler: (command: unknown) => void): void => {
+    ipcRenderer.on('shell:start-command', (_event, command: unknown) => handler(command));
   },
 };
 

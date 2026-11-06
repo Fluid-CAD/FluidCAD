@@ -13,7 +13,13 @@ import {
   type OpenPhase,
   type OpenState,
 } from '../../../launcher/src/projects/open-state';
-import type { OpeningProject, PageWindowState, UpgradeProgressMessage } from '../../../launcher/src/start/contract';
+import {
+  creatingStatus,
+  type OpeningProject,
+  type PageWindowState,
+  type StartCommand,
+  type UpgradeProgressMessage,
+} from '../../../launcher/src/start/contract';
 import { readSavedTheme, themeBackground } from '../../../launcher/src/start/theme';
 import { START_URL, isStartPageUrl } from '../start/protocol';
 import type { UpgradeChoice } from '../upgrade-prompt';
@@ -101,6 +107,10 @@ export class AppWindow implements ReopenTarget {
   private session: ProjectSession | null = null;
   /** Set the project up before opening it: a New Project, until it has been scaffolded. */
   private create = false;
+  /** With `create`: the package workspace to set up, by name. */
+  private packageName: string | null = null;
+  /** A command for the start page that arrived before the page said hello; sent then. */
+  private pendingStartCommand: StartCommand | null = null;
   private openAbort: AbortController | null = null;
   private document: DocumentKind | null = null;
   private helloTimer: NodeJS.Timeout | null = null;
@@ -280,21 +290,26 @@ export class AppWindow implements ReopenTarget {
 
   /**
    * Open `workspacePath` in this window, from its start screen (home, or after
-   * a failure). `create` sets a new project up first. Returns once the open
-   * has begun — its progress, and its failure, show on the start page's
-   * overlay, and success replaces the page with the project's.
+   * a failure). `create` sets a new project up first — the package workspace
+   * `package` names, when it does. Returns once the open has begun — its
+   * progress, and its failure, show on the start page's overlay, and success
+   * replaces the page with the project's.
    */
-  openProject(workspacePath: string, options: { create?: boolean } = {}): void {
+  openProject(workspacePath: string, options: { create?: boolean; package?: string } = {}): void {
     const create = options.create === true;
-    if (this.dispatch({ type: 'open', project: projectFor(workspacePath), status: { step: create ? 'creating' : 'resolving' } })) {
+    const packageName = create ? options.package ?? null : null;
+    const status = create ? creatingStatus(packageName ?? undefined) : { step: 'resolving' as const };
+    if (this.dispatch({ type: 'open', project: projectFor(workspacePath), status })) {
       this.create = create;
+      this.packageName = packageName;
       void this.runOpen();
     }
   }
 
   /** Try again after a failure. */
   retryOpen(): void {
-    if (this.dispatch({ type: 'retry', status: { step: this.create ? 'creating' : 'resolving' } })) {
+    const status = this.create ? creatingStatus(this.packageName ?? undefined) : { step: 'resolving' as const };
+    if (this.dispatch({ type: 'retry', status })) {
       void this.runOpen();
     }
   }
@@ -323,10 +338,12 @@ export class AppWindow implements ReopenTarget {
     try {
       const url = await session.start(abort.signal, (status) => this.dispatch({ type: 'progress', attempt, status }), {
         create: this.create,
+        package: this.packageName ?? undefined,
       });
       // Opened: a reopen after a pin change is an ordinary open. (A retry
       // after a failure may scaffold again; that is a no-op on a project.)
       this.create = false;
+      this.packageName = null;
       if (!this.dispatch({ type: 'ready', attempt, url })) {
         // Cancelled or superseded while the engine came up.
         session.stop();
@@ -479,6 +496,28 @@ export class AppWindow implements ReopenTarget {
     this.clearHelloTimer();
     if (!ok) {
       void this.showFallback('the start page speaks a different protocol');
+      return;
+    }
+    const pending = this.pendingStartCommand;
+    this.pendingStartCommand = null;
+    if (pending) {
+      this.sendStartCommand(pending);
+    }
+  }
+
+  /**
+   * Ask the start page to do something (File › New Package… opens its name
+   * dialog). A page still loading gets it once it has said hello; a window
+   * showing a project has no start page to ask.
+   */
+  sendStartCommand(command: StartCommand): void {
+    if (this.state.phase !== 'home' || this.browserWindow.isDestroyed()) {
+      return;
+    }
+    if (this.document === 'start' && this.helloTimer === null) {
+      this.browserWindow.webContents.send('shell:start-command', command);
+    } else {
+      this.pendingStartCommand = command;
     }
   }
 

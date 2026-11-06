@@ -2,9 +2,13 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import express from 'express';
-import { FluidCadServer, sceneStopFields, sceneUnitFields } from './fluidcad-server/index.ts';
+import { FluidCadServer, scenePreviewFields, sceneStopFields, sceneUnitFields } from './fluidcad-server/index.ts';
+import { CompileErrors } from './fluidcad-server/compile-errors.ts';
+import { AssemblyPreviews } from './assembly-preview/assembly-previews.ts';
+import { createAssemblyPreviewRouter } from './routes/assembly-preview.ts';
 import type { SceneRenderedData } from './fluidcad-server/index.ts';
 import { createServerCore } from './server-core.ts';
+import { MeshesRoute } from './routes/meshes.ts';
 import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
 import { createParamsRouter } from './routes/params.ts';
 import { createConfigurationsRouter, sceneRenderedBroadcaster } from './routes/configurations.ts';
@@ -29,8 +33,19 @@ import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { createRenderRouter, UI_APPLY_WAIT_MS, type LiveRenderOptions, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
+import { createPublishRouter } from './routes/publish.ts';
+import { createPackagesRouter } from './routes/packages.ts';
+import { createHubRouter } from './routes/hub.ts';
+import { createHostActionsRouter } from './routes/host-actions.ts';
+import { HubReleases } from './hub/hub-releases.ts';
+import { PackageInstaller } from './packages/package-installer.ts';
+import { PackageEditGuard } from './packages/package-edit-guard.ts';
+import { PackagePins } from './packages/package-pins.ts';
+import { PackageRoots } from './packages/package-roots.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
+import { createFeatureCatalogRouter } from './routes/feature-catalog.ts';
+import { FeatureCatalog } from './feature-catalog/catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
 import { createSectionRouter } from './routes/section.ts';
 import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
@@ -45,23 +60,29 @@ import { createUnitRouter } from './routes/unit.ts';
 import { createGlobalParamsRouter, type GlobalParamsRouterDeps } from './routes/global-params.ts';
 import { GlobalParamCatalog } from './global-params/catalog.ts';
 import { createWorkspaceWatcher, type WorkspaceWatcher } from './files/workspace-watcher.ts';
+import { RenderInputChanges } from './files/render-input-changes.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { HostRegistry } from './host-registry.ts';
 import { attachEditorHostTransport, broadcastEditorCapabilities } from './editor-host-transport.ts';
 import { normalizePath } from './normalize-path.ts';
 import {
+  PROJECT_CONFIG_FILENAME,
   readProjectConfig,
   describeEnginePinMismatch,
   describeProjectUnitProblem,
+  describeProjectPackageProblem,
+  describeProjectDependenciesProblem,
   type LengthUnit,
 } from './project-config.ts';
 import { PageWriteLedger } from './files/page-write-ledger.ts';
-import type { CompileError, SerializedAssembly } from './ws-protocol.ts';
+import type { CompileError, SerializedAssembly, ServerToUIMessage } from './ws-protocol.ts';
 import { detectKind, isParamsFile } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import { extractErrorSourceLocation, describeOcException } from '../../lib/dist/index.js';
+import { describeOcException, KernelTraps } from '../../lib/dist/index.js';
+import { EngineHealth } from './engine-health.ts';
+import { createEngineRouter } from './routes/engine.ts';
 import { setMaxWorkers } from '../../lib/dist/oc/init.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
@@ -127,13 +148,22 @@ function sendToExtension(msg: any): boolean {
  * socket, and duplicating them would be a second render, not a second reader.
  */
 const hosts = new HostRegistry(sendToExtension);
-const sendToHost = (msg: any): boolean => hosts.send(msg);
 
 // ---------------------------------------------------------------------------
 // Express app
 // ---------------------------------------------------------------------------
 
 const fluidCadServer = new FluidCadServer();
+
+// Installed packages are read-only (K8): no host message edits one of their
+// files. A refused send throws, and the error handler below answers the
+// route's request with the sentence.
+const packageEdits = new PackageEditGuard(
+  () => WORKSPACE_PATH || null,
+  () => fluidCadServer.getCurrentFileName() || null,
+  () => fluidCadServer.getGeneratedRows(),
+);
+const sendToHost = packageEdits.guardSend((msg: any): boolean => hosts.send(msg));
 const dirtyBufferState = new DirtyBufferState();
 
 const app = express();
@@ -145,15 +175,44 @@ app.use(express.json({ limit: '50mb' }));
 // ---------------------------------------------------------------------------
 
 const httpServer = http.createServer(app);
-const core = createServerCore(httpServer, { verifyClient: createHostGuardVerifyClient(HOST) });
-const broadcastToUI = core.broadcastToUI;
+// Pages that keep a mesh cache are sent `meshRef`s for meshes they hold;
+// `POST /api/meshes` (mounted below) answers the ones they no longer do.
+const core = createServerCore(httpServer, { verifyClient: createHostGuardVerifyClient(HOST), meshRefs: true });
+
+/**
+ * Every message for the pages goes out through here: the assembly preview
+ * hears it first, so a scene that is not its own ends the preview showing
+ * — announced before that scene (`AssemblyPreviews.noteBroadcast`).
+ * Answers the message's size in bytes.
+ */
+function broadcastToUI(msg: ServerToUIMessage): number {
+  assemblyPreviews?.noteBroadcast(msg);
+  return core.broadcastToUI(msg);
+}
+/** Set once its dependencies exist (below); nothing broadcasts before then. */
+let assemblyPreviews: AssemblyPreviews | null = null;
 const requestScreenshot = core.requestScreenshot;
 const getLastCameraState = core.getLastCameraState;
 
-// Every router that writes source dispatches through this one instance: the
-// ack that settles a dispatch arrives at /code/apply-feature, so a router with
-// its own registry would never hear about its own edits.
-const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost);
+// The workspace's custom features: the `*.feature.js` modules' builders. The
+// toolbar lists them, and every transform and synthesis probe follows a
+// file's imports through it, so their calls bind, repeat and move like the
+// built-ins'.
+const featureCatalog = new FeatureCatalog({
+  workspacePath: WORKSPACE_PATH,
+  scan: (absPath) => fluidCadServer.scanFeaturesInFile(absPath),
+  hasLiveBuffer: (absPath) => fluidCadServer.hasLiveBuffer(absPath),
+});
+
+// Whether the engine can still be trusted: a trap of the OpenCascade kernel
+// (most likely a custom feature's raw OpenCascade code) may have corrupted
+// its heap. Every page hears of it and is offered the restart this host
+// supports; a trapped row whose feature reaches raw OpenCascade says so.
+const engineHealth = new EngineHealth({
+  broadcast: (msg) => broadcastToUI(msg),
+  feature: (type) => featureCatalog.disclosure(type),
+});
+engineHealth.watch(KernelTraps);
 
 // ---------------------------------------------------------------------------
 // Global parameters — the `*.params.js` catalog every consumer reads
@@ -164,6 +223,29 @@ const globalParamCatalog = new GlobalParamCatalog({
   readBuffer: (absPath) => fluidCadServer.getLiveBuffer(absPath),
   projectUnit: projectUnitNow,
 });
+
+// Every router that writes source dispatches through this one instance: the
+// ack that settles a dispatch arrives at /code/apply-feature, so a router with
+// its own registry would never hear about its own edits. It applies edits in
+// memory (an assembly preview) with the callees and globals the apply-feature
+// router's `/code/apply-feature` applies them with.
+const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost, {
+  callees: featureCatalog, packages: packageEdits, globals: globalParamCatalog,
+});
+
+// The assembly dialogs' live preview (G4): the file on screen rendered with
+// a dialog's edit applied in memory. Its renders take versions from the
+// counter every render shares; `/end` renders the saved code as a live
+// update does.
+const previews = new AssemblyPreviews({
+  engine: fluidCadServer,
+  edits: editDispatcher,
+  workspacePath: WORKSPACE_PATH,
+  broadcast: (msg) => core.broadcastToUI(msg),
+  versions: { next: () => ++renderVersion, isLatest: (version) => version === renderVersion },
+  renderSaved: (file, code) => runLiveRender(file, code),
+});
+assemblyPreviews = previews;
 
 /**
  * Push the catalog to every page. Bursts coalesce: a push already in flight
@@ -238,17 +320,22 @@ app.use('/api', createConfigurationsRouter(fluidCadServer, sendToHost, broadcast
 app.use('/api', createPropertyEditsRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
-app.use('/api', createResolveSelectionRouter(fluidCadServer));
+app.use('/api', createResolveSelectionRouter(fluidCadServer, featureCatalog));
 app.use('/api', createValidateRouter(fluidCadServer));
 app.use('/api', createInterfereRouter(fluidCadServer));
-app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, { dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH, renderVersion: () => renderVersion }));
+app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, {
+  dispatcher: editDispatcher, workspacePath: WORKSPACE_PATH, callees: featureCatalog, renderVersion: () => renderVersion,
+}));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH, editDispatcher, globalParamCatalog));
-app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatcher: editDispatcher, globals: globalParamCatalog }));
+app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, {
+  dispatcher: editDispatcher, callees: featureCatalog, catalog: featureCatalog, globals: globalParamCatalog,
+}));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createShareRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createScreenshotRouter(
   requestScreenshot,
   request => fluidCadServer.resolveSelection(request),
+  () => fluidCadServer.getSceneTargetIds(),
   id => fluidCadServer.getSceneSummary()?.objects.find(o => o.id === id) ?? null,
   createConfigurationScreenshot(
     fluidCadServer,
@@ -263,7 +350,7 @@ app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
 app.use('/api', createRenderRouter((fileName, code, options) => runLiveRender(fileName, code, options), core.awaitLatestSceneApplied));
 app.use('/api', createLintRouter({ projectUnit: projectUnitNow, globals: () => globalParamCatalog.list() }));
 app.use('/api', createTextRouter(fluidCadServer));
-app.use('/api', createFeatureGhostRouter(fluidCadServer, { globals: globalParamCatalog }));
+app.use('/api', createFeatureGhostRouter(fluidCadServer, { catalog: featureCatalog, globals: globalParamCatalog }));
 app.use('/api', createFilesRouter({
   workspacePath: WORKSPACE_PATH,
   openFile: (absPath) => processFile(absPath),
@@ -271,6 +358,12 @@ app.use('/api', createFilesRouter({
   onWrite: (absPath, content) => pageWrites.record(absPath, content),
 }));
 app.use('/api', createEngineTypesRouter(PACKAGE_VERSION));
+app.use('/api', createEngineRouter(engineHealth, {
+  exit: (code) => {
+    cleanupDiscovery();
+    process.exit(code);
+  },
+}));
 app.use('/api', createWorkspaceStateRouter(WORKSPACE_PATH));
 app.use('/api', createUnitRouter({
   workspacePath: WORKSPACE_PATH,
@@ -278,14 +371,22 @@ app.use('/api', createUnitRouter({
   sendToExtension: sendToHost,
   broadcastToUI,
 }));
-app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
+app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
+app.use('/api', createPublishRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION, engine: fluidCadServer }));
+app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH, releases: new HubReleases({ engineVersion: PACKAGE_VERSION }) }));
+app.use('/api', createHubRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION }));
+app.use('/api', createHostActionsRouter({ send: sendToHost, hasHost: () => hosts.effectiveCapabilities() !== null }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
+app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
 app.use('/api', createGlobalParamsRouter(globalParamsDeps));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
 app.use('/api', createSectionRouter(fluidCadServer, editDispatcher));
-app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
+app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher, featureCatalog));
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));
+app.use('/api', createAssemblyPreviewRouter(previews));
+app.use('/api', MeshesRoute.router(core.meshes));
+app.use('/api', PackageEditGuard.errorHandler());
 
 // Static files — serve UI build, with SPA fallback. index.html goes through
 // sendIndexHtml so the saved theme is on <html> before the first paint — the
@@ -323,6 +424,25 @@ app.get('*splat', (_req, res) => {
 let currentFile: string | null = null;
 let renderVersion = 0;
 let workspaceWatcher: WorkspaceWatcher | null = null;
+
+// A file the open model is built from changed on disk — an imported
+// `*.feature.js` or helper saved in any editor, `fluidcad.json`, a part file
+// an assembly inserts: render the model again, from the same buffer. The
+// model file's own edits keep their host's path (see RenderInputChanges).
+const renderInputChanges = new RenderInputChanges({
+  isRenderBehind: (absPath) => fluidCadServer.isRenderBehind(absPath),
+  rerender: async () => {
+    const fileName = currentFile;
+    if (fileName === null) {
+      return;
+    }
+    const code = fluidCadServer.getLiveBuffer(fileName)
+      ?? await fs.promises.readFile(fileName, 'utf8').catch((): null => null);
+    if (code !== null) {
+      await runLiveRender(fileName, code);
+    }
+  },
+});
 /**
  * What the in-page host last put on disk, so the `fluidcad serve` disk
  * watcher's echo of that same save is recognised. The host has already
@@ -343,7 +463,7 @@ const lastSceneByFile = new Map<string, {
   assembly?: SerializedAssembly;
 }>();
 
-attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
+attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState, replay: (send) => engineHealth.replay(send) });
 
 /**
  * Broadcast a completed render. `fitView` rides along to the pages only —
@@ -351,8 +471,14 @@ attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBuffer
  */
 function emitSuccess(version: number, data: SceneRenderedData, { fitView = false }: { fitView?: boolean } = {}) {
   const { absPath, sceneKind, unit, declaredUnit, result, breakpointHit, assembly, properties, objectWarnings } = data;
-  lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
-  fluidCadServer.setCompileError(null);
+  // A rollback re-emitting an assembly preview's scene: the pages see it as
+  // the preview's; the editor hosts, whose code it isn't, never do, and an
+  // error replay keeps showing the file's own last scene.
+  const preview = data.preview !== undefined;
+  if (!preview) {
+    lastSceneByFile.set(absPath, { result, ...sceneStopFields(data), sceneKind, unit, declaredUnit, assembly });
+    fluidCadServer.setCompileError(null);
+  }
   // A global registers with the render's registry like any param, but it is
   // the Parameters panel's row, not the History column's: the page gets it
   // through `global-params`, and the registry's runtime value only
@@ -362,15 +488,17 @@ function emitSuccess(version: number, data: SceneRenderedData, { fitView = false
   if (globals.length > 0) {
     globalParamCatalog.noteRendered(globals);
   }
-  sendToExtension({
-    type: 'scene-rendered',
-    absPath,
-    sceneKind,
-    ...sceneUnitFields(data),
-    result,
-    ...sceneStopFields(data),
-    ...(assembly ? { assembly } : {}),
-  });
+  if (!preview) {
+    sendToExtension({
+      type: 'scene-rendered',
+      absPath,
+      sceneKind,
+      ...sceneUnitFields(data),
+      result,
+      ...sceneStopFields(data),
+      ...(assembly ? { assembly } : {}),
+    });
+  }
   broadcastToUI({
     type: 'scene-rendered',
     result,
@@ -385,26 +513,15 @@ function emitSuccess(version: number, data: SceneRenderedData, { fitView = false
     ...(data.configurations ? { configurations: data.configurations } : {}),
     ...(assembly ? { assembly } : {}),
     ...(fitView ? { fitView: true } : {}),
+    ...scenePreviewFields(data),
   });
   broadcastToUI({ type: 'render-version', version, state: 'end', absPath });
 }
 
 function buildCompileError(filePath: string, err: any): CompileError {
-  const message = err?.message || String(err);
-  let sourceLocation = extractErrorSourceLocation(err);
-  const normalized = normalizePath(filePath).replace('virtual:live-render:', '');
-  if (sourceLocation) {
-    sourceLocation = {
-      filePath: sourceLocation.filePath.replace('virtual:live-render:', ''),
-      line: sourceLocation.line,
-      column: sourceLocation.column,
-    };
-  }
-  return {
-    message,
-    filePath: normalized,
-    sourceLocation: sourceLocation ?? undefined,
-  };
+  // A render that refused a package import says which, structured: the
+  // missing-package banner offers to install it by name and version.
+  return CompileErrors.describe(filePath, err, fluidCadServer.getPackageProblems());
 }
 
 function emitCompileError(version: number, filePath: string, err: any): CompileError {
@@ -526,6 +643,9 @@ async function runLiveRender(
       void noteParamsFileChange(fileName);
     }
     const data = await pending;
+    if (data) {
+      await engineHealth.explain(data);
+    }
     if (myVersion !== renderVersion) {
       return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
     }
@@ -556,6 +676,7 @@ async function runLiveRender(
       ...(data.changes ? { changes: data.changes } : {}),
     };
   } catch (err) {
+    engineHealth.noteError(err, KernelTraps);
     if (myVersion !== renderVersion) {
       return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
     }
@@ -587,6 +708,9 @@ async function processFile(filePath: string): Promise<void> {
   currentFile = filePath;
   try {
     const data = await fluidCadServer.processFile(filePath);
+    if (data) {
+      await engineHealth.explain(data);
+    }
     if (myVersion !== renderVersion) { return; }
     if (data) {
       emitSuccess(myVersion, data);
@@ -596,6 +720,7 @@ async function processFile(filePath: string): Promise<void> {
     // than leaving the page on its loading overlay.
     emitMissingEngine(myVersion, filePath);
   } catch (err) {
+    engineHealth.noteError(err, KernelTraps);
     if (myVersion !== renderVersion) { return; }
     emitCompileError(myVersion, filePath, err);
   }
@@ -631,6 +756,13 @@ async function handleExtensionMessage(msg: any) {
         if (pageWrites.isEcho(msg.fileName, msg.code)) {
           break;
         }
+        // An installed package's files never change under an edit (K8): a
+        // disk watcher announcing one (`fluidcad serve`'s, as Copy into
+        // project or an install renames a tree into `packages/`) is the
+        // installer moving it, not a model to switch the scene to.
+        if (PackageRoots.isManaged(msg.fileName, WORKSPACE_PATH)) {
+          break;
+        }
         await runLiveRender(msg.fileName, msg.code, { keepCurrent: msg.keepCurrent === true });
         break;
       }
@@ -639,6 +771,9 @@ async function handleExtensionMessage(msg: any) {
         const myVersion = ++renderVersion;
         broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
+        if (data) {
+          await engineHealth.explain(data);
+        }
         if (myVersion !== renderVersion) { return; }
         if (data) {
           emitSuccess(myVersion, data);
@@ -686,6 +821,7 @@ async function handleExtensionMessage(msg: any) {
 
       case 'editor-hello': {
         hosts.announce('ipc', { undoRedo: msg.capabilities?.undoRedo === true });
+        engineHealth.noteEditor(msg.editor);
         broadcastEditorCapabilities(core, hosts);
         break;
       }
@@ -779,6 +915,25 @@ httpServer.listen(PORT, HOST, () => {
   if (unitWarning) {
     console.warn(unitWarning);
   }
+  const packageWarning = describeProjectPackageProblem(PROJECT_CONFIG);
+  if (packageWarning) {
+    console.warn(packageWarning);
+  }
+  const dependenciesWarning = describeProjectDependenciesProblem(PROJECT_CONFIG);
+  if (dependenciesWarning) {
+    console.warn(dependenciesWarning);
+  }
+  for (const warning of PackagePins.describeProblems(WORKSPACE_PATH || null)) {
+    console.warn(warning);
+  }
+
+  // What an install killed mid-way left in the package roots' scratch
+  // (`<root>/.tmp/<pid>-…` of a process that is gone). Housekeeping only.
+  try {
+    PackageInstaller.sweep(WORKSPACE_PATH || null);
+  } catch {
+    // An unreadable root sweeps on a later start.
+  }
 
   // Tell the page about edits made outside it. Announcement only — the CLI's
   // watcher still owns re-rendering on an external change, so nothing here
@@ -787,6 +942,20 @@ httpServer.listen(PORT, HOST, () => {
     try {
       workspaceWatcher = createWorkspaceWatcher(WORKSPACE_PATH, (event) => {
         broadcastToUI(event);
+        // Feature code saved (a `*.feature.js`, or a module one imports):
+        // what was built with the old code rebuilds on the next render — the
+        // re-render below — and the next ghost draws the new code.
+        fluidCadServer.noteFileChange(event.absPath);
+        // A feature module (or a file one imports) changed: the toolbar's
+        // catalog is stale. UI-only — editor hosts never see this message.
+        if (featureCatalog.noteFileChange(event.absPath)) {
+          broadcastToUI({ type: 'features-changed', absPath: event.absPath });
+        }
+        // The pins may have changed: tsserver's package types follow.
+        if (normalizePath(event.absPath) === `${normalizePath(WORKSPACE_PATH)}/${PROJECT_CONFIG_FILENAME}`) {
+          fluidCadServer.refreshEditorTypes();
+        }
+        renderInputChanges.note(event.absPath);
         // The catalog follows every external edit of a params file — even one
         // no open model imports, since the panel must still update.
         void noteParamsFileChange(event.absPath);
@@ -864,6 +1033,7 @@ function cleanupDiscovery(): void {
   cleanedUp = true;
   workspaceWatcher?.close();
   workspaceWatcher = null;
+  renderInputChanges.dispose();
   deleteInstanceFile(WORKSPACE_PATH, process.pid);
   try {
     removeInstance(WORKSPACE_PATH, process.pid);

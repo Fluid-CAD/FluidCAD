@@ -1,6 +1,7 @@
 // Dialog value slots: the number-or-expression type every option field uses, its validators and its renderers.
 
-import { isExpressionText } from '../code-editor/index.ts';
+import { isExpressionText, loadedJavaScriptParser } from '../code-editor/index.ts';
+import { Expressions } from '../routes/feature-ghost/expressions.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -37,6 +38,79 @@ export type RegionItemRefSpec = {
  * the statement's `.region(…)` chain.
  */
 export type RegionPickSpec = { name?: string; items?: RegionItemRefSpec[] };
+
+/**
+ * A dialog value slot bound to a variable rather than holding a literal: the
+ * name the statement writes bare (`size: holeSize`, `hole(size, c)`,
+ * `inst.properties.kind`) — an identifier or a dotted member path, never an
+ * expression. The choice rows of a custom feature and the value arguments of
+ * the built-in dialogs travel it alike.
+ */
+export type RefValue = { ref: string };
+
+/**
+ * What a reference may name: an identifier, or a dotted member path of
+ * identifiers (`inst.properties.kind`) — the number rows' dropdown completes
+ * the same shapes. Calls, indexes, optional chains and blanks are not names.
+ */
+const REF_RE = /^[a-zA-Z_$][\w$]*(\.[a-zA-Z_$][\w$]*)*$/;
+
+/**
+ * Validate one reference slot: the shape `{ ref: string }` holding a
+ * well-formed name. A reference of the shape with a malformed name (`a + b`,
+ * `size()`, `a[0]`, `a?.b`, a blank) fails as any other value does — a
+ * caller telling the two apart tests the shape first (`TypedInKinds.isRef`).
+ */
+export function validRef(value: unknown): value is RefValue {
+  return refShaped(value) && REF_RE.test(value.ref);
+}
+
+/**
+ * Whether a value is a reference's shape, `{ ref: string }` — well formed or
+ * not. A writer that answers "must name a variable" for a malformed name
+ * (rather than fall through to its slot's literal check) tests this first.
+ */
+export function refShaped(value: unknown): value is RefValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return typeof (value as { ref?: unknown }).ref === 'string';
+}
+
+/**
+ * A dialog value slot holding a source expression in place of a literal: the
+ * text the statement writes as it is (`left ? 'left' : 'right'`,
+ * `count > 4`, `` `rib-${n}` `` read back from the source). Where a number
+ * row travels its expression as a bare string, the other typed-in rows of a
+ * custom feature — a choice, a boolean, a text — travel it in this shape,
+ * since a bare string is one of their literals.
+ */
+export type ExprValue = { expr: string };
+
+/** Whether a value is an expression's shape, `{ expr: string }` — well formed or not. */
+export function exprShaped(value: unknown): value is ExprValue {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  return typeof (value as { expr?: unknown }).expr === 'string';
+}
+
+/**
+ * Validate one expression slot for writing: the shape `{ expr: string }`
+ * holding text a statement may carry as one argument — what a number row's
+ * expression must be (`isExpressionText`: one line, no comment, balanced,
+ * no top-level comma or assignment) and, through the grammar, one single
+ * expression (`a b`, `(a`, a declaration are none). A dialog's write parses
+ * the file before it writes a value, so the parser is loaded by then; the
+ * text check alone decides should it not be.
+ */
+export function validExpr(value: unknown): value is ExprValue {
+  if (!exprShaped(value) || !isExpressionText(value.expr)) {
+    return false;
+  }
+  const parser = loadedJavaScriptParser();
+  return parser === null || Expressions.parse(value.expr.trim(), parser) !== null;
+}
 
 /** A repeat count slot: an integer of at least 2, or safe expression text. */
 export function validCountValue(value: unknown): value is ValueExpr {

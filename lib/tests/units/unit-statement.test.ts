@@ -12,6 +12,7 @@ import * as constraints from "../../core/constraints/index.js";
 import { unit, part, sketch, extrude } from "../../core/index.js";
 import { testRect } from "../helpers/profiles.js";
 import { Part } from "../../features/part.js";
+import type { PartDefinition } from "../../features/part-definition.js";
 import type { SceneObject } from "../../common/scene-object.js";
 
 const ROOT = "/ws/model.fluid.js";
@@ -124,9 +125,12 @@ describe("unit() statement", () => {
 
   it("a part definition builds in its defining file's unit, the root stays in its own", () => {
     setCurrentFile(ROOT);
-    // lib.part.js declares cm and defines a part; the root (mm) materializes it.
-    runFluid(LIB, `unit('cm'); part('block', () => { sketch('xy', () => { ${RECT} }); extrude(5); });`);
+    // lib.part.js declares cm and defines a part; the root (mm) re-exports
+    // it, and the host materializes an exported definition. (The leftover
+    // pass alone would not: it builds only the root's own definitions.)
+    const block = runFluid(LIB, `unit('cm'); return part('block', () => { sketch('xy', () => { ${RECT} }); extrude(5); });`) as PartDefinition;
     runFluid(ROOT, `sketch('xy', () => { ${RECT} });`);
+    block.materialize();
     render();
     const scene = getCurrentScene();
     expect(scene.unit).toBe("mm");

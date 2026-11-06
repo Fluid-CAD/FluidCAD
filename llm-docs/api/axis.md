@@ -4,7 +4,7 @@ title: axis(reference, options?)
 summary: Builds a reference axis from a world axis name, an edge, or the midaxis between two axes. Used by revolve, repeat, and 3D rotations.
 tags: [api, reference, geometry]
 symbols: [axis]
-seeAlso: [api/plane, api/constraints, api/revolve, api/rotate]
+seeAlso: [api/plane, api/constraints, api/revolve, api/rotate, api/connector, api/feature-params]
 ---
 
 # axis
@@ -14,7 +14,7 @@ Imported from `fluidcad/core`.
 ```ts
 axis(axis: AxisLike)
 axis(axis: AxisLike, options: AxisTransformOptions)
-axis(source: SceneObject)                           // from an edge
+axis(source: SceneObject)                           // from an edge, or a connector
 axis(source: SceneObject, options)
 axis(axis: Axis, options)
 axis(a1: AxisLike, a2: AxisLike, options?)          // midaxis
@@ -60,6 +60,17 @@ revolve(raised);
 An axis is consumed for display only: the revolve (or repeat, rotation,
 helix) hides its line from that feature on, and any later feature takes the
 same axis again by variable. `remove(raised)` drops it for good.
+
+## A connector is an axis
+
+Every statement that takes an axis — `revolve`, `rotate`, `helix`,
+`repeat`, `copy`, and a custom feature's axis value ([[api/feature-params]],
+read with `axisOf()`) — takes a connector there too ([[api/connector]]): its
+**Z axis through its origin**.
+`revolve(bolt, s)`, `rotate(bolt.instance(1), 30, f)` (a copy of one) and
+`helix(bolt)` need no `axis()` statement; the connector's gizmo is what the
+axis looks like. `axis(bolt)` (or `axis(bolt, { offsetX: 5 })`) builds an
+axis statement along it, drawn like any other.
 
 See [[api/plane]] for planar references. Inside a sketch, the sketch's
 

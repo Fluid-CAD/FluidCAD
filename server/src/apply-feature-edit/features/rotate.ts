@@ -3,6 +3,7 @@
 import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
 import { anyValueArg, booleanArgValue, numericValueArg, resolveRepeatTargetRef } from '../ast/args.ts';
 import { renderRepeatAxisExpr, type RepeatAxisSpec } from './repeat.ts';
+import { ConnectorAxisSpecs } from './connector-axis.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isAxisProducer, isFeatureProducer } from '../producers/predicates.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
@@ -144,6 +145,10 @@ export function renderEditedRotate(
     } else if (axis?.kind === 'axis') {
       if (!isAxisProducer(spec as ApplyFeatureEditSpec, axis.producer)) {
         return { error: 'malformed rotate edit spec: the axis references a non-axis producer' };
+      }
+    } else if (axis?.kind === 'connector') {
+      if (!ConnectorAxisSpecs.valid(spec, axis)) {
+        return { error: 'malformed rotate edit spec: the axis references a non-connector producer' };
       }
     } else if (axis?.kind !== 'standard'
       || (axis.axis !== 'x' && axis.axis !== 'y' && axis.axis !== 'z')) {

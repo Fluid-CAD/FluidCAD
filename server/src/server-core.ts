@@ -1,6 +1,9 @@
 import crypto from 'crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { CameraStateMessage, ServerToUIMessage } from './ws-protocol.ts';
+import { MeshLedger } from './scene-meshes/mesh-ledger.ts';
+import { MeshStore } from './scene-meshes/mesh-store.ts';
+import { OutgoingScene } from './scene-meshes/outgoing-scene.ts';
 
 /**
  * Shared HTTP+WS plumbing for server entry points to compose. The desktop
@@ -15,6 +18,9 @@ import type { CameraStateMessage, ServerToUIMessage } from './ws-protocol.ts';
  *   round-trips through a WS client to get a PNG. Same flow either side.
  * - **Camera state mirror** — the most recent camera-state message,
  *   exposed via getter for `/api/camera/state`.
+ * - **Mesh references** (S6b, opt-in by `meshRefs`) — a page that keeps a
+ *   mesh cache is sent `meshRef`s for meshes it was sent before; the store
+ *   behind `POST /api/meshes` answers the ones it no longer holds.
  *
  * Mode-specific things (engine init, route mounting, file watching, IPC)
  * stay in the calling entry point.
@@ -27,6 +33,14 @@ export interface UIClient {
   acksScenes: boolean;
   /** The newest scene version this page reported on screen (`scene-applied`). */
   appliedVersion: number;
+  /**
+   * The mesh keys this connection was sent recently (S6b). Kept from the
+   * connection on — the replay a page gets before its hello counts — and
+   * dropped when the hello announces no mesh cache, or with the connection.
+   */
+  meshLedger: MeshLedger | null;
+  /** The page announced a mesh cache and the host serves the fallback: it is sent `meshRef`s. */
+  meshRefs: boolean;
 }
 
 /** How long one capture may take, from the moment a page is asked for it. */
@@ -37,8 +51,19 @@ const SCENE_APPLY_TIMEOUT_MS = 60_000;
 export interface ServerCore {
   wss: WebSocketServer;
   uiClients: Set<UIClient>;
-  /** Broadcast to every connected UI client. */
-  broadcastToUI(msg: ServerToUIMessage): void;
+  /**
+   * Broadcast to every connected UI client. Answers the message's size in
+   * bytes as it went out — the largest text a client was sent (a scene goes
+   * out per page: whole, or with `meshRef`s to a page with a mesh cache),
+   * the whole message's when no client is connected — what a caller that
+   * reports its payload (an assembly preview's timings) reads.
+   */
+  broadcastToUI(msg: ServerToUIMessage): number;
+  /**
+   * The payloads of the scenes most recently broadcast, by mesh key: what
+   * `POST /api/meshes` answers (see {@link MeshStore}).
+   */
+  meshes: MeshStore;
   /** Send to the single UI client with the matching sessionId. No-op if absent. */
   sendToSession(sessionId: string, msg: ServerToUIMessage): void;
   /**
@@ -85,13 +110,22 @@ export interface ServerCore {
 export interface ServerCoreOptions {
   /** Gate on WebSocket upgrades — the host guard, so a rebound page cannot open the scene stream either. */
   verifyClient?: (info: { req: import('http').IncomingMessage }) => boolean;
+  /**
+   * Send `meshRef`s to pages that announce a mesh cache (`ui-hello`
+   * `meshCache`). The host that sets it serves `POST /api/meshes` from
+   * `core.meshes` (index.ts mounts it); off, every page is sent whole
+   * scenes, as a host without that route must.
+   */
+  meshRefs?: boolean;
 }
 
 export function createServerCore(httpServer: import('http').Server, options: ServerCoreOptions = {}): ServerCore {
   const wss = new WebSocketServer({ server: httpServer, verifyClient: options.verifyClient });
   const uiClients = new Set<UIClient>();
 
-  let lastSceneMessage: string | null = null;
+  /** The newest scene, replayed whole to a page that connects. */
+  let lastScene: OutgoingScene | null = null;
+  const meshStore = new MeshStore();
   /** Version of the newest scene sent to the pages — 0 before the first one. */
   let sceneVersion = 0;
   /** Woken whenever which page shows what may have changed: an ack, a hello, a disconnect. */
@@ -115,22 +149,22 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
     reject: (err: Error) => void;
   }>();
 
-  function broadcastToUI(msg: ServerToUIMessage) {
+  function broadcastToUI(msg: ServerToUIMessage): number {
     // Every scene a page is handed — a render, or the scene closing — gets
     // the next version, so "is the latest scene on screen" has an answer.
     if (msg.type === 'scene-rendered' || msg.type === 'scene-closed') {
       msg = { ...msg, sceneVersion: ++sceneVersion };
     }
-    const data = JSON.stringify(msg);
     if (msg.type === 'scene-rendered') {
-      lastSceneMessage = data;
       renderInFlight = false;
+      return broadcastScene(new OutgoingScene(msg));
     }
+    const data = JSON.stringify(msg);
     if (msg.type === 'processing-file') {
       renderInFlight = true;
     }
     if (msg.type === 'scene-closed') {
-      lastSceneMessage = null;
+      lastScene = null;
       renderInFlight = false;
     }
     if (msg.type === 'init-complete') {
@@ -141,6 +175,33 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
         client.ws.send(data);
       }
     }
+    return Buffer.byteLength(data);
+  }
+
+  /**
+   * A scene goes to each page as that page can take it: with `meshRef`s for
+   * the keys its ledger holds when it keeps a mesh cache, whole otherwise.
+   * Every key it carries is then noted as sent to that page, and its
+   * payloads become the store's newest.
+   */
+  function broadcastScene(scene: OutgoingScene): number {
+    lastScene = scene;
+    meshStore.noteScene(scene.entries);
+    let largest = 0;
+    let sent = false;
+    for (const client of uiClients) {
+      if (client.ws.readyState !== WebSocket.OPEN) {
+        continue;
+      }
+      const data = client.meshRefs && client.meshLedger ? scene.forPage(client.meshLedger) : scene.full();
+      client.ws.send(data);
+      sent = true;
+      largest = Math.max(largest, Buffer.byteLength(data));
+      if (client.meshLedger) {
+        scene.noteSent(client.meshLedger);
+      }
+    }
+    return sent ? largest : Buffer.byteLength(scene.full());
   }
 
   function sendToSession(sessionId: string, msg: ServerToUIMessage) {
@@ -273,6 +334,21 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
   function handleCoreMessage(client: UIClient, msg: any): boolean {
     if (msg.type === 'ui-hello') {
       client.acksScenes = msg.sceneAcks === true;
+      // A mesh cache is used only where the host serves its fallback; a page
+      // that keeps none needs no ledger.
+      const capacity = MeshLedger.announcedCapacity(msg.meshCache);
+      if (options.meshRefs === true && capacity !== null) {
+        const ledger = MeshLedger.forPage(capacity);
+        if (client.meshLedger) {
+          // What it was sent before the hello (the replay) stays held.
+          client.meshLedger.transferTo(ledger);
+        }
+        client.meshLedger = ledger;
+        client.meshRefs = true;
+      } else {
+        client.meshLedger = null;
+        client.meshRefs = false;
+      }
       wakeSceneApplyWaiters();
       return true;
     }
@@ -314,14 +390,22 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
 
   wss.on('connection', (ws) => {
     const sessionId = crypto.randomUUID();
-    const client: UIClient = { ws, sessionId, acksScenes: false, appliedVersion: 0 };
+    const client: UIClient = {
+      ws, sessionId, acksScenes: false, appliedVersion: 0,
+      meshLedger: options.meshRefs === true ? new MeshLedger() : null,
+      meshRefs: false,
+    };
     uiClients.add(client);
 
     if (initCompleteMessage) {
       ws.send(initCompleteMessage);
     }
-    if (lastSceneMessage) {
-      ws.send(lastSceneMessage);
+    // Whole: the page has not said yet what it keeps.
+    if (lastScene) {
+      ws.send(lastScene.full());
+      if (client.meshLedger) {
+        lastScene.noteSent(client.meshLedger);
+      }
     }
     if (renderInFlight) {
       ws.send(JSON.stringify({ type: 'processing-file' } satisfies ServerToUIMessage));
@@ -352,6 +436,7 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
 
     ws.on('close', () => {
       uiClients.delete(client);
+      client.meshLedger = null;
       wakeSceneApplyWaiters();
       if (disconnectHandler) {
         try {
@@ -367,6 +452,7 @@ export function createServerCore(httpServer: import('http').Server, options: Ser
     wss,
     uiClients,
     broadcastToUI,
+    meshes: meshStore,
     sendToSession,
     requestScreenshot,
     isLatestSceneApplied: () => clientShowingLatestScene() !== undefined,

@@ -1,4 +1,5 @@
 import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
+import { BucketDefs, type BucketDef, type SubShapeKind } from "../../common/bucket-defs.js";
 import { Shape } from "../../common/shape.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
@@ -16,10 +17,9 @@ import { heldSolidsOf, liveSolidsFrom, type HeldSolid } from "../../helpers/live
 import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { AnchoredLazyVertex } from "../anchored-vertex.js";
-import { SketchPointVertex } from "../sketch-point-ref.js";
 import { SolvedPoint } from "../2d/solved/point.js";
-import type { Sketch } from "../2d/sketch.js";
 import { Connector } from "../connector.js";
+import { Locations } from "../locations.js";
 import { PointResolver } from "../point-resolver.js";
 import { buildOrthonormalFrame } from "../shape-anchor.js";
 import { disposeBuildTemporaries } from "../build-temporaries.js";
@@ -67,27 +67,7 @@ export interface HoleFastenSpec {
  * normal). The hole runs opposite the normal.
  */
 export function placementFrame(placement: HolePlacement): Plane {
-  if (placement instanceof Connector) {
-    return placement.getFrame();
-  }
-  if (placement instanceof AnchoredLazyVertex) {
-    return placement.getAnchorFrame();
-  }
-  const ref = placement instanceof SolvedPoint ? placement.start() : placement;
-  if (ref instanceof SketchPointVertex) {
-    const plane = ref.getPlane();
-    if (!plane) {
-      throw new Error("hole(): the sketch point has no built sketch plane");
-    }
-    return new Plane(PointResolver.toWorld(ref), plane.xDirection, plane.normal);
-  }
-  return buildOrthonormalFrame(PointResolver.toWorld(ref), Vector3d.unitZ(), {});
-}
-
-/** The sketch a placement's point is drawn in; null for a connector, an anchor or a free point. */
-function placementSketch(placement: HolePlacement): Sketch | null {
-  const ref = placement instanceof SolvedPoint ? placement.start() : placement;
-  return ref instanceof SketchPointVertex ? ref.getSketch() : null;
+  return Locations.frameOf(placement);
 }
 
 /**
@@ -97,6 +77,15 @@ function placementSketch(placement: HolePlacement): Sketch | null {
  * rims and walls classify like a `cut()`.
  */
 export class Hole extends SceneObject implements IHole {
+  /**
+   * A hole records a cut's buckets, but every wall it makes is internal: its
+   * `faces()` reads `internal-faces`, and it has no `internalFaces()`. Its edge
+   * buckets keep the cut's accessors.
+   */
+  private static readonly FACE_BUCKETS: readonly BucketDef[] = [
+    { key: 'internal-faces', accessor: 'faces', kind: 'face', label: 'Faces', deriveFromFaceKey: null },
+  ];
+
   private _fastener: HoleFastenerSpec | null = null;
   private _style: HoleStyleSpec | null = null;
   private _depth: number | null = null;
@@ -226,6 +215,11 @@ export class Hole extends SceneObject implements IHole {
     return (this.getState(FRAMES_STATE_KEY) as Plane[] | undefined) ?? [];
   }
 
+  /** A feature placed at the hole stands at each of its placements. */
+  override locationFrames(): Plane[] {
+    return this.getFrames();
+  }
+
   override validate() {
     if (this.placements.length === 0) {
       throw new Error("hole() needs at least one placement — a connector, a sketch point such as s.geometries.c.center(), or a face/edge anchor such as e.endFaces().center()");
@@ -263,7 +257,7 @@ export class Hole extends SceneObject implements IHole {
       }
       // A sketch the hole is placed on leaves the screen like an extruded
       // one: for display only, so later features can still read it.
-      placementSketch(placement)?.removeShapes(this);
+      Locations.sketchOf(placement)?.removeShapes(this);
     }
 
     // Classification reads one plane: the first placement's, facing the
@@ -400,7 +394,7 @@ export class Hole extends SceneObject implements IHole {
         const faces = parent.getState(key) as Face[] || [];
         const transform = parent.getTransform();
         const originalFaces = transform
-          ? (this.getState(key) as Face[] || [])
+          ? (this.bucketOrigin().getState(key) as Face[] || [])
           : null;
         return this.resolveFaces(faces, args, transform, originalFaces, parent);
       }, this, args);
@@ -412,7 +406,7 @@ export class Hole extends SceneObject implements IHole {
         const edges = parent.getState(key) as Edge[] || [];
         const transform = parent.getTransform();
         const originalEdges = transform
-          ? (this.getState(key) as Edge[] || [])
+          ? (this.bucketOrigin().getState(key) as Edge[] || [])
           : null;
         return this.resolveEdges(edges, args, transform, originalEdges, parent);
       }, this, args);
@@ -467,6 +461,11 @@ export class Hole extends SceneObject implements IHole {
       filters = filters.map(f => f.transform(transform) as FaceFilterBuilder);
     }
     return applyBucketFilters(shapes, filters, owner) as Face[];
+  }
+
+  /** Its walls through `faces()`; its edges through the cut's accessors. */
+  override bucketDefs(kind: SubShapeKind): BucketDef[] {
+    return kind === 'face' ? BucketDefs.answeredBy(this, Hole.FACE_BUCKETS) : super.bucketDefs(kind);
   }
 
   /** The walls the cut created — the cylinder, the counterbore step, the countersink cone, the drill point. */

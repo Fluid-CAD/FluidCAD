@@ -1,0 +1,213 @@
+---
+sidebar_label: "Generated Parts and Assemblies"
+title: "Generated Parts and Assemblies"
+sidebar_position: 4
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import gearPartModule from '!!raw-loader!./_examples/gear.part.js';
+import wardrobeUnit from '!!raw-loader!./_examples/wardrobe-unit.js';
+import wardrobeAssembly from '!!raw-loader!./_examples/wardrobe.assembly.js';
+
+# Generated Parts and Assemblies
+
+A custom feature builds into a part. Some designs are better inserted into an assembly whole: a gear on its axis, a wardrobe whose doors swing and whose drawers slide. Two definitions make them insertable:
+
+- A **generated part** (`definePart`) turns a feature into a part. The feature's typed-in values are the part's interface, and the frames the feature sets are its connectors.
+- A **generated assembly** (`defineAssembly`) makes a sub-assembly by code: its parts, their connectors and the joints between them, from one set of values.
+
+An assembly inserts both with `insert(definition, values)`, like a `part()` or an `assembly()`. The assembly toolbar's **Generate Parts** dropdown and the **Insert** dialog list them, and open a dialog built from their values, with the result live in the viewport. [Generated Parts and Assemblies](/docs/assembly/generated) in the Assembly section shows that side. This page writes them.
+
+## A generated part
+
+The gear from [Named Faces and Edges](/docs/custom-features/named-faces-and-edges) stands on a face of a part. Two changes to the feature, and a short file, make it a part of its own on an axis an assembly can mate.
+
+### 1. Let the picked values be left out
+
+A generated part takes the feature's typed-in values only. It leaves the picked values out, so each must be optional, and the feature must build without them. The gear stands on the XY plane when no face is picked:
+
+```js
+face: { picker: 'face', label: 'On face', surface: 'planar', optional: true },
+```
+
+```js
+let plane = Plane.XY();
+let origin = plane.origin;
+if (this.values.face !== undefined) {
+  const faces = this.facesOf(this.values.face);
+  // … one planar face, as before
+  plane = faces[0].getPlane();
+  origin = plane.projectPoint(faces[0].center());
+}
+```
+
+A feature with a required pick is refused where the part's module loads: `definePart(Gear): 'face' is a picked value the feature requires — a generated part takes typed-in values only, so each picked value must be optional (optional: true); the part leaves it out`.
+
+### 2. Publish the axis as a frame
+
+A frame is a named coordinate frame the feature sets as it builds. Declare it beside the buckets, the second argument of `Feature.with()`, and set it in `buildTool()` with `setFrames()`, as `setBuckets()` sets the buckets:
+
+```js
+}, {
+  buckets: { /* … */ },
+  frames: {
+    axis: { label: 'Gear axis' },
+  },
+}) {
+```
+
+```js
+this.setFrames({ axis: new Plane(origin, plane.xDirection, plane.normal.negate()) });
+```
+
+- A frame is a `Plane`: its origin, its X direction, and its normal, which is the frame's Z.
+- The gear's frame sits on its axis, on the face the gear stands on, with Z out of the gear, the way a connector on that face points. A plain revolute mate on a plate's or a shaft's connector seats the gear and turns it about its axis. Point every frame a part stands on out of its material, so a mate needs no **Flip**.
+- A frame's name is an identifier, as a connector's is. Its declaration takes only a `label`.
+- A part file reads the frame too: `connector('axis', pinion.frame('axis'))` puts a connector on a gear the part builds. On a repeated gear, `r.instance(1).frame('axis')` reads a copy's.
+
+### 3. Define the part
+
+<ExplainedCode code={gearPartModule} fileName="gear.part.js" title="gear.part.js" open />
+
+- `definePart(FeatureClass, { … })` returns a part definition. Export it by name from a `*.part.js` file. It follows the part rules of a `part()`: exported, and one name per file.
+- **The values are the part's interface, by id.** An assembly writes `insert(gearPart, { teeth: 30, bore: 10 })`, with the values' ids, not their labels. They are checked as the feature's call checks them.
+- **The part runs the feature as a new solid**, at the part's own origin, and makes one connector per frame: `gear1.connectors.axis`.
+- **Equal values share one part.** Inserts whose values are equal once the defaults are filled in build once. `insert(gearPart)` and `insert(gearPart, { teeth: 20 })` are one part, since 20 is the default.
+- Opened on its own, the file renders the gear with every value at its default.
+
+The second argument describes the part for the menus and its dialog:
+
+| Field | Meaning |
+|---|---|
+| `label` | Required. The entry in the Generate Parts dropdown and the Insert dialog, the dialog's title, and the part's name. |
+| `name` | The part's name, when it should differ from the label. |
+| `description` | The tooltip in the dropdown. |
+| `icon` | The picture, relative to this file. It may climb out of the folder (`'../features/gear.svg'`), never out of the project or the package. |
+| `layout` | The dialog's rows over the part's values. Left out, the part borrows the feature dialog's rows, less the picked values. |
+| `width` | `'wide'` or `'wider'`. Left out, the feature dialog's. |
+| `aside` | Notes and pictures beside the rows, relative to this file. Left out, the feature dialog's. |
+
+`layout`, `width` and `aside` take what a feature's take: see [Laying out the dialog](/docs/custom-features/inputs#laying-out-the-dialog).
+
+An insert the part can't read fails that insert's row, with a sentence naming the part and the value. The rest of the assembly builds:
+
+| The insert | Its row |
+|---|---|
+| `insert(gearPart, { teeth: 4 })` | `part 'Gear': 'teeth' must be at least 10, got 4` |
+| `insert(gearPart, { face: … })` | `part 'Gear': 'face' is a picked value of the feature — a generated part takes its typed-in values only, and leaves the picked ones out` |
+
+## A generated assembly
+
+A wardrobe is a carcass, a pair of doors on hinges and a stack of drawers on runners. As a generated assembly, each is a part, and the doors and drawers move on joints. Its values are its size, the number of drawers and how far the doors swing.
+
+A generated assembly is two modules: a **generator**, a class that lays out the parts and builds them, and the **definition**, which makes the class insertable.
+
+### The generator
+
+<ExplainedCode code={wardrobeUnit} fileName="wardrobe-unit.js" title="wardrobe-unit.js" open />
+
+`Generator.with({ … })` declares the values as `Feature.with()` does: types, defaults (and [defaults that follow another value](/docs/custom-features/inputs#defaults-that-follow-another-value)), ranges, options with pictures, `visibleWhen`, groups. A generator takes typed-in values only, and refuses a picked one by name. `static id` is its type, as a feature's is.
+
+The work happens in two phases:
+
+1. **`layout(g)`** runs for every insert, and on every change while the dialog is open. It reads `this.values` and declares the assembly with `g`: its parts, where they start, and the joints between them. It is plain JavaScript and builds no geometry, so keep it quick. What it returns is the occurrence's parts: an assembly reaches the carcass as `wardrobe1.parts.carcass`, and its connectors as `wardrobe1.parts.carcass.connectors.leftHinge`.
+2. **`static build(type, inputs, ctx)`** runs once for each part the layout declared that the engine holds no build of. It returns the part's shapes, in the part's own coordinates.
+
+`build` is static so that it can read only what the layout passed it: a part's type and its inputs. Whatever changes a part's geometry must be in its inputs. That is what lets FluidCAD tell a part is unchanged, and keep its build.
+
+### Parts
+
+`g.part(type, { … })` adds a part and returns its handle:
+
+| Field | Meaning |
+|---|---|
+| `name` | The part's name in the Parts panel. Left out, the type. |
+| `inputs` | Everything the part's geometry depends on: what `build` receives. Plain JSON only (below). |
+| `connectors` | The part's connectors by name, each a frame in the part's own coordinates: `{ origin: [x, y, z], z: [x, y, z], x: [x, y, z] }`. `x` is optional. |
+| `appearance` | An appearance id, such as `'oak'` or `'plastic'`. |
+| `material` | A material id, for the part's mass. |
+
+| On the handle | Effect |
+|---|---|
+| `.grounded()` | Fixes the part in the generated assembly's frame. The carcass needs no joint. Whether the whole wardrobe is grounded is up to the assembly that inserts it. |
+| `.pose({ position, rotation })` | Where the part starts: its origin at `position`, turned by `rotation` in degrees about X, then Y, then Z. A starting point, never a constraint: the joints decide where a jointed part goes. |
+| `.name('…')` | Renames the part. |
+| `.connectors.<name>` | A connector, for `g.mate()`, or for the inserting assembly's `mate()` once the layout returns the handle. |
+
+**Equal parts are one template.** A part's template is its type, inputs, connectors, appearance and material. Two `g.part()` calls that agree on all five share one part, built once, even across several wardrobes in one assembly. The wardrobe's drawers are one template. Its doors are mirror images, with `side` in their inputs, so they are two. The name is each part's own and plays no part in this.
+
+**Inputs are plain JSON:** numbers, strings, booleans, `null`, arrays and plain objects. A function, an object of a class, `undefined` or a number that isn't finite is refused, naming where it sits in the inputs.
+
+### Joints
+
+`g.mate(type, a, b)` joins two of the assembly's parts, as [`mate()`](/docs/assembly/introduction#joints) does: the same types, the same connector sides, and the same chain, `.flip()`, `.rotate()`, `.offset()`, `.limits()` and `.name()`. `g.relation(type, a, b, ratio)` couples two of its joints, as a [gear relation](/docs/assembly/gear) does.
+
+- **Name every moving joint.** The Joints panel lists a joint by its `.name()`: **Left door**, **Drawer 1**.
+- A mate lays its two frames face to face by default, which turns the second part over. The wardrobe gives the carcass and each door the same frame, so `.flip()` lays one onto the other as it is, and 0° is the door closed.
+- Driving a joint writes nothing: a door swung open in the viewport or with **Animate…** leaves the file as it was.
+
+### The definition
+
+<ExplainedCode code={wardrobeAssembly} fileName="wardrobe.assembly.js" title="wardrobe.assembly.js" open />
+
+- `defineAssembly(GeneratorClass, { … })` returns an assembly definition. Export it by name from a `*.assembly.js` file.
+- Its fields are a generated part's (above). There is no feature dialog to borrow from: left out, the layout is derived from the values' `group` and `tab`, the dialog opens at the default width, and it has no aside. A `connectors` field is refused: the connectors are the parts'.
+- The values are the insert's, by id: `insert(wardrobeAssembly, { width: 1200, drawers: 3 })`.
+- Opened on its own, the file renders the wardrobe with every value at its default.
+
+### Units
+
+A generator writes in its defining module's unit: the project's, or for a package, the package's. Its values, inputs, frames, poses, mate offsets and slider limits are all lengths in that unit. Inserted into an assembly of another unit, its parts are scaled and its poses, offsets and limits converted. The values themselves are not converted: an inch generator's `width: 40` is 40 in.
+
+## Builds are kept
+
+A part is built again only when its template changes. In the wardrobe:
+
+| Change | Built again |
+|---|---|
+| **Depth** | The carcass and the drawers. The doors' inputs hold no depth, so they are kept. |
+| **Door swing** | Nothing: only the joints' limits change. |
+| A value set back to where it was a moment ago | Nothing: the engine still holds those builds. |
+| The generator's code, or a module it imports, saved or not | Everything. |
+
+The engine keeps recent builds across renders and lets the least recently used go first, so dragging a slider back and forth builds each value once.
+
+**Detail tiers.** `ctx.detail` says how much to build. It is `'preview'` while a control in the dialog is moving, a slider being dragged or a number being typed, and `'full'` once it settles, a moment later, and for every other render: Apply, an export, a save. Each tier is built and kept on its own. Use `'preview'` to leave out what is slow and small, drill holes, hinges, pulls, but never to build something else: the wardrobe leaves out its pulls.
+
+Never keep shapes in the module from one render to the next: FluidCAD frees a render's shapes once it is done with them.
+
+## When something fails
+
+| What went wrong | Where it shows |
+|---|---|
+| An id the definition doesn't take | The insert's row fails: `assembly 'Wardrobe': 'widht' is not one of its values — did you mean 'width'? its values are width, height, depth, drawers, drawerFront, doorSwing` |
+| A value its declaration refuses | The insert's row fails: `assembly 'Wardrobe': 'width' must be at least 500, got 100` |
+| `layout()` throws | The insert's row fails with the message, `assembly 'Wardrobe': wardrobe: 4 drawers of 300 leave no room for the doors`, and nothing of the layout is kept. |
+| `build()` throws | That part's rows fail, `WardrobeUnit.build('door'): …`. The other parts build. |
+| A bad declaration: a picked value in `Generator.with()`, no `static id`, no `layout` or `build`, a field `defineAssembly()` doesn't know | The module fails to load. A model that imports it fails to compile with a sentence naming the call (`Generator.with()`, `defineAssembly(WardrobeUnit)`) and the fix, and the Generate Parts dropdown leaves the definition out. |
+
+## Where the modules live
+
+In a project, a `definePart` export lives in a `*.part.js` file and a `defineAssembly` export in a `*.assembly.js` file. The generator class may be in any module. In a [package](/docs/packages#generated-parts-and-assemblies), they go in the folders the package shares:
+
+```
+my-package/
+├── features/
+│   ├── gear.feature.js
+│   ├── gear.svg
+│   ├── wardrobe-unit.js        ← the generator class
+│   └── img/                    ← the pictures of its values' options
+├── parts/
+│   └── gear.part.js            ← definePart: import { Gear } from '../features/gear.feature.js'
+└── assemblies/
+    └── wardrobe.assembly.js    ← defineAssembly: import { WardrobeUnit } from '../features/wardrobe-unit.js'
+```
+
+- **A value's pictures** (its options' images, its own `aside`) are found next to the module that declares the values, the one that calls `Generator.with()` or `Feature.with()`. Keep a generator class beside its pictures, as a feature file is.
+- **The definition's pictures** (`icon`, and the images in its `layout` and `aside`) are found next to the definition's module, and may climb with `../` to `features/`.
+
+## Limits
+
+- Values only: a generated definition takes no picked values. Its parts are placed by its layout, and the assembly that inserts it mates them.
+- No [configurations](/docs/assembly/configurations): a generated definition is inserted with its values, and a configuration name in `insert()` fails the row.
+- The parts a generated definition makes are read-only in the assembly. Their names, appearances and materials come from the generator. Change them through its values.

@@ -1,18 +1,22 @@
 // helix(): option types, chain rendering and source expressions.
 
+import { SelectorText } from '../parse/selector-text.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
+import { ConnectorAxisSpecs, type ConnectorAxisSpec } from './connector-axis.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 import { formatValue, type ValueExpr } from '../value-expr.ts';
 
 /**
  * One helix source: a standard world axis (its string literal, no producer),
  * an existing axis statement bound to a variable, a picked edge — the single
- * selector part wrapped in `axis(…)` — or a picked cylindrical/conical face,
- * the single selector part on its own.
+ * selector part wrapped in `axis(…)` — a connector ({@link
+ * ConnectorAxisSpec}), or a picked cylindrical/conical face, the single
+ * selector part on its own.
  */
 export type HelixSourceSpec =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; producer: number }
+  | ConnectorAxisSpec
   | { kind: 'edge' }
   | { kind: 'face' };
 
@@ -105,6 +109,9 @@ export function renderHelixSourceExpr(
   if (source.kind === 'axis') {
     return varFor(source.producer) ?? 'a';
   }
+  if (source.kind === 'connector') {
+    return ConnectorAxisSpecs.render(source, varFor);
+  }
   const part = parts[0];
   const selector = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
   return source.kind === 'edge' ? `axis(${selector})` : selector;
@@ -112,13 +119,13 @@ export function renderHelixSourceExpr(
 
 /**
  * Which tab the helix edit dialog opens on, from the source text alone: a face
- * selector (a `face(...)` filter or a `.sideFaces()/.endFaces()/.faces()`
- * accessor) reads as 'face'; a standard-axis literal, an `axis(...)` call, or
- * an axis variable reads as 'axis'. A misread is one tab click to correct.
+ * selector (a `face(...)` filter or any face bucket's accessor, see
+ * {@link SelectorText}) reads as 'face'; a standard-axis literal, an
+ * `axis(...)` call, or an axis variable reads as 'axis'. A misread is one tab
+ * click to correct.
  */
 export function classifyHelixSource(text: string): 'axis' | 'face' {
-  const t = text.trim();
-  if (/\bface\s*\(/.test(t) || /\.(sideFaces|endFaces|faces)\s*\(/.test(t)) {
+  if (SelectorText.namesFaces(text.trim())) {
     return 'face';
   }
   return 'axis';

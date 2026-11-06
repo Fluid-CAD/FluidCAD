@@ -109,6 +109,12 @@ export class FeatureGhostOverlay {
     this.viewer.sceneContext.requestRender();
   }
 
+  /** Clear, and take the overlay out of the scene for good — its dialog is gone. */
+  dispose(): void {
+    this.clear();
+    this.viewer.sceneContext.scene.remove(this.group);
+  }
+
   /**
    * Slide the drawn bodies rigidly by `offset` from where they were stamped,
    * or hide them (null) — the translate dialog moves its ghost live this way

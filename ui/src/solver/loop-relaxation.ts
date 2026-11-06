@@ -126,9 +126,10 @@ export type LoopRelaxation = {
 
 const UNRELAXED: LoopRelaxation = { dof: null, contradicted: [], exact: [], blocked: [] };
 
-// Drag weight when the component has closure edges. The warm-start has
-// already placed the dragged body's grab analytically; LM's main job is
-// closing the loop. A large drag weight makes LM compromise between
+// Drag weight when the component has closure edges. LM's main job is
+// closing the loop (the warm-start places a dragged body's grab
+// analytically only off the loops — a loop body starts from its previous
+// configuration, see seedTreeEdge). A large drag weight makes LM compromise between
 // "grab at cursor" and "loop closed" — visibly opening the closure gap
 // during drag — so closure residuals dominate and the drag stays a
 // gentle pull toward the reachable configuration nearest the cursor.
@@ -416,7 +417,15 @@ function relaxComponent(
     }
   }
   for (const entry of limitEntries) {
-    if (entry.unwrapRef !== null) entry.unwrapRef = x0[entry.index];
+    // The slot's x0 is a measured angle in (-π, π]; the box may sit past
+    // the cut (limits(75, 185)). Reference the box's own branch, as the
+    // warm-start clamp does, so an over-centre hinge unwraps beside its
+    // bounds instead of being clamped across the circle to the far one.
+    if (entry.unwrapRef !== null) {
+      const mid = (entry.min + entry.max) / 2;
+      const v = x0[entry.index];
+      entry.unwrapRef = v + 2 * Math.PI * Math.round((mid - v) / (2 * Math.PI));
+    }
   }
 
   // Save every component body's pose so outright LM failure can restore.

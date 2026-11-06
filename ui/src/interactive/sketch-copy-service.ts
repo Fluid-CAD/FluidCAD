@@ -196,7 +196,10 @@ export class SketchCopyService {
       kind: parsed.kind,
       directions: parsed.directions,
       spacingMode: parsed.spacingMode,
-      centered: parsed.centered,
+      // The in-sketch dialog's Centered box takes a flag only — its ghost and
+      // apply wires carry a boolean — so an expression a 2D copy holds in the
+      // slot opens the box on false; applying rewrites it as the box stands.
+      centered: typeof parsed.centered === 'boolean' ? parsed.centered : false,
       count: parsed.count,
       sweep: parsed.sweep,
       center: parsed.center,

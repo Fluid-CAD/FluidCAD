@@ -2,6 +2,7 @@ import type { BRepAdaptor_Curve, BRepAdaptor_Surface, gp_Ax1, gp_Dir, gp_Pnt, To
 import { getOC } from "../init.js";
 import { Explorer } from "../explorer.js";
 import { EdgeQuery } from "../edge-query.js";
+import { FaceOps } from "../face-ops.js";
 import type { MeasureEntityKind, MeasureVec } from "./measure-types.js";
 import { cross, dist, dot, len, projectPointOnLine, scale, sub } from "./vec.js";
 import { mmTol } from "../../units/tolerance.js";
@@ -17,7 +18,11 @@ export type EdgeForm = 'line' | 'circle' | 'arc' | 'ellipse' | 'curve';
 export interface ClassifiedEntity {
   kind: MeasureEntityKind;
   form: FaceForm | EdgeForm;
-  /** Unit direction characterizing the entity, or null when it has none. */
+  /**
+   * Unit direction characterizing the entity, or null when it has none. A
+   * planar face's normal points out of its solid (see {@link classifyFace});
+   * every other direction keeps its geometry's own sign.
+   */
   dir: MeasureVec | null;
   /**
    * How `dir` relates to the entity: a 'normal' is perpendicular to the entity
@@ -197,6 +202,13 @@ function detectCircularBoundary(face: TopoDS_Face): { center: MeasureVec; radius
   return consistent ? found : null;
 }
 
+/**
+ * A face's form, carrier and size. A planar face's normal is its OUTWARD
+ * normal: the carrier plane's axis (or the fitted normal of a flat B-spline)
+ * carries whatever sign the surface was built with, so it is signed by
+ * {@link FaceOps.outwardNormalRaw} — which reads the face's orientation, so
+ * `shape` must be the face as its solid's explorer gives it.
+ */
 export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
   const oc = getOC();
   const face = oc.TopoDS.Face(shape);
@@ -281,6 +293,12 @@ export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
   }
 
   adaptor.delete();
+  if (result.form === 'plane' && result.dir) {
+    const outward = FaceOps.outwardNormalRaw(face);
+    if (outward && dot(result.dir, outward) < 0) {
+      result.dir = scale(result.dir, -1);
+    }
+  }
   // The typed cast is a fresh handle of its own; the result keeps the caller's raw `shape`.
   face.delete();
   return result;

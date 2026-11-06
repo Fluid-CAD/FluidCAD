@@ -7,6 +7,8 @@ import type { ScreenshotSelectionResolver } from '../../src/routes/screenshot-ov
 let server: http.Server;
 let baseUrl: string;
 let lastOptions: Record<string, unknown> | null = null;
+/** What the route's scene lookup answers: the current render's shape and instance ids, or null for "nothing rendered". */
+let sceneIds: ReadonlySet<string> | null = null;
 
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 
@@ -79,7 +81,7 @@ describe('POST /api/screenshot overlays', () => {
     app.use('/api', createScreenshotRouter(async (options) => {
       lastOptions = options;
       return PNG;
-    }, resolveSelection, sceneObject));
+    }, resolveSelection, () => sceneIds, sceneObject));
     server = http.createServer(app);
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const address = server.address() as { port: number };
@@ -92,6 +94,7 @@ describe('POST /api/screenshot overlays', () => {
 
   beforeEach(() => {
     lastOptions = null;
+    sceneIds = new Set(['sh-1', 'sh-2', 'sh-9', 'inst-1']);
   });
 
   it('forwards index highlights, annotations and fitTo to the page unchanged', async () => {
@@ -162,12 +165,66 @@ describe('POST /api/screenshot overlays', () => {
     expect(lastOptions).toBeNull();
   });
 
-  it('refuses fitTo without a highlight, and any value but "highlight"', async () => {
+  it('refuses fitTo without a highlight, and any value but "highlight" or a shape fit', async () => {
     const noHighlight = await post({ fitTo: 'highlight' });
     expect(noHighlight.status).toBe(400);
     expect(noHighlight.body.error).toContain('needs a non-empty highlight');
     const wrong = await post({ highlight: [{ shapeId: 'sh-1', kind: 'face', index: 1 }], fitTo: 'model' });
     expect(wrong.status).toBe(400);
+    expect(wrong.body.error).toContain('fitTo must be "highlight" or { shapes');
+  });
+
+  it('forwards a shape fit as given, beside the overlays it leaves alone', async () => {
+    const bare = await post({ view: { kind: 'named', name: 'iso-ftr' }, fitTo: { shapes: ['sh-2'] } });
+    expect(bare.status).toBe(200);
+    expect(lastOptions).toEqual({ view: { kind: 'named', name: 'iso-ftr' }, fitTo: { shapes: ['sh-2'] } });
+
+    // Framing only: focus/hide and the highlight travel unchanged, and no highlight is needed.
+    const highlight = [{ shapeId: 'sh-1', kind: 'face', index: 0 }];
+    const full = await post({ fitTo: { shapes: ['sh-1', 'inst-1'], margin: 1.5 }, focus: ['sh-9'], highlight, multi: true });
+    expect(full.status).toBe(200);
+    expect(lastOptions).toEqual({ multi: true, fitTo: { shapes: ['sh-1', 'inst-1'], margin: 1.5 }, focus: ['sh-9'], highlight });
+
+    const flush = await post({ fitTo: { shapes: ['sh-1'], margin: 1 } });
+    expect(flush.status).toBe(200);
+    expect(lastOptions?.fitTo).toEqual({ shapes: ['sh-1'], margin: 1 });
+  });
+
+  it('refuses a malformed shape fit with the field named', async () => {
+    const cases: Array<[unknown, string]> = [
+      [{}, 'fitTo.shapes must be an array of 1-64'],
+      [['sh-1'], 'fitTo must be "highlight" or { shapes'],
+      [null, 'fitTo must be "highlight" or { shapes'],
+      [{ shapes: [] }, 'fitTo.shapes must be an array of 1-64'],
+      [{ shapes: 'sh-1' }, 'fitTo.shapes must be an array of 1-64'],
+      [{ shapes: Array.from({ length: 65 }, (_, i) => `sh-${i}`) }, 'fitTo.shapes must be an array of 1-64'],
+      [{ shapes: ['sh-1', ''] }, 'fitTo.shapes must contain non-empty string ids'],
+      [{ shapes: ['sh-1', 7] }, 'fitTo.shapes must contain non-empty string ids'],
+      [{ shapes: ['sh-1'], margin: 0.9 }, 'fitTo.margin must be a number between 1 and 10'],
+      [{ shapes: ['sh-1'], margin: 11 }, 'fitTo.margin must be a number between 1 and 10'],
+      [{ shapes: ['sh-1'], margin: '1.2' }, 'fitTo.margin must be a number between 1 and 10'],
+    ];
+    for (const [fitTo, expected] of cases) {
+      const res = await post({ fitTo });
+      expect(res.status, JSON.stringify(fitTo)).toBe(400);
+      expect(res.body.error).toContain(expected);
+    }
+    expect(lastOptions).toBeNull();
+  });
+
+  it('refuses a shape fit naming an id the current render does not hold, before the page is asked', async () => {
+    const res = await post({ fitTo: { shapes: ['sh-1', 'sh-404'] } });
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('unknown-shape');
+    expect(res.body.error).toBe('fitTo.shapes[1] "sh-404" is not a shape or instance id of the current render.');
+    expect(lastOptions).toBeNull();
+  });
+
+  it('forwards a shape fit unchecked when nothing has rendered to check it against', async () => {
+    sceneIds = null;
+    const res = await post({ fitTo: { shapes: ['sh-404'] } });
+    expect(res.status).toBe(200);
+    expect(lastOptions?.fitTo).toEqual({ shapes: ['sh-404'] });
   });
 
   it('validates a malformed highlight entry with its position named', async () => {

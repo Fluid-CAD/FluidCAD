@@ -12,6 +12,7 @@ import {
   clearBreakpoints,
   exportShapes,
   importStep,
+  packPackage,
   recompute,
   rollbackTo,
 } from '../src/tools/engine.ts';
@@ -38,6 +39,9 @@ type ExportConfig = {
   lastBody?: any;
 };
 let exportConfig: ExportConfig = {};
+
+/** What the fake `/api/pack` answers: the archive, or a refusal. */
+let packReply: { status: number; body: Buffer; headers: Record<string, string> } | null = null;
 
 // What the scene-mutating routes report alongside `success`. Tests override
 // it to simulate a render that completed with features left broken.
@@ -112,6 +116,12 @@ function startFakeServer(): Promise<number> {
           const ct = exportConfig.contentType ?? (parsed.format === 'step' ? 'application/step' : 'application/sla');
           res.writeHead(status, { 'content-type': ct });
           res.end(bin);
+          return;
+        }
+
+        if (url === '/api/pack' && packReply) {
+          res.writeHead(packReply.status, packReply.headers);
+          res.end(packReply.body);
           return;
         }
 
@@ -362,8 +372,134 @@ describe('export', () => {
   });
 });
 
+describe('pack', () => {
+  const archive = Buffer.from('PK\u0003\u0004 a package archive');
+  const contents = {
+    features: [{ id: 'acme.standoff', exportName: 'standoff', module: 'features/standoff.feature.js' }],
+    parts: [{ exportName: 'spacer', name: 'Spacer', module: 'parts/spacer.part.js', params: 1 }],
+    assemblies: [],
+    models: 1,
+    docs: ['docs/standoff.md'],
+  };
+  const warnings = [
+    {
+      code: 'undocumented-fields',
+      file: 'features/standoff.feature.js',
+      message: 'features/standoff.feature.js: 1 field without a description — standoff: height. Give it a `description`.',
+      fields: [{ kind: 'value', owner: 'standoff', name: 'height', label: 'Height', reason: 'missing' }],
+    },
+    {
+      code: 'docs-link',
+      file: 'docs/standoff.md',
+      message: 'docs/standoff.md:3 links to ./gone.svg, which leads to no file the package ships.',
+      target: './gone.svg',
+      line: 3,
+    },
+  ];
+  const archiveReply = (extra: Record<string, unknown> = { warnings }) => ({
+    status: 200,
+    body: Buffer.from(JSON.stringify({
+      packageName: '@acme/kit',
+      version: '0.1.0',
+      fileName: 'acme-kit-0.1.0.fluidpkg',
+      bytes: archive.length,
+      contents,
+      ...extra,
+      archive: archive.toString('base64'),
+    })),
+    headers: { 'content-type': 'application/json' },
+  });
+
+  afterEach(() => {
+    packReply = null;
+  });
+
+  it('saveAsPath: writes the archive there and returns savedTo with the package identity and contents', async () => {
+    packReply = archiveReply();
+    const out = path.join(workspace, 'acme-kit-0.1.0.fluidpkg');
+    const result = await packPackage({ saveAsPath: out });
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        savedTo: out,
+        bytesWritten: archive.length,
+        packageName: '@acme/kit',
+        version: '0.1.0',
+        fileName: 'acme-kit-0.1.0.fluidpkg',
+        contents,
+        warnings,
+      },
+    });
+    expect(fs.readFileSync(out).equals(archive)).toBe(true);
+    const request = requests.find((r) => r.url === '/api/pack')!;
+    expect(request.method).toBe('POST');
+    // The JSON form of the route: the archive beside its contents by folder.
+    expect(JSON.parse(request.body)).toEqual({ format: 'json' });
+  });
+
+  it('without saveAsPath returns the archive inline as base64, with the contents', async () => {
+    packReply = archiveReply();
+    const result = await packPackage({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    const data = result.data as { mimeType: string; base64: string; bytes: number; fileName: string; contents: unknown };
+    expect(data.mimeType).toBe('application/zip');
+    expect(Buffer.from(data.base64, 'base64').equals(archive)).toBe(true);
+    expect(data.bytes).toBe(archive.length);
+    expect(data.fileName).toBe('acme-kit-0.1.0.fluidpkg');
+    expect(data.contents).toEqual(contents);
+  });
+
+  it('passes the pack\'s warnings through as they came, and an engine that sends none gives []', async () => {
+    packReply = archiveReply();
+    const result = await packPackage({});
+    expect(result.ok && (result.data as { warnings: unknown }).warnings).toEqual(warnings);
+
+    packReply = archiveReply({});
+    const older = await packPackage({});
+    expect(older.ok && (older.data as { warnings: unknown }).warnings).toEqual([]);
+  });
+
+  it('turns the packer\'s refusal into pack-refused, with its sentence and code, and writes nothing', async () => {
+    const sentence = 'features/spacer.part.js is a part in features/, but parts belong in parts/: move it there.';
+    packReply = {
+      status: 400,
+      body: Buffer.from(JSON.stringify({ error: sentence, code: 'wrong-folder' })),
+      headers: { 'content-type': 'application/json' },
+    };
+    const out = path.join(workspace, 'never.fluidpkg');
+    const result = await packPackage({ saveAsPath: out });
+    expect(result).toEqual({
+      ok: false,
+      code: 'pack-refused',
+      message: sentence,
+      details: { statusCode: 400, code: 'wrong-folder' },
+    });
+    expect(fs.existsSync(out)).toBe(false);
+  });
+
+  it('reports any other failure as http-error', async () => {
+    packReply = {
+      status: 500,
+      body: Buffer.from(JSON.stringify({ error: 'boom' })),
+      headers: { 'content-type': 'application/json' },
+    };
+    const result = await packPackage({});
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('http-error');
+  });
+
+  it('rejects a saveAsPath that is not a string', async () => {
+    const result = await packPackage({ saveAsPath: 42 as any });
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('invalid-input');
+  });
+});
+
 describe('engine tools over MCP', () => {
-  it('the MCP client sees all six engine tools', async () => {
+  it('the MCP client sees every engine tool', async () => {
     const server = buildServer();
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: 'test', version: '0.0.0' });
@@ -378,6 +514,7 @@ describe('engine tools over MCP', () => {
         'clear_breakpoints',
         'import_step',
         'export',
+        'pack',
       ]) {
         expect(names.has(expected)).toBe(true);
       }

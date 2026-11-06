@@ -19,6 +19,7 @@ import { getOC } from "./init.js";
 import type { TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
 import { mmTol } from "../units/tolerance.js";
 import { BoundingBox } from "../helpers/types.js";
+import { BooleanBuilders } from "./boolean-builders.js";
 
 export interface RibConformResult {
   solids: Shape[];
@@ -325,7 +326,7 @@ export class RibOps {
     cutMaker.Build(progress);
 
     if (!cutMaker.IsDone() || cutMaker.HasErrors()) {
-      cutMaker.delete();
+      BooleanBuilders.release(cutMaker);
       stockList.delete();
       toolList.delete();
       progress.delete();
@@ -499,7 +500,7 @@ export class RibOps {
     lastMap.delete();
     sideMap.delete();
     seen.delete();
-    cutMaker.delete();
+    BooleanBuilders.release(cutMaker);
     stockList.delete();
     toolList.delete();
     progress.delete();

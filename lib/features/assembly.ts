@@ -1,7 +1,8 @@
 import { getParamRegistry, popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamScope, ParamVal } from "../param-registry.js";
-import { toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
+import { collectedParamValues, toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
 import type { SourceLocation } from "../common/scene-object.js";
+import type { AssemblyOccurrence } from "../rendering/assembly-scene.js";
 
 /**
  * A lazy sub-assembly definition created by `assembly(name, callback)`.
@@ -24,7 +25,7 @@ export class Assembly<T = unknown> {
    * scene stayed empty uses this to point at definitions that were declared
    * but never exported or inserted (a silent empty scene otherwise).
    */
-  private hasRun = false;
+  protected hasRun = false;
 
   constructor(
     public readonly assemblyName: string,
@@ -35,6 +36,11 @@ export class Assembly<T = unknown> {
 
   getType(): string {
     return "assembly";
+  }
+
+  /** Where the definition was declared (`assembly()`, `defineAssembly()`), or null when no script frame located it. */
+  getSourceLocation(): SourceLocation | null {
+    return this.sourceLocation;
   }
 
   /**
@@ -56,6 +62,27 @@ export class Assembly<T = unknown> {
    */
   runScoped(overrides: ParamOverrides, configuration?: string): { parts: T; scope: ParamScope } {
     return this.runInScope(toOverrideMap(overrides), configuration);
+  }
+
+  /**
+   * Run the definition for one occurrence — what `insert()` and
+   * `replicate()` call inside the occurrence's scope, with `record` the
+   * occurrence they made — and return what it exposes as
+   * `occurrence.parts`. An `assembly()` body runs scoped ({@link runScoped})
+   * and the record learns its parameter interface, the values it resolved
+   * and the rows its `configurations()` declares. A generated definition
+   * (`defineAssembly`) runs its generator instead.
+   */
+  runOccurrence(record: AssemblyOccurrence, overrides: ParamOverrides, configuration?: string): T {
+    const run = this.runScoped(overrides, configuration);
+    if (run.scope.collected.size > 0) {
+      record.params = Array.from(run.scope.collected.values());
+      record.paramValues = collectedParamValues(run.scope);
+    }
+    if (run.scope.configurationNames) {
+      record.configurations = run.scope.configurationNames;
+    }
+    return run.parts;
   }
 
   private runInScope(overrides: Map<string, ParamVal>, configuration?: string): { parts: T; scope: ParamScope } {

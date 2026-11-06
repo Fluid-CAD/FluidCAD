@@ -293,7 +293,8 @@ describe('feature-ghost route — repeat', () => {
       'width = 1',
       'width / 0',
       '[1][0]',
-      'width ? 1 : 2',
+      'width > 10',
+      "'40'",
     ]) {
       const { status, body } = await postGhost(linearBody({
         directions: [{ count: 3, offset: expression, length: null }],
@@ -302,6 +303,9 @@ describe('feature-ghost route — repeat', () => {
       expect(body.success, expression).toBe(false);
       expect(received, expression).toBeUndefined();
     }
+    // A conditional over the names is arithmetic, as every dialog's value scope reads it: the number it comes to.
+    await postGhost(linearBody({ directions: [{ count: 3, offset: 'width > 10 ? width / 2 : 2', length: null }] }));
+    expect(received.directions[0].offset).toBe(20);
   });
 
   it('marks the kernel refusals worth reading out loud', async () => {
@@ -321,12 +325,17 @@ describe('feature-ghost route — repeat', () => {
     }
   });
 
-  it('refuses a connector axis — only the copy takes one', async () => {
-    const result = await postGhost(linearBody({
-      axes: [{ kind: 'connector', filePath: FILE, line: 5 }],
+  it('passes a connector axis through — a copy of one with its slot', async () => {
+    await postGhost(linearBody({
+      axes: [{ kind: 'connector', filePath: FILE, line: 5 }, { kind: 'connector', filePath: FILE, line: 5, slot: 2 }],
+      directions: [
+        { count: 3, offset: 10, length: null },
+        { count: 2, offset: 5, length: null },
+      ],
     }));
-    expect(result.status).toBe(400);
-    expect(received).toBeUndefined();
+    expect(received).toMatchObject({
+      axes: [{ kind: 'connector', filePath: FILE, line: 5 }, { kind: 'connector', filePath: FILE, line: 5, slot: 2 }],
+    });
   });
 
   it('passes a circular repeat with its count and sweep', async () => {
@@ -1050,6 +1059,9 @@ describe('feature-ghost route — rotate', () => {
     await postGhost(rotateBody({ axis: { kind: 'axis', filePath: FILE, line: 3 } }));
     expect(received).toMatchObject({ axis: { kind: 'axis', filePath: FILE, line: 3 } });
 
+    await postGhost(rotateBody({ axis: { kind: 'connector', filePath: FILE, line: 5, slot: 1 } }));
+    expect(received).toMatchObject({ axis: { kind: 'connector', filePath: FILE, line: 5, slot: 1 } });
+
     await postGhost(rotateBody({ axis: { kind: 'edge', shapeId: 's1', index: 2 }, angle: -30 }));
     expect(received).toMatchObject({
       axis: { kind: 'edge', shapeId: 's1', index: 2 },
@@ -1397,6 +1409,32 @@ describe('feature-ghost route — value scope', () => {
     expect(received.distance).toBe(-482);
   });
 
+  // The drill flag is a typed-in slot like a custom feature's boolean: a
+  // literal passes as it is, an expression (`{ expr }`) resolves where the
+  // statement sits and must come to true or false, and one the scope can't
+  // work out draws no ghost but says why — the dialog stays open on it.
+  it('resolves a drill expression at the statement, and says why one draws nothing', async () => {
+    code = PART;
+    const at = { kind: 'statement', filePath: FILE, line: 10, column: 3 };
+    await postGhost({ ...extrudeBody(10, at), drill: { expr: 'thickness > 12 && depth > 100' } });
+    expect(received.drill).toBe(true);
+    await postGhost({ ...extrudeBody(10, at), drill: { expr: 'thickness > 20' } });
+    expect(received.drill).toBe(false);
+    await postGhost({ ...extrudeBody(10, at), drill: false });
+    expect(received.drill).toBe(false);
+
+    received = undefined;
+    const unknown = await postGhost({ ...extrudeBody(10, at), drill: { expr: 'solid' } });
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toEqual({ success: false, reason: 'Drill holes is solid, which the preview cannot work out here' });
+    expect(received).toBeUndefined();
+    const number = await postGhost({ ...extrudeBody(10, at), drill: { expr: 'thickness' } });
+    expect(number.body).toEqual({ success: false, reason: 'Drill holes is thickness, which comes to 18 — not true or false' });
+    // A shape no slot has is malformed, not unresolvable.
+    expect((await postGhost({ ...extrudeBody(10, at), drill: 'yes' })).status).toBe(400);
+    expect((await postGhost({ ...extrudeBody(10, at), drill: { expr: '  ' } })).status).toBe(400);
+  });
+
   it('resolves where a created statement lands in the active part', async () => {
     code = PART;
     await postGhost(extrudeBody('depth', { kind: 'append', filePath: FILE, line: 3, column: 22 }));
@@ -1554,5 +1592,124 @@ describe('feature-ghost route — hole', () => {
     expect(badFrame.status).toBe(400);
     const badDiameter = await postGhost({ feature: 'hole', frames, diameter: 0, depth: null, tipAngle: null, counterbore: null, countersink: null, scope: [] });
     expect(badDiameter.status).toBe(400);
+  });
+});
+
+/**
+ * Every axis slot takes a connector — its Z axis through its origin: the
+ * revolve's axis and the helix's source pass one through by its
+ * `connector()` call site, a copy of one with its slot, and refuse one
+ * with no call site or a slot that is no whole index.
+ */
+describe('feature-ghost route — connector axes', () => {
+  useGhostRoute();
+
+  function revolveBody(axis: unknown) {
+    return {
+      feature: 'revolve', op: 'new', angle: 360, symmetric: false, thin: null,
+      profile: { filePath: FILE, line: 6 }, axis,
+    };
+  }
+
+  function helixBody(source: unknown) {
+    return { feature: 'helix', source, radius: 5, endRadius: null, pitch: 2, turns: null, height: 10, startOffset: null, endOffset: null };
+  }
+
+  it('passes a connector, and a copy of one with its slot, as the revolve axis and the helix source', async () => {
+    for (const ref of [
+      { kind: 'connector', filePath: FILE, line: 5 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: 2 },
+    ]) {
+      let result = await postGhost(revolveBody(ref));
+      expect(result.status, JSON.stringify(ref)).toBe(200);
+      expect(received).toMatchObject({ feature: 'revolve', axis: ref });
+      result = await postGhost(helixBody(ref));
+      expect(result.status, JSON.stringify(ref)).toBe(200);
+      expect(received).toMatchObject({ feature: 'helix', source: ref });
+    }
+  });
+
+  it('refuses a connector with no call site or a slot that is not a whole index', async () => {
+    for (const ref of [
+      { kind: 'connector', line: 5 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: -1 },
+      { kind: 'connector', filePath: FILE, line: 5, slot: 1.5 },
+    ]) {
+      expect((await postGhost(revolveBody(ref))).status, JSON.stringify(ref)).toBe(400);
+      expect((await postGhost(helixBody(ref))).status, JSON.stringify(ref)).toBe(400);
+    }
+    expect(received).toBeUndefined();
+  });
+});
+
+// The Centered box, the split's Keep and the shell's join are typed-in slots
+// like the extrude's drill: a literal passes as it is, an expression
+// (`{ expr }`) or a name (`{ ref }`) resolves against the file and must come
+// to the slot's kind, and one the scope can't work out draws no ghost but
+// says why (a 200) — the dialog stays open on it. A shape no slot has is
+// malformed (a 400).
+describe('feature-ghost route — centered, keep and join expressions', () => {
+  useGhostRoute();
+
+  const VALUES = ['const flag = true;', "const side = 'back';", "const join = 'tangent';", 'const n = 4;'].join('\n');
+
+  it('resolves a repeat and a copy centered expression, and says why one draws nothing', async () => {
+    code = VALUES;
+    await postGhost(linearBody({ centered: { expr: '!flag' } }));
+    expect(received.centered).toBe(false);
+    await postGhost(copyBody({ centered: { expr: 'flag && n > 2' } }));
+    expect(received.centered).toBe(true);
+    await postGhost(copyBody({ centered: true }));
+    expect(received.centered).toBe(true);
+
+    received = undefined;
+    const unknown = await postGhost(linearBody({ centered: { expr: 'wide' } }));
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toEqual({ success: false, reason: 'Centered is wide, which the preview cannot work out here' });
+    const number = await postGhost(copyBody({ centered: { expr: 'n' } }));
+    expect(number.body).toEqual({ success: false, reason: 'Centered is n, which comes to 4 — not true or false' });
+    expect(received).toBeUndefined();
+    expect((await postGhost(linearBody({ centered: 'yes' }))).status).toBe(400);
+    expect((await postGhost(copyBody({ centered: { expr: ' ' } }))).status).toBe(400);
+  });
+
+  it('resolves a split keep expression or name, and says why one draws nothing', async () => {
+    code = VALUES;
+    const splitBody = (keep: unknown) => ({
+      feature: 'split', keep, targets: [{ filePath: FILE, line: 7 }], plane: { kind: 'standard', plane: 'yz' },
+    });
+    await postGhost(splitBody({ expr: "flag ? 'front' : 'back'" }));
+    expect(received.keep).toBe('front');
+    await postGhost(splitBody({ ref: 'side' }));
+    expect(received.keep).toBe('back');
+
+    received = undefined;
+    const unknown = await postGhost(splitBody({ ref: 'edge' }));
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toEqual({ success: false, reason: 'Keep names edge, which has no value here' });
+    const other = await postGhost(splitBody({ expr: "'top'" }));
+    expect(other.body).toEqual({ success: false, reason: `Keep is 'top', which comes to "top" — not one of "both", "front", "back"` });
+    expect(received).toBeUndefined();
+    expect((await postGhost(splitBody('top'))).status).toBe(400);
+    expect((await postGhost(splitBody({ expr: '' }))).status).toBe(400);
+  });
+
+  it('resolves a shell join expression or name, and says why one draws nothing', async () => {
+    code = VALUES;
+    const shellBody = (joinType: unknown) => ({ feature: 'shell', thickness: -2, joinType, faces: [{ shapeId: 's1', index: 3 }] });
+    await postGhost(shellBody({ ref: 'join' }));
+    expect(received.joinType).toBe('tangent');
+    await postGhost(shellBody({ expr: "flag ? 'intersection' : 'arc'" }));
+    expect(received.joinType).toBe('intersection');
+
+    received = undefined;
+    const unknown = await postGhost(shellBody({ expr: 'corner' }));
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toEqual({ success: false, reason: 'Join type is corner, which the preview cannot work out here' });
+    const number = await postGhost(shellBody({ ref: 'n' }));
+    expect(number.body).toEqual({ success: false, reason: 'Join type names n, which comes to 4 — not one of "arc", "intersection", "tangent"' });
+    expect(received).toBeUndefined();
+    expect((await postGhost(shellBody('round'))).status).toBe(400);
+    expect((await postGhost(shellBody({ expr: '  ' }))).status).toBe(400);
   });
 });

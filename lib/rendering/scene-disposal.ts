@@ -3,11 +3,30 @@ import { SceneObject } from "../common/scene-object.js";
 import { Scene } from "./scene.js";
 
 /**
+ * A holder of shapes no scene owns — the generated-template cache. What it
+ * holds outlives every disposal pass: a pass spares its wrappers and every
+ * raw handle they point at, whatever scene still names them.
+ */
+export type ShapeKeeper = {
+  /** The wrappers it holds now. */
+  heldShapes(): ReadonlySet<Shape>;
+  /** The raw kernel handles those wrappers point at. */
+  heldRawHandles(): ReadonlySet<object>;
+};
+
+/**
  * Reclaims the OC (WASM) memory of scene objects the rendering pipeline
  * discards.
  *
+ * Every compare frees the scene it replaces — SceneCompare a part scene's,
+ * AssemblyCompare an assembly scene's — so a host only drops the old scene
+ * after a compare; a scene dropped without one (a forced rebuild, a session
+ * closed, a scratch render) goes through {@link disposeScene}. Each wrapper
+ * is released once: `release` is idempotent per wrapper.
+ *
  * SceneCompare moves the matched prefix's state maps into the new scene by
- * reference, so the old and new scene share those Shape wrappers. Anything
+ * reference (AssemblyCompare clones them, sharing the wrappers), so the old
+ * and new scene share those Shape wrappers. Anything
  * reachable only from the old scene is garbage: the walker collects the
  * wrappers reachable from each side and releases the difference. Raw-handle
  * sets guard wrappers that share one underlying TopoDS handle (`Solid.copy`
@@ -19,6 +38,21 @@ import { Scene } from "./scene.js";
  */
 export class SceneDisposal {
 
+  private static readonly keepers = new Set<ShapeKeeper>();
+
+  /**
+   * Register a {@link ShapeKeeper}: from now on no pass releases a wrapper
+   * it holds or a raw handle one of them points at — a retired scene can
+   * still name a shape whose ownership moved to the keeper (an older
+   * scene a compare shared it with). Answers the unregister.
+   */
+  static keep(keeper: ShapeKeeper): () => void {
+    SceneDisposal.keepers.add(keeper);
+    return () => {
+      SceneDisposal.keepers.delete(keeper);
+    };
+  }
+
   /**
    * Dispose everything the compare pass replaced. `matched` maps old objects
    * that survived (their state moved into the new scene) to their new
@@ -26,15 +60,22 @@ export class SceneDisposal {
    * collected before compare rewrites the transferred state maps — the
    * records pruned by that rewrite are exactly the resources that need
    * freeing here.
+   *
+   * `handedOver` names old objects another owner took from the old scene —
+   * the generated-template cache, which an assembly compare retires its
+   * unpaired templates to. They are not destroyed here (their owner destroys
+   * them when it lets go of them, once), and their shapes must be left out of
+   * `oldSceneShapes`: the owner releases those.
    */
   static disposeReplaced(
     oldScene: Scene,
     newScene: Scene,
     matched: Map<SceneObject, SceneObject>,
     oldSceneShapes: Set<Shape>,
+    handedOver?: ReadonlySet<SceneObject>,
   ): void {
     for (const obj of oldScene.getAllSceneObjects()) {
-      if (!matched.has(obj)) {
+      if (!matched.has(obj) && !handedOver?.has(obj)) {
         obj.destroy();
       }
     }
@@ -79,30 +120,72 @@ export class SceneDisposal {
     SceneDisposal.releaseShapes(replaced, survivors);
   }
 
+  /**
+   * Release wrappers built outside the scene — a preview's shapes, with the
+   * sub-shape wrappers they cached — sparing every wrapper the scene's
+   * objects still reach and every raw handle one of those shares (a
+   * `Solid.copy()` of a scene solid shares its handle).
+   */
+  static releaseDetached(shapes: Shape[], objects: SceneObject[]): void {
+    const candidates = new Set<Shape>();
+    const seen = new Set<object>();
+    for (const shape of shapes) {
+      SceneDisposal.walk(shape, candidates, seen);
+    }
+    SceneDisposal.releaseShapes(candidates, SceneDisposal.collectShapes(objects));
+  }
+
   /** Every Shape wrapper reachable from the objects' state maps. */
   static collectShapes(objects: SceneObject[]): Set<Shape> {
+    return SceneDisposal.collectStateShapes(objects.map(obj => obj.getFullState()));
+  }
+
+  /** Every Shape wrapper reachable from state maps no object holds any more (see `SceneObject.detachState`). */
+  static collectStateShapes(states: Iterable<Map<string, any>>): Set<Shape> {
     const shapes = new Set<Shape>();
     const seen = new Set<object>();
-    for (const obj of objects) {
-      for (const value of obj.getFullState().values()) {
+    for (const state of states) {
+      for (const value of state.values()) {
         SceneDisposal.walk(value, shapes, seen);
       }
     }
     return shapes;
   }
 
-  private static releaseShapes(candidates: Set<Shape>, survivors: Set<Shape>): void {
+  /**
+   * Release wrappers their one owner lets go of — a template the cache
+   * evicts — sparing whatever a keeper still holds.
+   */
+  static releaseOwned(shapes: ReadonlySet<Shape>): void {
+    SceneDisposal.releaseShapes(shapes, new Set());
+  }
+
+  private static releaseShapes(candidates: ReadonlySet<Shape>, survivors: ReadonlySet<Shape>): void {
     const retainedRaw = new Set<object>();
     for (const shape of survivors) {
       shape.collectRawHandles(retainedRaw);
     }
+    for (const keeper of SceneDisposal.keepers) {
+      for (const raw of keeper.heldRawHandles()) {
+        retainedRaw.add(raw);
+      }
+    }
 
     const deletedRaw = new Set<object>();
     for (const shape of candidates) {
-      if (!survivors.has(shape)) {
+      if (!survivors.has(shape) && !SceneDisposal.isKept(shape)) {
         shape.release(retainedRaw, deletedRaw);
       }
     }
+  }
+
+  private static isKept(shape: Shape): boolean {
+    for (const keeper of SceneDisposal.keepers) {
+      if (keeper.heldShapes().has(shape)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static walk(value: unknown, shapes: Set<Shape>, seen: Set<object>): void {

@@ -3,21 +3,29 @@ import { createParamRegistry, getParamRegistry } from "../param-registry.js";
 import { SessionParamOverrides } from "../session-param-overrides.js";
 import { createManager } from "../scene-manager.js";
 import { setAssetProvider } from "../io/file-import.js";
+import { FontRegistry } from "../io/font-registry.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
+import { ModuleExports } from "../common/module-exports.js";
 import { warnConfigurationRun } from "../features/param-overrides.js";
 import { PartDefinition } from "../features/part-definition.js";
-import { Scene } from "../rendering/scene.js";
+import { GeneratedPartDefinition } from "../sdk/define-part.js";
+import { GeneratedAssemblyDefinition } from "../sdk/define-assembly.js";
+import { Scene, type RenderDetail } from "../rendering/scene.js";
+import type { ParamOverrides, ParamVal } from "../param-registry.js";
 import type { ExportOptions } from "../io/file-export.js";
 import type { MeasureEntityRef } from "../oc/measure/measure-types.js";
 import { installEngineNamespaces } from "./linking.js";
 import { DEFAULT_LENGTH_UNIT, parseLengthUnit, type LengthUnit } from "../units/units.js";
 import { mergeMaterials, resolveMaterial, type Material, type ProjectMaterials } from "../common/materials.js";
+import { resolveAppearance } from "../common/appearances.js";
 import {
   VIEWER_PROTOCOL_VERSION,
   type BrowserObjectBuildError,
   type BrowserRenderResult,
   type BrowserSceneKind,
+  type BrowserRenderOptions,
   type EngineInfo,
+  type GeneratedOutcome,
 } from "./types.js";
 
 type SceneManagerInstance = ReturnType<typeof createManager>;
@@ -155,6 +163,12 @@ export class BrowserEngineHost {
   private overrides = new SessionParamOverrides();
   /** The configuration the next pass renders; null is the literals (`Default`). */
   private activeConfiguration: string | null = null;
+  /**
+   * The values the next pass renders each generated export with, by export
+   * name (see {@link setGeneratedValues}); an export not here renders its
+   * defaults.
+   */
+  private generatedValues = new Map<string, Record<string, unknown>>();
   private lastBreakpointHit = false;
   private lastRollbackStop = -1;
   private entryPath = "/model.fluid.js";
@@ -196,11 +210,21 @@ export class BrowserEngineHost {
    * desktop's "use mm" fallback. The project materials follow the same
    * rule (`options.materials`, else the file's `materials` map, else none —
    * see {@link resolveWorkspaceMaterials}). Text values are encoded as UTF-8.
+   * Workspace fonts opened for an earlier workspace are forgotten: the same
+   * path may hold another font now.
+   *
+   * `options.fileUnits` is a package manifest's per-file `unit()`
+   * declarations, by package path. The model runs as one bundled module, so
+   * a `unit()` call can't tell which file it is in: the desktop reads each
+   * file's own statement, and here the manifest's static read of the same
+   * statements stands in for them (see {@link BrowserEngineHost.fileUnitsOf}).
+   * A file it names then measures in its unit, and its `unit()` call is
+   * accepted rather than refused.
    */
   setWorkspace(
     files: Record<string, string | Uint8Array>,
     entryPath: string,
-    options?: { unit?: string | null; materials?: ProjectMaterials | null },
+    options?: { unit?: string | null; fileUnits?: Record<string, string> | null; materials?: ProjectMaterials | null },
   ): void {
     this.entryPath = entryPath.startsWith("/") ? entryPath : "/" + entryPath;
     const encoder = new TextEncoder();
@@ -210,10 +234,37 @@ export class BrowserEngineHost {
       bytes.set(key, typeof content === "string" ? encoder.encode(content) : content);
     }
     setAssetProvider((relPath) => bytes.get(relPath) ?? null);
+    FontRegistry.forgetLocalFiles();
     if (this.manager) {
       this.manager.projectUnit = resolveWorkspaceUnit(options?.unit, bytes.get(PROJECT_CONFIG_FILENAME), this.bootUnit);
+      this.manager.knownFileUnits = BrowserEngineHost.fileUnitsOf(options?.fileUnits);
     }
     this.projectMaterials = resolveWorkspaceMaterials(options?.materials, bytes.get(PROJECT_CONFIG_FILENAME));
+  }
+
+  /**
+   * A package manifest's `fileUnits` (package path → the unit its `unit()`
+   * statement names) keyed the way the host names files to the engine: a
+   * leading `/`, as {@link setWorkspace} sets the entry. An entry whose unit
+   * is not a length unit is skipped, so that file follows the project unit
+   * as it would without a statement.
+   */
+  static fileUnitsOf(fileUnits: Record<string, string> | null | undefined): Map<string, LengthUnit> {
+    const units = new Map<string, LengthUnit>();
+    if (!fileUnits || typeof fileUnits !== "object" || Array.isArray(fileUnits)) {
+      return units;
+    }
+    for (const [path, unit] of Object.entries(fileUnits)) {
+      if (path.trim() === "") {
+        continue;
+      }
+      try {
+        units.set(path.startsWith("/") ? path : "/" + path, parseLengthUnit(unit));
+      } catch {
+        // Not a length unit: the file follows the project unit.
+      }
+    }
+    return units;
   }
 
   /**
@@ -244,17 +295,34 @@ export class BrowserEngineHost {
    * incremental reuse, mesh, and collect per-object build errors. On an eval
    * error the previous scene keeps being served, exactly like the desktop's
    * compile-error path.
+   *
+   * `options.detail` is the tier the pass builds generated parts at
+   * (`SceneOptions.detail`): `'preview'` while a host's user is still
+   * changing a value, `'full'` (the default) otherwise. The tiers cache
+   * apart, so a `'full'` pass after a `'preview'` one of the same values
+   * builds once more; a second `'full'` pass is served from the template
+   * cache. A generated export (`definePart` / `defineAssembly`) with values
+   * set for it — through {@link setGeneratedValues}, or `options.generated`
+   * (by export name, set before this pass and kept: a load's values,
+   * rendered in the load's own pass) — renders their variant, else its
+   * defaults; the outcome's `generated` reports both. A misuse of
+   * `options.generated` (an empty name, values that are no object) throws
+   * before anything renders.
    */
-  async render(): Promise<BrowserRenderResult> {
+  async render(options: BrowserRenderOptions = {}): Promise<BrowserRenderResult> {
     if (!this.manager) {
       throw new Error("BrowserEngineHost.init() must be called before render()");
     }
     if (!this.evaluator) {
       throw new Error("No model loaded — call setModuleEvaluator() first");
     }
+    for (const [exportName, values] of Object.entries(options.generated ?? {})) {
+      this.storeGeneratedValues(exportName, values);
+    }
 
     const sceneKind = detectSceneKind(this.entryPath);
-    let scene: Scene = sceneKind === "assembly" ? this.manager.startAssemblyScene() : this.manager.startScene();
+    const sceneOptions = options.detail === undefined ? {} : { detail: options.detail };
+    let scene: Scene = sceneKind === "assembly" ? this.manager.startAssemblyScene(sceneOptions) : this.manager.startScene(sceneOptions);
     this.manager.setCurrentFile(this.entryPath);
 
     const registry = createParamRegistry();
@@ -265,31 +333,45 @@ export class BrowserEngineHost {
     registry.setActiveConfiguration(this.activeConfiguration);
 
     let breakpointHit = false;
+    let generated: GeneratedOutcome[] = [];
     try {
       const mod = await this.evaluator();
       // Every export resolved first (a factory called for the definition it
-      // returns), so the parts the module does not export are refused
+      // returns; a class, such as a generator's, is no factory and is never
+      // called), so the parts the module does not export are refused
       // (PartRules) before any export builds — the desktop's LocalSceneHost
       // does the same.
       const exports: [string, unknown][] = [];
       for (const [name, value] of Object.entries(mod)) {
-        exports.push([name, typeof value === "function" ? await (value as () => unknown)() : value]);
+        exports.push([name, await ModuleExports.resolve(value)]);
       }
       scene.refuseUnexportedParts(exports, this.entryPath);
-      for (const [, result] of exports) {
-        if (result instanceof PartDefinition) {
+      for (const [name, result] of exports) {
+        const values = this.generatedValues.get(name);
+        // A generated part with values set for its export renders that
+        // variant through the entry path — built or refused, it is the
+        // definition's variant in this scene, so the leftover pass below
+        // never builds the defaults beside it; without values, the
+        // defaults, as any part definition.
+        if (result instanceof GeneratedPartDefinition && values !== undefined) {
+          result.materializeInto(scene, values);
+        } else if (result instanceof PartDefinition) {
           result.materializeInto(scene);
         }
         // assembly() definitions are lazy — an exported definition (or a
         // factory returning one) creates no scene records until run. The
         // entry file's own definition runs at root scope, exactly as the
         // desktop's LocalSceneHost does, so `.grounded()` applies natively
-        // and a sub-assembly file renders standalone.
-        if (isAssemblyDefinition(result)) {
+        // and a sub-assembly file renders standalone. A generated assembly
+        // with values set for its export runs its layout with them.
+        if (result instanceof GeneratedAssemblyDefinition && values !== undefined) {
+          result.runScoped(values as ParamOverrides);
+        } else if (isAssemblyDefinition(result)) {
           result.run();
         }
       }
-      // part() is lazy — every definition the module created shows in a
+      generated = this.generatedOutcomes(exports);
+      // part() is lazy — every definition the entry file created shows in a
       // part scene (a refused one as its error row); assembly scenes build
       // strictly via insert().
       if (sceneKind !== "assembly") {
@@ -356,11 +438,38 @@ export class BrowserEngineHost {
       breakpointHit,
       params,
       configurations,
+      generated,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),
       objectWarnings: this.collectObjectWarnings(result),
       compileError: null,
       ...(assembly ? { assembly } : {}),
     };
+  }
+
+  /**
+   * What the pass rendered each generated export with (see
+   * {@link GeneratedOutcome}), in export order: the values set for the
+   * export, else none, completed by the definition's schema. Values the
+   * schema refuses are reported as given — the refusal is already the
+   * export's `objectErrors` row.
+   */
+  private generatedOutcomes(exports: readonly (readonly [string, unknown])[]): GeneratedOutcome[] {
+    const outcomes: GeneratedOutcome[] = [];
+    for (const [exportName, result] of exports) {
+      if (!(result instanceof GeneratedPartDefinition) && !(result instanceof GeneratedAssemblyDefinition)) {
+        continue;
+      }
+      const read = this.generatedValues.get(exportName) ?? {};
+      let values: Record<string, ParamVal>;
+      try {
+        values = result.completedValues(read);
+      } catch {
+        values = { ...read } as Record<string, ParamVal>;
+      }
+      const schema = result.getSchema();
+      outcomes.push({ exportName, id: schema.id, kind: schema.kind, label: schema.label, values });
+    }
+    return outcomes;
   }
 
   /**
@@ -374,8 +483,12 @@ export class BrowserEngineHost {
       this.manager?.disposeScene(this.previousScene);
       this.previousScene = null;
     }
+    // The next model's code is another's: nothing generated with this
+    // one's may stand in for it.
+    this.manager?.clearGeneratedTemplates();
     this.overrides = new SessionParamOverrides();
     this.activeConfiguration = null;
+    this.clearGeneratedValues();
     this.lastBreakpointHit = false;
     this.lastRollbackStop = -1;
     this.evaluator = null;
@@ -397,20 +510,71 @@ export class BrowserEngineHost {
     return this.render();
   }
 
+  /** Value-flow only: forget the session's param overrides and every generated export's values, and re-render the defaults. */
   async resetParams(): Promise<BrowserRenderResult> {
     this.overrides.clear();
+    this.clearGeneratedValues();
     return this.render();
   }
 
   /**
-   * Value-flow only: pick the `configurations()` row the next pass renders
-   * (`'Default'` or null for the literals) and re-render. Session overrides
-   * stay installed and sit on top of the row, as in the desktop panel. A
-   * name no table declares renders the literals, with a console warning.
+   * Value-flow only: render the generated export `exportName` (a
+   * `definePart` / `defineAssembly` export of the entry) with `values` by id
+   * — the whole set for that export, replacing any set before; a value left
+   * out takes its default — and re-render at `options.detail` (`'full'`
+   * when left out; see {@link render}). The values are checked by the
+   * definition's schema as an `insert()`'s are: a refused one is the
+   * export's `objectErrors` row, and the outcome's `generated` reports what
+   * was rendered. Values set for a name the entry does not export as a
+   * generated definition are kept unused. Source is never touched; the
+   * session's param overrides and configuration stand. The values stay
+   * through {@link setParam}, {@link setConfiguration} and
+   * {@link recompute}; {@link resetParams} and {@link unloadModel} forget
+   * them.
    */
-  async setConfiguration(name: string | null): Promise<BrowserRenderResult> {
+  async setGeneratedValues(
+    exportName: string,
+    values: Record<string, unknown>,
+    options: { detail?: RenderDetail } = {},
+  ): Promise<BrowserRenderResult> {
+    return this.render({ ...(options.detail === undefined ? {} : { detail: options.detail }), generated: { [exportName]: values } });
+  }
+
+  /** Forget every generated export's values (see {@link setGeneratedValues}); the next render builds the defaults. No render. */
+  clearGeneratedValues(): void {
+    this.generatedValues.clear();
+  }
+
+  /** Keep `values` for the generated export `exportName`, replacing its earlier ones; a misuse throws. */
+  private storeGeneratedValues(exportName: string, values: Record<string, unknown>): void {
+    if (typeof exportName !== "string" || exportName === "") {
+      throw new Error("generated values are set by the export name of a generated definition");
+    }
+    if (!values || typeof values !== "object" || Array.isArray(values)) {
+      throw new Error(`the generated export '${exportName}' takes its values by id, such as { teeth: 18 }`);
+    }
+    this.generatedValues.set(exportName, { ...values });
+  }
+
+  /**
+   * Value-flow only: pick the `configurations()` row the next pass renders
+   * (`'Default'` or null for the literals) and re-render. The session's
+   * overrides go with the switch, as in the desktop panel (the row's cells
+   * are what shows); `keepOverrides` leaves them installed on top of the
+   * row instead. A name no table declares renders the literals, with a
+   * console warning. The pass takes {@link render}'s options too
+   * (`detail`, `generated`): a load that opens on a row with a generated
+   * export's values renders both in one pass.
+   */
+  async setConfiguration(name: string | null, options: { keepOverrides?: boolean } & BrowserRenderOptions = {}): Promise<BrowserRenderResult> {
     this.activeConfiguration = name === null || name === "Default" ? null : name;
-    return this.render();
+    if (!options.keepOverrides) {
+      this.overrides.clear();
+    }
+    return this.render({
+      ...(options.detail === undefined ? {} : { detail: options.detail }),
+      ...(options.generated === undefined ? {} : { generated: options.generated }),
+    });
   }
 
   /** The configuration the next pass renders, or null for the literals. */
@@ -429,6 +593,8 @@ export class BrowserEngineHost {
       this.manager?.disposeScene(this.previousScene);
       this.previousScene = null;
     }
+    // From scratch: generated parts the template cache holds rebuild too.
+    this.manager?.clearGeneratedTemplates();
     return this.render();
   }
 
@@ -494,35 +660,53 @@ export class BrowserEngineHost {
       this.manager?.disposeScene(this.previousScene);
       this.previousScene = null;
     }
+    this.manager?.clearGeneratedTemplates();
     setAssetProvider(null);
   }
 
   /** Ported from FluidCadServer.collectObjectErrors — see that doc comment. */
   /**
    * The render's non-fatal notices, mirroring the desktop's
-   * `objectWarnings`: a `part` row whose `.material(id)` is in neither
-   * the built-in nor the workspace table. The part built; only its mass
-   * is unknown.
+   * `objectWarnings`: a row's own (`object.warnings`, a custom feature's
+   * value its `derive()` ignored), and a `part` row whose `.material(id)`
+   * is in neither the built-in nor the workspace table. The part built;
+   * only its mass is unknown.
    */
   private collectObjectWarnings(result: unknown[]): BrowserObjectBuildError[] {
     const warnings: BrowserObjectBuildError[] = [];
     for (let index = 0; index < result.length; index++) {
       const obj = result[index] as {
         type?: string; id: string; name: string; uniqueType: string;
-        object?: { material?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
+        object?: { material?: unknown; appearance?: unknown; warnings?: unknown } | null; sourceLocation?: BrowserObjectBuildError["sourceLocation"];
       };
-      const material = obj?.type === "part" ? obj.object?.material : undefined;
-      if (typeof material !== "string" || material === "" || this.resolveMaterial(material) !== undefined) {
+      if (!obj) {
         continue;
       }
-      warnings.push({
+      const warn = (message: string) => warnings.push({
         index,
         id: obj.id,
         name: obj.name,
         uniqueKind: obj.uniqueType,
-        message: `Unknown material: ${material}`,
+        message,
         sourceLocation: obj.sourceLocation,
       });
+      // A row's own notices (a custom feature's value its derive() ignored).
+      if (Array.isArray(obj.object?.warnings)) {
+        for (const message of obj.object!.warnings as unknown[]) {
+          if (typeof message === "string") {
+            warn(message);
+          }
+        }
+      }
+      const material = obj.type === "part" ? obj.object?.material : undefined;
+      if (typeof material === "string" && material !== "" && this.resolveMaterial(material) === undefined) {
+        warn(`Unknown material: ${material}`);
+      }
+      // Same for `.appearance(id)`: the part built and is shaded plain.
+      const appearance = obj.type === "part" ? obj.object?.appearance : undefined;
+      if (typeof appearance === "string" && appearance !== "" && resolveAppearance(appearance) === undefined) {
+        warn(`Unknown appearance: ${appearance}`);
+      }
     }
     return warnings;
   }

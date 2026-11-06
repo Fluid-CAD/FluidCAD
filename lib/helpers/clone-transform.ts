@@ -38,7 +38,7 @@ export function cloneWithTransform(
     }
     visited.add(obj);
 
-    for (const dep of obj.getDependencies()) {
+    for (const dep of obj.getCloneDependencies()) {
       collectDeps(dep);
     }
 
@@ -116,7 +116,7 @@ export function cloneWithTransform(
       }
       continue;
     }
-    for (const dep of obj.getDependencies()) {
+    for (const dep of obj.getCloneDependencies()) {
       if (isOrphanGeometry(dep)) {
         frozenSources.add(dep);
       }

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- A section through the part: grey material, the hole and its recess cut out of it. -->
+  <path d="M4 16 H18 V28 H26 V56 H4 Z M46 16 H60 V56 H38 V28 H46 Z" fill="#c6c7c8"/>
+  <path d="M18 16 V28 H26 V56 M46 16 V28 H38 V56" stroke="#4faae5" stroke-width="3" fill="none" stroke-linejoin="round"/>
+  <path d="M32 10 V60" stroke="#8a94a6" stroke-width="1.2" stroke-dasharray="6 2 1.5 2"/>
+</svg>

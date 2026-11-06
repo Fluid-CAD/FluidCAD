@@ -160,6 +160,8 @@ describe('HttpStartHost on the start screen', () => {
     expect(calls.at(-1)!.body).toEqual({ parent: '/home/you/cad', name: 'bracket' });
     await host.dialogs.create(BRACKET);
     expect(tabs.show).toHaveBeenCalledWith(BRACKET, { running: false, create: true });
+    await host.dialogs.create('/home/you/cad/kit', { package: '@acme/kit' });
+    expect(tabs.show).toHaveBeenLastCalledWith('/home/you/cad/kit', { running: false, create: true, package: '@acme/kit' });
   });
 
   it('opens links in a new browser tab, http(s) only', async () => {
@@ -204,6 +206,20 @@ describe("HttpStartHost in a project's tab", () => {
     emit('session', { path: '/home/you/cad/lantern', view: { phase: 'failed', project: { path: '/home/you/cad/lantern', name: 'lantern' }, message: 'x' } });
     emit('session', { path: BRACKET, view: { phase: 'opening', project, status: { step: 'resolving' } } });
     expect(states).toEqual([{ phase: 'opening', project, status: { step: 'resolving' } }]);
+  });
+
+  it("carries the package to set up from its tab's URL to the start server, and says so from its first frame", async () => {
+    const kit = '/home/you/cad/kit';
+    const creating = { phase: 'opening', project: { path: kit, name: 'kit' }, status: { step: 'creating', package: '@acme/kit' } };
+    const { env, calls, emit } = fakeEnvironment(`?project=${encodeURIComponent(kit)}&create=1&package=%40acme%2Fkit`, {
+      'POST api/sessions': { body: creating },
+    });
+    const host = new HttpStartHost(env);
+    expect(host.tabOpening).toEqual(creating);
+    const answer = host.windowState();
+    emit('open');
+    expect(await answer).toEqual(creating);
+    expect(calls[0]).toMatchObject({ method: 'POST', url: 'api/sessions', body: { path: kit, create: true, package: '@acme/kit' } });
   });
 
   it("goes to the engine's page once the project runs, and only once", async () => {

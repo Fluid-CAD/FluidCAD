@@ -26,7 +26,7 @@ Do not loop on screenshots. If two views did not settle a doubt, the third will 
 
 | Looks wrong | Check with |
 | --- | --- |
-| Overall size or proportion | `measure` two opposing planar faces (`face().onPlane(...)` filters); compare `get_shape_properties` bounding box against the envelope |
+| Overall size or proportion | `measure` two opposing planar faces (`face().onPlane(...)` filters); compare the exact `bounds.after` of the objects under `changes.rebuilt` (a `recompute` rebuilds and bounds every object) against the envelope |
 | A hole is the wrong size | `measure` on `face().cylinder()` (reports the diameter), or `get_face_properties` with the index. `cylinder()` is full bores only; a fillet or a rounded corner is `face().cylinderCurve(2 * r)` |
 | Hole pattern asymmetric or uneven | `resolve_selection` `face().cylinder(d)` and read each match's center; `measure` between two cylindrical faces for the pitch |
 | Boss, rib or standoff floating | `list_shapes` count (an extra body means it did not fuse); `measure` between its base face and the face it should touch (distance 0) |

@@ -5,6 +5,7 @@ import type {
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
+import { FaceOps } from "./face-ops.js";
 import { FaceQuery } from "./face-query.js";
 import { WireOps } from "./wire-ops.js";
 import { Edge } from "../common/edge.js";
@@ -492,31 +493,21 @@ export class WrapOps {
 
   /**
    * Samples the face at the middle of its UV bounds: the surface point and
-   * the material-outward normal (oriented by the face's TopAbs flag) at that
+   * the material-outward normal ({@link FaceOps.outwardNormalRaw}) at that
    * SAME parameter. Classification compares this normal against the
    * development normal at the sampled point — sampling both at one location
    * keeps the comparison angle-independent on periodic surfaces, where the
    * normal rotates with u (a normal taken anywhere else drifts by the angular
-   * distance and breaks the alignment test past ~45°).
+   * distance and breaks the alignment test past ~45°). Throws where the
+   * normal is undefined there.
    */
   private static probeFace(face: Face): { point: Point; normal: Vector3d } {
-    const oc = getOC();
-    const rawFace = oc.TopoDS.Face(face.getShape());
-    const bounds = oc.BRepTools.UVBounds(rawFace);
-    const u = (bounds.UMin + bounds.UMax) / 2;
-    const v = (bounds.VMin + bounds.VMax) / 2;
-
-    const surface = oc.BRep_Tool.Surface(rawFace);
-    const props = new oc.GeomLProp_SLProps(surface, u, v, 1, 1e-6);
-    let normal = Convert.toVector3dFromGpDir(props.Normal(), true);
-    if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-      normal = normal.negate();
+    const rawFace = face.getShape() as TopoDS_Face;
+    const uv = FaceOps.uvCentreRaw(rawFace);
+    const normal = FaceOps.outwardNormalRaw(rawFace, uv);
+    if (!normal) {
+      throw new Error("The face normal is undefined at the centre of its UV bounds");
     }
-    const point = Convert.toPoint(props.Value(), true);
-    props.delete();
-    surface.delete();
-    rawFace.delete();
-
-    return { point, normal };
+    return { point: FaceOps.pointAtRaw(rawFace, uv), normal };
   }
 }

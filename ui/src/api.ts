@@ -1,6 +1,7 @@
 import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
 import type { ContactEntity } from './solver/types';
+import type { MeshLookup } from './scene/scene-meshes';
 import type {
   GlobalParamsSnapshot,
   SceneObjectMesh,
@@ -284,6 +285,12 @@ export interface UserPreferences {
   maxWorkers?: number;
   /** The user's own materials (Settings → Materials), in the `fluidcad.json` map shape; a pick copies one into the project. */
   materials?: ProjectMaterials;
+  /** Settings → Packages "Library folder": an absolute path, or empty for the default. */
+  packageLibraryPath?: string;
+  /** Settings → Packages "New packages go to". Default 'library'. */
+  packageInstallTarget?: PackageTarget;
+  /** The packages whose custom features are pinned to the toolbar, by name. Default none. */
+  toolbarPackages?: string[];
 }
 
 /** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */
@@ -398,24 +405,55 @@ export type TextAlignOption = 'left' | 'center' | 'right';
 /** With a path, the two distributed alignments join the align values. */
 export type TextAlignValue = TextAlignOption | 'space-between' | 'space-around';
 
-/** The `text()` chain options the Text tool's dialog edits. The distributed
- * alignments and the trailing three options only apply with a path — the
- * dialog sends defaults for them in anchored mode. */
+/**
+ * The `text()` chain options the Text tool's dialog edits, each a literal or
+ * the expression the statement computes it with: the numbers as bare
+ * expression text (a number row's form), the string, the font, the flags and
+ * the choices as `{ expr }` (a choice may also be a variable's `{ ref }`, as
+ * a statement names one). The distributed alignments and the trailing three
+ * options only apply with a path — the dialog sends defaults for them in
+ * anchored mode.
+ */
 export type TextOptionValues = {
-  text: string;
+  /** The string, or the expression computing it (`` `rib-${n}` ``, `label`). */
+  text: string | FeatureExprValue;
+  /** `.size()` — the cap height; 10 renders no chain. */
+  size: ValueExpr;
+  /** Font family display name, or the expression naming it; null renders no `.font()` (registry default). */
+  font: string | FeatureExprValue | null;
+  /** `.weight()` in hundreds (700 renders `.bold()`), or the expression computing it; 400 renders no chain. */
+  weight: number | FeatureRefValue | FeatureExprValue;
+  /** `.italic()` — the flag, or the expression computing it; false renders no chain. */
+  italic: boolean | FeatureExprValue;
+  /** `.align()` — the alignment, or the expression computing it; `left` renders no chain. */
+  align: TextAlignValue | FeatureRefValue | FeatureExprValue;
+  /** `.lineSpacing()` — a multiplier on the font's line height; 1 renders no chain. */
+  lineSpacing: ValueExpr;
+  /** `.letterSpacing()` — extra advance between glyphs in mm; 0 renders no chain. */
+  letterSpacing: ValueExpr;
+  /** `.offset()` — normal shift off the path in mm; 0 renders no chain. */
+  offset: ValueExpr;
+  /** `.startAt()` — arc-length start shift in mm; 0 renders no chain. */
+  startAt: ValueExpr;
+  /** `.flip()` — inside/mirrored placement; false renders no chain, an expression renders `.flip(<expr>)`. */
+  flip: boolean | FeatureExprValue;
+};
+
+/**
+ * The text options as the layout preview takes them: every value a literal —
+ * what the dialog's rows hold, or what their expressions come to. A row whose
+ * expression the dialog cannot resolve leaves no outline to draw.
+ */
+export type TextPreviewOptions = {
   size: number;
-  /** Font family display name; null renders no `.font()` (registry default). */
   font: string | null;
   weight: number;
   italic: boolean;
   align: TextAlignValue;
   lineSpacing: number;
   letterSpacing: number;
-  /** `.offset()` — normal shift off the path in mm; 0 renders no chain. */
   offset: number;
-  /** `.startAt()` — arc-length start shift in mm; 0 renders no chain. */
   startAt: number;
-  /** `.flip()` — inside/mirrored placement; false renders no chain. */
   flip: boolean;
 };
 
@@ -431,15 +469,22 @@ export type TextPreviewRequest = {
   /** Lay the glyphs along this picked sketch geometry instead of a straight
    * baseline; the server resolves it against the rendered scene. */
   path?: { shapeId: string };
-  options: Omit<TextOptionValues, 'text'>;
+  options: TextPreviewOptions;
 };
 
 /** Sorted system font family names, or [] when the lookup fails. */
+/**
+ * One file of a share tree: its text, or a binary file (a workspace font) as
+ * `{ b64: <standard base64> }` — the form the viewer link's `#files=` map
+ * carries it in.
+ */
+export type ShareFileContent = string | { b64: string };
+
 /** The rendered model's source tree for a viewer link — see the server's share route. */
 export interface ShareFiles {
   fluidcadVersion: string;
   entry: string;
-  files: Record<string, string>;
+  files: Record<string, ShareFileContent>;
 }
 
 /**
@@ -454,6 +499,15 @@ export async function getShareFiles(): Promise<ShareFiles> {
     throw new Error(body?.error ?? `Share failed (${res.status})`);
   }
   return body;
+}
+
+/**
+ * The mesh payloads of `keys` the server still keeps (`POST /api/meshes`,
+ * generators S6b) — what a scene's `meshRef`s need when the page's mesh
+ * cache lacks them — and the keys it does not. Null when it does not answer.
+ */
+export function fetchMeshes(keys: string[]): Promise<MeshLookup | null> {
+  return postJson<MeshLookup>('api/meshes', { keys });
 }
 
 /** The version of the engine serving this page, or null when the server doesn't answer. */
@@ -511,7 +565,8 @@ export type FeatureGhostRequest =
   | OffsetGhostRequest
   | Fillet2DGhostRequest
   | Copy2DGhostRequest
-  | Mirror2DGhostRequest;
+  | Mirror2DGhostRequest
+  | CustomGhostRequest;
 
 /** One half-edge of a region's boundary, by the source line of the statement that drew it. */
 export type RegionItemRef = {
@@ -544,7 +599,8 @@ export type ExtrudeGhostRequest = {
   draft: ValueExpr | null;
   /** `.endOffset()` — pulls each swept end back by this much; null for none. */
   endOffset: ValueExpr | null;
-  drill: boolean;
+  /** The drill flag, or an expression the preview evaluates to one. */
+  drill: boolean | FeatureExprValue;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
   /**
@@ -627,13 +683,13 @@ export type RevolveGhostRequest = {
 };
 
 /**
- * The revolve axis slot on the ghost wire — the apply request's
+ * An axis slot on the ghost wire — the apply request's
  * {@link RevolveAxisRef} flattened to what the kernel can resolve without
- * reading code: a world axis, an `axis()` statement's call site, or the
- * picked edge's `{shapeId, index}`. The keep chip resolves to the `axis` form
- * before it ships, so "keep" itself never travels. The copy's axis slot also
- * takes a connector — its `connector()` call site, plus a copy's slot —
- * standing for its Z axis through its origin.
+ * reading code: a world axis, an `axis()` statement's call site, the picked
+ * edge's `{shapeId, index}`, or a connector — its `connector()` call site,
+ * plus a copy's slot — standing for its Z axis through its origin. The keep
+ * chip resolves to one of these before it ships, so "keep" itself never
+ * travels.
  */
 export type GhostAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
@@ -728,8 +784,8 @@ export type ShellGhostRequest = {
   feature: 'shell';
   /** Wall thickness: negative hollows inward, positive builds the wall outside the solid. */
   thickness: ValueExpr;
-  /** How the offset walls meet at a corner — the join dropdown. */
-  joinType: ShellJoinType;
+  /** How the offset walls meet at a corner — the join dropdown's option, or a reference or an expression the preview resolves to one. */
+  joinType: ShellJoinType | FeatureRefValue | FeatureExprValue;
   /** The picked faces, each by the solid it was picked on and its index there. */
   faces: { shapeId: string; index: number }[];
 };
@@ -755,7 +811,7 @@ export type HelixGhostRequest = {
 
 /**
  * The helix source slot, flattened to what the kernel can resolve without
- * reading code. The first three are the axis family {@link GhostAxisRef} uses
+ * reading code. The first four are the axis family {@link GhostAxisRef} uses
  * — a picked edge is `axis-edge` because the dialog writes it as
  * `axis(<edge>)`. The last two are the helix's own: the From-face tab's
  * cylindrical/conical face, and a bare edge source, which only an edit dialog
@@ -766,6 +822,7 @@ export type HelixGhostRequest = {
 export type GhostHelixSourceRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; filePath: string; line: number }
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
   | { kind: 'axis-edge'; shapeId: string; index: number }
   | { kind: 'edge'; shapeId: string; index: number }
   | { kind: 'face'; shapeId: string; index: number };
@@ -793,8 +850,8 @@ export type RepeatGhostRequest = {
   plane: GhostPlaneRef | null;
   /** Linear: count and spacing per direction, parallel to {@link axes}. */
   directions: GhostRepeatDirection[];
-  /** Linear: center the pattern on the original instead of starting there. */
-  centered: boolean;
+  /** Linear: center the pattern on the original instead of starting there — the flag, or an expression the preview evaluates to one. */
+  centered: boolean | FeatureExprValue;
   /** Circular: instances around the axis, the original included. */
   count: ValueExpr | null;
   /** Circular: the whole sweep to distribute, or the step between neighbours. */
@@ -844,8 +901,8 @@ export type CopyGhostRequest = {
   axes: GhostAxisRef[];
   /** Linear: count and spacing per direction, parallel to {@link axes}. */
   directions: GhostRepeatDirection[];
-  /** Linear: center the copies on the original instead of starting there. */
-  centered: boolean;
+  /** Linear: center the copies on the original instead of starting there — the flag, or an expression the preview evaluates to one. */
+  centered: boolean | FeatureExprValue;
   /** Circular: instances around the axis, the original included. */
   count: ValueExpr | null;
   /** Circular: the whole sweep to divide, or the step between neighbours. */
@@ -896,8 +953,8 @@ export type MirrorGhostRequest = {
  */
 export type SplitGhostRequest = {
   feature: 'split';
-  /** The pieces the split keeps. */
-  keep: 'both' | 'front' | 'back';
+  /** The pieces the split keeps — a side, or a reference or an expression the preview resolves to one. */
+  keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
   /** The solid-bearing statements being split, by call site; empty for every solid in the scene. */
   targets: { filePath: string; line: number }[];
   /** The plane to cut along, or the sketched edge seeding the cut. */
@@ -986,8 +1043,8 @@ export type PlaneGhostRequest = {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
-  /** The axes the rotations turn around: the plane's own, or the world's. */
-  rotationAxes: PlaneRotationAxes;
+  /** The axes the rotations turn around: the plane's own, or the world's — or a reference or an expression the preview resolves to one. */
+  rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
   /** Edge form: the normalized 0–1 position along the curve. */
   position: ValueExpr | null;
 };
@@ -1114,6 +1171,41 @@ export type Mirror2DGhostRequest = {
 };
 
 /**
+ * One element of a custom feature's picked value, as the ghost addresses
+ * it: a statement by call site, faces or edges picked in the viewport (all
+ * of a value's picks one element, as the apply writes them in one
+ * selector), or a world axis or an origin plane. A kept chip travels as
+ * whichever of these it resolved to.
+ */
+export type GhostCustomRef =
+  | { kind: 'statement'; filePath: string; line: number }
+  | { kind: 'entities'; entities: { shapeId: string; index: number; kind: 'edge' | 'face' }[] }
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
+  /** A connector by its statement — a copy by its seed's statement and its slot. */
+  | { kind: 'connector'; filePath: string; line: number; slot?: number }
+  /** A vertex picked in the viewport: a point value's. */
+  | { kind: 'point'; shapeId: string; index: number }
+  /** A face or an edge picked in the viewport and the point taken on it: an anchor value's. */
+  | { kind: 'anchor'; entity: { shapeId: string; index: number; kind: 'edge' | 'face' }; anchor: ConnectorAnchor }
+  /** Edit mode: the edited statement's own element of the value, by position — as its feature built it. */
+  | { kind: 'kept'; index: number };
+
+/**
+ * A custom feature's ghost: the feature by its catalog id, the values as
+ * the form holds them (a value left out takes its default) and one ref per
+ * picked element. The engine builds the feature's class from them.
+ */
+export type CustomGhostRequest = {
+  feature: 'custom';
+  id: string;
+  values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | FeatureExprValue>;
+  refs: Record<string, GhostCustomRef[]>;
+  operation: FeatureOpKind | null;
+  /** Edit mode: the edited statement's call site — the ghost reads the scene as it stood before it. */
+  exclude?: { filePath: string; line: number };
+};
+
+/**
  * One ghost body, in the mesh wire format the scene's solids already use.
  * `kind` overrides the overlay's per-dialog color for this body alone: a
  * fillet's picks can take material away at one edge and put it back at the
@@ -1222,15 +1314,29 @@ export async function fetchFeatureGhost(
  * noise. `notice` carries only a refusal the server marked as a **limit the
  * user can act on** (the repeat's cap on how many instances it draws, where a
  * silently blank viewport reads as a bug), and is null for everything else.
+ * `paused` is set when the build ran over the live preview's time limit —
+ * why, to say so — and the dialog stops asking until the user does.
  */
 export async function fetchFeatureGhostResult(
   request: FeatureGhostRequest,
   valueScope: GhostValueScope | null,
   signal: AbortSignal,
-): Promise<{ solids: GhostSolid[] | null; frames: GhostFrame[]; notice: string | null }> {
+): Promise<{
+  solids: GhostSolid[] | null;
+  frames: GhostFrame[];
+  notice: string | null;
+  paused?: string;
+  /** A custom feature's values its `derive()` fixed from the picks, by name — the dialog locks their rows. Absent when it fixed none. */
+  derived?: Record<string, FeatureScalarValue>;
+}> {
   const answer = await postFeatureGhost(request, valueScope, signal);
   if ('body' in answer) {
-    return { solids: answer.body.solids ?? [], frames: answer.body.frames ?? [], notice: null };
+    const body = answer.body;
+    const derived = body.derived && typeof body.derived === 'object' && !Array.isArray(body.derived) ? body.derived as Record<string, FeatureScalarValue> : undefined;
+    return { solids: body.solids ?? [], frames: body.frames ?? [], notice: null, ...(derived ? { derived } : {}) };
+  }
+  if ('paused' in answer) {
+    return { solids: null, frames: [], notice: null, paused: answer.paused };
   }
   return { solids: null, frames: [], notice: answer.notice };
 }
@@ -1259,15 +1365,18 @@ export async function fetchTranslateGhost(
 }
 
 /**
- * One round trip to the ghost route: the success body, or — for a refusal —
- * only the notice worth reading out (see {@link fetchFeatureGhostResult}).
- * An abort propagates; any other failure is a silent refusal.
+ * One round trip to the ghost route: the success body; a `paused` reason
+ * when the build ran over the live preview's time limit (a custom
+ * feature's) — no geometry, and why, so the dialog pauses its previews; or
+ * — for any other refusal — only the notice worth reading out (see
+ * {@link fetchFeatureGhostResult}). An abort propagates; any other failure
+ * is a silent refusal.
  */
 async function postFeatureGhost(
   request: FeatureGhostRequest,
   valueScope: GhostValueScope | null,
   signal: AbortSignal,
-): Promise<{ body: any } | { notice: string | null }> {
+): Promise<{ body: any } | { paused: string } | { notice: string | null }> {
   try {
     const res = await fetch('api/feature-ghost', {
       method: 'POST',
@@ -1278,6 +1387,9 @@ async function postFeatureGhost(
     const body = await res.json().catch(() => null);
     if (res.ok && body?.success === true) {
       return { body };
+    }
+    if (body?.paused === true) {
+      return { paused: typeof body.reason === 'string' ? body.reason : 'Building it took longer than a live preview may.' };
     }
     return { notice: body?.surface === true && typeof body?.reason === 'string' ? body.reason : null };
   } catch (err) {
@@ -1526,6 +1638,23 @@ export function getEdgeProperties(
   return getJson('api/edge-properties', { shapeId, edgeIndex }, signal);
 }
 
+/** A feature whose buckets hold a picked face or edge: the hole whose wall it is, the extrude whose end face. */
+export type ShapeOwner = { id: string; type: string; uniqueType: string; name: string };
+
+/**
+ * The features that made a face or an edge of a rendered solid, oldest
+ * first — what a feature picker takes a click on geometry as. Null when the
+ * server can't say (no scene, an engine that predates the query).
+ */
+export async function fetchShapeOwners(
+  shapeId: string,
+  sub: { type: 'face' | 'edge'; index: number },
+  signal?: AbortSignal,
+): Promise<ShapeOwner[] | null> {
+  const body = await getJson<{ owners?: unknown }>('api/shape-owners', { shapeId, kind: sub.type, index: sub.index }, signal);
+  return Array.isArray(body?.owners) ? body!.owners as ShapeOwner[] : null;
+}
+
 export function getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {
   return getJson('api/shape-properties', { shapeId });
 }
@@ -1608,8 +1737,8 @@ export type ApplyFeatureOptions = {
    * ("move the sketch"). The body callback is preserved verbatim.
    */
   retarget?: SketchSourceRef;
-  /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none. */
-  joinType?: ShellJoinType;
+  /** Shell only: writes a `.join('<type>')` chain; 'arc' writes none; an expression writes `.join(<expr>)`. */
+  joinType?: ShellJoinType | FeatureRefValue | FeatureExprValue;
   /** Chamfer only: second distance (or angle) — `chamfer(d1, d2, …)`. */
   distance2?: ValueExpr | null;
   /** Chamfer only: `distance2` is an angle in degrees — `chamfer(d, a, true, …)`. */
@@ -1710,16 +1839,26 @@ export type ConnectorAnchor =
 
 export type ConnectorRotateAxis = 'x' | 'y' | 'z';
 
+/**
+ * The `.rotate(axis, angle)` chain as the dialog writes it: the axis one of
+ * the three names or the expression computing it (`flipped ? 'x' : 'y'`), the
+ * angle in degrees — a number, or bare expression text like any number row's.
+ */
+export type ConnectorRotateSpec = { axis: ConnectorRotateAxis | FeatureExprValue; angle: ValueExpr };
+
+/** The `.offset(x, y, z)` chain as the dialog writes it: each component a number or bare expression text. */
+export type ConnectorOffsetSpec = [ValueExpr, ValueExpr, ValueExpr];
+
 export type ConnectorApplyOptions = {
   /** Identifier the connector registers under — `/^[A-Za-z_$][A-Za-z0-9_$]*$/`, ≤64 chars. */
   name: string;
   /** Exactly one face or edge — the connector's source geometry. */
   entities: ApplyFeatureEntity[];
   anchor?: ConnectorAnchor;
-  /** Degrees around one of the connector's local axes — rendered as `.rotate('<axis>', n)`. */
-  rotate?: { axis: ConnectorRotateAxis; angle: number };
-  /** Frame-local offset [x, y, z] — rendered as `.offset(...)`. */
-  offset?: [number, number, number];
+  /** Degrees around one of the connector's local axes — rendered as `.rotate('<axis>', n)`, an expression bare. */
+  rotate?: ConnectorRotateSpec;
+  /** Frame-local offset [x, y, z] — rendered as `.offset(...)`, an expression bare. */
+  offset?: ConnectorOffsetSpec;
   selectorOverride?: string;
   preview?: boolean;
   signal?: AbortSignal;
@@ -1747,14 +1886,16 @@ export async function applyConnector(o: ConnectorApplyOptions): Promise<ApplyFea
  */
 export type ConnectorEditOptions = EditSessionFields & {
   name: string;
-  rotate: { axis: ConnectorRotateAxis; angle: number } | null;
-  offset: [number, number, number] | null;
+  rotate: ConnectorRotateSpec | null;
+  offset: ConnectorOffsetSpec | null;
   /** Edited source expression; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
   /** Re-picked source — exactly one face or edge; omitted keeps the args. */
   entities?: ApplyFeatureEntity[];
   /** The anchor a re-picked source narrows to (`.center()`, …). */
   anchor?: ConnectorAnchor;
+  /** Declarations the angle or offset fields committed (`ang = 45`), written before the statement. */
+  newVariables?: NewVariable[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -1775,6 +1916,7 @@ export async function applyConnectorEdit(
     selectorOverride: options.selectorOverride,
     entities: options.entities,
     anchor: options.anchor,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }
@@ -2569,8 +2711,8 @@ export type ExtrudeOptionValues = {
    * writes no chain.
    */
   endOffset: ValueExpr | null;
-  /** False writes `.drill(false)` — inner closed regions extrude as solid. */
-  drill: boolean;
+  /** False writes `.drill(false)` — inner closed regions extrude as solid; an expression writes `.drill(<expr>)`. */
+  drill: boolean | FeatureExprValue;
   /** `.thin()` offsets, or null for a plain extrude. */
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
@@ -2675,15 +2817,20 @@ export async function applyRib(options: RibApplyOptions): Promise<ApplyFeatureRe
 // Hole
 // ---------------------------------------------------------------------------
 
-/** The hole size: a drilled diameter, or a fastener size label ('M6', '1/4', '#10'). */
+/** The hole size: a drilled diameter, or a fastener size label ('M6', '1/4', '#10') — a variable's too, written bare. */
 export type HoleSizeSpec =
   | { kind: 'diameter'; value: ValueExpr }
-  | { kind: 'fastener'; label: string };
+  | { kind: 'fastener'; label: string | FeatureRefValue };
 
-/** How a fastener size becomes a diameter: a clearance fit, or the tap drill for a pitch (null = coarse). */
+/**
+ * How a fastener size becomes a diameter: a clearance fit, or the tap drill
+ * for a pitch (null = coarse). The fit and the pitch take a variable or an
+ * expression in place of the literal; a referenced or computed pitch always
+ * writes the argument.
+ */
 export type HoleFastenerSpec =
-  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' }
-  | { type: 'tapped'; pitch: number | null };
+  | { type: 'clearance'; fit: 'close' | 'normal' | 'loose' | FeatureRefValue | FeatureExprValue }
+  | { type: 'tapped'; pitch: number | FeatureRefValue | FeatureExprValue | null };
 
 /** The entry of the hole; null values read the fastener tables. */
 export type HoleStyleSpec =
@@ -2718,11 +2865,11 @@ export type HolePlacementRef =
 /**
  * The `.fasten(…)` chain of a clearance hole: the matching tapped hole cut
  * into the next solid along each hole's axis — its pitch (null is the coarse
- * pitch), its blind depth from the face it enters that solid through (null
- * is through all) and the drill point angle below that depth (null is a
- * flat bottom).
+ * pitch; a variable's name or an expression writes bare), its blind depth
+ * from the face it enters that solid through (null is through all) and the
+ * drill point angle below that depth (null is a flat bottom).
  */
-export type HoleFastenRef = { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
+export type HoleFastenRef = { pitch: number | FeatureRefValue | FeatureExprValue | null; depth: ValueExpr | null; tipAngle: ValueExpr | null };
 
 export type HoleApplyOptions = HoleOptionValues & {
   placements: HolePlacementRef[];
@@ -2806,14 +2953,19 @@ export type RevolveOptionValues = {
 };
 
 /**
- * The revolve axis: a standard world axis, an existing `axis(…)` statement
- * addressed by its source location, or a picked edge — synthesized into
- * `axis(<edge selector>)` server-side.
+ * An axis slot's request field, as every axis dialog sends it (revolve,
+ * helix, repeat, rotate, copy): a standard world axis, an existing
+ * `axis(…)` statement addressed by its source location, a picked edge —
+ * synthesized into `axis(<edge selector>)` server-side — or a connector
+ * standing for its Z axis through its origin: its `connector()` statement
+ * by call site, plus the pattern slot for one of its copies
+ * (`bolt.instance(2)`).
  */
 export type RevolveAxisRef =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | ({ kind: 'axis' } & SketchSourceRef)
-  | { kind: 'edge'; entity: ApplyFeatureEntity };
+  | { kind: 'edge'; entity: ApplyFeatureEntity }
+  | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
 
 export type RevolveApplyOptions = RevolveOptionValues & {
   profile: ExtrudeProfileRef;
@@ -2849,9 +3001,10 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
 }
 
 /**
- * The helix source: the revolve axis inputs (a standard world axis, an axis
- * statement by call site, or a picked edge synthesized into `axis(<edge>)`)
- * plus a picked cylindrical/conical face — its selector on its own.
+ * The helix source: the axis inputs (a standard world axis, an axis
+ * statement by call site, a picked edge synthesized into `axis(<edge>)`, or
+ * a connector) plus a picked cylindrical/conical face — its selector on its
+ * own.
  */
 export type HelixSourceRef =
   | RevolveAxisRef
@@ -2999,8 +3152,13 @@ export type LoftProfileRef =
   | ({ kind: 'sketch' } & SketchSourceRef)
   | { kind: 'face'; entity: ApplyFeatureEntity };
 
-/** A `.startCondition()`/`.endCondition()` takeoff constraint; null = none. */
-export type LoftConditionRef = { type: 'normal' | 'tangent'; magnitude: ValueExpr };
+/**
+ * A `.startCondition()`/`.endCondition()` takeoff constraint; null = none.
+ * The type is one of the kernel's two, or a reference or an expression
+ * written bare in its place — one that comes to `'none'` previews as no
+ * condition, the way the literal reads in the dialog.
+ */
+export type LoftConditionRef = { type: 'normal' | 'tangent' | FeatureRefValue | FeatureExprValue; magnitude: ValueExpr };
 
 /** A picked vertex or one point retained from a parsed connection. */
 export type LoftConnectionPointRef =
@@ -3075,8 +3233,8 @@ export type PlaneApplyOptions = {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
-  /** The axes the rotations turn around; `local` renders nothing. */
-  rotationAxes: PlaneRotationAxes;
+  /** The axes the rotations turn around; `local` renders nothing; an expression writes `axes: <expr>`. */
+  rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
   /** Normalized 0–1 position along the edge (edge type only). */
   position: ValueExpr | null;
   bases: PlaneBaseRef[];
@@ -3143,8 +3301,8 @@ export type RepeatApplyOptions = {
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
-  /** Linear only: center the pattern on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the pattern on the original instance — the flag, or an expression written bare. */
+  centered?: boolean | FeatureExprValue;
   /** Rotate only: rotation angle in degrees. */
   angle?: ValueExpr;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
@@ -3177,12 +3335,8 @@ export async function applyRepeat(options: RepeatApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
-/**
- * A copy's axis: the revolve axis shapes, or a connector standing for its Z
- * axis through its origin — its `connector()` statement by call site, plus
- * the pattern slot for one of its copies (`bolt.instance(2)`).
- */
-export type CopyAxisRef = RevolveAxisRef | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
+/** A copy's axis: the axis shapes every axis slot takes, a connector among them ({@link RevolveAxisRef}). */
+export type CopyAxisRef = RevolveAxisRef;
 
 /**
  * A copy target by call site: a solid-bearing statement (the default), or a
@@ -3217,8 +3371,8 @@ export type CopyApplyOptions = {
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
-  /** Linear only: center the copies on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the copies on the original instance — the flag, or an expression written bare. */
+  centered?: boolean | FeatureExprValue;
   /**
    * Instances to leave out, one index per direction (circular carries a
    * single index each). Omitted writes no `skip` option at all.
@@ -3299,8 +3453,8 @@ export type SplitApplyOptions = {
   targets: SketchSourceRef[];
   /** The cut — a plane, or a sketched edge seeding one (a line's plane, a curve's sheet). */
   plane: SplitPlaneRef;
-  /** The pieces the split keeps. */
-  keep: SplitKeepSide;
+  /** The pieces the split keeps — a side, or an expression the statement writes bare in its place. */
+  keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
   /** The file the statement lands in. */
   filePath: string;
   /** Render the statement preview without applying. */
@@ -3420,6 +3574,49 @@ export async function applyBoolean(options: BooleanApplyOptions): Promise<ApplyF
   }, options.signal);
 }
 
+/**
+ * What a colour paints: whole objects — the solid-bearing statements picked
+ * in the viewport, by call site (the dialog's Solid tab) — or picked faces
+ * synthesized into selectors like a shell's (the Face tab).
+ */
+export type ColorPaint =
+  | { kind: 'solids'; targets: SketchSourceRef[] }
+  | {
+    kind: 'faces';
+    entities: ApplyFeatureEntity[];
+    chains?: ApplyFeatureChain[];
+    /** User-edited argument list; replaces the synthesized selectors verbatim. */
+    selectorOverride?: string;
+  };
+
+export type ColorApplyOptions = {
+  /** The CSS colour to write — a hex value, a colour name or an `rgb(…)` string — or the expression computing it. */
+  value: string | FeatureExprValue;
+  paint: ColorPaint;
+  /** Render the statement preview (and, for faces, synthesize the selectors) without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a colour
+ * statement — `color('#3498db', e)` for whole objects, `color('#3498db',
+ * e.endFaces())` for picked faces. Same endpoint and response shape as
+ * {@link applyFeature}; a face preview carries the synthesized `args` and
+ * their `alternatives` for the expression row.
+ */
+export async function applyColor(options: ColorApplyOptions): Promise<ApplyFeatureResponse> {
+  const paint = options.paint;
+  return postApplyFeature({
+    feature: 'color',
+    value: options.value,
+    ...(paint.kind === 'solids'
+      ? { targets: paint.targets }
+      : { entities: paint.entities, chains: paint.chains, selectorOverride: paint.selectorOverride }),
+    preview: options.preview,
+  }, options.signal);
+}
+
 // ---------------------------------------------------------------------------
 // Feature statement editing (timeline double-click → edit dialog)
 // ---------------------------------------------------------------------------
@@ -3451,6 +3648,8 @@ export type SelectionBoundaryRef = {
 export type SourceSlotRef =
   | { kind: 'sketch'; filePath: string; line: number; column: number }
   | { kind: 'entities'; entities: ApplyFeatureEntity[] }
+  /** An axis that is a connector, by its site: its `connector()` statement, and a copy's slot. */
+  | { kind: 'connector'; filePath: string; line: number; column: number; slot?: number }
   | { kind: 'opaque' };
 
 export type FeatureSourcesResult =
@@ -3471,6 +3670,12 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
+  /**
+   * A colour: the faces it paints, as entities on the pre-statement solids
+   * (`opaque` when it paints whole objects or nothing pickable), plus the
+   * objects it paints whole, by call site.
+   */
+  | { ok: true; feature: 'color'; selection: SourceSlotRef; targets: SourceSlotRef[] }
   | {
     ok: true;
     feature: 'projection' | 'intersect';
@@ -3530,6 +3735,12 @@ export type FeatureSourcesResult =
    * off the argument text.
    */
   | { ok: true; feature: 'plane'; bases: SourceSlotRef[] }
+  /**
+   * A custom feature, by its catalog id: each picked value's source, keyed by
+   * its name — one slot for a single value, one per element (in order) for a
+   * list. Typed-in values and picks the statement leaves out have none.
+   */
+  | { ok: true; feature: 'custom'; id: string; slots: Record<string, SourceSlotRef | SourceSlotRef[]> }
   | { ok: false; reason: string };
 
 /** Current sources of the statement at `before`, for edit-dialog seeding. */
@@ -3610,7 +3821,8 @@ export type ParsedFeatureStatement =
       draft: ValueExpr | null;
       /** `.endOffset(value)` pull-back, or null when the chain is absent. */
       endOffset: ValueExpr | null;
-      drill: boolean;
+      /** `.drill(flag)`: the flag, or the expression computing it; true when the chain is absent or bare. */
+      drill: boolean | FeatureExprValue;
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       profileText: string | null;
       /** Up-to-face target argument text, or null for a distance extrude. */
@@ -3653,7 +3865,7 @@ export type ParsedFeatureStatement =
        * (null is through all) and its tip angle (null is a flat bottom); null
        * without the chain. Absent on older servers.
        */
-      fasten?: { pitch: number | null; depth: ValueExpr | null; tipAngle: ValueExpr | null } | null;
+      fasten?: HoleFastenRef | null;
     })
   | (ParsedScopeChain & ParsedRegionChain & {
       feature: 'sweep';
@@ -3717,8 +3929,8 @@ export type ParsedFeatureStatement =
       feature: 'shell';
       value: ValueExpr;
       argsText: string;
-      /** `.join()` type; 'arc' (the kernel default) when the chain is absent. */
-      joinType: ShellJoinType;
+      /** `.join()` type — an option, or the reference or expression computing it; 'arc' (the kernel default) when the chain is absent. */
+      joinType: ShellJoinType | FeatureRefValue | FeatureExprValue;
     }
   | { feature: 'fillet'; value: ValueExpr; argsText: string }
   | {
@@ -3755,10 +3967,14 @@ export type ParsedFeatureStatement =
        * `.center()` is part of the expression the source row shows.
        */
       argsText: string;
-      /** `.rotate('<axis>', deg)`, or null when the chain is absent. */
-      rotate: { axis: ConnectorRotateAxis; angle: number } | null;
-      /** `.offset(x[, y, z])`, omitted components read as 0; null when absent. */
-      offset: [number, number, number] | null;
+      /**
+       * `.rotate('<axis>', deg)` — the axis a name, a variable's `{ ref }` or
+       * the expression computing it, the angle a number or bare expression
+       * text; null when the chain is absent.
+       */
+      rotate: { axis: ConnectorRotateAxis | FeatureRefValue | FeatureExprValue; angle: ValueExpr } | null;
+      /** `.offset(x[, y, z])`, omitted components read as 0, each a number or bare expression text; null when absent. */
+      offset: ConnectorOffsetSpec | null;
     }
   | {
       feature: 'chamfer';
@@ -3795,8 +4011,8 @@ export type ParsedFeatureStatement =
       directions: { count: ValueExpr; value: ValueExpr }[] | null;
       /** Linear spacing semantics shared by every direction. */
       spacingMode: 'offset' | 'length' | null;
-      /** Linear only: the pattern is centered on the original instance. */
-      centered: boolean;
+      /** Linear only: the pattern is centered on the original instance — the flag, or the expression computing it. */
+      centered: boolean | FeatureExprValue;
       /** Circular instance count, original included. */
       count: ValueExpr | null;
       /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -3832,8 +4048,8 @@ export type ParsedFeatureStatement =
       directions: { count: ValueExpr; value: ValueExpr }[] | null;
       /** Linear spacing semantics shared by every direction. */
       spacingMode: 'offset' | 'length' | null;
-      /** Linear only: the copies are centered on the original instance. */
-      centered: boolean;
+      /** Linear only: the copies are centered on the original instance — the flag, or the expression computing it. */
+      centered: boolean | FeatureExprValue;
       /** Circular instance count, original included. */
       count: ValueExpr | null;
       /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -3884,8 +4100,8 @@ export type ParsedFeatureStatement =
       feature: 'split';
       /** The cut argument text — a plane or a seed edge — verbatim. */
       planeText: string;
-      /** The pieces the statement keeps; `both` when the option is absent. */
-      keep: SplitKeepSide;
+      /** The pieces the statement keeps — a side, or the reference or expression computing it; `both` when the option is absent. */
+      keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
       /** Trailing target texts, verbatim; empty splits every solid in scope. */
       targetTexts: string[];
       /**
@@ -3946,10 +4162,25 @@ export type ParsedFeatureStatement =
       rotateX: ValueExpr | null;
       rotateY: ValueExpr | null;
       rotateZ: ValueExpr | null;
-      /** The axes the rotations turn around; `local` when the statement writes none. */
-      rotationAxes: PlaneRotationAxes;
+      /** The axes the rotations turn around — a choice, or the reference or expression computing it; `local` when the statement writes none. */
+      rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
       /** Normalized 0–1 position along the edge; null for the other forms. */
       position: ValueExpr | null;
+    }
+  | {
+      feature: 'color';
+      /** The CSS colour the statement writes, as its string literal spells it — or the expression computing it. */
+      value: string | FeatureExprValue;
+      /** Target argument list after the colour, verbatim (`''` when absent). */
+      argsText: string;
+      /** Target texts, verbatim, in argument order; empty paints the last selection, or every face in scope. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
     }
   | {
       feature: 'boolean';
@@ -3966,7 +4197,37 @@ export type ParsedFeatureStatement =
        * length as `targetTexts` — seeds each target as its solid option.
        */
       targetRefs: ({ line: number; column: number } | null)[];
-    };
+    }
+  | (ParsedScopeChain & {
+      /**
+       * A custom feature's statement, read back by its call shape. The
+       * dialog for it is the one whose catalog id is `id`.
+       */
+      feature: 'custom';
+      id: string;
+      /** The callee as written — an import alias included. */
+      callee: string;
+      /** The typed-in values the statement writes, a select of several's as its list, a choice naming a variable as `{ ref }`, any kind's computed value as `{ expr }`; one it leaves out is absent. */
+      values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | FeatureExprValue>;
+      /** The picked values it writes, element by element; one it leaves out is absent. */
+      picks: Record<string, ParsedCustomPick[]>;
+      operation: FeatureOpKind;
+    });
+
+/** One element of a parsed custom feature's picked value. */
+export type ParsedCustomPick = {
+  /** The element's text, verbatim. */
+  text: string;
+  /** Character offsets of the text in the file. */
+  start: number;
+  end: number;
+  /**
+   * The statement a plain variable names (`s` bound to `sketch(…)`), by call
+   * site — a connector copy's seed statement, with the copy's `slot`
+   * (`bolt.instance(2)`).
+   */
+  ref?: { line: number; column: number; slot?: number };
+};
 
 export type ParseFeatureResult =
   | { ok: true; parsed: ParsedFeatureStatement; statement: string }
@@ -4355,8 +4616,8 @@ export type RepeatEditOptions = EditSessionFields & {
   directions?: { axis: RepeatEditAxisRef; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
-  /** Linear only: center the pattern on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the pattern on the original instance — the flag, or an expression written bare. */
+  centered?: boolean | FeatureExprValue;
   /** The repeat axis (circular/rotate); omitted keeps the statement's own. */
   axis?: RepeatEditAxisRef;
   /** The mirror plane; omitted keeps the statement's own. */
@@ -4431,8 +4692,8 @@ export type CopyEditOptions = EditSessionFields & {
   directions?: { axis: CopyEditAxisRef; count: ValueExpr; value: ValueExpr }[];
   /** Linear spacing semantics shared by every direction. */
   spacingMode?: 'offset' | 'length';
-  /** Linear only: center the copies on the original instance. */
-  centered?: boolean;
+  /** Linear only: center the copies on the original instance — the flag, or an expression written bare. */
+  centered?: boolean | FeatureExprValue;
   /** The copy axis (circular); omitted keeps the statement's own. */
   axis?: CopyEditAxisRef;
   /** Instance count, original included (circular). */
@@ -4541,7 +4802,8 @@ export type SplitEditTargetRef =
 export type SplitEditOptions = EditSessionFields & {
   /** The cut; `keep` re-emits the statement's own expression. */
   plane: SplitEditPlaneRef;
-  keep: SplitKeepSide;
+  /** The pieces the split keeps — a side, or an expression the statement writes bare in its place. */
+  keep: SplitKeepSide | FeatureRefValue | FeatureExprValue;
   /** Full replacement target list; omitted keeps the statement's own, empty makes the split implicit. */
   targets?: SplitEditTargetRef[];
   preview?: boolean;
@@ -4672,6 +4934,52 @@ export async function applyBooleanEdit(
 }
 
 /**
+ * One target of an edited colour's Solid tab, in argument order: an
+ * untouched target by its position in the statement's own argument list, or
+ * a re-picked solid statement by call site.
+ */
+export type ColorEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type ColorEditOptions = EditSessionFields & {
+  /** The CSS colour to write, or the expression computing it; the dialog owns it outright. */
+  value: string | FeatureExprValue;
+  /**
+   * What replaces the statement's arguments, if anything: the Solid tab's
+   * full target list (empty makes the paint implicit), or the Face tab's
+   * re-picked faces and/or edited expression. Absent keeps the statement's
+   * own arguments.
+   */
+  paint?:
+    | { kind: 'solids'; targets: ColorEditTargetRef[] }
+    | { kind: 'faces'; entities?: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[]; selectorOverride?: string };
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the colour statement at `edit` in place. */
+export async function applyColorEdit(
+  edit: FeatureEditTarget,
+  options: ColorEditOptions,
+): Promise<ApplyFeatureResponse> {
+  const paint = options.paint;
+  return postApplyFeature({
+    feature: 'color',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    value: options.value,
+    ...(paint?.kind === 'solids'
+      ? { targets: paint.targets }
+      : paint?.kind === 'faces'
+        ? { entities: paint.entities, chains: paint.chains, selectorOverride: paint.selectorOverride }
+        : {}),
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
  * One base of an edited plane, in argument order: an untouched base by its
  * position in the statement's own argument list, or any re-sourced
  * create-mode base.
@@ -4689,8 +4997,8 @@ export type PlaneEditOptions = EditSessionFields & {
   rotateX: ValueExpr | null;
   rotateY: ValueExpr | null;
   rotateZ: ValueExpr | null;
-  /** The axes the rotations turn around; `local` renders nothing. */
-  rotationAxes: PlaneRotationAxes;
+  /** The axes the rotations turn around; `local` renders nothing; an expression writes `axes: <expr>`. */
+  rotationAxes: PlaneRotationAxes | FeatureRefValue | FeatureExprValue;
   /** Normalized 0–1 position along the edge (edge type only). */
   position: ValueExpr | null;
   /** Full replacement base list; omitted keeps the statement's own. */
@@ -4735,6 +5043,8 @@ export type TextEditPath = { kind: 'none' } | { kind: 'picked'; shapeId: string 
 export type TextEditOptions = TextOptionValues & EditSessionFields & {
   /** Path re-target; omitted keeps the statement's own path argument. */
   path?: TextEditPath;
+  /** Declarations the number fields committed (`cap = 12`), written before the statement. */
+  newVariables?: NewVariable[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -4761,6 +5071,7 @@ export async function applyTextEdit(
     flip: options.flip,
     path: options.path && { kind: options.path.kind },
     sketchEntities: options.path?.kind === 'picked' ? [{ shapeId: options.path.shapeId }] : undefined,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }
@@ -4773,7 +5084,7 @@ export async function applyTextEdit(
  */
 export async function applyTextToPath(
   shapeId: string,
-  options: TextOptionValues,
+  options: TextOptionValues & { newVariables?: NewVariable[] },
   extras: { preview?: boolean; signal?: AbortSignal } = {},
 ): Promise<ApplyFeatureResponse> {
   return postApplyFeature({
@@ -4790,6 +5101,7 @@ export async function applyTextToPath(
     offset: options.offset,
     startAt: options.startAt,
     flip: options.flip,
+    newVariables: options.newVariables,
     preview: extras.preview,
   }, extras.signal);
 }
@@ -4798,8 +5110,8 @@ export type ValueFeatureEditOptions = EditSessionFields & {
   value: ValueExpr;
   /** Edited selector argument list; omitted keeps the statement's verbatim. */
   selectorOverride?: string;
-  /** Shell only: rewrites the `.join('<type>')` chain; 'arc' writes none. */
-  joinType?: ShellJoinType;
+  /** Shell only: rewrites the `.join('<type>')` chain; 'arc' writes none; an expression writes `.join(<expr>)`. */
+  joinType?: ShellJoinType | FeatureRefValue | FeatureExprValue;
   /** Chamfer only: second value slot; null returns to the equal-distance form. */
   distance2?: ValueExpr | null;
   /** Chamfer only: `distance2` is an angle in degrees. */
@@ -5077,8 +5389,13 @@ export function continueBreakpoint(): void {
   });
 }
 
-export function removeFeature(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('api/remove-feature', { sourceLocation });
+/**
+ * Remove the statement at `sourceLocation`. `row`: the assembly-view row
+ * the delete comes from (an instance's, occurrence's, mate's or relation's
+ * id) — the server refuses an engine-owned one (G8).
+ */
+export function removeFeature(sourceLocation: SourceLocationParam, row?: string): void {
+  postFireAndForget('api/remove-feature', { sourceLocation, ...(row ? { row } : {}) });
 }
 
 export type RemoveFeatureDependent = { name: string; line: number };
@@ -5196,6 +5513,15 @@ export function setSketchImage(target: SourceLocationParam, image: SketchImageEd
  */
 export function setPartMaterial(sourceLocation: SourceLocationParam, material: string | null): Promise<SetUnitResult> {
   return postAcked('api/set-part-material', { sourceLocation, material });
+}
+
+/**
+ * Set (or, with null, remove) the `.appearance('id')` chain on the
+ * `part(...)` statement at `sourceLocation` — the timeline row menu's Set
+ * appearance…. Acked like {@link setPartMaterial}.
+ */
+export function setPartAppearance(sourceLocation: SourceLocationParam, appearance: string | null): Promise<SetUnitResult> {
+  return postAcked('api/set-part-appearance', { sourceLocation, appearance });
 }
 
 /**
@@ -5772,9 +6098,11 @@ export function removeProperty(target: PropertyTarget): Promise<ParamEditRespons
 // ---------------------------------------------------------------------------
 
 export type CatalogFileEntry = {
-  /** Workspace-relative path, for display. */
+  /** Workspace-relative path, for display; `@scope/name/<module>` for a package's file. */
   path: string;
   absPath: string;
+  /** The installed package the file belongs to; absent for the workspace's own. */
+  package?: PackageRef;
   /**
    * The unit the file's parts are authored in (its `unit()` statement, else
    * the project unit) — read statically; absent on servers predating units.
@@ -5825,7 +6153,79 @@ export type CatalogPart = {
   params?: CatalogParamDef[];
   /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
   configurations?: CatalogConfiguration[];
+} & CatalogGeneratedFields;
+
+/**
+ * What a generated definition's catalog entry (`definePart`,
+ * `defineAssembly`) carries beside the usual fields: it is listed from its
+ * schema, never built — its `objects` and `params` are empty, and its tile
+ * shows its icon. Absent on every other entry.
+ */
+export type CatalogGeneratedFields = {
+  definitionKind?: 'generated';
+  /** The definition's values by id, its dialog, label, icon and description. */
+  schema?: GeneratedSchema;
+  /** Where each image the schema declares is served, by the module it resolves against. */
+  assetUrls?: GeneratedAssetUrls;
 };
+
+/**
+ * A generated definition's schema (lib `GeneratedSchema`): the interface an
+ * insert takes (`params`, by id — the same declarations a custom feature's
+ * metadata has), its dialog (`layout`, `width`, `aside`), its toolbar entry
+ * (`label`, `icon`, `description`). Image paths resolve against the
+ * definition's module (`icon`, and `layout` and `aside` when `assetBase`
+ * says `definition` for them) or the class's (option pictures, the values'
+ * asides, a borrowed layout or aside).
+ */
+export type GeneratedSchema = {
+  kind: 'part' | 'assembly';
+  definitionKind: 'generated';
+  /** The definition's id — what `generated.definition` names on its instances and occurrences. */
+  id: string;
+  label: string;
+  description?: string;
+  icon?: string;
+  params: Record<string, FeatureScalarParam>;
+  layout: FeatureLayoutItem[];
+  width?: 'wide' | 'wider';
+  aside?: FeatureStaticItem[];
+  /** The connectors every insert of a generated part carries; empty for an assembly. */
+  connectors: string[];
+  /** Which module `layout`'s images, and `aside`'s when there is one, resolve against (`aside` absent: the class's). */
+  assetBase: { layout: 'definition' | 'class'; aside?: 'definition' | 'class' };
+};
+
+/** Each image a generated schema declares, by the module it resolves against: the path as declared → its URL. */
+export type GeneratedAssetUrls = Record<'definition' | 'class', Record<string, string>>;
+
+/**
+ * One generated definition the project can insert, as the assembly
+ * toolbar's Custom dropdown lists it (`GET /api/part-catalog/generated`).
+ */
+export type GeneratedCatalogEntry = {
+  /** The defining module, absolute — what an insert names. */
+  file: string;
+  /** Workspace-relative, or `@scope/name/<module>` for a package's file. */
+  path: string;
+  exportName: string;
+  kind: 'part' | 'assembly';
+  schema: GeneratedSchema;
+  assetUrls: GeneratedAssetUrls;
+  unit: LengthUnit;
+  /** The installed package it comes from (a library offer pins on Apply); absent for the workspace's own. */
+  package?: PackageRef;
+};
+
+/**
+ * Every generated definition the project can insert — its own, its pinned
+ * packages', the library's offers — read from their schemas, never built.
+ * Null when the server can't answer.
+ */
+export async function getGeneratedCatalog(signal?: AbortSignal): Promise<GeneratedCatalogEntry[] | null> {
+  const data = await getJson<{ entries: GeneratedCatalogEntry[] }>('api/part-catalog/generated', undefined, signal);
+  return data?.entries ?? null;
+}
 
 /**
  * A sub-assembly from a `.assembly.js` file: an exported `assembly()`
@@ -5854,7 +6254,7 @@ export type CatalogAssembly = {
   params?: CatalogParamDef[];
   /** The definition's `configurations()` rows, in table order — empty or absent without a table. */
   configurations?: CatalogConfiguration[];
-};
+} & CatalogGeneratedFields;
 
 export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
 
@@ -5942,12 +6342,14 @@ export async function renameInstance(
   sourceLocation: { filePath: string; line: number },
   name: string,
   defaultName: string,
+  /** The assembly-view row the rename comes from (an instance's or occurrence's id): the server refuses an engine-owned one (G8). */
+  row?: string,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('api/rename-instance', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line, name, defaultName }),
+      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line, name, defaultName, ...(row ? { row } : {}) }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
@@ -5968,11 +6370,14 @@ export async function renameInstance(
 export async function setInstanceTransparency(
   sourceLocation: { filePath: string; line: number },
   transparency: number | null,
+  /** The instance's id — see {@link renameInstance}'s `row`. */
+  row?: string,
 ): Promise<{ success: boolean; reason?: string }> {
   return postAcked('api/set-instance-transparency', {
     filePath: sourceLocation.filePath,
     sourceLine: sourceLocation.line,
     transparency,
+    ...(row ? { row } : {}),
   });
 }
 
@@ -5992,6 +6397,8 @@ export async function updateInsertParams(
   unset: string[] = [],
   newVariables?: NewVariable[],
   configuration?: string | null,
+  /** The instance's or occurrence's id — see {@link renameInstance}'s `row`. */
+  row?: string,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('api/update-insert-params', {
@@ -6000,6 +6407,7 @@ export async function updateInsertParams(
       body: JSON.stringify({
         filePath, sourceLine, set, unset, newVariables,
         ...(configuration !== undefined ? { configuration } : {}),
+        ...(row ? { row } : {}),
       }),
     });
     const body = await res.json().catch(() => null);
@@ -6007,6 +6415,130 @@ export async function updateInsertParams(
       return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
     }
     return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Assembly previews (generated parts and assemblies, G4)
+// ---------------------------------------------------------------------------
+
+/** A value an insert of a generated definition takes, by id: a literal, or source text written as it is. */
+export type InsertValue = CatalogParamValue | CatalogParamExpr;
+
+/** The tier a preview's generated parts build at: `'preview'` while a control moves, `'full'` once it settles. */
+export type PreviewDetail = 'preview' | 'full';
+
+/**
+ * `POST /api/assembly-preview`: render the assembly on screen with a
+ * dialog's insert (`create`) or values edit (`edit`) applied in memory —
+ * nothing is written. `token` is the dialog's; `values` by id (for an edit,
+ * the changed ones), `unset` the ids an edit resets.
+ */
+export type AssemblyPreviewBody = {
+  token: string;
+  filePath: string;
+  detail: PreviewDetail;
+  values: Record<string, InsertValue>;
+  newVariables?: NewVariable[];
+} & (
+  | { mode: 'create'; definition: { file: string; exportName: string } }
+  | { mode: 'edit'; line: number; unset?: string[]; row?: string }
+);
+
+/** The phases of one preview answer, in ms (a tenth): what S8 measures. */
+export type AssemblyPreviewTimings = {
+  totalMs: number;
+  queueMs?: number;
+  editMs?: number;
+  waitMs?: number;
+  evaluateMs?: number;
+  compareMs?: number;
+  renderMs?: number;
+  collectMs?: number;
+  sendMs?: number;
+  payloadBytes?: number;
+};
+
+/** The generated-part report a preview answers with (lib `GeneratedRenderReport`), as far as the page reads it. */
+export type AssemblyPreviewReport = {
+  detail?: PreviewDetail;
+  hits?: { kept: number; cached: number };
+  misses?: number;
+  layoutMs?: number;
+  buildMs?: number;
+};
+
+/**
+ * What a preview request answers. `rendered` / `build-error`: its scene went
+ * out (`scene-rendered` with `preview: { token }`); `compile-error`: the
+ * previewed code doesn't compile and no scene went out; `superseded`: a
+ * newer request or render will speak instead (`ended`: the preview is
+ * over); `refused`: the writer would refuse the edit (`status`, `reason`,
+ * `code`), or the server could not be reached (`status` 0).
+ */
+export type AssemblyPreviewAnswer =
+  | {
+    state: 'rendered' | 'build-error';
+    token: string;
+    version?: number;
+    objectErrors?: { name?: string; message: string }[];
+    timings?: AssemblyPreviewTimings;
+    generated?: AssemblyPreviewReport | null;
+  }
+  | { state: 'compile-error'; token: string; compileError?: { message?: string }; timings?: AssemblyPreviewTimings }
+  | { state: 'superseded'; token: string; reason: 'newer-request' | 'newer-render' | 'ended' }
+  | { state: 'refused'; token: string; status: number; reason: string; code?: string };
+
+/** Ask for a preview render; every failure is an answer (`refused`), never a throw — unless `signal` aborts it. */
+export async function postAssemblyPreview(body: AssemblyPreviewBody, signal?: AbortSignal): Promise<AssemblyPreviewAnswer> {
+  let res: Response;
+  try {
+    res = await fetch('api/assembly-preview', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body), signal });
+  } catch (err) {
+    if (signal?.aborted) {
+      throw err;
+    }
+    return { state: 'refused', token: body.token, status: 0, reason: 'Could not reach the FluidCAD server' };
+  }
+  const answer = await res.json().catch(() => null);
+  if (res.ok && answer && typeof answer.state === 'string') {
+    return answer as AssemblyPreviewAnswer;
+  }
+  return {
+    state: 'refused',
+    token: body.token,
+    status: res.status,
+    reason: answer?.reason ?? answer?.error ?? `Request failed (${res.status})`,
+    ...(typeof answer?.code === 'string' ? { code: answer.code } : {}),
+  };
+}
+
+/**
+ * End the preview `token` shows: the file's own code renders again. Answers
+ * the server's state (`inactive` when its scene was no longer showing), or
+ * null when the server can't be reached.
+ */
+export async function endAssemblyPreview(token: string): Promise<{ state: string } | null> {
+  return postJson<{ state: string }>('api/assembly-preview/end', { token });
+}
+
+/** The writer request a preview's Apply posts — the route and body the preview rendered. */
+export type PreviewWriterRequest = {
+  route: 'part-catalog/insert' | 'update-insert-params';
+  body: Record<string, unknown>;
+};
+
+/** Post a preview's writer request (its Apply); a refusal carries the server's sentence. */
+export async function postPreviewWriter(writer: PreviewWriterRequest): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch(`api/${writer.route}`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(writer.body) });
+    const answer = await res.json().catch(() => null);
+    if (!res.ok || answer?.success === false) {
+      return { success: false, reason: answer?.reason ?? answer?.error ?? `Request failed (${res.status})` };
+    }
+    return { success: true };
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
@@ -6319,6 +6851,8 @@ export async function applyInstancePose(
     translateExprs?: InstanceAxisExprs;
     rotateExprs?: InstanceAxisExprs;
     newVariables?: NewVariable[];
+    /** The instance's id — see {@link renameInstance}'s `row`. */
+    row?: string;
   },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
@@ -6333,6 +6867,7 @@ export async function applyInstancePose(
         translateExprs: options?.translateExprs ?? null,
         rotateExprs: options?.rotateExprs ?? null,
         newVariables: options?.newVariables ?? null,
+        ...(options?.row ? { row: options.row } : {}),
       }),
     });
     const body = await res.json().catch(() => null);
@@ -6697,4 +7232,1341 @@ export type InterferenceRequestBody = {
  */
 export async function fetchInterference(body: InterferenceRequestBody, signal?: AbortSignal): Promise<InterferenceReport | null> {
   return postJson<InterferenceReport>('api/interfere', body, signal);
+}
+
+// ---------------------------------------------------------------------------
+// Custom features: the workspace's `*.feature.js` builders, described by data
+// ---------------------------------------------------------------------------
+
+/** A typed-in value a custom feature's `visibleWhen` can compare. */
+export type FeatureScalarValue = number | string | boolean;
+/** What a select of several (`multiple`) holds: the chosen options' values, in the options' order. */
+export type FeatureListValue = (string | number)[];
+/**
+ * A select's, radio's or select-of-several's value naming a variable in place
+ * of an option: an identifier or a dotted member path (`holeSize`,
+ * `inst.properties.kind`), written bare into the statement, where the
+ * variable's value has to be one of the options when the feature runs.
+ */
+export type FeatureRefValue = { ref: string };
+/**
+ * A typed-in value written as a source expression in place of a literal —
+ * `left ? 'left' : 'right'` on a select, `count > 4` on a boolean, a
+ * template string on a text: the text as the statement has it, which the
+ * row shows (with what it resolves to, when the scope says) and writes back
+ * as it is. A number row carries its expression as a bare string instead.
+ */
+export type FeatureExprValue = { expr: string };
+
+/** What a picked face is, as a custom feature's `visibleWhen` tells picks apart (mirror of the engine's `PickedSurface`). */
+export type FeaturePickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
+
+/**
+ * A condition on a picked value (mirror of the engine's `PickCondition`):
+ * every field given holds — `picked`, whether it holds anything; `count`, it
+ * holds this many picks (or one of these counts); `surface`, it holds picks
+ * and each is a face of this surface (or one of these); `not`, the condition
+ * given does not hold.
+ */
+export type FeaturePickCondition = {
+  picked?: boolean;
+  count?: number | number[];
+  surface?: FeaturePickedSurface | FeaturePickedSurface[];
+  not?: FeaturePickCondition;
+};
+
+/**
+ * One case a value's row shows in: every named typed-in value equals the
+ * given one, or one of the listed ones, and every named picked value meets
+ * its condition.
+ */
+export type FeatureVisibleCase = Record<string, FeatureScalarValue | FeatureScalarValue[] | FeaturePickCondition>;
+
+/** When a value's row shows: one case, or a list of cases of which any one holds. */
+export type FeatureVisibleWhen = FeatureVisibleCase | FeatureVisibleCase[];
+
+/** One case an option is offered in: every named typed-in value equals the given one, or one of the listed ones. */
+export type FeatureOptionCase = Record<string, FeatureScalarValue | FeatureScalarValue[]>;
+
+/** When an option is offered: one case, or a list of cases of which any one holds. */
+export type FeatureOptionWhen = FeatureOptionCase | FeatureOptionCase[];
+
+/**
+ * One conditional default of a typed-in value (mirror of the engine's
+ * `ConditionalDefault`): the value it takes while `when` holds. The first
+ * entry whose `when` holds wins over the plain `default`.
+ */
+export type FeatureConditionalDefault = { when: FeatureOptionWhen; value: FeatureScalarValue | FeatureListValue };
+
+/**
+ * What a picked value holds, as a `visibleWhen` reads it: each pick's
+ * surface — null for a pick that is not a face, or not told apart yet.
+ */
+export type FeaturePickState = { picks: (FeaturePickedSurface | null)[] };
+
+/** What every value of a custom feature declares (mirror of the engine's snapshot). */
+type FeatureParamCommon = {
+  /** Always present in a snapshot — filled from the name when the author left it out. */
+  label: string;
+  description?: string;
+  /** A heading the row sits under. */
+  group?: string;
+  /** The dialog tab the row sits on; rows without one sit above the tabs. */
+  tab?: string;
+  /** A line of small text under the row's control; `description` stays the tooltip. */
+  hint?: string;
+  /** What the card beside the dialog shows in place of the feature's aside while this value's row has the focus or the pointer. */
+  aside?: FeatureStaticItem[];
+  visibleWhen?: FeatureVisibleWhen;
+  /** The value may be left out. */
+  optional?: boolean;
+};
+
+/** One choice of a select or a radio (mirror of the engine's `ChoiceOption`); only `value` reaches the feature. */
+export type FeatureChoiceOption = {
+  label: string;
+  value: string | number;
+  /** When the dialog offers the option: typed-in values to match, or a list of such cases, any one matching. Always, without one. */
+  when?: FeatureOptionWhen;
+  /** A picture of the choice: a file next to the module, served as the icon is. */
+  image?: string;
+  /** A line under the label. */
+  description?: string;
+  /** The heading the option is listed under. */
+  group?: string;
+  /** Further words a search finds the option by. */
+  keywords?: string[];
+};
+
+/** A value the dialog types in. Lengths are in the document's unit, angles in degrees. */
+/** A number's declaration: its range, and how its row looks beside the input. */
+export type FeatureNumberSpec = {
+  type: 'number' | 'integer' | 'length' | 'angle'; default?: number; min?: number; max?: number; step?: number;
+  /** A `slider` (a track from `min` to `max`, its default `min`) or a `stepper` (− / +); left out, the plain input. */
+  display?: 'slider' | 'stepper';
+  /** A short unit shown at the end of the input. */
+  suffix?: string;
+};
+
+/** A boolean's declaration: a `checkbox` in place of the toggle. */
+export type FeatureBooleanSpec = { type: 'boolean'; default?: boolean; display?: 'checkbox' };
+
+/** A text's declaration: several lines, what the empty input shows, and the limits the whole value keeps to. */
+export type FeatureTextSpec = { type: 'text'; default?: string; multiline?: boolean; placeholder?: string; maxLength?: number; pattern?: string };
+
+export type FeatureScalarParam = FeatureParamCommon & {
+  /** Defaults that follow other typed-in values: the first whose `when` holds wins over `default`, which applies when none does. */
+  defaults?: FeatureConditionalDefault[];
+} & (
+  | FeatureNumberSpec
+  | FeatureBooleanSpec
+  | {
+    type: 'select'; options: FeatureChoiceOption[];
+    /** One option's value; with `multiple`, a list of them — always there, empty when the declaration names none. */
+    default?: string | number | FeatureListValue;
+    /** Several options may be chosen: the value is a list of theirs. */
+    multiple?: boolean;
+    /** With `multiple`: the fewest and the most options the list may hold. */
+    min?: number;
+    max?: number;
+    /** A `list` of rows (the default) or a `grid` of images. */
+    display?: 'list' | 'grid';
+    /** A grid's columns, 2 to 6. */
+    columns?: number;
+    /** Whether the options can be searched; left out, on above twelve of them. */
+    search?: boolean;
+  }
+  | {
+    type: 'radio'; options: FeatureChoiceOption[]; default?: string | number;
+    /** Stacked radios (`list`, the default), `inline` on one line, a row of `buttons`, or image `cards`. */
+    display?: 'list' | 'inline' | 'buttons' | 'cards';
+    /** The cards' columns, 2 to 6. */
+    columns?: number;
+  }
+  | FeatureTextSpec
+);
+
+/** The public picker kinds. */
+export type FeaturePickerKind =
+  | 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor';
+
+/**
+ * A value the dialog picks in the viewport or the timeline; each kind reads
+ * its own fields. A list of kinds takes any of them, each click routed to
+ * the one kind that takes it (`['connector', 'point', 'anchor']`).
+ */
+export type FeaturePickerParam = FeatureParamCommon & {
+  picker: FeaturePickerKind | FeaturePickerKind[];
+  /** The value is a list. */
+  multiple?: boolean;
+  /** The value is a list of at most this many. */
+  max?: number;
+  /** The list's order matters, and the dialog lets it be changed. */
+  ordered?: boolean;
+  /** sketch: left out, the value is the active sketch. */
+  implicitDefault?: boolean;
+  /** sketch: only sketches that hold geometry. */
+  hasGeometry?: boolean;
+  /** sketch: helices and other wire sources too. */
+  wire?: boolean;
+  /** face: only faces of this surface (the engine checks). */
+  surface?: 'planar' | 'cylinder' | 'cone' | 'torus';
+  /** face: only faces of the model's own file. */
+  sameFile?: boolean;
+  /** edge: only edges of this curve (the engine checks). */
+  curve?: 'line' | 'circle' | 'arc';
+  /** edge: a picked face stands for all of its edges. */
+  facesAsEdges?: boolean;
+  /** feature: only features of these types or ids. */
+  types?: string[];
+  /** anchor: the well-known points offered on a face or an edge; all of them when left out. */
+  anchors?: ('center' | 'start' | 'end' | 'offset')[];
+};
+
+export type FeatureParam = FeatureScalarParam | FeaturePickerParam;
+
+/** A custom feature's metadata, as the engine snapshots it — pure data, no code. */
+export type FeatureMetaSnapshot = {
+  id: string;
+  label: string;
+  description?: string;
+  /** The icon file, relative to the feature's module, verbatim. */
+  icon?: string;
+  group: 'create' | 'modify';
+  kind: 'tool' | 'modifier';
+  /** The operations the feature offers; empty for none. */
+  operations: FeatureOpKind[];
+  /**
+   * What a statement without an operation chain does — Add when offered,
+   * else the first operation listed; null without operations. The dialog
+   * opens on it.
+   */
+  defaultOperation: FeatureOpKind | null;
+  /** Every value, in declaration order. */
+  params: Record<string, FeatureParam>;
+  call: unknown;
+  /** Whether the dialog draws a preview at all. */
+  ghost: boolean;
+  /**
+   * `'always'`: drawn from the start with no toggle. Left out — the default,
+   * and every snapshot an older engine packed — it is behind the Preview
+   * toggle.
+   */
+  ghostMode?: 'toggle' | 'always';
+  contexts: string[];
+  /**
+   * Where every value's row sits in the dialog: the author's tree, or the
+   * one derived from the values' `group` and `tab`. Each value exactly once.
+   */
+  layout: FeatureLayoutItem[];
+  /** A wider dialog, when the feature asks for one. */
+  width?: 'wide' | 'wider';
+  /** What the card beside the dialog shows — notes, images and dividers only. */
+  aside?: FeatureStaticItem[];
+};
+
+/** A line of small text among the rows. */
+export type FeatureLayoutNote = { note: string; tone?: 'info' | 'warning'; visibleWhen?: FeatureVisibleWhen };
+/** A picture among the rows: a file relative to the feature's module, `height` in px. */
+export type FeatureLayoutImage = { image: string; alt?: string; height?: number; visibleWhen?: FeatureVisibleWhen };
+export type FeatureLayoutDivider = { divider: true };
+/** An item that holds no value. */
+export type FeatureStaticItem = FeatureLayoutNote | FeatureLayoutImage | FeatureLayoutDivider;
+/** Two to four typed-in rows, notes or images side by side; `widths` one relative share per cell. */
+export type FeatureLayoutRow = {
+  row: (string | FeatureLayoutNote | FeatureLayoutImage)[];
+  widths?: number[];
+  visibleWhen?: FeatureVisibleWhen;
+};
+/** Items under a heading; `collapsed` starts folded and implies `collapsible`. */
+export type FeatureLayoutSection = {
+  section: string;
+  items: (string | FeatureLayoutRow | FeatureStaticItem)[];
+  collapsible?: boolean;
+  collapsed?: boolean;
+  visibleWhen?: FeatureVisibleWhen;
+};
+export type FeatureLayoutTab = { label: string; items: (string | FeatureLayoutRow | FeatureLayoutSection | FeatureStaticItem)[] };
+/** The one set of tabs, at the top level only. */
+export type FeatureLayoutTabs = { tabs: FeatureLayoutTab[] };
+/** One item of a dialog's layout; a string is a declared value's name. */
+export type FeatureLayoutItem = string | FeatureLayoutRow | FeatureLayoutSection | FeatureLayoutTabs | FeatureStaticItem;
+
+/**
+ * One entry of the workspace's feature catalog. A module that fails to load,
+ * a builder whose id another shares, or a module exporting no feature is an
+ * entry with an `error` (and, for the first and last, no id or metadata).
+ */
+export type FeatureCatalogEntry = {
+  id: string | null;
+  exportName: string | null;
+  modulePath: string;
+  builtIn: boolean;
+  meta: FeatureMetaSnapshot | null;
+  error?: string;
+  /**
+   * The installed package the feature comes from; absent for the
+   * workspace's own and the engine's. `library`: in the user library but
+   * not used by this project yet — using it pins it first.
+   */
+  package?: PackageRef;
+};
+
+/**
+ * `POST /api/engine/restart` — end this engine so the host that runs it
+ * starts a fresh one on the same port (`fluidcad serve` does); the page's
+ * socket reconnects to it by itself. `error` says why when this engine
+ * can't restart itself.
+ */
+export async function restartEngine(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const res = await fetch('api/engine/restart', { method: 'POST' });
+    if (res.ok) {
+      return { ok: true };
+    }
+    const body = await res.json().catch(() => null) as { error?: string } | null;
+    return { ok: false, error: body?.error ?? `The engine answered ${res.status}.` };
+  } catch (err: any) {
+    return { ok: false, error: err?.message ?? String(err) };
+  }
+}
+
+/**
+ * `GET /api/features/catalog` — the features the workspace offers. Null
+ * while the engine is not up, or when the server can't answer.
+ */
+export async function getFeatureCatalog(signal?: AbortSignal): Promise<FeatureCatalogEntry[] | null> {
+  const data = await getJson<{ features: FeatureCatalogEntry[] }>('api/features/catalog', undefined, signal);
+  return data?.features ?? null;
+}
+
+/**
+ * Where a feature's icon is served — `path` exactly as its metadata
+ * declares it. `revision` busts the browser's copy after the module
+ * changed.
+ */
+export function featureAssetUrl(id: string, path: string, revision = 0): string {
+  const qs = new URLSearchParams({ id, path });
+  if (revision > 0) {
+    qs.set('v', String(revision));
+  }
+  return `api/features/asset?${qs.toString()}`;
+}
+
+/** One thing a custom feature dialog picked for a value. */
+export type CustomPickInput =
+  /** Faces or edges picked in the viewport — one per value, every picked shape in it. */
+  | { kind: 'entities'; entities: ApplyFeatureEntity[] }
+  /**
+   * A statement picked in the viewport or the timeline: a sketch, an axis or
+   * plane statement, a solid, a feature, a connector — `picker` the kind it
+   * was picked as when the value takes several, `slot` a connector copy's.
+   */
+  | ({ kind: 'statement'; picker?: FeaturePickerKind; slot?: number } & SketchSourceRef)
+  /** A vertex picked in the viewport: a point value's. */
+  | { kind: 'point'; entity: { shapeId: string; sub: { type: 'vertex'; index: number } } }
+  /** A face or an edge picked in the viewport and the point taken on it: an anchor value's. */
+  | { kind: 'anchor'; entity: ApplyFeatureEntity; anchor: ConnectorAnchor }
+  /** A world axis or an origin plane. */
+  | { kind: 'standard'; name: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' }
+  /** Edit only: one element of the statement's own value, by position. */
+  | { kind: 'verbatim'; sourceIndex: number };
+
+/** The request fields a custom feature's create and edit share. */
+type CustomFeatureFields = {
+  /** The feature's catalog id. */
+  id: string;
+  /** Typed-in values by name, a select of several's as a list (`[]` writes an empty one), a choice naming a variable as `{ ref }`, any kind's expression as `{ expr }`; `null` drops one (edit). */
+  values: Record<string, ValueExpr | boolean | string | FeatureListValue | FeatureRefValue | FeatureExprValue | null>;
+  /** Picked values by name, element by element; an empty list drops one (edit). */
+  picks: Record<string, CustomPickInput[]>;
+  operation?: FeatureOpKind;
+  newVariables?: NewVariable[];
+  preview?: true;
+  signal?: AbortSignal;
+};
+
+/** A custom feature create: the `.scope(…)` solids by call site. */
+export type CustomFeatureApplyOptions = CustomFeatureFields & { scope?: SketchSourceRef[] };
+
+/**
+ * A custom feature edit: a value or pick left out keeps the statement's own
+ * text; `scope` is the full replacement list (omitted keeps the chain).
+ */
+export type CustomFeatureEditOptions = CustomFeatureFields & EditSessionFields & { scope?: ScopeTargetRef[] };
+
+/** Write (or preview) a custom feature's statement. */
+export async function applyCustomFeature(options: CustomFeatureApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'custom',
+    custom: CustomFeatureRequests.body(options),
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** Rewrite (or preview) the custom feature statement at `edit` in place. */
+export async function applyCustomFeatureEdit(
+  edit: FeatureEditTarget,
+  options: CustomFeatureEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'custom',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    custom: CustomFeatureRequests.body(options),
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** The `custom` object of an apply request. */
+class CustomFeatureRequests {
+  static body(options: CustomFeatureFields & { scope?: unknown[] }): Record<string, unknown> {
+    return {
+      id: options.id,
+      values: options.values,
+      picks: options.picks,
+      ...(options.operation ? { operation: options.operation } : {}),
+      ...(options.scope !== undefined ? { scope: options.scope } : {}),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Packages (Settings → Packages, the consent dialog, the project's Packages)
+// ---------------------------------------------------------------------------
+
+/** Where a package installs: the user library, or the open project's `packages/` copy. */
+export type PackageTarget = 'library' | 'project';
+
+/** A package a catalog entry or a timeline row comes from. `library`: not used by this project yet. */
+export type PackageRef = { name: string; version: string; availability?: 'dependency' | 'library' };
+
+/** One feature of a package, as its manifest snapshots it. */
+export type PackageManifestFeature = {
+  id: string;
+  exportName: string;
+  module: string;
+  meta: FeatureMetaSnapshot;
+};
+
+/** One part or assembly of a package. */
+export type PackageManifestPart = {
+  exportName: string;
+  module: string;
+  name: string;
+  kind: 'part' | 'assembly';
+};
+
+/** What the page reads of a package's `manifest.json`. */
+export type PackageManifest = {
+  name: string;
+  version: string;
+  description?: string;
+  license?: string;
+  author?: string;
+  homepage?: string;
+  /** The engine it was packed and checked on. */
+  engine: string;
+  minEngine: string;
+  sdkVersion: number;
+  features: PackageManifestFeature[];
+  parts: PackageManifestPart[];
+  files: string[];
+};
+
+/** Something the consent dialog says before an install. */
+export type PackageWarning = { code: 'min-engine' | 'sdk-version' | string; message: string };
+
+/**
+ * A package archive the engine checked and extracted, waiting for its
+ * install: what the hub download answers (H10's `POST /api/hub/inspect`;
+ * packages install only from the hub, HD31), whose `token` the install,
+ * discard and icon routes take.
+ */
+export type PackageInspection = {
+  token: string;
+  manifest: PackageManifest;
+  integrity: string;
+  warnings: PackageWarning[];
+  bytes: number;
+  /** Where the "New packages go to" setting sends it (the project only when one is open). */
+  defaultTarget: PackageTarget;
+};
+
+/** One installed package directory. */
+export type InstalledPackage = {
+  target: PackageTarget;
+  name: string;
+  version: string;
+  directory: string;
+  manifest: PackageManifest | null;
+  problem?: string;
+  bytes: number;
+};
+
+/** One pin of the project, and where it is installed. */
+export type PinnedPackage = {
+  name: string;
+  version: string;
+  integrity: string;
+  availability: PackageTarget | 'missing';
+  directory: string | null;
+};
+
+/** A pinned package's marks from the hub (H12): the package's deprecation. */
+export type HubPinMarks = {
+  deprecated: string;
+};
+
+/** A package the project can't load (`code: 'missing'` for a pin installed nowhere). */
+export type PackageProblem = { code: string; name: string; version: string | null; message: string };
+
+/** `GET /api/packages`. */
+export type PackagesOverview = {
+  library: { path: string; source: 'env' | 'preference' | 'default'; packages: InstalledPackage[] };
+  project: { path: string; packages: InstalledPackage[] } | null;
+  pins: PinnedPackage[] | null;
+  pinsProblem?: string;
+  /**
+   * The package this workspace is (the `package` block of its
+   * `fluidcad.json`): what the top bar's Publish button is about. Null for
+   * a plain project and outside a project.
+   */
+  package: { name: string; version: string } | null;
+  /**
+   * Why the `package` block couldn't be read. The workspace still counts as
+   * a package (the button is Publish, and the dialog opens on this sentence).
+   */
+  packageProblem?: string;
+  /** Pinned name → the newest version above the pin, from the library or the hub (H10). */
+  updates?: Record<string, string>;
+  /** Where each of `updates` is: `library` when the library holds it, else `hub`. */
+  updatesFrom?: Record<string, 'library' | 'hub'>;
+  /** Pinned name → what the hub's owner said about it (H12): the package deprecated. Only pins with something to say. */
+  hubMarks?: Record<string, HubPinMarks>;
+  problems: PackageProblem[];
+  defaultTarget: PackageTarget;
+  /** What the folder the library just left still holds. */
+  libraryOffer?: { path: string; packages: { name: string; version: string }[] } | null;
+};
+
+/**
+ * `POST /api/packages/install`: the package installs under its manifest's
+ * name. `upgrade` lets a pin of an older version move to this one (the Hub
+ * panel's "Upgrade to X", H11 decision 7).
+ */
+export type PackageInstallRequest = { token: string; target: PackageTarget; replace?: boolean; pin?: boolean; upgrade?: boolean };
+
+/** `POST /api/packages/install`. */
+export type PackageInstallOutcome = {
+  target: PackageTarget;
+  name: string;
+  version: string;
+  directory: string;
+  integrity: string;
+  status: 'installed' | 'unchanged' | 'replaced';
+  pin: 'pinned' | 'unchanged' | null;
+};
+
+/** One package of a library-folder copy. */
+export type PackageFolderCopy = { name: string; version: string; status: 'installed' | 'unchanged' | 'refused'; error?: string };
+
+/** A refusal from a package route: its sentence, and the code (`conflict` offers Replace). */
+export type PackageRefusal = { ok: false; status: number; error: string; code?: string };
+
+export type PackageResult<T> = ({ ok: true } & T) | PackageRefusal;
+
+/**
+ * The package routes, as one object the package UI is handed (tests give
+ * it a fake). Every call answers a result rather than throwing: a refusal
+ * carries the server's sentence, which the UI shows as it is.
+ */
+export interface PackagesClient {
+  overview(): Promise<PackagesOverview | null>;
+  install(request: PackageInstallRequest): Promise<PackageResult<{ outcome: PackageInstallOutcome }>>;
+  discard(token: string): Promise<void>;
+  copy(name: string, version: string, to: PackageTarget): Promise<PackageResult<{}>>;
+  remove(name: string, version: string, target: PackageTarget): Promise<PackageResult<{ strandedPin: PinnedPackage | null }>>;
+  copyLibraryOffer(): Promise<PackageResult<{ copies: PackageFolderCopy[] }>>;
+  dismissLibraryOffer(): Promise<void>;
+  /** Save preferences and hear the answer: a refused library folder comes back with its reason. */
+  savePreferences(patch: Partial<UserPreferences>): Promise<PackageResult<{ prefs: UserPreferences }>>;
+  /** Where an inspected archive's feature icon is served. */
+  inspectedIconUrl(token: string, featureId: string): string;
+}
+
+/** {@link PackagesClient} over the engine's HTTP routes. */
+export class HttpPackagesClient implements PackagesClient {
+  async overview(): Promise<PackagesOverview | null> {
+    return getJson<PackagesOverview>('api/packages');
+  }
+
+  async install(request: PackageInstallRequest): Promise<PackageResult<{ outcome: PackageInstallOutcome }>> {
+    const answer = await HttpPackagesClient.sendJson('api/packages/install', 'POST', request);
+    return answer.ok === false ? answer : { ok: true, outcome: answer.body as PackageInstallOutcome };
+  }
+
+  async discard(token: string): Promise<void> {
+    await HttpPackagesClient.sendJson('api/packages/discard', 'POST', { token });
+  }
+
+  async copy(name: string, version: string, to: PackageTarget): Promise<PackageResult<{}>> {
+    const answer = await HttpPackagesClient.sendJson('api/packages/copy', 'POST', { name, version, to });
+    return answer.ok === false ? answer : { ok: true };
+  }
+
+  async remove(name: string, version: string, target: PackageTarget): Promise<PackageResult<{ strandedPin: PinnedPackage | null }>> {
+    const answer = await HttpPackagesClient.send(`api/packages/${name}/${encodeURIComponent(version)}?target=${target}`, { method: 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, strandedPin: (answer.body as { strandedPin?: PinnedPackage | null }).strandedPin ?? null };
+  }
+
+  async copyLibraryOffer(): Promise<PackageResult<{ copies: PackageFolderCopy[] }>> {
+    const answer = await HttpPackagesClient.send('api/packages/library-offer', { method: 'POST' });
+    return answer.ok === false ? answer : { ok: true, copies: (answer.body as { copies: PackageFolderCopy[] }).copies };
+  }
+
+  async dismissLibraryOffer(): Promise<void> {
+    await HttpPackagesClient.send('api/packages/library-offer', { method: 'DELETE' });
+  }
+
+  async savePreferences(patch: Partial<UserPreferences>): Promise<PackageResult<{ prefs: UserPreferences }>> {
+    const answer = await HttpPackagesClient.sendJson('api/preferences', 'POST', patch);
+    return answer.ok === false ? answer : { ok: true, prefs: answer.body as UserPreferences };
+  }
+
+  inspectedIconUrl(token: string, featureId: string): string {
+    return `api/packages/inspected-icon?${new URLSearchParams({ token, id: featureId }).toString()}`;
+  }
+
+  private static sendJson(url: string, method: string, body: unknown) {
+    return HttpPackagesClient.send(url, { method, headers: JSON_HEADERS, body: JSON.stringify(body) });
+  }
+
+  /** One request: the parsed body on success, the server's sentence (or a network one) otherwise. */
+  private static async send(url: string, init: RequestInit): Promise<{ ok: true; body: unknown } | PackageRefusal> {
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+      if (!res.ok) {
+        return { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, ...(body?.code ? { code: body.code } : {}) };
+      }
+      return { ok: true, body };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}` };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The hub, through the engine (H10's bridge; the UI never calls the hub)
+// ---------------------------------------------------------------------------
+
+/** What this machine has of a hub package: every installed version (oldest first), the project's pin, and a newer version the hub offers. */
+export type HubLocalMarks = { installed: string[]; pinned: string | null; updateAvailable: string | null };
+
+/** `GET /api/hub/status`. */
+export type HubStatus = {
+  hubUrl: string;
+  reachable: boolean;
+  /** Who the stored credential is; `handle` null when the hub couldn't say. Null when signed out. */
+  signedIn: { handle: string | null } | null;
+  /** This engine's FluidCAD version and feature SDK. */
+  engine: string;
+  sdk: number;
+};
+
+export type HubSort = 'relevance' | 'installs' | 'likes' | 'updated' | 'newest';
+export type HubOrder = 'asc' | 'desc';
+export type HubContents = 'features' | 'parts' | 'assemblies';
+export type HubUnits = 'metric' | 'imperial';
+
+/** One package in the search results, as the engine hands it on. */
+export type HubSearchRow = {
+  fullName: string;
+  scope: string;
+  name: string;
+  version: string;
+  description: string | null;
+  /** The card image on the engine's proxy path, or null. */
+  cardImageUrl: string | null;
+  features: { id: string; label: string; iconUrl: string | null }[];
+  moreFeatures: number;
+  counts: { features: number; parts: number; assemblies: number };
+  likes: number;
+  installs: number;
+  publisher: { handle: string };
+  updatedAt: string;
+  license: string | null;
+  deprecated: string | null;
+  minEngine: string;
+  /** Absent from a hub older than the H10 follow-up. */
+  sdkVersion?: number;
+  /** Whether this FluidCAD runs it; null when the search named no engine. */
+  compatible: boolean | null;
+  local: HubLocalMarks;
+};
+
+/** The canonical request a search answer echoes. */
+export type HubSearchEcho = {
+  q: string;
+  words: string[];
+  scopes: string[];
+  contents: HubContents[];
+  keywords: string[];
+  units: HubUnits[];
+  licenses: string[];
+  engine: string | null;
+  sdk: number | null;
+  compatible: boolean;
+  sort: HubSort;
+  /** Absent from a hub older than H11. */
+  order?: HubOrder;
+  page: number;
+  limit: number;
+};
+
+/** The hub's facets the panel shows (the hub also counts keywords, which the panel doesn't filter by). */
+export type HubFacets = {
+  contents: { features: number; parts: number; assemblies: number };
+  units: { metric: number; imperial: number };
+  licenses: { value: string; count: number; label: string }[];
+  compatible: { count: number } | null;
+};
+
+/** `GET /api/hub/search`. */
+export type HubSearchAnswer = {
+  request: HubSearchEcho;
+  total: number;
+  capped: boolean;
+  page: number;
+  limit: number;
+  results: HubSearchRow[];
+  facets: HubFacets;
+};
+
+/**
+ * What the panel asks: the hub's own names; null leaves a value to the hub.
+ * No keyword filter: keywords only feed the hub's matching of `q` (the
+ * user, 2026-10-12).
+ */
+export type HubSearchParams = {
+  q: string;
+  contents: HubContents[];
+  units: HubUnits[];
+  license: string[];
+  sort: HubSort | null;
+  order: HubOrder | null;
+  page: number;
+};
+
+export type HubCatalogFeature = {
+  id: string;
+  exportName: string;
+  label: string;
+  description: string | null;
+  module: string;
+  group: string | null;
+  kind: string | null;
+  icon: string | null;
+  iconUrl: string | null;
+  paramCount: number;
+};
+
+export type HubCatalogModel = {
+  exportName: string;
+  name: string;
+  module: string;
+  folder: 'parts' | 'assemblies';
+  kind: 'part' | 'assembly';
+  exportKind: 'value' | 'factory';
+  paramCount: number;
+};
+
+export type HubVersionSummary = {
+  version: string;
+  status: 'uploading' | 'draft' | 'in_review' | 'rejected' | 'published';
+  prerelease: boolean;
+  integrity: string | null;
+  size: number | null;
+  engine: string | null;
+  minEngine: string | null;
+  sdkVersion: number | null;
+  notes: string;
+  publishedAt: string | null;
+  removed: { at: string; reason: string | null } | null;
+  isLatest: boolean;
+};
+
+export type HubMedia = { id: string; url: string; caption: string; isCard: boolean; modelModule: string | null; width: number; height: number; position: number };
+
+/** `GET /api/hub/packages/@s/n`: what the panel reads of the hub's detail. */
+export type HubPackage = {
+  name: string;
+  access: 'public' | 'owner' | 'admin';
+  publisher: string | null;
+  description: string | null;
+  keywords: string[];
+  homepage: string | null;
+  deprecatedMessage: string | null;
+  counts: { installs: number; likes: number; comments: number };
+  latestVersion: string | null;
+  latest: {
+    version: string;
+    integrity: string;
+    size: number;
+    unpackedSize: number;
+    engine: string;
+    minEngine: string;
+    sdkVersion: number;
+    unit: string;
+    notes: string;
+    license: string | null;
+    publishedAt: string | null;
+    features: HubCatalogFeature[];
+    models: HubCatalogModel[];
+  } | null;
+  versions: HubVersionSummary[];
+  compatibility: { engine: string | null; sdk: number | null; latestCompatible: boolean; newestCompatible: string | null } | null;
+  listing: { license: string | null; homepageUrl: string | null; repositoryUrl: string | null; media: HubMedia[] };
+  updatedAt: string;
+  local: HubLocalMarks;
+};
+
+/** One value of a feature, as its manifest declares it (the parameter table reads it as data). */
+export type HubParamSpec = Record<string, unknown> & { label?: string };
+
+/** `GET /api/hub/packages/@s/n/versions/<v>`: one version's manifest, notes and README path. */
+export type HubVersion = {
+  name: string;
+  version: string;
+  status: HubVersionSummary['status'];
+  access: 'public' | 'owner' | 'admin';
+  integrity: string | null;
+  engine: string | null;
+  minEngine: string | null;
+  sdkVersion: number | null;
+  unit: string | null;
+  size: number | null;
+  notes: string;
+  publishedAt: string | null;
+  isLatest: boolean;
+  /** The README on the engine's file proxy, or null. */
+  readmeUrl: string | null;
+  manifest: {
+    features: { id: string; exportName: string; module: string; meta: Record<string, unknown> & { params?: Record<string, HubParamSpec>; label?: string } }[];
+    parts: { exportName: string; module: string; name: string; kind: 'part' | 'assembly'; exportKind: 'value' | 'factory'; params: { name: string; label?: string; type?: string; defaultValue?: unknown }[] }[];
+  } | null;
+  local: HubLocalMarks;
+};
+
+/** `POST /api/hub/inspect`: the inspection the install route's token belongs to, with the hub's sentences. */
+export type HubInspection = PackageInspection & {
+  notes: string[];
+  source: { hub: string; status: string; access: 'public' | 'owner' | 'admin' };
+};
+
+/** A refusal from the bridge carries its code: `hub-unreachable` is the offline state. */
+export type HubResult<T> = PackageResult<T>;
+
+/**
+ * `GET`/`POST`/`DELETE api/hub/login` (H11 follow-up 2): one sign-in from
+ * the app, run by the engine as `fluidcad login` runs it. `pending` waits
+ * for the browser (`authorizeUrl` is the page to open); the others have
+ * ended, `error` saying how for all but `signed-in`.
+ */
+export type HubLoginState = {
+  id: string;
+  hub: string;
+  status: 'pending' | 'signed-in' | 'denied' | 'expired' | 'cancelled' | 'failed';
+  authorizeUrl: string | null;
+  startedAt: string;
+  expiresAt: string;
+  handle: string | null;
+  code: string | null;
+  error: string | null;
+};
+
+/**
+ * `POST api/hub/logout` (H11 follow-up 3): signing out from the app, run by
+ * the engine as `fluidcad logout` runs it. The saved credentials are gone
+ * whatever the outcome; `not-revoked` says the hub couldn't revoke the
+ * token (`reason`; `unreachable` when it didn't answer rather than
+ * refused), and `envToken` that `FLUIDCAD_HUB_TOKEN` still signs requests.
+ */
+export type HubLogoutResult = {
+  hub: string;
+  outcome: 'revoked' | 'already-revoked' | 'not-revoked' | 'not-signed-in';
+  handle: string | null;
+  email: string | null;
+  reason: string | null;
+  unreachable: boolean;
+  envToken: boolean;
+};
+
+/**
+ * `GET api/hub/packages/@s/n/me` (H13): what only the signed-in account sees
+ * about a package: whether it likes it, its lists (each with whether it
+ * holds the package) and the package's comments it marked helpful.
+ */
+export type HubSocialState = {
+  package: string;
+  liked: boolean;
+  lists: { slug: string; title: string; isPublic: boolean; items: number; contains: boolean }[];
+  helpful: string[];
+};
+
+/** `PUT`/`DELETE api/hub/packages/@s/n/like`: whether the account likes it now, and the package's count after the change. */
+export type HubLikeState = { package: string; liked: boolean; likes: number };
+
+/**
+ * The bridge's routes as one object the Hub panel is handed (tests give it
+ * a fake, `ui/tests/fixtures/fake-hub-client.ts`). Like the packages client,
+ * every call answers a result rather than throwing; an aborted search
+ * answers a refusal with status 0 and code `aborted`.
+ */
+export interface HubClient {
+  status(): Promise<HubResult<{ status: HubStatus }>>;
+  search(params: HubSearchParams, signal?: AbortSignal): Promise<HubResult<{ answer: HubSearchAnswer }>>;
+  package(name: string): Promise<HubResult<{ pkg: HubPackage }>>;
+  version(name: string, version: string): Promise<HubResult<{ version: HubVersion }>>;
+  /** A README (or any text file) through the engine's file proxy. */
+  text(url: string): Promise<HubResult<{ text: string }>>;
+  inspect(request: { name: string; version: string | null; target: PackageTarget }, signal?: AbortSignal): Promise<HubResult<{ inspection: HubInspection }>>;
+  /** Start signing in (or answer the sign-in already waiting); refused with `hub-unreachable` when the hub doesn't answer. */
+  login(): Promise<HubResult<{ login: HubLoginState; resumed: boolean }>>;
+  /** The sign-in waiting or last ended in the engine; null when there was none. */
+  loginState(): Promise<HubResult<{ login: HubLoginState | null }>>;
+  /** Stop the waiting sign-in. */
+  cancelLogin(): Promise<HubResult<{ login: HubLoginState | null }>>;
+  /** Sign this computer out of the hub: the saved token revoked there, then forgotten. */
+  logout(): Promise<HubResult<{ logout: HubLogoutResult }>>;
+  /**
+   * The signed-in account's own state on `name`. It acts as the account:
+   * `signed-out` (no sign-in, or one the hub refused), `sign-in-again` (a
+   * sign-in older than likes), never an anonymous answer.
+   */
+  socialState(name: string): Promise<HubResult<{ state: HubSocialState }>>;
+  /**
+   * Like (`liked`) or stop liking `name`; idempotent. Refused as
+   * {@link socialState} is, and with `forbidden`, `not-found`,
+   * `rate-limited` or `hub-unreachable`.
+   */
+  setLiked(name: string, liked: boolean): Promise<HubResult<{ like: HubLikeState }>>;
+}
+
+/** {@link HubClient} over the engine's `/api/hub/*` routes. */
+/**
+ * Per-project UI choices the engine keeps in the project's
+ * `.fluidcad/ui-state.json` (H12: `GET`/`PATCH api/workspace/ui-state`):
+ * what a surface remembers for this project across reloads and restarts,
+ * in every host (the desktop shell, a browser tab, VS Code's webview and
+ * Neovim's page all talk to the same engine). Failures read as nothing
+ * remembered and are never thrown: a forgotten choice is a papercut.
+ */
+export type ProjectUiState = { hubInstallTarget: PackageTarget | null };
+
+export class ProjectUiStateClient {
+  async load(): Promise<ProjectUiState | null> {
+    try {
+      const res = await fetch('api/workspace/ui-state');
+      return res.ok ? ((await res.json()) as ProjectUiState) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async save(patch: Partial<ProjectUiState>): Promise<boolean> {
+    try {
+      const res = await fetch('api/workspace/ui-state', { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify(patch) });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export class HttpHubClient implements HubClient {
+  async status(): Promise<HubResult<{ status: HubStatus }>> {
+    const answer = await HttpHubClient.send('api/hub/status', {});
+    return answer.ok === false ? answer : { ok: true, status: answer.body as HubStatus };
+  }
+
+  async search(params: HubSearchParams, signal?: AbortSignal): Promise<HubResult<{ answer: HubSearchAnswer }>> {
+    const query = HttpHubClient.searchQuery(params);
+    const answer = await HttpHubClient.send(`api/hub/search${query ? `?${query}` : ''}`, { signal });
+    return answer.ok === false ? answer : { ok: true, answer: answer.body as HubSearchAnswer };
+  }
+
+  async package(name: string): Promise<HubResult<{ pkg: HubPackage }>> {
+    const answer = await HttpHubClient.send(`api/hub/packages/${HttpHubClient.namePath(name)}`, {});
+    return answer.ok === false ? answer : { ok: true, pkg: answer.body as HubPackage };
+  }
+
+  async version(name: string, version: string): Promise<HubResult<{ version: HubVersion }>> {
+    const answer = await HttpHubClient.send(`api/hub/packages/${HttpHubClient.namePath(name)}/versions/${encodeURIComponent(version)}`, {});
+    return answer.ok === false ? answer : { ok: true, version: answer.body as HubVersion };
+  }
+
+  async text(url: string): Promise<HubResult<{ text: string }>> {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+        return { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, ...(body?.code ? { code: body.code } : {}) };
+      }
+      return { ok: true, text: await res.text() };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}` };
+    }
+  }
+
+  async inspect(request: { name: string; version: string | null; target: PackageTarget }, signal?: AbortSignal): Promise<HubResult<{ inspection: HubInspection }>> {
+    const answer = await HttpHubClient.send('api/hub/inspect', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(request), signal });
+    return answer.ok === false ? answer : { ok: true, inspection: answer.body as HubInspection };
+  }
+
+  async login(): Promise<HubResult<{ login: HubLoginState; resumed: boolean }>> {
+    const answer = await HttpHubClient.send('api/hub/login', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    if (answer.ok === false) {
+      return answer;
+    }
+    const body = answer.body as { login: HubLoginState; resumed: boolean };
+    return { ok: true, login: body.login, resumed: body.resumed };
+  }
+
+  async loginState(): Promise<HubResult<{ login: HubLoginState | null }>> {
+    const answer = await HttpHubClient.send('api/hub/login', {});
+    return answer.ok === false ? answer : { ok: true, login: (answer.body as { login: HubLoginState | null }).login };
+  }
+
+  async cancelLogin(): Promise<HubResult<{ login: HubLoginState | null }>> {
+    const answer = await HttpHubClient.send('api/hub/login', { method: 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, login: (answer.body as { login: HubLoginState | null }).login };
+  }
+
+  async logout(): Promise<HubResult<{ logout: HubLogoutResult }>> {
+    const answer = await HttpHubClient.send('api/hub/logout', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    return answer.ok === false ? answer : { ok: true, logout: (answer.body as { logout: HubLogoutResult }).logout };
+  }
+
+  async socialState(name: string): Promise<HubResult<{ state: HubSocialState }>> {
+    const answer = await HttpHubClient.send(`api/hub/packages/${HttpHubClient.namePath(name)}/me`, {});
+    return answer.ok === false ? answer : { ok: true, state: answer.body as HubSocialState };
+  }
+
+  async setLiked(name: string, liked: boolean): Promise<HubResult<{ like: HubLikeState }>> {
+    const answer = await HttpHubClient.send(`api/hub/packages/${HttpHubClient.namePath(name)}/like`, { method: liked ? 'PUT' : 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, like: answer.body as HubLikeState };
+  }
+
+  /** The panel's parameters as the bridge reads them: repeated keys for the lists, defaults left out. */
+  static searchQuery(params: HubSearchParams): string {
+    const query = new URLSearchParams();
+    if (params.q.trim() !== '') {
+      query.set('q', params.q.trim());
+    }
+    for (const key of ['contents', 'units', 'license'] as const) {
+      for (const value of params[key]) {
+        query.append(key, value);
+      }
+    }
+    if (params.sort) {
+      query.set('sort', params.sort);
+    }
+    if (params.order) {
+      query.set('order', params.order);
+    }
+    if (params.page > 1) {
+      query.set('page', String(params.page));
+    }
+    return query.toString();
+  }
+
+  /** `@acme/kit` → `@acme/kit` with each part encoded (the scope keeps its `@`). */
+  private static namePath(name: string): string {
+    return name.split('/').map((part) => encodeURIComponent(part).replace(/^%40/, '@')).join('/');
+  }
+
+  private static async send(url: string, init: RequestInit): Promise<{ ok: true; body: unknown } | PackageRefusal> {
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => null) as { error?: string; code?: string } | null;
+      if (!res.ok) {
+        return { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, ...(body?.code ? { code: body.code } : {}) };
+      }
+      return { ok: true, body };
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        return { ok: false, status: 0, error: 'Cancelled.', code: 'aborted' };
+      }
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}` };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Publishing the workspace's package (ui-packages-plan N3/N4): the Publish
+// dialog over the engine's `/api/publish/*` routes, which run `fluidcad
+// publish`'s own `HubPublisher` and pack once.
+// ---------------------------------------------------------------------------
+
+/** Where a session stands; the first five are running, nothing else may start meanwhile. */
+export type HubAppPublishStatus = 'checking' | 'packing' | 'awaiting-confirm' | 'uploading' | 'verifying' | 'done' | 'declined' | 'failed';
+
+export const HUB_APP_PUBLISH_RUNNING: readonly HubAppPublishStatus[] = ['checking', 'packing', 'awaiting-confirm', 'uploading', 'verifying'];
+
+/**
+ * Why a session ended `failed` or `declined`, and every publish route's
+ * refusal body: the sentence in the dialog's words, and the code it acts
+ * on — `signed-out` (Sign in), `version-exists` / `version-not-greater`
+ * (bump; `details.highest`), `in-review` / `open-version-exists`
+ * (Withdraw; `details.version`, `details.status`), `unsaved-changes`
+ * (save first), `not-a-package` / `bad-config` (the block problem),
+ * `forbidden`, `email-unverified`, `publishing-closed`, `cli-too-old`,
+ * `no-models`, the hub's limits (`archive-too-large`, `notes-too-long`, …),
+ * `nothing-open`, `integrity-mismatch`, `hub-unreachable`, `cancelled` and
+ * `confirm-timeout` (declined), `publish-running`, `nothing-to-confirm`,
+ * `hub-config`.
+ */
+export type HubAppPublishRefusal = { message: string; code: string; details?: unknown };
+
+/** What the archive holds, as the pack found it. */
+export type HubPublishContents = {
+  features: { id: string; exportName: string; module: string }[];
+  parts: { exportName: string; name: string; module: string; params: number }[];
+  assemblies: { exportName: string; name: string; module: string; params: number }[];
+  models: number;
+  docs: string[];
+};
+
+/** A field without a useful description (`FeatureDocs`' gap): the feature itself, one of its values, or a part's or assembly's parameter. */
+export type HubPublishDocGap = {
+  kind: 'feature' | 'value' | 'param';
+  /** The feature's id, or the part's or assembly's export name. */
+  owner: string;
+  name: string;
+  label: string;
+  reason: 'missing' | 'repeats-label' | 'too-long';
+};
+
+/**
+ * Something pack noticed but packed anyway; never a refusal.
+ * `undocumented-fields` carries its `fields`; `docs-link` its `target` and `line`.
+ */
+export type HubPublishWarning = { code: string; file: string; message: string; target?: string; line?: number; fields?: HubPublishDocGap[] };
+
+/** What is, or was, uploaded: what `fluidcad publish` prints before `Upload it?`. */
+export type HubPublishSummary = {
+  hub: string;
+  handle: string;
+  name: string;
+  version: string;
+  /** The archive in bytes. */
+  size: number;
+  /** Files in the archive, `manifest.json` included. */
+  files: number;
+  integrity: string;
+  contents: HubPublishContents;
+  warnings: HubPublishWarning[];
+  /** `draft` for a package's first version (finished in the browser), else `in_review`. */
+  becomes: 'draft' | 'in_review';
+  /** A draft of this version is on the hub: the upload replaces its archive, and the wizard keeps its edits. */
+  replacesDraft: boolean;
+  notes: string | null;
+  dryRun: boolean;
+};
+
+/** The hub's answer to an upload. */
+export type HubUploadResult = {
+  name: string;
+  version: string;
+  /** `draft`: the package's first version, finished in the wizard; `in_review`: submitted for review. */
+  status: 'draft' | 'in_review';
+  /** The first-publish wizard, for a `draft`. */
+  wizardUrl: string | null;
+  /** The owner's status page, for a version `in_review`. */
+  reviewUrl: string | null;
+  integrity: string;
+  size: number;
+  unpackedSize: number;
+  /** A draft of this version was replaced. */
+  replaced: boolean;
+  dryRun: boolean;
+};
+
+/** `GET api/publish`: one publish, as the page follows it. */
+export type HubAppPublishState = {
+  id: string;
+  /** The hub's origin. */
+  hub: string;
+  status: HubAppPublishStatus;
+  dryRun: boolean;
+  notes: string | null;
+  startedAt: string;
+  /** While `awaiting-confirm`: when it is declined on its own. */
+  confirmBy: string | null;
+  /** From `awaiting-confirm` on (a dry run: from `uploading` on). */
+  summary: HubPublishSummary | null;
+  /** While `uploading`: the bytes sent so far. */
+  progress: { sent: number; total: number } | null;
+  /** `done`: the hub's answer. */
+  result: HubUploadResult | null;
+  /** `failed`: the refusal; `declined`: why (`cancelled`, `confirm-timeout`). */
+  error: HubAppPublishRefusal | null;
+};
+
+/** `POST api/publish`'s body. */
+export type HubAppPublishRequest = { notes?: string | null; dryRun?: boolean };
+
+/** `GET api/publish/package`: the dialog's header (U7: a broken block is still a package workspace, with its problem). */
+export type HubAppPublishPackage = {
+  package: { name: string; version: string } | null;
+  problem: string | null;
+};
+
+export type HubVersionState = 'uploading' | 'draft' | 'in_review' | 'rejected' | 'published';
+
+/** One version as its owner sees it (the hub's `VersionStatus`): the fields the dialog shows. */
+export type HubVersionStatus = {
+  name: string;
+  version: string;
+  status: HubVersionState;
+  /** The first-publish wizard, for a `draft`. */
+  wizardUrl: string | null;
+  /** The owner's status page, for any other state. */
+  reviewUrl: string | null;
+  /** For a draft: when it may be deleted if nothing changes. */
+  draftExpiresAt: string | null;
+  submittedAt: string | null;
+  publishedAt: string | null;
+  reviewedAt: string | null;
+  /** Why a reviewer rejected the version. */
+  reviewNote: string | null;
+  integrity: string | null;
+  notes: string;
+  size: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** The package as its owner sees it (the hub's `PackageDetail`): what `fluidcad publish --status` reads. */
+export type HubPackageStatus = {
+  name: string;
+  /** `active`, or what the hub's admins made it. */
+  status: string;
+  /** The draft, in-review or uploading version, if any. */
+  openVersion: HubVersionStatus | null;
+  /** The most recent rejection above the highest published version, with its reason. */
+  rejectedVersion: HubVersionStatus | null;
+  /** What installs by name get; null until a version is approved. */
+  latestVersion: string | null;
+  /** The highest published version, removed ones included: an upload must be greater. */
+  highestVersion: string | null;
+};
+
+/** `GET api/publish/status`: where the package stands on the hub. */
+export type HubPublishStatus = {
+  name: string;
+  /** Null when the hub has no such package for this account (nothing uploaded yet). */
+  package: HubPackageStatus | null;
+  /** The latest published version, when there is one. */
+  latest: HubVersionStatus | null;
+};
+
+/** `POST api/publish/version`: what the block's version became. */
+export type PackageVersionChange = { name: string; from: string; to: string; configPath: string };
+
+/** A refusal from a publish route: the sentence, the code ({@link HubAppPublishRefusal}) and its details. */
+export type PublishRefusal = { ok: false; status: number; error: string; code: string; details?: unknown };
+
+export type PublishResult<T> = ({ ok: true } & T) | PublishRefusal;
+
+/**
+ * The publish routes as one object the Publish dialog is handed (tests give
+ * it a fake, `ui/tests/fixtures/fake-publish-client.ts`). Every call answers
+ * a result rather than throwing; a refusal carries the engine's sentence
+ * and code. A preflight refusal is **not** a refusal here: `start` answers
+ * `ok` with `publish.status === 'failed'` and the refusal in `publish.error`.
+ */
+export interface PublishClient {
+  /** The workspace's `package` block, or its problem. */
+  packageInfo(): Promise<PublishResult<{ package: HubAppPublishPackage }>>;
+  /** Where the package stands on the hub; `signed-out` (401) without credentials. */
+  status(): Promise<PublishResult<{ status: HubPublishStatus }>>;
+  /** Begin a publish; answers once the preflight is through (`packing`, or `failed`). 409 `publish-running` while one runs. */
+  start(request: HubAppPublishRequest): Promise<PublishResult<{ publish: HubAppPublishState }>>;
+  /** The session running or last ended; null for none. */
+  current(): Promise<PublishResult<{ publish: HubAppPublishState | null }>>;
+  /** Upload what an `awaiting-confirm` session packed. */
+  confirm(): Promise<PublishResult<{ publish: HubAppPublishState }>>;
+  /** Stop a session before anything is sent. */
+  cancel(): Promise<PublishResult<{ publish: HubAppPublishState | null }>>;
+  /** Withdraw the draft or the version in review. */
+  withdraw(): Promise<PublishResult<{ withdrawn: HubVersionStatus }>>;
+  /** Bump the block's version: `major`, `minor`, `patch` or a version. */
+  bumpVersion(spec: string): Promise<PublishResult<{ change: PackageVersionChange }>>;
+}
+
+/** {@link PublishClient} over the engine's `/api/publish/*` routes. */
+export class HttpPublishClient implements PublishClient {
+  async packageInfo(): Promise<PublishResult<{ package: HubAppPublishPackage }>> {
+    const answer = await HttpPublishClient.send('api/publish/package', {});
+    return answer.ok === false ? answer : { ok: true, package: answer.body as HubAppPublishPackage };
+  }
+
+  async status(): Promise<PublishResult<{ status: HubPublishStatus }>> {
+    const answer = await HttpPublishClient.send('api/publish/status', {});
+    return answer.ok === false ? answer : { ok: true, status: answer.body as HubPublishStatus };
+  }
+
+  async start(request: HubAppPublishRequest): Promise<PublishResult<{ publish: HubAppPublishState }>> {
+    const answer = await HttpPublishClient.send('api/publish', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(request) });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState }).publish };
+  }
+
+  async current(): Promise<PublishResult<{ publish: HubAppPublishState | null }>> {
+    const answer = await HttpPublishClient.send('api/publish', {});
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState | null }).publish };
+  }
+
+  async confirm(): Promise<PublishResult<{ publish: HubAppPublishState }>> {
+    const answer = await HttpPublishClient.send('api/publish/confirm', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState }).publish };
+  }
+
+  async cancel(): Promise<PublishResult<{ publish: HubAppPublishState | null }>> {
+    const answer = await HttpPublishClient.send('api/publish', { method: 'DELETE' });
+    return answer.ok === false ? answer : { ok: true, publish: (answer.body as { publish: HubAppPublishState | null }).publish };
+  }
+
+  async withdraw(): Promise<PublishResult<{ withdrawn: HubVersionStatus }>> {
+    const answer = await HttpPublishClient.send('api/publish/withdraw', { method: 'POST', headers: JSON_HEADERS, body: '{}' });
+    return answer.ok === false ? answer : { ok: true, withdrawn: (answer.body as { withdrawn: HubVersionStatus }).withdrawn };
+  }
+
+  async bumpVersion(spec: string): Promise<PublishResult<{ change: PackageVersionChange }>> {
+    const answer = await HttpPublishClient.send('api/publish/version', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ spec }) });
+    return answer.ok === false ? answer : { ok: true, change: answer.body as PackageVersionChange };
+  }
+
+  /** One request: the parsed body on success, the engine's refusal (sentence, code, details) or a network one otherwise. */
+  private static async send(url: string, init: RequestInit): Promise<{ ok: true; body: unknown } | PublishRefusal> {
+    try {
+      const res = await fetch(url, init);
+      const body = await res.json().catch(() => null) as { error?: string; code?: string; details?: unknown } | null;
+      if (!res.ok) {
+        const refusal: PublishRefusal = { ok: false, status: res.status, error: body?.error ?? `The engine answered ${res.status}.`, code: body?.code ?? 'internal' };
+        if (body?.details !== undefined) {
+          refusal.details = body.details;
+        }
+        return refusal;
+      }
+      return { ok: true, body };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: `The engine didn't answer: ${err?.message ?? String(err)}`, code: 'engine-unreachable' };
+    }
+  }
 }

@@ -1,11 +1,12 @@
 import { Color, DoubleSide, Group } from 'three';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { EdgeMeshOptions, SceneObjectPart } from '../../types';
+import { EdgeMeshOptions, SceneObjectMesh, SceneObjectPart } from '../../types';
+import { meshCache } from '../../scene/mesh-cache';
 import { themeColors } from '../../scene/theme-colors';
 import { viewerSettings } from '../../scene/viewer-settings';
 import { LineResolutionRegistry } from './line-resolution';
+import { createEdgeLineMaterial, faceSidesOf, FaceEdgeGeometry } from './face-edge-line';
 
 /**
  * How far a tangent-junction edge's color is pulled from the edge color
@@ -19,6 +20,7 @@ const DEFAULTS: Required<EdgeMeshOptions> = {
   opacity: 1,
   depthWrite: true,
   transparent: false,
+  sharedGeometry: false,
 };
 
 export class EdgeMesh extends Group {
@@ -27,12 +29,11 @@ export class EdgeMesh extends Group {
     const opts = { ...DEFAULTS, ...options };
 
     for (const meshData of shape.meshes) {
-      const positions = EdgeMesh.expandIndexedPositions(meshData.vertices, meshData.indices);
+      const geometry = opts.sharedGeometry
+        ? meshCache.geometryOf(meshData, () => EdgeMesh.buildGeometry(meshData))
+        : EdgeMesh.buildGeometry(meshData);
 
-      const geometry = new LineSegmentsGeometry();
-      geometry.setPositions(positions);
-
-      const material = new LineMaterial({
+      const material = createEdgeLineMaterial(geometry, {
         color: EdgeMesh.lineColor(meshData.smooth === true, opts.color),
         linewidth: opts.lineWidth,
         transparent: opts.transparent || opts.opacity < 1,
@@ -53,6 +54,19 @@ export class EdgeMesh extends Group {
       }
       this.add(ls);
     }
+  }
+
+  /**
+   * The segments of one edge mesh, as a fat line draws them. A solid's edge
+   * knows the faces either side of it: its line is drawn on them (see
+   * face-edge-line.ts). Any other line draws as it always has.
+   */
+  static buildGeometry(meshData: SceneObjectMesh): LineSegmentsGeometry {
+    const positions = EdgeMesh.expandIndexedPositions(meshData.vertices, meshData.indices);
+    const faceSides = faceSidesOf(meshData);
+    const geometry = faceSides ? new FaceEdgeGeometry().setFaceSides(faceSides) : new LineSegmentsGeometry();
+    geometry.setPositions(positions);
+    return geometry;
   }
 
   /**

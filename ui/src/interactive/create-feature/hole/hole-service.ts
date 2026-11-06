@@ -1,5 +1,6 @@
 import {
-  applyHole, applyHoleEdit, featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget, GhostSolid,
+  applyHole, applyHoleEdit, featureGhostScope, fetchConnectorAnchors, fetchFeatureGhostResult, fetchFeatureSources,
+  FeatureEditTarget, GhostSolid,
   HoleApplyOptions, HoleEditOptions, HoleFastenRef, HoleGhostRequest, ParsedFeatureStatement, SourceSlotRef,
 } from '../../../api';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../../types';
@@ -107,6 +108,7 @@ export class HoleFeatureService {
       purpose: 'hole',
       // A placement writes the synthesized anchor expression.
       needsArgs: true,
+      request: fetchConnectorAnchors,
     });
     this.suggestions.onLock = (locked) => {
       this.placements.toggleAnchor(locked);
@@ -239,8 +241,10 @@ export class HoleFeatureService {
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
-    // A hole needs a solid to cut — no solids, no button.
-    this.available = this.targetOptions.length > 0;
+    // A hole needs a solid to cut — no solids, no button, except on a blank
+    // document (see {@link Viewer.sceneIsEmpty}), where the dialog opens on
+    // its own empty prompt.
+    this.available = this.targetOptions.length > 0 || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('create', this.available, 'hole');
     this.syncButton();
     if (!this.armed) {

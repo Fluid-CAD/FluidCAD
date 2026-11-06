@@ -1,7 +1,7 @@
 ---
 id: api/color
-title: color(value, selection?)
-summary: Paints faces or a whole object. Accepts CSS color strings (named, hex, rgb). Without a target, paints the last selection, or every face in the current context when there is no selection. Changes no geometry and never consumes a selection; the last color() wins per face.
+title: color(value, ...selections)
+summary: Paints faces or whole objects — any number of face selections and scene objects. Accepts CSS color strings (named, hex, rgb). Without a target, paints the last selection, or every face in the current context when there is no selection. Changes no geometry and never consumes a selection; the last color() wins per face.
 tags: [api, utility, appearance]
 symbols: [color]
 seeAlso: [api/select, api/face-filter]
@@ -13,14 +13,16 @@ Imported from `fluidcad/core`.
 
 ```ts
 color(value: string)                                // CSS color, applies to last selection
-color(value: string, selection: SceneObject)
+color(value: string, ...selections: SceneObject[])  // face selections and/or whole objects
 ```
 
 Accepts named CSS colors (`"red"`), hex (`"#3498db"`), or `rgb(...)`.
 With no explicit target, paints the last selection — pair with
 `select(...)` or a direct accessor like `e.endFaces()`. When there is no
 selection at all, it paints every face in the current context, exactly as if
-you had written `select(face())` first.
+you had written `select(face())` first. Several targets paint in one
+statement: `color("silver", body, lid)` paints both solids whole,
+`color("gold", body.endFaces(), lid.endFaces())` their end faces.
 
 A colour changes no geometry, so `color()` holds no solid and never consumes
 a selection: `const top = select(face().top()); color("red", top);

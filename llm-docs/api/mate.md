@@ -4,7 +4,7 @@ title: "mate(type, a, b)"
 summary: "Joins two inserted parts with a joint — fastened, revolute, slider, cylindrical, planar (on connectors) or tangent (on exposed geometry). Default placement is face-to-face; chain .flip(), .rotate(deg), .offset(x, y, z), .limits(min, max), .noPropagate()."
 tags: [api, assembly, mate]
 symbols: [mate]
-seeAlso: [api/insert, api/connector, api/expose, api/replicate, concepts/assemblies]
+seeAlso: [api/insert, api/connector, api/expose, api/replicate, api/relation, api/generator, concepts/assemblies]
 ---
 
 # mate
@@ -51,6 +51,9 @@ are solved live in the viewport — drag a part and it moves within the
 freedom its joints leave; the Joints panel drives revolute and slider
 mates (Animate…).
 
+The Joints panel lists a mate by its `.name()` when it has one, its type
+beside it as secondary text; an unnamed mate reads by its type.
+
 For viewer animation, name the driver explicitly:
 `mate('revolute', a, b).name('crank-drive')`. The viewer can select it with
 `#animate=crank-drive&autoplay=1`. Names are case-sensitive and trimmed;
@@ -80,6 +83,12 @@ export const mechanism = assembly("mechanism", () => {
   mate("tangent", wheel.features.tread, base.features.deck);
 });
 ```
+
+A generated assembly's joints are the same records, made by its
+generator's `g.mate()` with the same builder ([[api/generator]]); they are
+read-only rows of its occurrence, named by the generator
+(`g.mate(…).name('Left door')`), and the Joints panel drives them like any
+other.
 
 Slider and cylindrical share their axis, so `.offset()` with a non-zero X
 or Y is refused on them; planar's X and Y are its free directions, so the

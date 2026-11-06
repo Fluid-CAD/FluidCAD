@@ -240,8 +240,10 @@ export class RibFeatureService {
     this.options = collectSketchProfiles(sceneObjects);
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.sceneSketchActive = this.options[0]?.kind === 'active';
-    // A rib needs surrounding solids to conform to — no solids, no button.
-    this.available = this.targetOptions.length > 0;
+    // A rib needs surrounding solids to conform to — no solids, no button,
+    // except on a blank document (see {@link Viewer.sceneIsEmpty}), where the
+    // dialog opens on its own empty prompt.
+    this.available = this.targetOptions.length > 0 || this.viewer.sceneIsEmpty;
     // The group is shared with Extrude and the Sketch button — vote via our
     // own slot; the group shows while any contributor needs it.
     this.navbar.setGroupVisible('create', this.available, 'rib');

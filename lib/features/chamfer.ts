@@ -4,33 +4,8 @@ import { FilletOps } from "../oc/fillet-ops.js";
 import { CleanShapeLineage, ShapeOps } from "../oc/shape-ops.js";
 import { ColorTransfer, type CarriedColor } from "../oc/color-transfer.js";
 import { requireShapes } from "../common/operand-check.js";
-import { recordModifierHistory } from "../helpers/scene-helpers.js";
+import { recordModifierHistory, trackReplaced } from "../helpers/scene-helpers.js";
 import { ShapeHistory } from "../common/shape-history-tracker.js";
-
-/**
- * `cleanup` with a memory of every pre-clean wrapper it mapped to something
- * else — a face or edge whose record now carries the post-clean images. One
- * handed back as itself (an edge the cleanup kept) is still in use and stays.
- */
-function trackReplaced(cleanup: CleanShapeLineage, replaced: Set<Shape>): CleanShapeLineage {
-  return {
-    ...cleanup,
-    remapFace: (face: Face) => {
-      const mapped = cleanup.remapFace(face);
-      if (mapped && !mapped.includes(face)) {
-        replaced.add(face);
-      }
-      return mapped;
-    },
-    remapEdge: (edge: Edge) => {
-      const mapped = cleanup.remapEdge(edge);
-      if (mapped && !mapped.includes(edge)) {
-        replaced.add(edge);
-      }
-      return mapped;
-    },
-  };
-}
 
 export class Chamfer extends SceneObject {
   private _selections: SceneObject[] = [];
@@ -113,6 +88,18 @@ export class Chamfer extends SceneObject {
 
       edges = edges.filter(e => !targetEdges.includes(e));
 
+      // An edge between two faces of one surface is a seam a boolean left
+      // unmerged, not a corner: the kernel refuses it. Report such edges
+      // and chamfer the rest.
+      const seams = FilletOps.seamsAmong(solid, targetEdges);
+      const breakable = targetEdges.filter(e => !seams.includes(e));
+      if (seams.length > 0) {
+        this.setError(FilletOps.seamsMessage('chamfer', solid, seams, breakable.length));
+      }
+      if (breakable.length === 0) {
+        continue;
+      }
+
       const obj = shapeObjectMap.get(shape);
       const colors = obj.getFaceColors(solid);
       try {
@@ -120,12 +107,12 @@ export class Chamfer extends SceneObject {
         let history: ShapeHistory;
         let carried: CarriedColor[];
         if (!this.distance2) {
-          ({ solids: preCleanSolids, history, colors: carried } = FilletOps.makeChamfer({ shape: solid, colors }, targetEdges, this.distance));
+          ({ solids: preCleanSolids, history, colors: carried } = FilletOps.makeChamfer({ shape: solid, colors }, breakable, this.distance));
         } else {
           const faces = solid.getFaces();
           const commonFaces: Face[] = [];
 
-          for (const edge of targetEdges) {
+          for (const edge of breakable) {
             const firstCommonFace = faces.find(f => f.hasEdge(edge.getShape()));
             if (!firstCommonFace) {
               newShapes.push(shape);
@@ -136,7 +123,7 @@ export class Chamfer extends SceneObject {
             commonFaces.push(firstCommonFace);
           }
 
-          ({ solids: preCleanSolids, history, colors: carried } = FilletOps.makeChamferTwoDistances({ shape: solid, colors }, targetEdges, this.distance, this.distance2, commonFaces, this.isAngle));
+          ({ solids: preCleanSolids, history, colors: carried } = FilletOps.makeChamferTwoDistances({ shape: solid, colors }, breakable, this.distance, this.distance2, commonFaces, this.isAngle));
         }
 
         // Clean each chamfer result and chain colors through the cleanup's
@@ -182,13 +169,14 @@ export class Chamfer extends SceneObject {
         }
       } catch {
         // OCCT refused the chamfer (distance too large for the adjacent
-        // geometry, tangency trouble, …). Keep the original solid in the
-        // scene, but surface the failure instead of silently skipping it.
+        // geometry, a chain ending on a seam, tangency trouble, …). Keep the
+        // original solid in the scene, but surface the failure instead of
+        // silently skipping it.
         console.error("Fillet: Failed to create chamfer.");
-        this.setError(
-          "chamfer: could not chamfer the selected edges — the distance may be " +
-          "too large for the adjacent geometry. The solid was left unchamfered."
-        );
+        const value = this.distance2
+          ? `a chamfer of ${this.distance} × ${this.distance2}${this.isAngle ? '°' : ''}`
+          : `a chamfer of ${this.distance}`;
+        this.setError(FilletOps.refusedMessage('chamfer', value, solid, breakable));
         continue;
       } finally {
         colors.delete();

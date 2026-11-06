@@ -408,56 +408,71 @@ export async function setSketchImage(
 }
 
 // ---------------------------------------------------------------------------
-// Part material — set/replace/remove the chained .material('id') on a part
+// Part chains — set/replace/remove the chained .material('id') /
+// .appearance('id') on a part
 // ---------------------------------------------------------------------------
 
+/** The single-string chains of a `part(...)` statement the row menu writes. */
+export type PartStringChain = 'material' | 'appearance';
+
 /**
- * Set, replace, or remove the `.material('…')` chain of the `part(...)`
- * statement at `sourceLine` (the part row's Set material… menu). A material
- * id rewrites an existing string argument in place or appends
- * `.material('…')` at the end of the chain, after `.name('…')` and any other
- * trailing chain; null removes the chain. Refuses (returns null) a line that
- * is not a `part(...)` statement — a stale line must not grow a chain some
- * other feature has no meaning for — and an existing `.material()` whose
- * argument is not a single string literal (an expression the user wrote by
- * hand is theirs to change). Removing from a part without the chain is a
- * no-op.
+ * Set, replace, or remove the `.<chain>('…')` chain of the `part(...)`
+ * statement at `sourceLine` (the part row's Set material… and Set
+ * appearance… menus). An id rewrites an existing string argument in place
+ * or appends `.<chain>('…')` at the end of the chain, after `.name('…')`
+ * and any other trailing chain; null removes the chain. Refuses (returns
+ * null) a line that is not a `part(...)` statement — a stale line must not
+ * grow a chain some other feature has no meaning for — and an existing
+ * chain whose argument is not a single string literal (an expression the
+ * user wrote by hand is theirs to change). Removing from a part without
+ * the chain is a no-op.
  */
-export function setPartMaterial(
+export function setPartStringChain(
   code: string,
   sourceLine: number,
-  materialId: string | null,
+  chain: PartStringChain,
+  id: string | null,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     const call = findEditableCallAt(tree, lines, sourceLine);
     if (!call || chainRootCallee(call) !== 'part') {
       return null;
     }
-    const materialCall = findMemberCallInChain(call, 'material');
-    const existingArgs = materialCall ? getArgumentsNode(materialCall) : null;
-    if (materialCall) {
+    const chainCall = findMemberCallInChain(call, chain);
+    const existingArgs = chainCall ? getArgumentsNode(chainCall) : null;
+    if (chainCall) {
       if (!existingArgs || existingArgs.namedChildren.length !== 1 || existingArgs.namedChildren[0].type !== 'string') {
         return null;
       }
     }
-    const value = (materialId ?? '').trim();
+    const value = (id ?? '').trim();
     if (value === '') {
-      if (!materialCall) {
+      if (!chainCall) {
         return null;
       }
-      const member = materialCall.childForFieldName('function');
+      const member = chainCall.childForFieldName('function');
       const object = member ? member.childForFieldName('object') : null;
       if (!object) {
         return null;
       }
-      return spliceCode(code, object.endIndex, materialCall.endIndex, '');
+      return spliceCode(code, object.endIndex, chainCall.endIndex, '');
     }
     const quoted = `'${quoteForSingleQuotes(value)}'`;
-    if (materialCall && existingArgs) {
+    if (chainCall && existingArgs) {
       return spliceCode(code, existingArgs.startIndex + 1, existingArgs.endIndex - 1, quoted);
     }
-    return spliceCode(code, call.endIndex, call.endIndex, `.material(${quoted})`);
+    return spliceCode(code, call.endIndex, call.endIndex, `.${chain}(${quoted})`);
   });
+}
+
+/** The Set material… chain edit: {@link setPartStringChain} on `.material()`. */
+export function setPartMaterial(code: string, sourceLine: number, materialId: string | null): Promise<CodeEditResult> {
+  return setPartStringChain(code, sourceLine, 'material', materialId);
+}
+
+/** The Set appearance… chain edit: {@link setPartStringChain} on `.appearance()`. */
+export function setPartAppearance(code: string, sourceLine: number, appearanceId: string | null): Promise<CodeEditResult> {
+  return setPartStringChain(code, sourceLine, 'appearance', appearanceId);
 }
 
 /**

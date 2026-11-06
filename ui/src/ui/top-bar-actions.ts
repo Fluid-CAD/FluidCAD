@@ -35,14 +35,25 @@ export interface TopBarExportHandlers {
 const WHOLE_ASSEMBLY_THUMB = 'whole-assembly';
 const WHOLE_ASSEMBLY_LABEL = 'Whole assembly';
 
+/**
+ * How a host action sits on the bar: `icon` (the default) is the icon alone,
+ * like Import and Export; `labelled` puts {@link TopBarAction.label} beside
+ * the icon; `accent` is the word alone in a bordered accent button, for the
+ * one step on the bar that should catch the eye (Publish). The collapsed
+ * menu's row always shows the icon and the label, whatever the look.
+ */
+export type TopBarActionLook = 'icon' | 'labelled' | 'accent';
+
 /** A button a host adds to the bar of its own — see {@link TopBarActions.addAction}. */
 export interface TopBarAction {
-  /** Inline SVG markup — the bar shows the icon alone. */
+  /** Inline SVG markup: the bar's button (unless the look is `accent`) and the collapsed menu's row. */
   icon: string;
   /** Tooltip on the bar, and the accessible name. */
   title: string;
   /** The row's label in the collapsed menu, where there is room for words. Defaults to {@link title}. */
   label?: string;
+  /** How the bar shows it ({@link TopBarActionLook}). Default: `icon`. */
+  look?: TopBarActionLook;
   onClick(): void;
 }
 
@@ -70,6 +81,12 @@ const COLLAPSE_QUERY = '(width < 40rem)';
 const ACTION_BTN = 'btn btn-ghost btn-sm btn-square text-base-content/70';
 /** The Export disclosure — an icon plus its caret, so it cannot be square. */
 const ACTION_BTN_CARET = 'btn btn-ghost btn-sm px-1.5 gap-0.5 text-base-content/70';
+/** A host action that shows its label beside the icon (the `labelled` look). */
+const ACTION_BTN_LABELLED = 'btn btn-ghost btn-sm px-2 gap-1.5 font-normal text-base-content/80';
+/** A host action as the word alone in a bordered accent button (the `accent` look). */
+// Shorter than the bar's icon buttons (h-7 against their h-8), so the word
+// sits inside the row rather than filling it.
+const ACTION_BTN_ACCENT = 'btn btn-xs btn-outline btn-accent h-7 px-2.5 font-medium';
 const ACTION_ICON = 'shrink-0 [&>svg]:size-4';
 
 const PANEL =
@@ -112,8 +129,8 @@ export class TopBarActions {
   private readonly themeBtn: HTMLButtonElement;
   private readonly exportBtn: HTMLButtonElement | null = null;
   private readonly collapseQuery: MediaQueryList | null;
-  /** What the host added through {@link addAction}, so the menu can list it too. */
-  private readonly hostActions: TopBarAction[] = [];
+  /** What the host added through {@link addAction}, with its bar button, so the menu can list it too and {@link setAction} can find it. */
+  private readonly hostActions: { action: TopBarAction; button: HTMLButtonElement }[] = [];
   private solids: ExportableSolid[] = [];
   /** An assembly scene with at least one inserted part: the list leads with "Whole assembly". */
   private wholeAssembly = false;
@@ -185,13 +202,60 @@ export class TopBarActions {
 
   /** Add a host's own button, ahead of Import/Export/theme and styled like them. */
   addAction(action: TopBarAction): HTMLButtonElement {
-    this.hostActions.push(action);
-    const button = this.addButton(this.slot, action.icon, action.title);
-    button.addEventListener('click', () => {
+    const entry = { action: { ...action }, button: this.addButton(this.slot, action.icon, action.title) };
+    TopBarActions.dress(entry.button, entry.action);
+    this.hostActions.push(entry);
+    // Read at click time, so {@link setAction} can swap the handler too.
+    entry.button.addEventListener('click', () => {
       this.closePanel();
-      action.onClick();
+      entry.action.onClick();
     });
-    return button;
+    return entry.button;
+  }
+
+  /**
+   * Make a button added through {@link addAction} another action: its
+   * icon, title, label, whether the label shows on the bar, and handler,
+   * all of them. The bar's button follows at once; the collapsed menu
+   * lists the new row the next time it opens (an open menu closes, since
+   * its rows were built from the old action). The one way to turn one
+   * action into another in place — Share into Publish in a package
+   * workspace, and back — rather than adding a second button beside it.
+   */
+  setAction(button: HTMLButtonElement, action: TopBarAction): void {
+    const entry = this.hostActions.find((candidate) => candidate.button === button);
+    if (!entry) {
+      throw new Error('setAction: not a button addAction returned');
+    }
+    entry.action = { ...action };
+    TopBarActions.dress(entry.button, entry.action);
+    if (this.panel?.dataset.panel === 'menu') {
+      this.closePanel();
+    }
+  }
+
+  /** A host action's button as its look says ({@link TopBarActionLook}): the classes, the tooltip, the icon and the label. */
+  private static dress(button: HTMLButtonElement, action: TopBarAction): void {
+    const look = action.look ?? 'icon';
+    button.className = look === 'accent' ? ACTION_BTN_ACCENT : look === 'labelled' ? ACTION_BTN_LABELLED : ACTION_BTN;
+    button.title = action.title;
+    button.setAttribute('aria-label', action.title);
+    const icon = button.firstElementChild as HTMLElement;
+    icon.innerHTML = action.icon;
+    // The accent look is the word alone; the icon stays for the menu row.
+    icon.classList.toggle('hidden', look === 'accent');
+    const label = button.querySelector<HTMLSpanElement>('[data-ref="action-label"]');
+    if (look !== 'icon') {
+      const text = label ?? document.createElement('span');
+      text.dataset.ref = 'action-label';
+      text.className = 'text-[13px]';
+      text.textContent = action.label ?? action.title;
+      if (!label) {
+        button.appendChild(text);
+      }
+    } else {
+      label?.remove();
+    }
   }
 
   /**
@@ -316,7 +380,7 @@ export class TopBarActions {
     const menu = document.createElement('div');
     menu.className = PANEL;
 
-    for (const action of this.hostActions) {
+    for (const { action } of this.hostActions) {
       menu.appendChild(this.buildRow(action.icon, action.label ?? action.title, () => {
         this.closePanel();
         action.onClick();

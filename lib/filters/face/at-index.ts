@@ -1,8 +1,7 @@
 import { Matrix4 } from "../../math/matrix4.js";
 import { Face } from "../../common/shapes.js";
 import { FilterBase } from "../filter-base.js";
-import { ShapeOps } from "../../oc/shape-ops.js";
-import { Point } from "../../math/point.js";
+import { MirrorIndex } from "../mirror-index.js";
 
 export class AtIndexFilter extends FilterBase<Face> {
   constructor(private index: number, private shapes: Face[], private originalShapes?: Face[]) {
@@ -27,23 +26,7 @@ export class AtIndexFilter extends FilterBase<Face> {
 
   transform(matrix: Matrix4): AtIndexFilter {
     if (matrix.isMirroring() && this.originalShapes) {
-      const source = this.originalShapes[this.index];
-      const bbox = ShapeOps.getBoundingBox(source);
-      const originalCenter = new Point(bbox.centerX, bbox.centerY, bbox.centerZ);
-      const targetCenter = matrix.transformPoint(originalCenter);
-
-      let bestIndex = this.index;
-      let bestDist = Infinity;
-      for (let i = 0; i < this.shapes.length; i++) {
-        const b = ShapeOps.getBoundingBox(this.shapes[i]);
-        const dist = new Point(b.centerX, b.centerY, b.centerZ).distanceTo(targetCenter);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIndex = i;
-        }
-      }
-
-      return new AtIndexFilter(bestIndex, this.shapes);
+      return new AtIndexFilter(MirrorIndex.FACES.image(this.index, this.shapes, this.originalShapes, matrix), this.shapes);
     }
 
     return new AtIndexFilter(this.index, this.shapes);
@@ -73,23 +56,7 @@ export class NotAtIndexFilter extends FilterBase<Face> {
 
   transform(matrix: Matrix4): NotAtIndexFilter {
     if (matrix.isMirroring() && this.originalShapes) {
-      const source = this.originalShapes[this.index];
-      const bbox = ShapeOps.getBoundingBox(source);
-      const originalCenter = new Point(bbox.centerX, bbox.centerY, bbox.centerZ);
-      const targetCenter = matrix.transformPoint(originalCenter);
-
-      let bestIndex = this.index;
-      let bestDist = Infinity;
-      for (let i = 0; i < this.shapes.length; i++) {
-        const b = ShapeOps.getBoundingBox(this.shapes[i]);
-        const dist = new Point(b.centerX, b.centerY, b.centerZ).distanceTo(targetCenter);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIndex = i;
-        }
-      }
-
-      return new NotAtIndexFilter(bestIndex, this.shapes);
+      return new NotAtIndexFilter(MirrorIndex.FACES.image(this.index, this.shapes, this.originalShapes, matrix), this.shapes);
     }
 
     return new NotAtIndexFilter(this.index, this.shapes);

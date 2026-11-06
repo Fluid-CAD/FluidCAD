@@ -72,7 +72,7 @@ export class ConnectorsPanel {
   private pickCopies = true;
   /** Families folded out, by their seed's name (names survive the per-render id re-mint). */
   private expanded = new Set<string>();
-  private readonly readOnly: boolean;
+  private readOnly: boolean;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
 
@@ -89,6 +89,24 @@ export class ConnectorsPanel {
     });
     this.section.mount(host);
     this.render();
+  }
+
+  /**
+   * Take the rows' source actions away (`true`) or give them back — while an
+   * assembly preview is on screen nothing may write its rows. An open menu
+   * closes.
+   */
+  setReadOnly(readOnly: boolean): void {
+    if (this.readOnly === readOnly) {
+      return;
+    }
+    this.readOnly = readOnly;
+    this.closeDropdown();
+    this.render();
+  }
+
+  get isReadOnly(): boolean {
+    return this.readOnly;
   }
 
   update(connectors: SerializedAssemblyConnector[]): void {

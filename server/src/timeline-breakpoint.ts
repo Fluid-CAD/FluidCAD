@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
-  breakpointRemovalEdit, enclosingStatementOf, ensureSymbolImport, findActiveBreakpointStatement,
-  findAllBreakpointStatements, getJavaScriptParser, isBreakpointStatement, type BreakpointSite,
+  applySpliceEdits, BreakpointMarker, enclosingStatementOf, ensureSymbolImport, findActiveBreakpointStatement,
+  getJavaScriptParser, isBreakpointStatement, type BreakpointSite, type SpliceEdit,
 } from './code-editor/index.ts';
 import type { ApplyFeatureEditResult } from './apply-feature-edit/spec.ts';
 
@@ -56,7 +56,7 @@ export class TimelineBreakpoint {
     const remove = spec.remove ?? 'all';
     const tree = (await getJavaScriptParser()).parse(code);
     try {
-      const edits: { start: number; end: number; text: string }[] = [];
+      const edits: SpliceEdit[] = [];
       if (spec.before) {
         const { line, column } = spec.before;
         const node = tree.rootNode.descendantForPosition({ row: line - 1, column: column - 1 });
@@ -68,23 +68,25 @@ export class TimelineBreakpoint {
         const lineStart = code.lastIndexOf('\n', statement.startIndex - 1) + 1;
         const prefix = code.slice(lineStart, statement.startIndex);
         const indent = /^\s*$/.test(prefix) ? prefix : ' '.repeat(statement.startPosition.column);
-        const newline = code.includes('\r\n') ? '\r\n' : '\n';
-        edits.push({ start: statement.startIndex, end: statement.startIndex, text: `breakpoint();${newline}${indent}` });
+        const lineBreak = BreakpointMarker.lineBreakOf(code);
+        edits.push({ start: statement.startIndex, end: statement.startIndex, text: `breakpoint();${lineBreak}${indent}` });
       }
       // Delete exact statements, not their whole lines: inline callbacks and
-      // adjacent feature statements must survive. Coordinates all refer to
-      // the original buffer, so moving in either direction cannot shift them.
+      // adjacent feature statements must survive (BreakpointMarker.removals).
+      // Coordinates all refer to the original buffer, so moving in either
+      // direction cannot shift them.
       const doomed = remove === 'active'
         ? [findActiveBreakpointStatement(tree, spec.active)].filter((n): n is NonNullable<typeof n> => n !== null)
-        : findAllBreakpointStatements(tree);
-      for (const node of doomed) {
-        edits.push(breakpointRemovalEdit(code, node));
+        : BreakpointMarker.statementsIn(tree);
+      edits.push(...BreakpointMarker.removals(code, doomed));
+      let newCode = applySpliceEdits(code, edits);
+      if (spec.before) {
+        newCode = await ensureSymbolImport(newCode, 'breakpoint');
+      } else if (doomed.length > 0) {
+        // Taking a stop away may take the last use of its import with it;
+        // a pending stop further down keeps it (BreakpointMarker.releaseImport).
+        newCode = await BreakpointMarker.releaseImport(newCode);
       }
-      let newCode = code;
-      for (const edit of edits.sort((a, b) => b.start - a.start)) {
-        newCode = newCode.slice(0, edit.start) + edit.text + newCode.slice(edit.end);
-      }
-      if (spec.before) newCode = await ensureSymbolImport(newCode, 'breakpoint');
       return { newCode };
     } finally {
       (tree as typeof tree & { delete?: () => void }).delete?.();

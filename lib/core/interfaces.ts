@@ -6,6 +6,7 @@ import type { Matrix4 } from "../math/matrix4.js";
 import type { Axis, AxisLike } from "../math/axis.js";
 import type { Plane, PlaneLike } from "../math/plane.js";
 import type { NumberParam } from "./param.js";
+import type { BucketAccessors, BucketSpecsOf } from "../sdk/feature-buckets.js";
 
 export interface ISceneObject {
   /**
@@ -35,6 +36,42 @@ export interface LoadOptions {
    * overrides the import sidecar. One of `mm`, `cm`, `m`, `in`, `ft`.
    */
   unit?: string;
+  /**
+   * Whose `imports/` folder the model is read from.
+   *
+   * - `'package'` (the default): the folder beside the file the call is
+   *   written in. In an installed package's file that is the package's own
+   *   `imports/`, shipped with it; in a file of your project, the project's.
+   *   A package's own model that is missing is an error: it is never looked
+   *   for in the project instead.
+   * - `'project'`: the project that uses the package, whatever file the call
+   *   is written in. A package's part or feature that loads a file name the
+   *   model using it passes in reads it this way:
+   *   `load(name, { from: 'project' })`.
+   *
+   * In your project's own files both read the project's `imports/`.
+   */
+  from?: 'package' | 'project';
+}
+
+export interface FontOptions {
+  /**
+   * Whose files a font file name (`"fonts/Brand.ttf"`) is read from.
+   *
+   * - `'package'` (the default): beside the file the call is written in. In
+   *   an installed package's file that is the package's own font file,
+   *   shipped with it; in a file of your project, the project's. A package's
+   *   own font file that is missing is an error: it is never looked for in
+   *   the project instead.
+   * - `'project'`: the project that uses the package, whatever file the call
+   *   is written in. A package's part or feature that takes a font file name
+   *   from the model using it reads it this way:
+   *   `.font(name, { from: 'project' })`.
+   *
+   * In your project's own files both read the project's file. A system
+   * family name (`"Arial"`) is the system's either way.
+   */
+  from?: 'package' | 'project';
 }
 
 export interface ILoadFile extends ISceneObject {
@@ -511,11 +548,14 @@ export interface IText extends IExtrudableGeometry {
   /**
    * Sets the font. A name without a font extension (e.g. `"Arial"`) is resolved
    * to a system font; a value ending in `.ttf`/`.otf`/`.ttc`/`.woff` (e.g.
-   * `"fonts/Brand.ttf"`) is loaded as a workspace-relative file. When omitted, a
-   * default system font is used.
-   * @param name - A system family name or a workspace-relative font file path.
+   * `"fonts/Brand.ttf"`) is loaded as a file relative to the project — or, in
+   * an installed package's file, to the package, which ships it. When
+   * omitted, a default system font is used.
+   * @param name - A system family name or a relative font file path.
+   * @param options - Optional `{ from: 'project' }`: read the font file from
+   *   the project that uses the package, for a name the model passes in.
    */
-  font(name: string): this;
+  font(name: string, options?: FontOptions): this;
 
   /**
    * Sets the font weight: a number (100–900) or a name such as `"regular"`,
@@ -1189,7 +1229,9 @@ export interface ICopy extends ISceneObject {
  * When the repeat clones exactly one feature per instance, the instance
  * also forwards that feature's bucket accessors: `r.instance(1).endEdges()`
  * is the clone's own end-edge bucket, with the same index and filter
- * arguments the original's accessor takes.
+ * arguments the original's accessor takes — an index names the original's
+ * member, moved with the instance (on a mirror, its mirror image). A custom
+ * feature's declared buckets are forwarded too (`r.instance(1).tipEdges()`).
  */
 export interface IRepeatInstance extends ISelection {
   /**
@@ -1266,26 +1308,47 @@ export interface IRepeatInstance extends ISelection {
 }
 
 /**
+ * The accessors a repeated custom feature's declared buckets add, which each
+ * instance of the repeat forwards: `r.instance(1).tipEdges()` for a gear
+ * that declares `tipEdges`. Read off the declaration a `Feature.with()`
+ * class carries — never off method names, since `getAddedFaces()` ends in
+ * `Faces` too — so it is empty for any other target, whose standard
+ * accessors {@link IRepeatInstance} has already, and for several targets at
+ * once, where an accessor would be ambiguous.
+ */
+export type RepeatAccessorsOf<T> = BucketAccessors<BucketSpecsOf<T>>;
+
+/**
+ * What a `repeat()` of `targets` repeats, as {@link IRepeat}'s parameter:
+ * the type of its one target, else any scene object — several targets
+ * clone several features per instance, and none repeats the last feature.
+ */
+export type RepeatTargetOf<T extends unknown[]> = T extends [infer Only extends ISceneObject] ? Only : ISceneObject;
+
+/**
  * A 3D `repeat()` — linear, circular, mirror, rotate or matrix. Its
  * instances are addressable by slot, so one clone of a pattern can be
  * selected without describing its position numerically. It is itself a
  * feature another `repeat()` takes, standing for its whole pattern — the
- * original and every instance: `repeat('mirror', plane, row)`.
+ * original and every instance: `repeat('mirror', plane, row)`. `T` is what
+ * it repeats, which gives each instance the accessors of a custom feature's
+ * declared buckets.
  */
-export interface IRepeat extends ISceneObject {
+export interface IRepeat<T = ISceneObject> extends ISceneObject {
   /**
    * Selects one instance of the pattern: the repeated features at that slot
    * as a whole geometry, plus their forwarded bucket accessors when the
-   * repeat clones a single feature (`r.instance(1).endEdges()`). Slot 0 is
-   * the original for circular, mirror, rotate and matrix repeats. Linear
-   * repeats linearize the grid in axis order (the first axis varies
-   * slowest) with the original at its own slot — 0 when not centered, the
-   * center slot when centered — the same numbering the `skip` option uses;
-   * a skipped slot is an error. An instance of a repeat of a repeat is the
-   * whole inner pattern at that slot.
+   * repeat clones a single feature (`r.instance(1).endEdges()`, or a custom
+   * feature's own `r.instance(1).tipEdges()`). Slot 0 is the original for
+   * circular, mirror, rotate and matrix repeats. Linear repeats linearize
+   * the grid in axis order (the first axis varies slowest) with the
+   * original at its own slot — 0 when not centered, the center slot when
+   * centered — the same numbering the `skip` option uses; a skipped slot is
+   * an error. An instance of a repeat of a repeat is the whole inner
+   * pattern at that slot.
    * @param index - The slot index.
    */
-  instance(index: number): IRepeatInstance;
+  instance(index: number): IRepeatInstance & RepeatAccessorsOf<T>;
 }
 
 export interface IMirror extends IBooleanOperation {

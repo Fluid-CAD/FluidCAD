@@ -500,6 +500,8 @@ export class PanelShell {
   readonly body: HTMLDivElement;
   /** The pinned action row under the body; panels put their Apply / Exit buttons here. */
   readonly footer: HTMLDivElement;
+  /** The pinned title row (icon, title); a panel may dock a quiet status at its end. */
+  readonly header: HTMLDivElement;
   /**
    * The right-aligned stack holding the box, the preview and the message —
    * panels dock extra full-width rows here (the expression-transparency row).
@@ -540,6 +542,7 @@ export class PanelShell {
     this.box = this.root.querySelector('[data-role="box"]')!;
     this.body = this.root.querySelector('[data-role="body"]')!;
     this.footer = this.root.querySelector('[data-role="footer"]')!;
+    this.header = this.root.querySelector('[data-role="header"]')!;
     PanelShell.watchScroll(this.box);
     this.preview = this.root.querySelector('[data-role="preview"]')!;
     this.message = this.root.querySelector('[data-role="message"]')!;

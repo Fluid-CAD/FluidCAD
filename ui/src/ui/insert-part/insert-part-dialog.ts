@@ -18,6 +18,7 @@ import { ParamForm } from '../param-controls';
 import { PartThumbnailRenderer } from './part-thumbnails';
 import { sceneUnit } from '../../units/scene-unit';
 import type { LengthUnit } from '../../units/units';
+import { GeneratedDefinition } from '../../interactive/generated/generated-definition';
 
 type CatalogFilter = 'all' | 'parts' | 'assemblies';
 
@@ -76,7 +77,9 @@ type PageGroup = {
  * then scanned server-side in turn (evaluation shares the OCC mutex with
  * renders, so sequential requests add no latency) and its tiles pop into the
  * grid as results land. Clicking a tile QUEUES one instance (click again for
- * more; hover reveals a − to remove); the footer button advances.
+ * more; hover reveals a − to remove); the footer button advances. Library
+ * packages the project doesn't pin yet stay unscanned and out of the grid
+ * until the Show library parts toggle is on.
  *
  * Step 2 (parameters): one carousel page per queued instance that declares
  * `param()`s — two queued extrusions can get different lengths in one pass —
@@ -91,8 +94,17 @@ type PageGroup = {
  * Everything reloads on every open: unchanged files answer from the server's
  * mtime-keyed scan cache, so freshness costs one round-trip per file, not a
  * re-evaluation.
+ *
+ * A generated part or assembly (`definePart`, `defineAssembly`) is listed
+ * from its schema, never built: its tile shows its icon, and a click opens
+ * its own dialog ({@link onGenerated}: values with a live preview) instead
+ * of queueing it — the dialog closes for it, so a click with instances
+ * queued says so and opens nothing.
  */
 export class InsertPartDialog {
+  /** A generated tile was clicked with nothing queued: open the definition's dialog. */
+  onGenerated?: (definition: GeneratedDefinition) => void;
+
   private overlay: HTMLDivElement;
   private gridEl: HTMLDivElement;
   private statusEl: HTMLDivElement;
@@ -109,11 +121,33 @@ export class InsertPartDialog {
   private variables: VariableInfo[] = [];
   /** Sticky across opens — reset only by the user clicking another chip. */
   private filter: CatalogFilter = 'all';
+  /**
+   * Sticky across opens like the filter: library packages' files (offered
+   * by the library, not pinned by the project) are scanned and shown only
+   * while this is on.
+   */
+  private showLibrary = false;
   /** The open assembly file — its own entries are excluded from the grid. */
   private excludeAbsPath: string | null = null;
 
+  /** Every candidate file of this load, scanned or not. */
+  private files: CatalogFileEntry[] = [];
+  /** Files waiting for their scan, in order — the pump drains it. */
+  private pending: CatalogFileEntry[] = [];
+  /** Files queued, in flight or done this load, by absolute path. */
+  private scheduled = new Set<string>();
+  /** The load whose pump is draining `pending`; null while idle. */
+  private pumpOwner: AbortController | null = null;
+  private scannedCount = 0;
+  private failures: { file: CatalogFileEntry; text: string }[] = [];
+  private skipped: { file: CatalogFileEntry; text: string }[] = [];
+
   private basket: BasketEntry[] = [];
   private tiles = new Map<string, TileState>();
+  /** The grids by source ('' for the workspace, `name@version` for a package), each with its heading. */
+  private groups = new Map<string, { pkg: CatalogFileEntry['package'] | null; heading: HTMLDivElement; grid: HTMLDivElement }>();
+  /** The "From library" section heading above the library packages' groups. */
+  private libraryHeading = InsertPartDialog.libraryHeading();
   /** One page per DISTINCT parameterized part; its queued instances are the page's rows. */
   private pages: PageGroup[] = [];
   private pageIndex = 0;
@@ -140,6 +174,8 @@ export class InsertPartDialog {
     this.nextBtn.addEventListener('click', () => void this.advance());
     this.prevPageBtn.addEventListener('click', () => this.showPage(this.pageIndex - 1));
     this.nextPageBtn.addEventListener('click', () => void this.pageForward());
+    const libraryToggle = this.overlay.querySelector<HTMLInputElement>('[data-ref="show-library"]')!;
+    libraryToggle.addEventListener('change', () => this.setShowLibrary(libraryToggle.checked));
     this.overlay.querySelectorAll<HTMLInputElement>('input[name="insert-filter"]').forEach(chip => {
       chip.addEventListener('change', () => {
         this.filter = chip.dataset.filter as CatalogFilter;
@@ -201,9 +237,14 @@ export class InsertPartDialog {
               name="insert-filter" data-filter="parts" aria-label="Parts" />
             <input class="btn btn-xs rounded-full border border-base-content/15 checked:btn-primary" type="radio"
               name="insert-filter" data-filter="assemblies" aria-label="Assemblies" />
+            <label class="ml-auto flex items-center gap-2 cursor-pointer"
+              title="Also list the parts of packages in your library that this project doesn't use yet">
+              <span class="text-xs text-base-content/70">Show library parts</span>
+              <input type="checkbox" data-ref="show-library" class="toggle toggle-xs toggle-primary" />
+            </label>
           </div>
           <div data-ref="status" class="text-xs text-base-content/50 mb-2 min-h-4"></div>
-          <div data-ref="tree" class="overflow-y-auto flex-1 grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2 content-start"></div>
+          <div data-ref="tree" class="overflow-y-auto flex-1 flex flex-col gap-1 content-start"></div>
           <div class="flex items-center justify-between pt-3">
             <span data-ref="queued-note" class="text-xs text-base-content/50"></span>
             <button data-ref="next-btn" class="btn btn-primary btn-sm" disabled aria-label="Continue">Insert</button>
@@ -238,10 +279,17 @@ export class InsertPartDialog {
     this.abort = ac;
     this.inserting = false;
     this.gridEl.innerHTML = '';
+    this.groups.clear();
     this.tiles.clear();
     this.basket.forEach(entry => entry.form?.destroy());
     this.basket = [];
     this.pages = [];
+    this.files = [];
+    this.pending = [];
+    this.scheduled.clear();
+    this.scannedCount = 0;
+    this.failures = [];
+    this.skipped = [];
     this.pageHostEl.replaceChildren();
     this.updateFooter();
     this.setStatus('Looking for part files…');
@@ -259,42 +307,93 @@ export class InsertPartDialog {
       return;
     }
     // The open assembly can't be inserted into itself — drop its file.
-    const files = allFiles.filter(f => f.absPath !== this.excludeAbsPath);
-    if (files.length === 0) {
+    this.files = allFiles.filter(f => f.absPath !== this.excludeAbsPath);
+    if (this.files.length === 0) {
       this.setStatus('No other part or assembly files in this workspace.');
       return;
     }
+    this.schedule(this.files.filter(file => this.showLibrary || !InsertPartDialog.isLibrary(file)));
+    await this.pump(ac);
+  }
 
-    const failures: string[] = [];
-    const skipped: string[] = [];
-    let done = 0;
-    this.setStatus(`Scanning files… 0/${files.length}`);
+  /** A file of a package the library offers but the project doesn't pin. */
+  private static isLibrary(file: CatalogFileEntry): boolean {
+    return file.package?.availability === 'library';
+  }
+
+  /** Whether a file's tiles (and its scan problems) are in view under the toggle. */
+  private visibleFile(file: CatalogFileEntry): boolean {
+    return this.showLibrary || !InsertPartDialog.isLibrary(file);
+  }
+
+  private schedule(files: CatalogFileEntry[]): void {
     for (const file of files) {
-      const result = await scanPartCatalogFile(file.absPath, ac.signal);
-      if (ac.signal.aborted) {
-        return;
+      if (!this.scheduled.has(file.absPath)) {
+        this.scheduled.add(file.absPath);
+        this.pending.push(file);
       }
-      done++;
-      this.setStatus(`Scanning files… ${done}/${files.length}`);
-      if (result === null) {
-        failures.push(file.path);
-        continue;
-      }
-      for (const err of result.errors) {
-        skipped.push(err.exportName ? `${file.path} · ${err.exportName}: ${err.message}` : `${file.path}: ${err.message}`);
-      }
-      this.appendTiles(file, result);
-      this.applyFilter();
     }
+  }
 
+  /**
+   * Scan the queued files one at a time (evaluation shares the OCC mutex
+   * with renders, so parallel requests would only queue there), each file's
+   * tiles landing as its result does. The toggle can grow or shrink the
+   * queue while this runs; a second call during a run joins it.
+   */
+  private async pump(ac: AbortController): Promise<void> {
+    if (this.pumpOwner === ac) {
+      return;
+    }
+    this.pumpOwner = ac;
+    try {
+      while (this.pending.length > 0) {
+        const file = this.pending.shift()!;
+        this.setStatus(`Scanning files… ${this.scannedCount}/${this.scannedCount + this.pending.length + 1}`);
+        const result = await scanPartCatalogFile(file.absPath, ac.signal);
+        if (ac.signal.aborted) {
+          return;
+        }
+        this.scannedCount++;
+        if (result === null) {
+          this.failures.push({ file, text: file.path });
+          continue;
+        }
+        for (const err of result.errors) {
+          const text = err.exportName ? `${file.path} · ${err.exportName}: ${err.message}` : `${file.path}: ${err.message}`;
+          this.skipped.push({ file, text });
+        }
+        this.appendTiles(file, result);
+        this.applyFilter();
+      }
+    } finally {
+      if (this.pumpOwner === ac) {
+        this.pumpOwner = null;
+      }
+    }
+    if (!ac.signal.aborted) {
+      this.showScanOutcome();
+    }
+  }
+
+  /** The status line once the queue is drained, counting only the files in view. */
+  private showScanOutcome(): void {
+    const failures = this.failures.filter(f => this.visibleFile(f.file)).map(f => f.text);
+    const skipped = this.skipped.filter(s => this.visibleFile(s.file)).map(s => s.text);
+    const shownTiles = this.tileEls().filter(el => el.dataset.library !== '1' || this.showLibrary);
     if (failures.length > 0) {
       this.setStatus(
         `${failures.length} file${failures.length === 1 ? '' : 's'} failed to scan.`,
         true,
         failures.join('\n'),
       );
-    } else if (this.gridEl.children.length === 0) {
-      this.setStatus('Nothing insertable found.', false, skipped.join('\n'));
+    } else if (shownTiles.length === 0) {
+      const hiddenLibrary = !this.showLibrary && this.files.some(file => InsertPartDialog.isLibrary(file));
+      this.setStatus(
+        hiddenLibrary ? 'Nothing insertable in this project. Turn on Show library parts to see your library.' : 'Nothing insertable found.',
+        false,
+        skipped.join('\n'),
+      );
     } else if (skipped.length > 0) {
       this.setStatus(
         `${skipped.length} export${skipped.length === 1 ? '' : 's'} skipped.`,
@@ -306,14 +405,153 @@ export class InsertPartDialog {
     }
   }
 
-  /** Show only the tiles matching the active chip. */
+  /**
+   * The Show library parts toggle. On queues the library files not yet
+   * scanned this load (the scanned ones just reappear); off hides their
+   * tiles, drops the ones still waiting, and unqueues their instances —
+   * nothing inserts from a list the user can't see.
+   */
+  private setShowLibrary(on: boolean): void {
+    this.showLibrary = on;
+    if (on) {
+      this.schedule(this.files.filter(file => InsertPartDialog.isLibrary(file)));
+    } else {
+      for (const file of this.pending.filter(f => InsertPartDialog.isLibrary(f))) {
+        this.scheduled.delete(file.absPath);
+      }
+      this.pending = this.pending.filter(file => !InsertPartDialog.isLibrary(file));
+      this.unqueueLibrary();
+    }
+    this.applyFilter();
+    const ac = this.abort;
+    if (ac === null || ac.signal.aborted || this.pumpOwner !== null) {
+      return;
+    }
+    if (this.pending.length > 0) {
+      void this.pump(ac);
+    } else if (this.files.length > 0) {
+      this.showScanOutcome();
+    }
+  }
+
+  /** Drop every queued instance of a library package's part. */
+  private unqueueLibrary(): void {
+    const dropped = this.basket.filter(entry => InsertPartDialog.isLibrary(entry.file));
+    if (dropped.length === 0) {
+      return;
+    }
+    for (const entry of dropped) {
+      entry.form?.destroy();
+      const state = this.tiles.get(entry.key);
+      if (state) {
+        state.queued = 0;
+        this.updateTileBadge(state);
+      }
+    }
+    this.basket = this.basket.filter(entry => !InsertPartDialog.isLibrary(entry.file));
+    this.updateFooter();
+  }
+
+  /**
+   * Show only the tiles matching the active chip (and the library toggle),
+   * and a group's heading only while it shows a tile and some package group
+   * is in view beside it.
+   */
   private applyFilter(): void {
-    for (const el of Array.from(this.gridEl.children) as HTMLElement[]) {
+    for (const el of this.tileEls()) {
       const kind = el.dataset.kind;
-      const show = this.filter === 'all'
-        || (this.filter === 'parts' ? kind === 'part' : kind === 'assembly');
+      const show = (this.filter === 'all'
+        || (this.filter === 'parts' ? kind === 'part' : kind === 'assembly'))
+        && (this.showLibrary || el.dataset.library !== '1');
       el.classList.toggle('hidden', !show);
     }
+    const isShown = (grid: HTMLDivElement) => Array.from(grid.children).some(tile => !tile.classList.contains('hidden'));
+    const headed = [...this.groups.values()].some(group => group.pkg !== null && isShown(group.grid));
+    for (const group of this.groups.values()) {
+      const shown = isShown(group.grid);
+      group.heading.classList.toggle('hidden', !headed || !shown);
+      group.heading.classList.toggle('flex', headed && shown);
+      group.grid.classList.toggle('hidden', !shown);
+    }
+    const libraryShown = [...this.groups.values()]
+      .some(group => group.pkg?.availability === 'library' && isShown(group.grid));
+    this.libraryHeading.classList.toggle('hidden', !libraryShown);
+  }
+
+  private tileEls(): HTMLElement[] {
+    return [...this.groups.values()].flatMap(group => Array.from(group.grid.children) as HTMLElement[]);
+  }
+
+  /**
+   * The grid a file's tiles go in: the workspace's own first, then one per
+   * package the project uses (by name, then version) under a heading naming
+   * it, then — below a "From library" heading — one per library package the
+   * project doesn't use yet (inserting one adds it). Headings show only once
+   * a package is in the dialog, so a workspace with none keeps the plain grid.
+   */
+  private gridFor(file: CatalogFileEntry): HTMLDivElement {
+    const pkg = file.package ?? null;
+    const key = pkg ? `${pkg.name}@${pkg.version}` : '';
+    const existing = this.groups.get(key);
+    if (existing) {
+      if (pkg && existing.pkg?.availability !== pkg.availability) {
+        existing.pkg = pkg;
+      }
+      return existing.grid;
+    }
+    const heading = InsertPartDialog.groupHeading(pkg);
+    const grid = document.createElement('div');
+    grid.className = 'grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2 content-start mb-2';
+    grid.dataset.group = pkg ? pkg.name : 'workspace';
+    this.groups.set(key, { pkg, heading, grid });
+    // Keep the groups in order: the workspace's, the project's packages by
+    // key, then the library's by key under their section heading.
+    const tier = (group: { pkg: CatalogFileEntry['package'] | null }) =>
+      group.pkg === null ? 0 : group.pkg.availability === 'library' ? 2 : 1;
+    const ordered = [...this.groups.entries()]
+      .sort(([a, ga], [b, gb]) => tier(ga) - tier(gb) || a.localeCompare(b))
+      .map(([, group]) => group);
+    const children: HTMLElement[] = [];
+    for (const group of ordered) {
+      if (tier(group) === 2 && !children.includes(this.libraryHeading)) {
+        children.push(this.libraryHeading);
+      }
+      children.push(group.heading, group.grid);
+    }
+    this.gridEl.replaceChildren(...children);
+    return grid;
+  }
+
+  /** Type style shared by the "This project" and "From library" section headings. */
+  private static readonly SECTION_HEADING = 'text-sm font-semibold text-base-content/85';
+
+  private static libraryHeading(): HTMLDivElement {
+    const heading = document.createElement('div');
+    heading.className = `hidden mt-2 px-0.5 ${InsertPartDialog.SECTION_HEADING}`;
+    heading.dataset.ref = 'library-heading';
+    heading.textContent = 'From library';
+    heading.title = 'In your library, not used by this project yet: inserting one of these parts adds its package to the project.';
+    return heading;
+  }
+
+  private static groupHeading(pkg: CatalogFileEntry['package'] | null): HTMLDivElement {
+    const heading = document.createElement('div');
+    // `hidden` and `flex` both set display: applyFilter swaps one for the other.
+    heading.className = 'hidden items-center gap-1.5 px-0.5 pt-1 text-[11px] text-base-content/55';
+    heading.dataset.groupHeading = pkg ? pkg.name : 'workspace';
+    const name = document.createElement('span');
+    // The workspace's heading is a section heading, like "From library";
+    // a package's is a smaller label inside its section.
+    name.className = pkg ? 'font-medium text-base-content/70 truncate' : `truncate ${InsertPartDialog.SECTION_HEADING}`;
+    name.textContent = pkg ? pkg.name : 'This project';
+    heading.appendChild(name);
+    if (pkg) {
+      const version = document.createElement('span');
+      version.className = 'tabular-nums';
+      version.textContent = pkg.version;
+      heading.appendChild(version);
+    }
+    return heading;
   }
 
   private appendTiles(file: CatalogFileEntry, result: CatalogScanResult): void {
@@ -321,11 +559,16 @@ export class InsertPartDialog {
     // predating units give neither, and an unknown unit draws no badge.
     const unit = result.unit ?? file.unit;
     for (const part of result.parts) {
+      const generated = GeneratedDefinition.fromScan(file, part, unit ?? sceneUnit.current);
+      if (generated) {
+        this.gridFor(file).appendChild(this.buildGeneratedTile(generated, file, unit));
+        continue;
+      }
       const params = part.params ?? [];
       const paramNote = params.length > 0
         ? ` · ${params.length} parameter${params.length === 1 ? '' : 's'}`
         : '';
-      this.gridEl.appendChild(this.buildTile({
+      this.gridFor(file).appendChild(this.buildTile({
         kind: 'part',
         thumb: this.thumbs.render(part.objects, part.rootId),
         title: part.partName,
@@ -340,6 +583,11 @@ export class InsertPartDialog {
       }));
     }
     for (const sub of result.assemblies ?? []) {
+      const generated = GeneratedDefinition.fromScan(file, sub, unit ?? sceneUnit.current);
+      if (generated) {
+        this.gridFor(file).appendChild(this.buildGeneratedTile(generated, file, unit));
+        continue;
+      }
       const count = sub.instances.length;
       // 'value' exports insert as `insert(name)`, 'factory' as `insert(name())`
       // — the same shapes parts use, since insert() accepts assembly()
@@ -347,7 +595,7 @@ export class InsertPartDialog {
       // factory (the legacy sub-assembly style was a zero-arg factory).
       const exportKind = sub.exportKind ?? 'factory';
       const params = sub.params ?? [];
-      this.gridEl.appendChild(this.buildTile({
+      this.gridFor(file).appendChild(this.buildTile({
         kind: 'assembly',
         thumb: this.thumbs.renderAssembly(sub.objects, sub.instances, sub.mates, sub.connectors ?? []),
         title: sub.assemblyName ?? sub.exportName,
@@ -381,6 +629,9 @@ export class InsertPartDialog {
     tile.className = 'group relative flex flex-col items-center gap-1 p-2 w-full rounded-lg border border-base-content/10 '
       + 'hover:border-primary hover:bg-base-200 cursor-pointer transition-colors';
     tile.dataset.kind = opts.kind;
+    if (InsertPartDialog.isLibrary(opts.file)) {
+      tile.dataset.library = '1';
+    }
     tile.title = opts.tooltip;
 
     const key = `${opts.file.absPath}::${opts.exportName}`;
@@ -467,6 +718,60 @@ export class InsertPartDialog {
       state.queued++;
       this.updateTileBadge(state);
       this.updateFooter();
+    });
+    return tile;
+  }
+
+  /**
+   * A generated definition's tile: its icon over its label, "generated part"
+   * or "generated assembly", the defining file. A click opens its dialog
+   * and closes this one — refused, with the reason in the status line,
+   * while instances are queued (they would be dropped).
+   */
+  private buildGeneratedTile(definition: GeneratedDefinition, file: CatalogFileEntry, unit: LengthUnit | undefined): HTMLButtonElement {
+    const tile = document.createElement('button');
+    tile.className = 'group relative flex flex-col items-center gap-1 p-2 w-full rounded-lg border border-base-content/10 '
+      + 'hover:border-primary hover:bg-base-200 cursor-pointer transition-colors';
+    tile.dataset.kind = definition.kind;
+    tile.dataset.generated = definition.id;
+    if (InsertPartDialog.isLibrary(file)) {
+      tile.dataset.library = '1';
+    }
+    tile.title = `${definition.tip} — opens its dialog with a live preview`;
+    const img = document.createElement('img');
+    img.className = 'w-24 h-24 object-contain p-4 pointer-events-none';
+    img.src = definition.iconSrc;
+    img.alt = definition.label;
+    const name = document.createElement('span');
+    name.className = 'text-xs text-base-content/90 truncate w-full text-center';
+    name.textContent = definition.label;
+    const subtitle = document.createElement('span');
+    subtitle.className = 'text-[10px] text-base-content/50 truncate w-full text-center';
+    subtitle.textContent = `generated ${definition.kind}`;
+    const fileCaption = document.createElement('span');
+    fileCaption.className = 'text-[9px] text-base-content/35 truncate w-full text-center';
+    fileCaption.textContent = file.path;
+    fileCaption.title = file.absPath;
+    tile.append(img, name, subtitle, fileCaption);
+    if (unit !== undefined && unit !== sceneUnit.current) {
+      const unitBadge = document.createElement('span');
+      unitBadge.className = 'absolute top-1 left-1 px-1 rounded text-[9px] leading-4 '
+        + 'bg-warning/20 text-warning-content/80 border border-warning/40 pointer-events-none';
+      unitBadge.textContent = unit;
+      unitBadge.title = `${definition.kind === 'assembly' ? 'Sub-assembly' : 'Part'} is in ${UNIT_NAMES[unit]}; `
+        + `it is scaled into this assembly's unit (${sceneUnit.current}).`;
+      tile.appendChild(unitBadge);
+    }
+    tile.addEventListener('click', () => {
+      if (this.basket.length > 0) {
+        this.setStatus(
+          `Insert the ${this.basket.length} queued first, or remove them: ${definition.label} opens its own dialog.`,
+          true,
+        );
+        return;
+      }
+      this.hide();
+      this.onGenerated?.(definition);
     });
     return tile;
   }

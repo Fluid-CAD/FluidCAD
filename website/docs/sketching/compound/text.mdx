@@ -58,6 +58,8 @@ By default `text()` uses a system font. Pass a **system font name** to `.font()`
 
 If the named font is not installed, the closest match is substituted (`"Arial"` → a system sans-serif), and ultimately a default font.
 
+In a [package](/docs/packages)'s files, a font file is the package's own: the package carries it, and one it lacks is an error naming the package. A font file name that comes from the project using the package, such as a part's `Font` parameter, is read there with `.font(name, { from: 'project' })`. A font file that is missing never falls back to another font.
+
 ## Extruding text
 
 Text is ordinary sketch geometry, so the follow-up feature is the usual one — the counters (the holes in `o`, `e`, `A`) are kept automatically:

@@ -3,7 +3,7 @@ sidebar_position: 2
 title: "Installation"
 ---
 
-import {DownloadLink, ReleaseLink} from '@site/src/components/docs/DownloadLink';
+import {DockerImageTag, DownloadLink, FluidcadVersion, ReleaseLink} from '@site/src/components/docs/DownloadLink';
 
 # Installation
 
@@ -49,7 +49,8 @@ npx fluidcad
 ```
 
 opens the start screen in your browser, the same one the desktop app shows: your
-recent projects, **New Project**, **Open Project**, and the engine each project
+recent projects, **New Project**, **New Package** (a [package](/docs/packages#a-new-package)
+to publish on the hub), **Open Project**, and the engine each project
 runs on. Each project opens in a tab of its own. Leave the command running while
 you work; `Ctrl+C` stops FluidCAD and every project it opened. See [`fluidcad`
 in the CLI Reference](/docs/cli#fluidcad).
@@ -139,7 +140,7 @@ See the [CLI Reference](/docs/cli) for every command and flag, or run `npx fluid
 To keep your projects in one place, on a server or on a machine others on your
 network use, run the start screen in a container. The image is
 `ghcr.io/fluid-cad/fluidcad`, built for x64 and ARM64 and tagged with each
-release's version (`0.0.47`) and `latest`:
+release's version (<FluidcadVersion />) and `latest`:
 
 ```bash
 docker pull ghcr.io/fluid-cad/fluidcad:latest
@@ -261,7 +262,7 @@ With `docker run`, pull the new image, remove the container with
 `docker rm -f fluidcad` and run it again with the same command. Your projects
 and the `fluidcad-home` volume stay as they were. To stay on one release
 instead of following `latest`, use its version as the tag:
-`ghcr.io/fluid-cad/fluidcad:0.0.47`.
+<DockerImageTag />.
 
 To build the image yourself from a clone of the
 [repository](https://github.com/Fluid-CAD/FluidCAD), replace `image:` with

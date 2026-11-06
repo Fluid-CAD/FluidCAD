@@ -523,6 +523,81 @@ describe("part(...).material(id)", () => {
   });
 });
 
+describe("part(...).appearance(id)", () => {
+  setupOC();
+
+  it("is a chained setter beside .name() and .material(), independent of the material", () => {
+    const def = part("a", () => {}).appearance("oak");
+    expect(def.getAppearance()).toBe("oak");
+    expect(def.getMaterial()).toBeNull();
+    expect(part("b", () => {}).getAppearance()).toBeNull();
+    expect(def.material("fluidcad-pla").name("Renamed").appearance("steel").getAppearance()).toBe("steel");
+    expect(def.getMaterial()).toBe("fluidcad-pla");
+  });
+
+  it("rejects an empty or non-string id", () => {
+    expect(() => part("a", () => {}).appearance("")).toThrow(/appearance id/);
+    expect(() => part("a", () => {}).appearance(7 as any)).toThrow(/appearance id/);
+  });
+
+  it("the entry-file variant carries the id and serializes it as `appearance`", () => {
+    part("shelf", () => {
+      sketch("xy", () => { testRect(10, 10); });
+      extrude(2);
+    }).appearance("oak");
+    const scene = render();
+    const parts = scene.getAllSceneObjects().filter(o => o instanceof Part) as Part[];
+    expect(parts).toHaveLength(1);
+    expect(scene.getAllSceneObjects().filter(o => o.getError())).toEqual([]);
+    expect(parts[0].getAppearance()).toBe("oak");
+    expect(parts[0].serialize().appearance).toBe("oak");
+    expect(parts[0].serialize().material).toBeUndefined();
+  });
+
+  it("serializes no appearance key value when the definition assigned none", () => {
+    part("bare", () => {});
+    const scene = render();
+    const [bare] = scene.getAllSceneObjects().filter(o => o instanceof Part) as Part[];
+    expect(bare.getAppearance()).toBeNull();
+    expect(bare.serialize().appearance).toBeUndefined();
+  });
+
+  it("an unknown id still builds — the raw id rides the payload, no object error", () => {
+    part("odd", () => {
+      sketch("xy", () => { testRect(10, 10); });
+      extrude(2);
+    }).appearance("unobtainium");
+    const scene = render();
+    expect(scene.getAllSceneObjects().filter(o => o.getError())).toEqual([]);
+    const [odd] = scene.getAllSceneObjects().filter(o => o instanceof Part) as Part[];
+    expect(odd.serialize().appearance).toBe("unobtainium");
+  });
+
+  it("rides the serialized assembly instance, absent when none", () => {
+    const scene = getSceneManager().startAssemblyScene();
+    const oak = part("oak", () => {}).appearance("oak");
+    const bare = part("bare", () => {});
+    insert(oak);
+    insert(bare);
+    const [a, b] = scene.getSerializedInstances();
+    expect(a.appearance).toBe("oak");
+    expect(b.appearance).toBeUndefined();
+    expect("appearance" in b).toBe(true);
+  });
+
+  it("compareTo differs on the appearance alone, so an appearance-only edit misses the render cache", () => {
+    const same = new Part("p");
+    const other = new Part("p");
+    expect(same.compareTo(other)).toBe(true);
+    other.setAppearance("oak");
+    expect(same.compareTo(other)).toBe(false);
+    same.setAppearance("oak");
+    expect(same.compareTo(other)).toBe(true);
+    other.setAppearance("steel");
+    expect(same.compareTo(other)).toBe(false);
+  });
+});
+
 describe("part dependency loops", () => {
   setupOC();
 

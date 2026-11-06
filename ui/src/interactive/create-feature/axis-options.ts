@@ -1,7 +1,9 @@
-import { fetchSketchNames, RevolveAxisRef } from '../../api';
+import { fetchSketchNames, GhostAxisRef, RevolveAxisRef, SourceSlotRef } from '../../api';
 import { SceneObjectRender } from '../../types';
 import { SelectedEntity } from '../../viewer';
 import { consumedLabel, consumerName, hasHiddenMeshes } from './consumed-option';
+import type { AxisSelection } from './axis-slot';
+import { KeptAxisSlot } from './kept-axis-slot';
 
 /** The message when a picked axis is not offered (a line no axis() statement owns). */
 export const AXIS_UNAVAILABLE_MESSAGE =
@@ -109,30 +111,70 @@ export function axisOptionForShape(
 }
 
 /**
- * Serialize a re-picked axis selection to its apply-request ref — the shared
- * write-side of the axis slot (revolve, helix, repeat). Keep selections are
- * the caller's business (they are feature-specific); an edge selection
- * without its picked entity blocks with `missingEdgeError`.
+ * An axis slot's selection as the requests carry it — the shared read of
+ * every axis dialog (revolve, helix, repeat, rotate, copy): what the apply
+ * writes, and what the ghost turns around.
  */
-export function pickedAxisRef(
-  selection:
-    | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
-    | { kind: 'axis'; option: AxisOption }
-    | { kind: 'edge' },
-  edgeEntity: SelectedEntity | null,
-  missingEdgeError: string,
-): RevolveAxisRef | { error: string } {
-  if (selection.kind === 'standard') {
-    return { kind: 'standard', axis: selection.axis };
+export class AxisRefs {
+  /**
+   * A re-picked selection as its apply-request ref: a world axis, an axis
+   * statement, a connector (a copy's with its slot) by call site, or the
+   * picked edge. Keep selections are the caller's business (they are
+   * feature-specific); an edge selection without its picked entity blocks
+   * with `missingEdgeError`.
+   */
+  static request(
+    selection: Exclude<AxisSelection, { kind: 'keep' }>,
+    edgeEntity: SelectedEntity | null,
+    missingEdgeError: string,
+  ): RevolveAxisRef | { error: string } {
+    if (selection.kind === 'standard') {
+      return { kind: 'standard', axis: selection.axis };
+    }
+    if (selection.kind === 'axis') {
+      const { filePath, line, column } = selection.option;
+      return { kind: 'axis', filePath, line, column };
+    }
+    if (selection.kind === 'connector') {
+      const { filePath, line, column, slot } = selection.option;
+      return { kind: 'connector', filePath, line, column, ...(slot !== undefined ? { slot } : {}) };
+    }
+    if (!edgeEntity) {
+      return { error: missingEdgeError };
+    }
+    return { kind: 'edge', entity: edgeEntity };
   }
-  if (selection.kind === 'axis') {
-    const { filePath, line, column } = selection.option;
-    return { kind: 'axis', filePath, line, column };
+
+  /**
+   * A selection as the ghost addresses it: a picked one directly, the
+   * statement's own (keep) as its sources resolved it ({@link KeptAxisSlot}).
+   * Null when there is nothing the ghost can turn around: no axis yet, an
+   * edge slot with nothing picked, a kept expression.
+   */
+  static ghost(
+    selection: Exclude<AxisSelection, { kind: 'keep' }> | { kind: 'keep' } | null,
+    edgeEntity: SelectedEntity | null,
+    kept: SourceSlotRef | null | undefined,
+  ): GhostAxisRef | null {
+    const picked = selection;
+    if (!picked) {
+      return null;
+    }
+    switch (picked.kind) {
+      case 'standard':
+        return { kind: 'standard', axis: picked.axis };
+      case 'axis':
+        return { kind: 'axis', filePath: picked.option.filePath, line: picked.option.line };
+      case 'connector': {
+        const { filePath, line, slot } = picked.option;
+        return { kind: 'connector', filePath, line, ...(slot !== undefined ? { slot } : {}) };
+      }
+      case 'edge':
+        return edgeEntity?.sub.type === 'edge' ? { kind: 'edge', shapeId: edgeEntity.shapeId, index: edgeEntity.sub.index } : null;
+      default:
+        return KeptAxisSlot.ghostRef(kept);
+    }
   }
-  if (!edgeEntity) {
-    return { error: missingEdgeError };
-  }
-  return { kind: 'edge', entity: edgeEntity };
 }
 
 /**

@@ -30,8 +30,9 @@ import type {
 import type { AssemblyReplicateEditSpec } from '../assembly-replicate-edit.ts';
 import type { AssemblyRelationEditSpec } from '../assembly-relation-edit.ts';
 import type { BooleanEditOptions, BooleanKind } from './features/boolean.ts';
+import type { ColorEditOptions } from './features/color.ts';
 import type { ChamferEditOptions } from './features/chamfer.ts';
-import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorRotateAxis } from './features/connector.ts';
+import type { ConnectorAnchorSpec, ConnectorEditOptions, ConnectorOffsetSpec, ConnectorRotateSpec } from './features/connector.ts';
 import type { CopyEditAxis, CopyEditOptions, CopyEditPattern } from './features/copy.ts';
 import type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 import type { ExtrudeEditOptions, ExtrudeTargetKind } from './features/extrude.ts';
@@ -59,13 +60,15 @@ import type { RevolveAxisSpec, RevolveEditOptions } from './features/revolve.ts'
 import type { RibEditOptions } from './features/rib.ts';
 import type { RotateEditAxis, RotateEditOptions } from './features/rotate.ts';
 import type { TranslateEditOptions, TranslationSpec } from './features/translate.ts';
-import type { ShellEditOptions, ShellJoinKind } from './features/shell.ts';
+import type { ShellEditOptions, ShellJoinSlot } from './features/shell.ts';
 import type { SweepEditOptions } from './features/sweep.ts';
 import type { TextStatementOptions } from './features/text.ts';
 import type { WrapEditOptions } from './features/wrap.ts';
 import type { HoleFastenSpec, HolePlacementSpec, HoleValueOptions } from './features/hole.ts';
 import type { HoleEditOptions } from './features/hole.ts';
+import type { CustomFeatureOptions } from './features/custom.ts';
 import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
+import type { BooleanSlot, TextSlot } from './value-slots.ts';
 
 /**
  * Mirror of `lib/selection/types.ts` `ApplyFeatureEditSpec` — the wire
@@ -73,7 +76,7 @@ import type { RegionName, RegionPickSpec, ValueExpr } from './value-expr.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'color' | 'custom';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -149,6 +152,15 @@ export type ApplyFeatureEditSpec = {
   translate?: TranslateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
   boolean?: BooleanEditOptions;
+  /** Colour-only payload: the value, plus the objects painted whole — or, with none, `parts` render the painted faces. */
+  color?: ColorEditOptions;
+  /**
+   * A custom feature's create payload: its id, where its builder is
+   * imported from, the catalog's shape of its statements, and every value
+   * the dialog writes — picked ones as elements rendered from `producers`
+   * and `parts`. An edit rides `edit.custom`.
+   */
+  custom?: CustomFeatureOptions;
   filePath: string;
   producers: {
     line: number;
@@ -414,6 +426,11 @@ export type ApplyFeatureEditSpec = {
    * trip like `sketchClosed`; every other spec field is ignored.
    */
   partMaterial?: PartMaterialEditSpec;
+  /**
+   * The part row menu's "Set appearance…" chain edit, alone on its round
+   * trip like `partMaterial`; every other spec field is ignored.
+   */
+  partAppearance?: PartAppearanceEditSpec;
   /** Move or clear the document's breakpoint in one acknowledged source edit. */
   timelineBreakpoint?: TimelineBreakpointSpec;
   /**
@@ -455,6 +472,15 @@ export type ApplyFeatureEditSpec = {
    * skipped, keeping a re-apply idempotent.
    */
   newVariables?: { name: string; initializer: string }[];
+  /**
+   * The assembly-view row a row edit comes from (an instance's, an
+   * occurrence's, a mate's or a relation's id, `asm-0/inst-2`), when the
+   * page says: the server refuses the edit when that row is engine-owned
+   * (`GeneratedRows`, G8) — a layout's records share their occurrence's
+   * `insert()` line, so the statement alone can't tell them from it. The
+   * transforms ignore it.
+   */
+  row?: string;
 };
 
 /**
@@ -494,7 +520,8 @@ export type FeatureStatementEditTarget = {
     draft: ValueExpr | null;
     /** `.endOffset(value)` pull-back, or null for no chain. */
     endOffset: ValueExpr | null;
-    drill: boolean;
+    /** The drill flag, or an expression computing it (`drill(flag)`). */
+    drill: BooleanSlot;
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Re-sourced profile; absent keeps the statement's profile text. */
     profile?: EditSketchSource;
@@ -615,7 +642,8 @@ export type FeatureStatementEditTarget = {
     regionSketch?: { line: number; column: number };
   };
   shell?: {
-    joinType: ShellJoinKind;
+    /** The join kind, or an expression computing it (`.join(join)`). */
+    joinType: ShellJoinSlot;
   };
   /**
    * Chamfer second-value slot; absent keeps the statement's own second
@@ -631,8 +659,10 @@ export type FeatureStatementEditTarget = {
    */
   connector?: {
     name: string;
-    rotate: { axis: ConnectorRotateAxis; angle: number } | null;
-    offset: [number, number, number] | null;
+    /** The rotation: its axis a name or an expression, its angle a number or an expression; null drops the chain. */
+    rotate: ConnectorRotateSpec | null;
+    /** The offset, each component a number or an expression; null drops the chain. */
+    offset: ConnectorOffsetSpec | null;
     /**
      * The anchor a RE-PICKED source narrows to, rendered as the suffix on the
      * selector parts (the create path's contract — the parts carry the plain
@@ -729,8 +759,8 @@ export type FeatureStatementEditTarget = {
     directions?: { axis: RepeatEditAxis; count: ValueExpr; value: ValueExpr }[];
     /** Linear spacing semantics shared by every direction. */
     spacingMode?: 'offset' | 'length';
-    /** Linear only: center the pattern on the original instance. */
-    centered?: boolean;
+    /** Linear only: center the pattern on the original instance — the flag, or an expression computing it. */
+    centered?: BooleanSlot;
     /** The repeat axis (circular/rotate); linear carries axes per direction. */
     axis?: RepeatEditAxis;
     /** The mirror plane (mirror only). */
@@ -762,8 +792,8 @@ export type FeatureStatementEditTarget = {
     directions?: { axis: CopyEditAxis; count: ValueExpr; value: ValueExpr }[];
     /** Linear spacing semantics shared by every direction. */
     spacingMode?: 'offset' | 'length';
-    /** Linear only: center the pattern on the original instance. */
-    centered?: boolean;
+    /** Linear only: center the pattern on the original instance — the flag, or an expression computing it. */
+    centered?: BooleanSlot;
     /** The copy axis (circular); linear carries axes per direction. */
     axis?: CopyEditAxis;
     /**
@@ -816,6 +846,7 @@ export type FeatureStatementEditTarget = {
   split?: {
     /** The cut; `keep` re-emits the statement's own expression. */
     plane?: SplitEditPlane;
+    /** The pieces kept — a side, or an expression computing it (`{ keep: side }`). */
     keep: SplitEditOptions['keep'];
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
@@ -864,6 +895,27 @@ export type FeatureStatementEditTarget = {
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };
+  /**
+   * Colour options. The value rewrites wholesale. The target list — the
+   * Solid tab's — mixes `verbatim` keeps (re-read from the statement's own
+   * argument texts) with re-picked feature statements, and an empty list
+   * makes the paint implicit; absent, the Face tab's re-picked selectors
+   * (`parts`) or expression text (`rawArgs`) replace the arguments, and with
+   * neither the statement's own arguments stand.
+   */
+  color?: {
+    /** The CSS colour, or the expression computing it (`color(tint, e)`). */
+    value: TextSlot;
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * A custom feature's values over the statement at `line`: each value the
+   * dialog writes, `keep` for one it leaves as written, picked elements kept
+   * by position (`verbatim`) or re-picked from `producers`/`parts`. The
+   * call shape is the statement's own feature's; the operation and scope
+   * absent keep the statement's chains.
+   */
+  custom?: CustomFeatureOptions;
   /**
    * Plane options. The type and the numeric options rewrite wholesale (the
    * dialog owns every one of them); the base list mixes `verbatim` keeps
@@ -928,6 +980,14 @@ export type PartMaterialEditSpec = {
   sourceLine: number;
   /** A material id to set or replace, or null to remove the `.material()` chain. */
   material: string | null;
+};
+
+/** The Set appearance… chain edit: see {@link setPartAppearance}. */
+export type PartAppearanceEditSpec = {
+  /** The `part(...)` statement's 1-based source line. */
+  sourceLine: number;
+  /** An appearance id to set or replace, or null to remove the `.appearance()` chain. */
+  appearance: string | null;
 };
 
 export type ApplyFeatureEditResult = {

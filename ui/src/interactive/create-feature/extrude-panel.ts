@@ -1,4 +1,5 @@
 import { OpTabs, ThinControl } from './panel-controls';
+import { FlagControl } from './expression-rows';
 import { FeaturePanel } from './feature-panel';
 import { SketchProfileOption } from './sketch-profiles';
 import { SketchSlotControl, SketchSlotSelection } from './sketch-slot';
@@ -77,7 +78,7 @@ export class ExtrudePanel extends FeaturePanel {
   private draftField: ExpressionField;
   private endOffsetInput: HTMLInputElement;
   private endOffsetField: ExpressionField;
-  private drillCheckbox: HTMLInputElement;
+  private drill: FlagControl;
 
   constructor(container: HTMLElement) {
     super(container, {
@@ -173,7 +174,8 @@ export class ExtrudePanel extends FeaturePanel {
     this.throughWrap = this.role('through-wrap');
     this.throughCheckbox = this.role('through');
     this.endOffsetInput = this.role('end-offset');
-    this.drillCheckbox = this.role('drill');
+    // The drill-holes toggle takes an expression (`drill(flag)`) under its ƒ.
+    this.drill = new FlagControl(this.role('drill'), { name: 'drill', label: 'Drill holes' });
 
     this.directionSelect.addEventListener('change', () => {
       // Entering the picked up-to-face mode arms its slot — the next face
@@ -188,7 +190,8 @@ export class ExtrudePanel extends FeaturePanel {
       this.syncControls();
       this.onChange?.();
     });
-    this.drillCheckbox.addEventListener('change', () => this.onChange?.());
+    this.drill.onChange = () => this.onChange?.();
+    this.drill.onSubmit = () => this.onApply?.();
     this.distanceField = this.enhance('distance');
     this.distance2Field = this.enhance('distance2');
     this.draftField = this.enhance('draft');
@@ -201,6 +204,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.distance2Field.setVariables(variables);
     this.draftField.setVariables(variables);
     this.endOffsetField.setVariables(variables);
+    this.drill.setVariables(variables);
     this.thin.setVariables(variables);
   }
 
@@ -219,7 +223,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.throughCheckbox.checked = false;
     this.draftField.setValue(0);
     this.endOffsetField.setValue('');
-    this.drillCheckbox.checked = true;
+    this.drill.setValue(true);
     this.thin.reset();
     this.profileSlot.reset(options);
     this.syncProfileArmed();
@@ -264,7 +268,7 @@ export class ExtrudePanel extends FeaturePanel {
     // No chain means no pull-back — an empty field, not a literal 0, so
     // leaving it untouched re-emits the statement without one.
     this.endOffsetField.setValue(state.endOffset ?? '');
-    this.drillCheckbox.checked = state.drill;
+    this.drill.setValue(state.drill);
     this.thin.setValues(state.thin);
     this.syncControls();
     this.shell.show();
@@ -417,6 +421,10 @@ export class ExtrudePanel extends FeaturePanel {
     if ('error' in thin) {
       return thin;
     }
+    const drill = this.drill.read();
+    if ('error' in drill) {
+      return drill;
+    }
     const reads = [distanceRead, distance2Read, draftRead, endOffsetRead, thin];
     return {
       op,
@@ -425,7 +433,7 @@ export class ExtrudePanel extends FeaturePanel {
       symmetric: direction === 'symmetric',
       draft: draft === 0 ? null : draft,
       endOffset: endOffset === 0 ? null : endOffset,
-      drill: this.drillCheckbox.checked,
+      drill: drill.value,
       thin: thin.thin,
       newVariables: collectNewVariables(reads.map(r => r && !('error' in r) ? r : null)),
     };

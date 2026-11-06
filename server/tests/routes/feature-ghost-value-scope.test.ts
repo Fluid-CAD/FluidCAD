@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { ParamSiteDefinition } from '../../src/apply-feature-edit/index.ts';
+import type { RenderedInstanceProperties, RenderedPartProperties } from '../../src/code-editor/index.ts';
 import { ValueScope, type GhostValueScope } from '../../src/routes/feature-ghost/value-scope.ts';
 
 // The numbers a ghost's dialog values stand for, read where the dialog's
@@ -210,16 +211,18 @@ describe('ValueScope — names with no single value', () => {
 });
 
 describe('ValueScope — dialog text', () => {
-  it('works out arithmetic and Math over the scoped names', async () => {
+  it('works out arithmetic, Math, a comparison and a conditional over the scoped names', async () => {
     const scope = await scopeAt(statement(DRAWER_EXTRUDE));
     expect(scope.resolve('(depth - thickness) / 2')).toBe(241);
     expect(scope.resolve('Math.max(depth, 600)')).toBe(600);
     expect(scope.resolve('  depth  ')).toBe(500);
+    expect(scope.resolve('depth > 400 ? 1 : 2')).toBe(1);
+    expect(scope.resolve('depth ? 1 : 2')).toBe(1);
   });
 
-  it('never calls anything the text names', async () => {
+  it('never calls anything the text names, and reads nothing but a finite number', async () => {
     const scope = await scopeAt(statement(DRAWER_EXTRUDE));
-    for (const text of ['depth.toFixed(0)', "param('depth', 5)", 'depth = 1', 'depth / 0', 'depth ? 1 : 2']) {
+    for (const text of ['depth.toFixed(0)', "param('depth', 5)", 'depth = 1', 'depth / 0', 'depth > 1', "'" + 'x' + "'", 'depth; 1', '{ a: 1 }', '[depth]']) {
       expect(scope.resolve(text), text).toBeNull();
     }
   });
@@ -273,7 +276,7 @@ describe('ValueScope — instance properties', () => {
     `  return { drawer, second, box1 };`,
     `});`,
   ].join('\n');
-  const rendered = [
+  const rendered: RenderedInstanceProperties[] = [
     { sourceLocation: { filePath: ASSEMBLY_FILE, line: 4, column: 18 }, properties: { frontWidth: 480, finish: 'oak' } },
     { sourceLocation: { filePath: ASSEMBLY_FILE, line: 8, column: 18 }, properties: { frontWidth: 560, finish: 'oak' } },
     { sourceLocation: { filePath: ASSEMBLY_FILE, line: 9, column: 16 }, properties: { frontWidth: 680 } },
@@ -331,7 +334,7 @@ describe('ValueScope — part definition properties', () => {
     `  extrude(2, s);`,
     `});`,
   ].join('\n');
-  const rendered = [
+  const rendered: RenderedPartProperties[] = [
     { sourceLocation: { filePath: PART_FILE, line: 2, column: 20 }, properties: { lidClearance: 1, finish: 'oak' } },
     { sourceLocation: { filePath: PART_FILE, line: 8, column: 20 }, properties: {} },
   ];
@@ -360,6 +363,89 @@ describe('ValueScope — part definition properties', () => {
   it('reads nothing without a render behind the definition', async () => {
     const scope = await boxScope(statement(LID_EXTRUDE, 3, PART_FILE), []);
     expect(scope.resolve('box.properties.lidClearance')).toBeNull();
+  });
+});
+
+// A choice bound to a variable reads the literal the name holds — a string,
+// a number, a list — by the same scoping as the numbers; the numeric
+// consumers keep refusing anything that is no number.
+describe('ValueScope — literals', () => {
+  const SHOP = [
+    `import { part, param, property, insert, extrude } from 'fluidcad/core';`,
+    `const finish = 'top';`,
+    `export const bracket = part('Bracket', () => {`,
+    `  const finish = 'brushed';`,
+    `  const screw = param('Screw', 'm3', 'select', { options: [{ label: 'M3', value: 'm3' }] });`,
+    `  const count = param('Count', 4);`,
+    `  const turns = count - 1;`,
+    `  const coats = ['prime', 2, -1];`,
+    `  const alias = finish;`,
+    `  const kind = property('Kind', 'kind', 'bent');`,
+    `  const flag = true;`,
+    `  let moody = 'a';`,
+    `  moody = 'b';`,
+    `  const mixed = ['prime', flag];`,
+    `  const inst = insert(Bolt);`,
+    `  property('Grade', 'grade', 'A2-70');`,
+    `  extrude(1);`,
+    `});`,
+  ].join('\n');
+  const rendered: RenderedInstanceProperties[] = [{ sourceLocation: { filePath: FILE, line: 15, column: 15 }, properties: { kind: 'm4', turns: 3, flag: false } }];
+  const EXTRUDE = 17;
+
+  async function shopScope(definitions: ParamSiteDefinition[] = []): Promise<ValueScope> {
+    return ValueScope.open({ code: SHOP, filePath: FILE, definitions, instances: rendered }, statement(EXTRUDE));
+  }
+
+  it('reads a string, a number, a list, a name through its binding, and the innermost declaration', async () => {
+    const scope = await shopScope();
+    expect(scope.literal('finish')).toBe('brushed');
+    expect(scope.literal('alias')).toBe('brushed');
+    expect(scope.literal('coats')).toEqual(['prime', 2, -1]);
+    expect(scope.literal('turns')).toBe(3);
+    expect(scope.literal('count')).toBe(4);
+    expect(scope.literal(' finish ')).toBe('brushed');
+    const top = await ValueScope.open({ code: SHOP, filePath: FILE, definitions: [] }, null);
+    expect(top.literal('finish')).toBe('top');
+  });
+
+  it("reads a param()'s default, else the registry's current value, and a property()'s published value", async () => {
+    expect((await shopScope()).literal('screw')).toBe('m3');
+    expect((await shopScope([definedAt('Screw', 'm4', 5)])).literal('screw')).toBe('m4');
+    expect((await shopScope([definedAt('Count', 6, 6)])).literal('turns')).toBe(5);
+    const scope = await shopScope();
+    expect(scope.literal('kind')).toBe('bent');
+    // The enclosing part's bare property, by name.
+    expect(scope.literal('grade')).toBe('A2-70');
+  });
+
+  it('reads a rendered property of an instance, string, number or boolean', async () => {
+    const scope = await shopScope();
+    expect(scope.literal('inst.properties.kind')).toBe('m4');
+    expect(scope.literal('inst.properties.turns')).toBe(3);
+    expect(scope.literal('inst.properties.flag')).toBe(false);
+    expect(scope.literal('inst.properties.none')).toBeNull();
+    expect(scope.literal('inst.kind')).toBeNull();
+  });
+
+  it('reads a boolean and arithmetic, and nothing for a mixed list, a reassigned let, an unknown name, a call or a handle', async () => {
+    const scope = await shopScope();
+    expect(scope.literal('flag')).toBe(true);
+    expect(scope.literal('count + 1')).toBe(5);
+    expect(scope.literal('Math.PI')).toBe(Math.PI);
+    for (const ref of ['mixed', 'moody', 'nowhere', "param('x', 'y')", 'inst', 'extrude', 'inst.properties']) {
+      expect(scope.literal(ref), ref).toBeNull();
+    }
+  });
+
+  it('leaves the numeric consumers reading numbers only', async () => {
+    const scope = await shopScope();
+    expect(scope.resolve('finish')).toBeNull();
+    expect(scope.resolve('screw')).toBeNull();
+    expect(scope.resolve('coats')).toBeNull();
+    expect(scope.resolve('inst.properties.kind')).toBeNull();
+    expect(scope.resolve('turns')).toBe(3);
+    expect(scope.resolve('inst.properties.turns')).toBe(3);
   });
 });
 
@@ -405,5 +491,119 @@ describe("ValueScope — a part's property() values", () => {
     expect(inSketch.resolve('loop')).toBeNull();
     const topLevel = await ValueScope.open({ code: HOUSING, filePath: FILE, definitions: [] }, null);
     expect(topLevel.resolve('pocketDiameter')).toBeNull();
+  });
+});
+
+describe('ValueScope — expressions', () => {
+  const WING = [
+    `import { part, param, insert } from 'fluidcad/core';`,
+    `export const wing = part('Wing', () => {`,
+    `  const left = param('Left panel', false, 'checkbox');`,
+    `  const span = param('Panel span', 600);`,
+    `  const ribs = 7;`,
+    `  const kind = 'naca';`,
+    `  const side = left ? -1 : 1;`,
+    `  const panel = left ? 'left' : 'right';`,
+    `  const coats = ['prime', 2];`,
+    `  const inst = insert(Bolt);`,
+    `  const big = span > 500 && !left;`,
+    `  extrude(1);`,
+    `});`,
+  ].join('\n');
+  const rendered: RenderedInstanceProperties[] = [{ sourceLocation: { filePath: FILE, line: 10, column: 16 }, properties: { kind: 'm4', flag: true } }];
+  const EXTRUDE = 12;
+
+  async function wingScope(definitions: ParamSiteDefinition[] = []): Promise<ValueScope> {
+    return ValueScope.open({ code: WING, filePath: FILE, definitions, instances: rendered }, statement(EXTRUDE));
+  }
+
+  it('evaluates a conditional over a checkbox param, by its default and by its current value', async () => {
+    const scope = await wingScope();
+    expect(scope.literal("left ? 'left' : 'right'")).toBe('right');
+    expect(scope.literal('panel')).toBe('right');
+    expect(scope.literal('side')).toBe(1);
+    expect(scope.resolve('side * span')).toBe(600);
+    const flipped = await wingScope([definedAt('Left panel', true, 3)]);
+    expect(flipped.literal("left ? 'left' : 'right'")).toBe('left');
+    expect(flipped.literal('panel')).toBe('left');
+    expect(flipped.resolve('side')).toBe(-1);
+  });
+
+  it('applies the comparison, equality and logical operators as JavaScript does on scalars', async () => {
+    const scope = await wingScope();
+    const cases: [string, unknown][] = [
+      ['span > 500', true], ['span >= 600', true], ['span < 600', false], ['span <= 599', false],
+      ['ribs === 7', true], ['ribs !== 7', false], ["ribs == '7'", true], ["ribs === '7'", false], ["ribs != '7'", false],
+      ["kind === 'naca'", true], ["kind !== 'naca'", false], ["'a' < 'b'", true],
+      ['!left', true], ['!!left', false], ['!ribs', false], ['-ribs', -7], ['+kind', null],
+      ['left && ribs', false], ['big && ribs', 7], ['left || ribs', 7], ['0 || kind', 'naca'], ['ribs || 0', 7],
+      ['left ?? ribs', false], ['ribs ?? 0', 7],
+      ['big', true],
+    ];
+    for (const [text, expected] of cases) {
+      expect(scope.literal(text), text).toBe(expected);
+    }
+  });
+
+  it('keeps JavaScript\'s precedence and short-circuits', async () => {
+    const scope = await wingScope();
+    expect(scope.literal('1 + 2 * 3')).toBe(7);
+    expect(scope.literal('(1 + 2) * 3')).toBe(9);
+    expect(scope.literal('2 ** 3 ** 2')).toBe(512);
+    expect(scope.literal('ribs > 5 && span > 500 || left')).toBe(true);
+    expect(scope.literal("left || ribs > 5 ? 'a' : 'b'")).toBe('a');
+    expect(scope.literal("ribs > 5 ? span > 500 ? 'a' : 'b' : 'c'")).toBe('a');
+    expect(scope.literal('1 < 2 === true')).toBe(true);
+    // A side not taken may name what has no value here.
+    expect(scope.literal("ribs ? 'seven' : nowhere")).toBe('seven');
+    expect(scope.literal("left ? nowhere : 'right'")).toBe('right');
+    expect(scope.literal('ribs || nowhere()')).toBe(7);
+    expect(scope.literal('left && nowhere()')).toBe(false);
+    expect(scope.literal('ribs ?? nowhere()')).toBe(7);
+    // The side that decides must have a value, and `??` never mixes with `&&` or `||` unparenthesized.
+    expect(scope.literal("nowhere || 'x'")).toBeNull();
+    expect(scope.literal("nowhere ? 'a' : 'b'")).toBeNull();
+    expect(scope.literal('ribs ?? 1 || 2')).toBeNull();
+    expect(scope.literal('(ribs ?? 1) || 2')).toBe(7);
+  });
+
+  it('reads strings, template strings and lists, and concatenates as JavaScript does', async () => {
+    const scope = await wingScope();
+    expect(scope.literal("'a\\nb'")).toBe('a\nb');
+    expect(scope.literal('"it\'s"')).toBe("it's");
+    expect(scope.literal('`${kind}-${ribs}`')).toBe('naca-7');
+    expect(scope.literal('`rib ${ribs > 5 ? "many" : "few"}\\t!`')).toBe('rib many\t!');
+    expect(scope.literal("'m' + ribs")).toBe('m7');
+    expect(scope.literal("kind + ''")).toBe('naca');
+    expect(scope.literal("'3' * 2")).toBe(6);
+    expect(scope.literal('[kind, ribs, -1]')).toEqual(['naca', 7, -1]);
+    expect(scope.literal("left ? ['a'] : []")).toEqual([]);
+    expect(scope.literal('coats')).toEqual(['prime', 2]);
+    // A list takes part in no operator, holds no list and no boolean, and a substitution is never one.
+    expect(scope.literal('coats + 1')).toBeNull();
+    expect(scope.literal('[coats]')).toBeNull();
+    expect(scope.literal('[left]')).toBeNull();
+    expect(scope.literal('`${coats}`')).toBeNull();
+    expect(scope.literal('coats === coats')).toBeNull();
+    expect(scope.literal("coats ? 'a' : 'b'")).toBe('a');
+  });
+
+  it('reads a rendered property in an expression, and Math as before', async () => {
+    const scope = await wingScope();
+    expect(scope.literal("inst.properties.kind === 'm4' ? 'yes' : 'no'")).toBe('yes');
+    expect(scope.literal('inst.properties.flag && ribs')).toBe(7);
+    expect(scope.literal('Math.max(ribs, 10) > 9')).toBe(true);
+    expect(scope.literal('Math.PI > 3')).toBe(true);
+  });
+
+  it('reads nothing for what the whitelist leaves out, or comes out no value', async () => {
+    const scope = await wingScope();
+    for (const text of [
+      'ribs / 0', 'span = 1', 'ribs++', 'ribs; span', 'kind.length', 'kind.toUpperCase()', '{ a: 1 }', '() => 1', 'new Date()',
+      'typeof ribs', 'ribs in coats', 'undefined', 'null', 'this', 'Math.constructor', 'Math.random.call', '`${nowhere}`',
+      '', '  ', 'a b', '(ribs',
+    ]) {
+      expect(scope.literal(text), text).toBeNull();
+    }
   });
 });

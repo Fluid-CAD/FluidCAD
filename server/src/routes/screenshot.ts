@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { ScreenshotRequests, type ScreenshotSelectionResolver } from './screenshot-overlays.ts';
+import { ScreenshotRequests, type ScreenshotSceneIds, type ScreenshotSelectionResolver } from './screenshot-overlays.ts';
 import type { SectionSceneObjectLookup } from './screenshot-section.ts';
 import type { ScreenshotView } from '../ws-protocol.ts';
 import { ConfigurationSwitchError } from './screenshot-configuration.ts';
@@ -9,17 +9,20 @@ import { ConfigurationSwitchError } from './screenshot-configuration.ts';
  * page over the `take-screenshot` message. Overlay fields (`highlight`,
  * `hide`, `focus`, `annotations`, `fitTo`, `views`, `section`) are checked by
  * {@link ScreenshotRequests}; highlight expressions resolve through
- * `resolveSelection` here so the page only receives index refs, and a
+ * `resolveSelection` here so the page only receives index refs, `fitTo.shapes`
+ * ids are checked against `sceneIds` (the current render's shape and
+ * instance ids) so an unknown one is a 404 rather than a page error, and a
  * section on a face or a `plane()`/`section()` statement resolves through
- * it and `sceneObject` to the plane the page clips at. `configuration` names
- * a `configurations()` row to capture: the page draws the scene, so the
- * session is switched to the row for the capture and put back afterwards
- * (`withConfiguration`, see `screenshot-configuration.ts`); without the
- * hook the option is refused.
+ * `resolveSelection` and `sceneObject` to the plane the page clips at.
+ * `configuration` names a `configurations()` row to capture: the page draws
+ * the scene, so the session is switched to the row for the capture and put
+ * back afterwards (`withConfiguration`, see `screenshot-configuration.ts`);
+ * without the hook the option is refused.
  */
 export function createScreenshotRouter(
   requestScreenshot: (options: Record<string, unknown>) => Promise<Buffer>,
   resolveSelection?: ScreenshotSelectionResolver,
+  sceneIds?: ScreenshotSceneIds,
   sceneObject?: SectionSceneObjectLookup,
   withConfiguration?: (name: string, capture: () => Promise<Buffer>) => Promise<Buffer>,
 ): Router {
@@ -165,7 +168,7 @@ export function createScreenshotRouter(
       options.view = validated;
     }
 
-    const overlays = ScreenshotRequests.overlays(req.body ?? {}, resolveSelection, sceneObject);
+    const overlays = ScreenshotRequests.overlays(req.body ?? {}, resolveSelection, sceneIds, sceneObject);
     if (overlays.ok === false) {
       res.status(overlays.status).json({
         error: overlays.error,

@@ -14,13 +14,17 @@ vi.mock('../src/api', async (importOriginal) => ({
   fetchFeatureSources: vi.fn(async () => ({ ok: false })),
   applyPlane: vi.fn(async () => ({ success: true })),
   applyPlaneEdit: vi.fn(async () => ({ success: true })),
+  rollback: vi.fn(),
+  clearBreakpoints: vi.fn(),
 }));
 
 import { Scene } from 'three';
+import * as api from '../src/api';
 import { PlaneFeatureService } from '../src/interactive/create-feature/plane-service';
 import { Navbar } from '../src/ui/navbar';
 import type { SelectedEntity, Viewer } from '../src/viewer';
 import type { StandardPlaneId } from '../src/scene/standard-planes';
+import type { SceneObjectRender } from '../src/types';
 
 // The toolbar measures itself with a ResizeObserver, which jsdom lacks.
 class ResizeObserverStub {
@@ -215,5 +219,47 @@ describe('PlaneFeatureService — origin-plane quads', () => {
     service.exit();
     expect(shown()).toEqual([]);
     expect(state.onPick).toBeNull();
+  });
+});
+
+// The Axes row as an expression: a plane whose statement holds `axes: flag ?
+// 'local' : 'world'` opens the row in expression mode, and the service passes
+// the expression through — to the ghost body, the statement preview and the
+// apply payload — unchanged, for the server to resolve and to write back bare.
+describe('PlaneFeatureService — a rotation-axes expression', () => {
+  const filePath = '/ws/plane.fluid.js';
+
+  it('carries the statement\'s axes expression to the ghost, the preview and the edit payload as it was', async () => {
+    vi.useFakeTimers();
+    try {
+      const { service } = mount();
+      const target = { filePath, line: 12, column: 1 };
+      service.enterEdit(target, {
+        feature: 'plane', type: 'offset', bases: [{ text: "'xy'", kind: 'plane', standard: 'xy', ref: null }],
+        offset: 10, rotateX: 15, rotateY: null, rotateZ: null, rotationAxes: { expr: "flag ? 'local' : 'world'" }, position: null,
+      }, { index: 3, type: 'plane', expectedStatement: "plane('xy', 10, { rotateX: 15, axes: flag ? 'local' : 'world' })" });
+      expect(document.querySelector<HTMLButtonElement>('[data-role="expression-axes"]')!.getAttribute('aria-pressed')).toBe('true');
+      // The session's rollback lands: the view at the pre-statement boundary
+      // (the row's index less one), where the previews and ghost run.
+      const rows = [0, 1, 2].map(i => ({ id: `row-${i}`, type: 'sketch', ownShapes: [], sceneShapes: [] }));
+      service.handleSceneRendered([...rows, {
+        id: 'plane', type: 'plane', sourceLocation: target, ownShapes: [], sceneShapes: [],
+      }] as SceneObjectRender[], 2, true);
+      await vi.runAllTimersAsync();
+      const expected = expect.objectContaining({ rotationAxes: { expr: "flag ? 'local' : 'world'" }, rotateX: 15 });
+      expect(api.fetchFeatureGhost).toHaveBeenLastCalledWith(expect.objectContaining({ feature: 'plane', rotationAxes: { expr: "flag ? 'local' : 'world'" } }),
+        expect.anything(), expect.anything());
+      expect(api.applyPlaneEdit).toHaveBeenLastCalledWith(target, expect.objectContaining({ preview: true }));
+      expect(vi.mocked(api.applyPlaneEdit).mock.lastCall![1]).toEqual(expected);
+
+      document.querySelector<HTMLButtonElement>('#fluidcad-plane-panel [data-role="apply"]')!.click();
+      await vi.runAllTimersAsync();
+      const applied = vi.mocked(api.applyPlaneEdit).mock.calls.find(([, options]) => !options.preview)!;
+      expect(applied[0]).toEqual(target);
+      expect(applied[1]).toEqual(expected);
+      service.exit();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -14,7 +14,7 @@ import { param } from 'fluidcad/core';
 export const wall = param('Wall thickness', 3, 'number', { min: 1, max: 10, step: 0.5 });
 export const boltSize = param('Bolt', 'M4', 'select', { options: [{ label: 'M3', value: 'M3' }, { label: 'M4', value: 'M4' }] });
 export const width = param('Width', 120);
-export const innerWidth = width - 2 * wall;   // derived — read-only in the panel
+export const innerWidth = width - 2 * wall;   // derived — edited here, not in the panel
 ```
 
 ```js
@@ -53,7 +53,7 @@ export const innerWidth = width - 2 * wall;
 export const boltClearance = width > 100 ? 0.5 : 0.3;
 ```
 
-Derived values are listed in the panel with their expression and the value they evaluate to, and are read-only there: edit the expression in the file. Arithmetic over other exports is evaluated statically for the panel; an expression the panel cannot evaluate on its own (a `Math` call over a non-constant, a string concatenation) shows the value of the last render, or *computed at render* before any.
+Derived values are not listed in the Global Parameters panel: edit the expression in the file. A model imports one like any other export.
 
 ## Units
 
@@ -82,7 +82,7 @@ The **Global Parameters** button on the left rail, below **Code**, opens a colum
 
 - **One section per params file**, headed by the file name. The header's **+** adds a parameter to that file and its code icon opens the file in a tab at the first declaration. With no params file in the workspace the panel shows *No project parameters yet* and **+** creates `project.params.js`.
 - **One row per parameter**: the label, the control (a number field, slider, text field, select, checkbox or colour swatch, as declared), a monospace chip with the identifier to type (`wall`), and a pencil. Parameters with the same `group` fold together; a `description` is the control's help text.
-- **Derived rows** show the identifier, the expression and the computed value, read-only; their pencil opens the file at the line.
+- **Derived values are left out**: the panel lists `param()` declarations only.
 - A row that breaks one of the [file rules](#the-params-file) carries a warning triangle with the message.
 
 **Changing a value writes the literal.** There are no per-session overrides for project parameters, because the one source of truth that every file sees is the declaration's default: a change in the panel edits the `param()` statement's default argument in the file — undoable in the code editor like any other edit — and the open model re-renders against it. Number and text fields apply after a short pause and on blur; a slider applies on release; selects, checkboxes and colours apply on change. There is no *reset to defaults*: the literal is the value.

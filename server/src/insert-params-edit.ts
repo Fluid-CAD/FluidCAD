@@ -16,6 +16,8 @@ import {
   stringLiteralText,
   type InsertParamValue,
 } from './part-catalog/insert-edit.ts';
+import { CatalogInsertRequest } from './part-catalog/insert-request.ts';
+import type { ApplyFeatureEditSpec } from './apply-feature-edit/index.ts';
 
 /**
  * The Edit-parameters dialog's payload — rides `ApplyFeatureEditSpec` as the
@@ -44,6 +46,84 @@ export type InsertParamsEditSpec = {
    */
   configuration?: string | null;
 };
+
+/** An Edit-parameters request, read ({@link InsertParamsRequest.parse}). */
+export type InsertParamsRequestBody = {
+  /** The file the `insert()` statement is in. */
+  filePath: string;
+  /** The merge: the statement's line, the values set and reset, the configuration. */
+  edit: InsertParamsEditSpec;
+  /** Declarations an expression value introduced, written before the statement. */
+  newVariables?: { name: string; initializer: string }[];
+  /** The assembly-view row the edit comes from (`asm-0/inst-2`), refused when engine-owned (`GeneratedRows`). */
+  row?: string;
+};
+
+/**
+ * The Edit-parameters request (`POST /api/update-insert-params`), read and
+ * turned into its edit: the one place that does — so the route that writes
+ * it and an in-memory preview of it compute the same code
+ * ({@link applyInsertParamsEdit} through `applyFeatureEdit`).
+ *
+ * The rules:
+ * - `set` holds only the values the user changed, keyed as the statement
+ *   keys them: a `param()` definition's by label, a generated definition's
+ *   (`definePart`, `defineAssembly`) by id. Each is merged into the
+ *   statement's override object; every other entry stays byte for byte.
+ * - `unset` drops entries (back to the declared default); the object goes
+ *   with its last entry.
+ * - `configuration` sets (a name) or clears (null) the statement's row
+ *   name; absent leaves it. A generated definition has none.
+ * - Something must change: an empty `set`, no `unset` and no
+ *   `configuration` is a malformed request.
+ */
+export class InsertParamsRequest {
+  /** The body, checked; null when malformed. */
+  static parse(body: unknown): InsertParamsRequestBody | null {
+    const { filePath, sourceLine, set, unset, newVariables, configuration, row } = (body ?? {}) as Record<string, any>;
+    const unsetList: unknown = unset ?? [];
+    // `configuration`: a row name sets the statement's string argument, null
+    // clears it (back to the literals); absent leaves it alone.
+    const configurationGiven = configuration !== undefined;
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || !Number.isInteger(sourceLine) || sourceLine < 1
+      || set === null || typeof set !== 'object' || Array.isArray(set)
+      || !Array.isArray(unsetList) || !unsetList.every(l => typeof l === 'string' && l.length > 0)
+      || (configurationGiven && configuration !== null && (typeof configuration !== 'string' || configuration.trim() === ''))
+      || (Object.keys(set).length === 0 && unsetList.length === 0 && !configurationGiven)
+      || (newVariables !== undefined && newVariables !== null && !CatalogInsertRequest.isNewVariables(newVariables))
+      || (row !== undefined && typeof row !== 'string')
+    ) {
+      return null;
+    }
+    return {
+      filePath,
+      edit: {
+        line: sourceLine,
+        set,
+        ...((unsetList as string[]).length > 0 ? { unset: unsetList as string[] } : {}),
+        ...(configurationGiven ? { configuration: configuration as string | null } : {}),
+      },
+      ...(newVariables ? { newVariables } : {}),
+      ...(typeof row === 'string' && row !== '' ? { row } : {}),
+    };
+  }
+
+  /** The edit spec of a read request: the `insertParams` merge for its file. */
+  static spec(request: InsertParamsRequestBody): ApplyFeatureEditSpec {
+    return {
+      feature: 'sketch',
+      filePath: request.filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      insertParams: request.edit,
+      ...(request.newVariables ? { newVariables: request.newVariables } : {}),
+      ...(request.row ? { row: request.row } : {}),
+    };
+  }
+}
 
 /**
  * Merge parameter values into an `insert()` statement's second argument,

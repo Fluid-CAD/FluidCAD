@@ -10,6 +10,53 @@ import type { PartProperty, PropertyValues } from "./part-property.js";
 import type { ParamDefinition, ParamVal } from "../param-registry.js";
 import { unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
+import type { RenderDetail } from "../rendering/scene.js";
+
+/**
+ * What a generated definition built something from: the definition's id and
+ * the values it was given, by id — what the editor reopens the definition's
+ * dialog with. A `definePart` variant carries it on its part; a
+ * `defineAssembly` occurrence on its record.
+ */
+export type GeneratedValues = { definition: string; values: Record<string, ParamVal> };
+
+/**
+ * Which generator made a part, its template's identity, and what its build
+ * was made with beyond its units — see {@link Part.generatedBy}.
+ */
+export type GeneratedTemplateMark = Readonly<{
+  /** The generated definition's id. */
+  definition: string;
+  /** The template's type, as `g.part(type, …)` named it. */
+  type: string;
+  /** The template's canonical identity key (definition, type, inputs, connectors, appearance, material). */
+  key: string;
+  /** The detail tier the part is built at (the scene's). */
+  detail: RenderDetail;
+  /** The definition's code version when the part was declared (see `GeneratedCode`). */
+  code: string;
+}>;
+
+/**
+ * What a `definePart` variant was built from beyond its part's own name,
+ * material, appearance and units — see {@link Part.generatedVariant}.
+ */
+export type GeneratedVariantMark = Readonly<{
+  /** The generated definition's id: its feature class's catalog key. */
+  definition: string;
+  /** The canonical text of the variant's values, by id, defaults filled. */
+  values: string;
+  /** How its body builds the feature: `'new'` or `'add'`. */
+  operation: string;
+  /** The definition's code version when the variant was declared (see `GeneratedCode`). */
+  code: string;
+}>;
+
+/**
+ * Whose code built a part the template cache keeps, and which version of
+ * it: what decides that a kept build has gone stale ({@link Part.cachedBuildMark}).
+ */
+export type CachedBuildMark = Readonly<{ definition: string; code: string }>;
 
 export class Part extends SceneObject implements IPart {
   /**
@@ -22,6 +69,32 @@ export class Part extends SceneObject implements IPart {
   paramValues?: Record<string, ParamVal>;
   /** The row names the definition's `configurations()` declares, collected like `params` under a scope. */
   configurations?: string[];
+  /**
+   * For a variant a generated definition built (`definePart`): the
+   * definition's id and the values the variant was built from, by id —
+   * what the editor reopens the definition's dialog with. Unset for a
+   * `part()` body's variants.
+   */
+  generated?: GeneratedValues;
+
+  /**
+   * For a part a generator made (`defineAssembly`, `g.part(type, …)`): the
+   * definition's id, the part's type, and its template's identity key —
+   * what the assembly cache pairs it by across renders (`AssemblyCompare`)
+   * instead of its name and values. Such a part is engine-owned: no
+   * `part()` declares it, so the part rules don't apply to it, and the
+   * editor offers no edit of its own on its rows. Unset for every other part.
+   */
+  generatedBy?: GeneratedTemplateMark;
+
+  /**
+   * For a variant a `definePart` definition built: its definition, its
+   * values, how its body builds the feature and the code version — with the
+   * part's own name, material, appearance and units, what the template cache
+   * keeps its build under ({@link cacheKey}). Unset for every other part
+   * (a refused insert's part included); not on the wire — `generated` is.
+   */
+  generatedVariant?: GeneratedVariantMark;
 
   /**
    * The values the body published with `property('Label', 'name', value)`, in
@@ -56,6 +129,13 @@ export class Part extends SceneObject implements IPart {
    * is a warning there, not a build error here).
    */
   private _material: string | null = null;
+
+  /**
+   * The appearance id the definition's `.appearance()` assigned, copied
+   * here like the material; null when none. The raw id rides the payload
+   * for the viewer to shade with — an unknown id is a row warning there.
+   */
+  private _appearance: string | null = null;
 
   constructor(public partName: string) {
     super();
@@ -98,7 +178,83 @@ export class Part extends SceneObject implements IPart {
       return false;
     }
 
+    // Same rule for the appearance: an appearance-only edit must re-serve
+    // the part so the viewer reshades it.
+    if (this._appearance !== other._appearance) {
+      return false;
+    }
+
+    // A generator's template stands in only for the same template, built
+    // at the same detail by the same code; a generated part's variant only
+    // for the same values built by the same code.
+    if (this.cacheKey() !== other.cacheKey()) {
+      return false;
+    }
+
     return true;
+  }
+
+  /**
+   * The key a part a generator made is built, filed and paired under — the
+   * template's identity key, the units it is made and read in, its detail
+   * tier and its code version: two parts with one key hold the same shapes.
+   * The scene files its templates by it, the next render's compare pairs
+   * them by it, and the template cache keeps them by it.
+   */
+  static generatedBuildKey(mark: GeneratedTemplateMark, definitionUnit: LengthUnit, targetUnit: LengthUnit): string {
+    return [mark.key, definitionUnit, targetUnit, mark.detail, mark.code].join('\u0000');
+  }
+
+  /** This part's {@link Part.generatedBuildKey}, or null for a part no generator made. */
+  generatedBuildKey(): string | null {
+    if (!this.generatedBy) {
+      return null;
+    }
+    return Part.generatedBuildKey(this.generatedBy, this.getDefinitionUnit(), this.getTargetUnit());
+  }
+
+  /**
+   * The key the template cache keeps this part's build under across
+   * renders (`GeneratedTemplateCache`), or null for a part it never keeps.
+   * Two parts of one key hold the same shapes, so either may take the
+   * other's build. It keeps two kinds of part:
+   * - a part a generator made: its {@link generatedBuildKey} — the
+   *   template's identity, its units, its detail tier, its code version;
+   * - a `definePart` variant: its definition, its name, material and
+   *   appearance, how its body builds the feature, its values (defaults
+   *   filled), the units it is made and read in, and its code version. No
+   *   detail tier: a feature's build reads none, so a preview render and a
+   *   full one build a variant alike and share one build.
+   *
+   * Null for any other part, and for a refused one: it holds no build.
+   */
+  cacheKey(): string | null {
+    if (this.getRefusal() !== null) {
+      return null;
+    }
+    if (this.generatedBy) {
+      return this.generatedBuildKey();
+    }
+    const variant = this.generatedVariant;
+    if (!variant) {
+      return null;
+    }
+    return [
+      'variant', variant.definition, this.partName, this._material ?? '', this._appearance ?? '',
+      variant.operation, variant.values, this.getDefinitionUnit(), this.getTargetUnit(), variant.code,
+    ].join('\u0000');
+  }
+
+  /**
+   * Whose code built a part the template cache keeps (see {@link cacheKey}),
+   * and its version: the generated definition's id and code version. Null
+   * for a part the cache never keeps.
+   */
+  cachedBuildMark(): CachedBuildMark | null {
+    if (this.cacheKey() === null) {
+      return null;
+    }
+    return this.generatedBy ?? this.generatedVariant ?? null;
   }
 
   getType(): string {
@@ -112,6 +268,15 @@ export class Part extends SceneObject implements IPart {
   /** The material id `.material()` assigned on the definition, or null. */
   getMaterial(): string | null {
     return this._material;
+  }
+
+  setAppearance(id: string | null): void {
+    this._appearance = id;
+  }
+
+  /** The appearance id `.appearance()` assigned on the definition, or null. */
+  getAppearance(): string | null {
+    return this._appearance;
   }
 
   /** The unit the defining file's numbers are in. */
@@ -323,12 +488,18 @@ export class Part extends SceneObject implements IPart {
       name: this.partName,
       /** The material id, absent when the definition assigned none. */
       material: this._material ?? undefined,
+      /** The appearance id, absent when the definition assigned none. */
+      appearance: this._appearance ?? undefined,
       paramValues: this.paramValues,
       configurations: this.configurations,
       // Control metadata for per-instance parameter editing (sourceLocation
       // stripped — that serves the panel's declaration edits, not the wire).
       params: this.params ? serializableParamDefs(this.params) : undefined,
       properties: serializedProperties(this),
+      /** A `definePart` variant's definition and values by id; absent for other parts. */
+      generated: this.generated,
+      /** The generator and part type that made an engine-owned part; absent for other parts. */
+      generatedBy: this.generatedBy ? { definition: this.generatedBy.definition, type: this.generatedBy.type } : undefined,
     };
   }
 }

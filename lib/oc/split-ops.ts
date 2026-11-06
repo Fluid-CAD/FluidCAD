@@ -4,6 +4,7 @@ import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
 import { ShapeOps } from "./shape-ops.js";
+import { BooleanBuilders } from "./boolean-builders.js";
 import { ShapeProps } from "./props.js";
 import { ColorTransfer, type CarriedColor, type SourceColors } from "./color-transfer.js";
 import { RenderSeams } from "./render-seams.js";
@@ -191,7 +192,7 @@ export class SplitOps {
     } finally {
       Explorer.deleteAll(rawPieces);
       result?.delete();
-      splitter.delete();
+      BooleanBuilders.release(splitter);
       progress.delete();
       argumentList.delete();
       toolList.delete();

@@ -26,6 +26,7 @@ function bridge(overrides: Partial<StartScreenBridge> = {}): StartScreenBridge {
     applyPin: noop,
     onUpgradeProgress: vi.fn(),
     onChanged: vi.fn(),
+    onCommand: vi.fn(),
     ...overrides,
   };
 }

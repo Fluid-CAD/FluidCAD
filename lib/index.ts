@@ -7,8 +7,10 @@ import { SceneObject, SourceLocation } from "./common/scene-object.js";
 import { SelectSceneObject } from "./features/select.js";
 import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
-import { parse as parseStackTrace } from "stacktrace-parser";
+import { StackFrames } from "./common/stack-frames.js";
 import { getActiveUnit, getUnitRegistry } from "./units/registry.js";
+// After the kernel's own modules: the feature base extends SceneObject.
+import { FeatureMetas, type FeatureMeta } from "./sdk/meta.js";
 
 /**
  * The suffixes a FluidCAD script carries. A `*.params.js` file is one too —
@@ -28,7 +30,7 @@ export function isParamsFile(p: string): boolean {
 }
 
 export function captureSourceLocation(): SourceLocation | null {
-  const stack = new Error().stack;
+  const stack = StackFrames.capture();
   if (!stack) {
     return null;
   }
@@ -53,52 +55,12 @@ export function extractErrorSourceLocation(error: unknown): SourceLocation | nul
   return extractSourceLocation(header >= 0 ? stack.slice(header + (message as string).length) : stack);
 }
 
-/**
- * A script frame's path arrives percent-encoded: `file://` URLs always are,
- * and the server encodes the `sourceURL` it hands V8 because V8 drops one
- * holding whitespace (a workspace under `My Projects`). A path that is not
- * valid percent-encoding is kept as it came.
- */
-function decodeFramePath(filePath: string): string {
-  try {
-    return decodeURIComponent(filePath);
-  } catch {
-    return filePath;
-  }
-}
-
+/** The first frame of `stack` in a fluid script, its path read as `StackFrames.filePath` reads it. */
 export function extractSourceLocation(stack: string): SourceLocation | null {
-  const frames = parseStackTrace(stack);
-  for (const frame of frames) {
-    if (!frame.file || frame.lineNumber == null) {
-      continue;
+  for (const frame of StackFrames.parse(stack)) {
+    if (isFluidScriptFile(frame.filePath)) {
+      return { filePath: frame.filePath, line: frame.line, column: frame.column };
     }
-
-    let filePath = frame.file;
-    const virtualPrefix = 'virtual:live-render:';
-    const virtualIdx = filePath.lastIndexOf(virtualPrefix);
-    if (virtualIdx !== -1) {
-      filePath = filePath.slice(virtualIdx + virtualPrefix.length);
-    }
-
-    if (filePath.startsWith('file:///')) {
-      filePath = filePath.slice('file:///'.length);
-      if (!/^[A-Za-z]:/.test(filePath)) {
-        filePath = '/' + filePath;
-      }
-    }
-
-    if (!isFluidScriptFile(filePath)) {
-      continue;
-    }
-
-    filePath = decodeFramePath(filePath).replace(/\\/g, '/');
-
-    return {
-      filePath,
-      line: frame.lineNumber,
-      column: frame.column ?? 0,
-    };
   }
   return null;
 }
@@ -125,12 +87,24 @@ export type RegisterBuilderOptions = {
    * rules there.
    */
   allowAssemblyTopLevel?: boolean;
+  /**
+   * The feature the builder makes, described for the editor: its toolbar
+   * button, its dialog's values and the call the dialog writes. Checked
+   * here, so a mistake fails where the module loads; the builder carries
+   * it from then on (`getFeatureMeta`), and the editor finds it by
+   * scanning the module's exports.
+   */
+  feature?: FeatureMeta;
+  /** @internal The engine's own builders: their features may take the engine's own types (`draft`) and are never keyed by a package. */
+  builtIn?: boolean;
 };
 
 export function registerBuilder<T extends Function>(
   builder: (context: SceneParserContext) => T,
   options: RegisterBuilderOptions = {},
 ): T {
+
+  const meta = options.feature === undefined ? null : FeatureMetas.forBuilder(options);
 
   const fn: Function = function() {
 
@@ -193,15 +167,47 @@ export function registerBuilder<T extends Function>(
     const originalFn = builder(context) as ReturnType<typeof builder>;
 
     // A selection handed to this call as an operand is spoken for: it must
-    // not double as the implicit last selection of a later bare call. One
-    // written inline in the arguments is internal to this call as well.
-    SelectSceneObject.claimOperands(arguments, sourceLocation);
+    // not double as the implicit last selection of a later bare call. A
+    // feature's call may hand them over in a list or its object of options,
+    // and one written inline in the arguments is internal to this call.
+    SelectSceneObject.claimOperands(meta ? FeatureMetas.operands(arguments) : arguments, sourceLocation);
 
     return originalFn(...arguments);
   };
 
+  if (meta) {
+    FeatureMetas.attach(fn, meta);
+  }
+
   return fn as ReturnType<typeof builder>;;
 }
+
+export { getFeatureMeta, listFeatureAssets, listFeatureExports, snapshotFeatureMeta } from './sdk/meta.js';
+export type {
+  FeatureMeta, ResolvedFeatureMeta, FeatureMetaSnapshot, FeatureExport, FeatureGroup, FeatureKind, FeatureContext,
+  ParamSpec, ParamSpecSnapshot, ScalarParamSpec, ScalarParamType, PickerParamSpec, PickerKind, VisibleWhen,
+  OptionWhen, OptionCase, PickCondition, PickedSurface, ConditionalDefault,
+  UnionPickerSpec,
+} from './sdk/meta.js';
+export type {
+  FeatureLayout, FeatureLayoutItem, FeatureLayoutRow, FeatureLayoutSection, FeatureLayoutTabs, FeatureLayoutTab,
+  FeatureLayoutNote, FeatureLayoutImage, FeatureLayoutDivider, FeatureStaticItem, FeatureDialogWidth,
+} from './sdk/layout.js';
+export { FeatureCall, CallShapeMismatch } from './sdk/call-shape.js';
+export { FeatureDocs } from './sdk/feature-docs.js';
+export type { DocGap, DocGapReason } from './sdk/feature-docs.js';
+export type { FeatureBucketSpec, FeatureBucketSpecs } from './sdk/feature-buckets.js';
+export { GeneratedSchemas } from './sdk/generated-schema.js';
+export type { GeneratedSchema, GeneratedKind, GeneratedAssetBase, GeneratedAssetModules, GeneratedMarker } from './sdk/generated-schema.js';
+export { ModuleExports } from './common/module-exports.js';
+export { FeatureKey } from './sdk/feature-key.js';
+export { FeatureNamespaces } from './sdk/feature-namespaces.js';
+export type { FeatureNamespaceSource } from './sdk/feature-namespaces.js';
+export { SceneTypes } from './common/scene-types.js';
+export type {
+  CallShape, CallShapeSlot, CallArgument, CallChain, CallLayout, CallLayoutOptions, CallOperation, CallReader, ChainReading,
+  FeatureOperation,
+} from './sdk/call-shape.js';
 
 export { createParamRegistry, getParamRegistry, setParamRegistry, pushParamScope, popParamScope, activeParamScope, coerceParamOverride } from './param-registry.js';
 export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar, ParamOverrides, ParamScope } from './param-registry.js';
@@ -214,9 +220,17 @@ export { PartRules } from './features/part-rules.js';
 export { Assembly } from './features/assembly.js';
 export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-import.js';
+export { AssetRoots } from './io/asset-roots.js';
+export type { AssetRoot, AssetRootSource, AssetFrom } from './io/asset-roots.js';
 export type { StepFileUnits } from './oc/step-units.js';
-export type { ImportReport, AssemblyExportOutcome } from './scene-manager.js';
+export type { ImportReport, AssemblyExportOutcome, GeneratedRenderReport } from './scene-manager.js';
+export type { RenderDetail, SceneOptions } from './rendering/scene.js';
+export type {
+  GeneratedBuildReport, GeneratedLayoutTiming, GeneratedTemplateTiming, GeneratedTemplateSource, GeneratedVariantTiming,
+} from './rendering/generated-build-report.js';
+export type { GeneratedCacheLimits, GeneratedCacheStats } from './rendering/generated-template-cache.js';
 export { RenderChangeTracker } from './rendering/render-changes.js';
+export type { SceneCompareOptions } from './rendering/scene-compare.js';
 export type { RenderChanges, RenderChangeEntry, RenderChangeRemoval, RenderChangeBounds } from './rendering/render-changes.js';
 export type {
   ResolveSelectionRequest, ResolveSelectionResult, ResolveSelectionErrorCode, ResolvedSelectionMatch, ResolvedSelectionScope,
@@ -225,6 +239,11 @@ export type {
 export type {
   SynthesizedSelection, SynthesizedSelectionPart, SynthesizedProducer, SynthesizedForm,
 } from './selection/synthesize-selection.js';
+export type {
+  FeatureSlotRequest, FeatureSlotPicks, FeatureSlotOptions, FeatureSlotPicker, FeatureSlotResult, FeatureSlotSynthesis,
+  FeatureSlotPoint,
+} from './selection/feature-slots.js';
+export type { FeatureSourcesResult, FeatureSources, SourceSlot } from './selection/feature-sources.js';
 export type { EntitySummary } from './oc/measure/entity-summary.js';
 export type {
   ValidateSceneRequest, SceneValidationOutcome, SceneValidationReport, SceneValidationFinding, SceneValidationRefusalCode,
@@ -238,6 +257,8 @@ export type {
 export type { AssemblyExportPose } from './io/assembly-export/index.js';
 export { getSceneManager } from './scene-manager.js';
 export { describeOcException } from './oc/errors.js';
+export { KernelTraps } from './oc/kernel-traps.js';
+export type { KernelTrapReport } from './oc/kernel-traps.js';
 export type { LengthUnit } from './units/units.js';
 export { LENGTH_UNITS, MM_PER_UNIT, parseLengthUnit, isLengthUnit, convertLength, unitFactor } from './units/units.js';
 export { getUnitRegistry, createUnitRegistry, setUnitRegistry, getActiveUnit, withUnit } from './units/registry.js';

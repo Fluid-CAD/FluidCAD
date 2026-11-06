@@ -43,6 +43,8 @@ Everything the Insert wizard and the mate dialog write goes inside that callback
 3. If a queued part declares [parameters](/docs/part/param), the next page shows one form per instance — two queued extrusions can get two lengths. See [Part parameters](./parameters).
 4. Click **Insert N**. Every instance is written as one `insert()` statement and the import line is added for you; the new parts appear in the viewport.
 
+Parts and sub-assemblies made from values, such as a gear or a wardrobe with its doors on hinges, come from the toolbar's **Generate Parts** dropdown and open a dialog with a live preview instead. See [Generated Parts and Assemblies](/docs/assembly/generated).
+
 Each `insert()` returns a handle. Chain a starting pose, a name and a look on it:
 
 | Chain | Effect |

@@ -11,6 +11,11 @@ export interface TimelineRow {
   hideChildren?: boolean;
   internal?: boolean;
   sourceLocation?: SourceLocation & { occurrence?: number };
+  /**
+   * The installed package whose file made the row (the server stamps it):
+   * packages are read-only, so such a row offers no edit.
+   */
+  package?: { name: string; version: string };
 }
 
 /** Display order only. Evaluated entries always address the unchanged scene result. */

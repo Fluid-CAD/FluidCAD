@@ -14,6 +14,7 @@ import {
   insertSketchImage,
   setSketchImage,
   setPartMaterial,
+  setPartAppearance,
   setSectionOptions,
   insertGeometryCall,
   insertGeometryCallWithVariable,
@@ -42,9 +43,9 @@ describe('addBreakpoint', () => {
   it('adds the import line and inserts breakpoint after the statement', async () => {
     const code = `const a = 1;\nconst b = 2;\n`;
     const result = await addBreakpoint(code, 0);
-    // Following line has content, so a blank line follows the breakpoint.
+    // The marker takes a line of its own and nothing else: no blank line.
     expect(result.newCode).toBe(
-      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n\nconst b = 2;\n`,
+      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;\n`,
     );
     // Breakpoint is on line 2 of the new file: import, const a, breakpoint
     expect(result.breakpointLine).toBe(2);
@@ -54,7 +55,7 @@ describe('addBreakpoint', () => {
     const code = `import { line } from 'fluidcad/core';\nconst a = 1;\n`;
     const result = await addBreakpoint(code, 1);
     expect(result.newCode).toBe(
-      `import {breakpoint, line } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n`,
+      `import { breakpoint, line } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n`,
     );
     // No line shift because the import was edited in place.
     expect(result.breakpointLine).toBe(2);
@@ -69,12 +70,11 @@ describe('addBreakpoint', () => {
     expect(result.breakpointLine).toBe(2);
   });
 
-  it('inserts a blank line after when the next line has content', async () => {
+  it('adds no blank line when the next line has content', async () => {
     const code = `const a = 1;\nconst b = 2;`;
     const result = await addBreakpoint(code, 0);
-    // Following row has content, so a blank line follows the breakpoint
     expect(result.newCode).toBe(
-      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n\nconst b = 2;`,
+      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;`,
     );
   });
 
@@ -89,7 +89,7 @@ describe('addBreakpoint', () => {
     const code = `const a = {\n  x: 1,\n  y: 2,\n};\nconst b = 3;\n`;
     // Cursor is on the first line of the object literal
     const result = await addBreakpoint(code, 0);
-    expect(result.newCode).toContain(`};\nbreakpoint();\n\nconst b = 3;`);
+    expect(result.newCode).toContain(`};\nbreakpoint();\nconst b = 3;`);
   });
 
   it('places breakpoint after a 2d feature inside a sketch callback, not after the sketch', async () => {
@@ -97,7 +97,7 @@ describe('addBreakpoint', () => {
     // referenceRow points at the first line(...) inside the callback.
     const result = await addBreakpoint(code, 2);
     expect(result.newCode).toBe(
-      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    breakpoint();\n\n    line([40, 20]);\n});\n`,
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    breakpoint();\n    line([40, 20]);\n});\n`,
     );
     expect(result.breakpointLine).toBe(3);
   });
@@ -106,7 +106,7 @@ describe('addBreakpoint', () => {
     const code = `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n});\n`;
     const result = await addBreakpoint(code, 3);
     expect(result.newCode).toBe(
-      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n    breakpoint();\n\n});\n`,
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n    line([40, 20]);\n    breakpoint();\n});\n`,
     );
     expect(result.breakpointLine).toBe(4);
   });
@@ -115,7 +115,7 @@ describe('addBreakpoint', () => {
     const code = `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n});\nconst b = 2;\n`;
     const result = await addBreakpoint(code, 1);
     expect(result.newCode).toBe(
-      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n});\nbreakpoint();\n\nconst b = 2;\n`,
+      `import { breakpoint, line, sketch } from 'fluidcad/core';\nsketch("xy", () => {\n    line([40, 0]);\n});\nbreakpoint();\nconst b = 2;\n`,
     );
     expect(result.breakpointLine).toBe(4);
   });
@@ -139,7 +139,7 @@ describe('addBreakpoint (AST robustness)', () => {
   it('reuses an import that has trailing inline comments', async () => {
     const code = `import { line } from 'fluidcad/core'; // note\nconst a = 1;\n`;
     const result = await addBreakpoint(code, 1);
-    expect(result.newCode).toContain(`import {breakpoint, line } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`import { breakpoint, line } from 'fluidcad/core';`);
     // No new import line was prepended.
     expect(result.newCode.split('\n').filter(l => l.startsWith('import')).length).toBe(1);
   });
@@ -158,8 +158,9 @@ describe('clearBreakpoints (AST robustness)', () => {
   it('skips a commented-out breakpoint() while removing real calls', async () => {
     const code = `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\n// breakpoint();\nconst b = 2;\n`;
     const result = await clearBreakpoints(code);
+    // The comment calls nothing, so the import goes with the last real call.
     expect(result.newCode).toBe(
-      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\n// breakpoint();\nconst b = 2;\n`,
+      `const a = 1;\n// breakpoint();\nconst b = 2;\n`,
     );
   });
 });
@@ -201,11 +202,11 @@ describe('toggleBreakpoint', () => {
 });
 
 describe('clearBreakpoints', () => {
-  it('removes every breakpoint() line', async () => {
-    const code = `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;\nbreakpoint();\nconst c = 3;\n`;
+  it('removes every breakpoint() line, and the import nothing calls anymore', async () => {
+    const code = `import { breakpoint, extrude } from 'fluidcad/core';\nconst a = 1;\nbreakpoint();\nconst b = 2;\nbreakpoint();\nconst c = 3;\n`;
     const result = await clearBreakpoints(code);
     expect(result.newCode).toBe(
-      `import { breakpoint } from 'fluidcad/core';\nconst a = 1;\nconst b = 2;\nconst c = 3;\n`,
+      `import { extrude } from 'fluidcad/core';\nconst a = 1;\nconst b = 2;\nconst c = 3;\n`,
     );
   });
 
@@ -1050,6 +1051,38 @@ describe('setPartMaterial', () => {
   });
 });
 
+describe('setPartAppearance', () => {
+  const partCode = `const a = part('A', () => {\n  extrude(5);\n}).name('B').material('fluidcad-pine');\nconst b = part('Bare', () => {});\nextrude(5);\n`;
+
+  it('appends .appearance() after the existing chains, the material chain included', async () => {
+    const result = await setPartAppearance(partCode, 1, 'oak');
+    expect(result.newCode).toBe(`const a = part('A', () => {\n  extrude(5);\n}).name('B').material('fluidcad-pine').appearance('oak');\nconst b = part('Bare', () => {});\nextrude(5);\n`);
+  });
+
+  it('replaces an existing id in place and leaves the material chain alone', async () => {
+    const code = `part('A', () => {}).appearance('oak').material('fluidcad-pla');\n`;
+    const result = await setPartAppearance(code, 1, 'steel');
+    expect(result.newCode).toBe(`part('A', () => {}).appearance('steel').material('fluidcad-pla');\n`);
+  });
+
+  it('removes only the appearance chain with null', async () => {
+    const code = `part('A', () => {}).material('fluidcad-pla').appearance('oak').name('B');\n`;
+    const result = await setPartAppearance(code, 1, null);
+    expect(result.newCode).toBe(`part('A', () => {}).material('fluidcad-pla').name('B');\n`);
+  });
+
+  it('is a no-op when removing from a part without the chain, and refuses a non-part line', async () => {
+    expect((await setPartAppearance(partCode, 4, null)).newCode).toBe(partCode);
+    expect((await setPartAppearance(partCode, 5, 'oak')).newCode).toBe(partCode);
+  });
+
+  it('refuses when the existing argument is not a string literal', async () => {
+    const code = `const look = 'oak';\npart('A', () => {}).appearance(look);\n`;
+    expect((await setPartAppearance(code, 2, 'steel')).newCode).toBe(code);
+    expect((await setPartAppearance(code, 2, null)).newCode).toBe(code);
+  });
+});
+
 describe('setSectionOptions', () => {
   it('adds the options object to a bare section statement', async () => {
     const code = `extrude(10);\nsection('A-A', 'xz');\n`;
@@ -1365,6 +1398,70 @@ describe('extractVariablesInScope numeric classification', () => {
     const width = vars.find(v => v.name === 'width')!;
     expect(width.initializer).toBe("param('Width', 700)");
     expect(width.numeric).toBe(true);
+  });
+});
+
+// A choice row matches a variable's literal against its options: each
+// variable carries the literal its declaration holds, and nothing when the
+// initializer would need evaluating.
+describe('extractVariablesInScope literal values', () => {
+  it("carries a const's literal, a param()'s default and a property()'s value, and none for the rest", async () => {
+    const code = [
+      "import { sketch, extrude, param, property } from 'fluidcad/core';",
+      "const finish = 'brushed';",
+      'const width = 100;',
+      'const neg = -3;',
+      'const flat = true;',
+      "const coats = ['prime', 2];",
+      "const screw = param('Screw', 'm3', 'select', { options: [{ label: 'M3', value: 'm3' }] });",
+      "const sides = param('Sides', 6);",
+      "const kind = property('Kind', 'kind', 'bent');",
+      'const half = width / 2;',
+      "const mixed = ['prime', flat];",
+      'const profile = sketch(() => {});',
+      'const housing = extrude(profile, 10);',
+      'const tpl = `m4`;',
+      'extrude(profile, half);',
+    ].join('\n');
+    const vars = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+    const valueByName = Object.fromEntries(vars.map(v => [v.name, v.value]));
+    expect(valueByName).toEqual({
+      finish: 'brushed',
+      width: 100,
+      neg: -3,
+      flat: true,
+      coats: ['prime', 2],
+      screw: 'm3',
+      sides: 6,
+      kind: 'bent',
+      half: undefined,
+      mixed: undefined,
+      profile: undefined,
+      housing: undefined,
+      tpl: undefined,
+    });
+    for (const name of ['half', 'profile', 'housing', 'tpl']) {
+      expect(vars.find(v => v.name === name)).not.toHaveProperty('value');
+    }
+    // The listing and the numeric flags are as they were.
+    expect(vars.find(v => v.name === 'finish')).toEqual({ name: 'finish', initializer: `'brushed'`, numeric: false, value: 'brushed' });
+    expect(vars.find(v => v.name === 'sides')).toMatchObject({ numeric: true });
+  });
+
+  it("carries a param()'s current value over its default when the registry has one for the call, and the default otherwise", async () => {
+    const code = [
+      "import { param } from 'fluidcad/core';",
+      "const left = param('Left panel', false, 'checkbox');",
+      "const screw = param('Screw', 'm3', 'select', { options: [] });",
+      "const sides = param('Sides', 6);",
+      "const odd = param('Odd', 1);",
+    ].join('\n');
+    const current: Record<number, unknown> = { 2: true, 3: 'm4', 5: { not: 'a literal' } };
+    const params = { definitionOf: (call: { startPosition: { row: number } }) => call.startPosition.row + 1 in current ? { currentValue: current[call.startPosition.row + 1] } : null };
+    const vars = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER, undefined, undefined, params);
+    expect(Object.fromEntries(vars.map(v => [v.name, v.value]))).toEqual({ left: true, screw: 'm4', sides: 6, odd: 1 });
+    // The initializer stays the source: what a field completes and an expression's declaration reads.
+    expect(vars.find(v => v.name === 'left')).toMatchObject({ initializer: "param('Left panel', false, 'checkbox')", numeric: true, value: true });
   });
 });
 
@@ -1723,10 +1820,10 @@ describe('instance properties in scope', () => {
     const names = vars.map(v => v.name);
     expect(names.indexOf('drawer.properties.frontWidth')).toBe(names.indexOf('drawer') + 1);
     expect(vars.find(v => v.name === 'drawer.properties.frontWidth')).toEqual({
-      name: 'drawer.properties.frontWidth', initializer: '480', numeric: true,
+      name: 'drawer.properties.frontWidth', initializer: '480', numeric: true, value: 480,
     });
     expect(vars.find(v => v.name === 'drawer.properties.finish')).toEqual({
-      name: 'drawer.properties.finish', initializer: '"oak"', numeric: false,
+      name: 'drawer.properties.finish', initializer: '"oak"', numeric: false, value: 'oak',
     });
     // Only an identifier-shaped name spells as a member access.
     expect(names.some(n => n.includes('odd name'))).toBe(false);
@@ -1787,10 +1884,10 @@ describe('part definition properties in scope', () => {
     const names = vars.map(v => v.name);
     expect(names.indexOf('box.properties.lidClearance')).toBe(names.indexOf('box') + 1);
     expect(vars.find(v => v.name === 'box.properties.lidClearance')).toEqual({
-      name: 'box.properties.lidClearance', initializer: '1', numeric: true,
+      name: 'box.properties.lidClearance', initializer: '1', numeric: true, value: 1,
     });
     expect(vars.find(v => v.name === 'box.properties.finish')).toEqual({
-      name: 'box.properties.finish', initializer: '"oak"', numeric: false,
+      name: 'box.properties.finish', initializer: '"oak"', numeric: false, value: 'oak',
     });
     expect(names.some(n => n.includes('odd name'))).toBe(false);
     expect(names.some(n => n.startsWith('lid.'))).toBe(false);

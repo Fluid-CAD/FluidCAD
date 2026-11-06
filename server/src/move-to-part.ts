@@ -27,6 +27,7 @@ import {
 import { isReferenceUse } from './lint-fluid-js.ts';
 import { StatementAnalysis } from './statement-analysis.ts';
 import { resolvePartBodyInsertion, type ApplyFeatureEditResult } from './apply-feature-edit/index.ts';
+import { FeatureCallees } from './apply-feature-edit/producers/callees.ts';
 
 export type MoveToPartSpec = {
   /** The selected statements, by timeline source line, with drift guards. */
@@ -81,9 +82,17 @@ export class MoveToPart extends StatementAnalysis {
     return { statements };
   }
 
-  /** Pure analysis for the route's dry-run: never touches the code. */
-  static async analyze(code: string, spec: MoveToPartSpec): Promise<MoveToPartAnalysis> {
-    const resolved = await MoveToPart.resolve(code, spec);
+  /**
+   * Pure analysis for the route's dry-run: never touches the code. `callees`
+   * names the custom features the file imports, whose statements build
+   * geometry like the built-ins' do.
+   */
+  static async analyze(
+    code: string,
+    spec: MoveToPartSpec,
+    callees: FeatureCallees = FeatureCallees.BUILT_IN,
+  ): Promise<MoveToPartAnalysis> {
+    const resolved = await MoveToPart.resolve(code, spec, callees);
     if ('error' in resolved) {
       return { ok: false, reason: resolved.error };
     }
@@ -99,8 +108,12 @@ export class MoveToPart extends StatementAnalysis {
    * positions in the ORIGINAL text, applied in descending order, so the
    * part may sit above or below the moved statements.
    */
-  static async apply(code: string, spec: MoveToPartSpec): Promise<ApplyFeatureEditResult> {
-    const resolved = await MoveToPart.resolve(code, spec);
+  static async apply(
+    code: string,
+    spec: MoveToPartSpec,
+    callees: FeatureCallees = FeatureCallees.BUILT_IN,
+  ): Promise<ApplyFeatureEditResult> {
+    const resolved = await MoveToPart.resolve(code, spec, callees);
     if ('error' in resolved) {
       return { newCode: code, error: resolved.error };
     }
@@ -132,7 +145,11 @@ export class MoveToPart extends StatementAnalysis {
     return `moving these features also requires: ${listed}`;
   }
 
-  private static async resolve(code: string, spec: MoveToPartSpec): Promise<ResolvedMove | { error: string }> {
+  private static async resolve(
+    code: string,
+    spec: MoveToPartSpec,
+    callees: FeatureCallees,
+  ): Promise<ResolvedMove | { error: string }> {
     const parser = await getJavaScriptParser();
     const tree = parser.parse(code);
     const lines = splitLines(code);
@@ -271,7 +288,7 @@ export class MoveToPart extends StatementAnalysis {
           if (!decl || moved.has(decl.startIndex)) {
             continue;
           }
-          if (MoveToPart.declaresPart(decl) || MoveToPart.isValueLike(decl)) {
+          if (MoveToPart.declaresPart(decl) || MoveToPart.isValueLike(decl, callees)) {
             continue;
           }
           const err = addCompanion(decl, name);

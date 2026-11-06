@@ -14,20 +14,31 @@
  * so every call here happens synchronously in the click that asked for it.
  */
 
-/** The start page's URL for the tab `path` opens in; `create` sets a new project up first. */
-export function projectTabUrl(path: string, options: { create?: boolean } = {}): string {
+/** What a tab was opened for: a project, created first when `create`, as the package named by `package` when set. */
+export type TabProject = { path: string; create: boolean; package?: string };
+
+/** The start page's URL for the tab `path` opens in; `create` sets a new project up first, `package` names it a package. */
+export function projectTabUrl(path: string, options: { create?: boolean; package?: string } = {}): string {
   const params = new URLSearchParams({ project: path });
   if (options.create) {
     params.set('create', '1');
+    if (options.package) {
+      params.set('package', options.package);
+    }
   }
   return `/?${params}`;
 }
 
 /** The project a tab was opened for, from its URL; null on the start screen itself. */
-export function projectOfTab(search: string): { path: string; create: boolean } | null {
+export function projectOfTab(search: string): TabProject | null {
   const params = new URLSearchParams(search);
   const path = params.get('project');
-  return path ? { path, create: params.get('create') === '1' } : null;
+  if (!path) {
+    return null;
+  }
+  const create = params.get('create') === '1';
+  const packageName = create ? params.get('package') : null;
+  return packageName ? { path, create, package: packageName } : { path, create };
 }
 
 /** A project's name as the launcher has it: the last part of its path, whichever way its slashes lean. */
@@ -67,9 +78,9 @@ export class ProjectTabs {
    * one left from before — to the start page for it. False when the browser
    * refused to open a tab.
    */
-  show(path: string, options: { running: boolean; create?: boolean }): boolean {
+  show(path: string, options: { running: boolean; create?: boolean; package?: string }): boolean {
     const name = projectTabName(path);
-    const url = new URL(projectTabUrl(path, { create: options.create }), this.host.location.origin).href;
+    const url = new URL(projectTabUrl(path, { create: options.create, package: options.package }), this.host.location.origin).href;
     if (!options.running) {
       const tab = this.host.open(url, name);
       if (!tab) {

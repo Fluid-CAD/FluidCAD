@@ -86,6 +86,11 @@ export class TopBar {
     return this.actions.addAction(action);
   }
 
+  /** Make an added button another action in place — see {@link TopBarActions.setAction}. */
+  setAction(button: HTMLButtonElement, action: TopBarAction): void {
+    this.actions.setAction(button, action);
+  }
+
   /** New scene: refresh what the Export dropdown lists — see {@link TopBarActions.updateSolids}. */
   updateSolids(objects: SceneObjectRender[], assembly?: SerializedAssembly): void {
     this.actions.updateSolids(objects, assembly);

@@ -3,6 +3,7 @@ import os from 'os';
 import path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setBuiltinEngineLocation } from '../src/engine/cache';
+import { ProjectPackage } from '../src/projects/project-package';
 import { inspectFolder, isValidFolderName, scaffoldProject } from '../src/projects/scaffold';
 import { checkNewProject, defaultFolder, fileSystemRoots, listFolder } from '../src/server/folders';
 import { rememberProject } from '../src/projects/app-state';
@@ -92,8 +93,26 @@ describe('scaffoldProject', () => {
   it("refuses a folder with someone else's files in it", async () => {
     const other = dir('other');
     fs.writeFileSync(path.join(other, 'notes.txt'), '');
-    await expect(scaffoldProject(other)).rejects.toThrow('is not empty');
+    await expect(scaffoldProject(other)).rejects.toThrow('is not empty. A new project needs an empty folder.');
+    await expect(scaffoldProject(other, { package: '@acme/kit' })).rejects.toThrow('A new package needs an empty folder.');
     await expect(scaffoldProject(path.join(root, 'missing-parent', 'x'))).rejects.toThrow('could not be created');
+  });
+
+  it('sets a package workspace up by passing the name to the engine as init --package', async () => {
+    const target = path.join(dir('cad'), 'kit');
+    await scaffoldProject(target, { package: '@acme/kit' });
+    expect(fs.readdirSync(target).sort()).toEqual(['README.md', 'assemblies', 'features', 'fluidcad.json', 'init.js', 'parts']);
+    expect(JSON.parse(fs.readFileSync(path.join(target, 'fluidcad.json'), 'utf8'))).toEqual({
+      engine: '0.0.50',
+      package: { name: '@acme/kit', version: '0.1.0' },
+    });
+    expect(ProjectPackage.read(target)).toEqual({ name: '@acme/kit', version: '0.1.0' });
+  });
+
+  it("surfaces the engine's refusal of a name, and writes nothing", async () => {
+    const target = path.join(dir('cad'), 'kit');
+    await expect(scaffoldProject(target, { package: 'kit' })).rejects.toThrow('needs your hub handle as its scope');
+    expect(fs.readdirSync(target)).toEqual([]);
   });
 });
 

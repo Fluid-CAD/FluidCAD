@@ -11,7 +11,8 @@ import {
   type TSNode,
   type TSTree,
 } from './code-editor/index.ts';
-import { isReferenceUse, listEngineSymbols } from './lint-fluid-js.ts';
+import { isReferenceUse } from './lint-fluid-js.ts';
+import { FeatureCallees } from './apply-feature-edit/producers/callees.ts';
 
 /** The innermost call of a chain whose callee is a bare identifier, or null. */
 function rootCallOf(call: TSNode): TSNode | null {
@@ -32,27 +33,6 @@ function rootCallOf(call: TSNode): TSNode | null {
   }
   return null;
 }
-
-/**
- * Chain-root callees whose call creates or mutates scene state when the
- * declaration is evaluated — referencing such a binding from inside the
- * part would leave its geometry outside the part's scope, so its statement
- * must move along. Value declarations (numbers, `param()`, filter builders
- * like `face()`, helper functions — their bodies run at call time under
- * whatever container is then active) may stay behind: the moved code
- * reaches them through the module closure.
- */
-const FEATURE_ROOT_CALLEES: Set<string> = (() => {
-  const out = new Set(
-    listEngineSymbols()
-      .filter((s) => s.module === 'fluidcad/core')
-      .map((s) => s.name),
-  );
-  out.delete('breakpoint');
-  out.delete('param');
-  out.delete('configurations');
-  return out;
-})();
 
 /**
  * Chain-root callees that consume the active sketch when no profile argument
@@ -147,10 +127,14 @@ export class StatementAnalysis {
     return false;
   }
 
-  protected static isValueLike(stmt: TSNode): boolean {
+  /**
+   * Whether evaluating the statement builds nothing — no call in it builds
+   * a feature, built-in or one of the file's custom features (`callees`).
+   */
+  protected static isValueLike(stmt: TSNode, callees: FeatureCallees = FeatureCallees.BUILT_IN): boolean {
     for (const call of StatementAnalysis.evaluatedCalls(stmt)) {
       const callee = StatementAnalysis.rootCalleeOf(call);
-      if (callee !== null && FEATURE_ROOT_CALLEES.has(callee)) {
+      if (callee !== null && callees.buildsFeature(callee)) {
         return false;
       }
     }

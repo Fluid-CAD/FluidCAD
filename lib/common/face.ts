@@ -40,6 +40,9 @@ export class Face extends Shape<TopoDS_Face> {
     return true;
   }
 
+  getSubShapes(type: 'face'): Face[];
+  getSubShapes(type: 'edge'): Edge[];
+  getSubShapes(type: ShapeType): Shape[];
   getSubShapes(type: ShapeType): Shape[] {
     if (type === 'face') {
       return [this];

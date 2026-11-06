@@ -1,4 +1,5 @@
 import { ICON_CODE, ICON_LIST_TREE, ICON_SLIDERS } from './icons';
+import { HubIcons } from './hub/hub-icons';
 
 /**
  * The gutter the rail owns down the left edge, published so everything to its
@@ -71,13 +72,21 @@ export interface PanelRailHandlers {
    */
   onToggleGlobalParams?: () => void;
   isGlobalParamsOpen?: () => boolean;
+  /**
+   * Toggle the Hub panel (hub-plan H11). Its button sits below the editor's
+   * and the Parameters column's, or below the tree's on a host without the
+   * in-app editor (VS Code, Neovim); absent, there is no button.
+   */
+  onToggleHub?: () => void;
+  isHubOpen?: () => boolean;
 }
 
 /**
  * The panel rail: a full-height vertical bar pinned to the window's left edge,
  * holding one latch button per surface it opens — the feature tree (timeline)
  * on top, the code-editor pane beneath it, the project Parameters column
- * under that. It replaces the top bar's hamburger menu, which hid the
+ * under that, the Hub panel (H11) last. It replaces the top bar's hamburger
+ * menu, which hid the
  * toggles behind a click and gave no sign of what was open.
  *
  * It is chrome, not an overlay: it takes width off the left the way the top
@@ -99,6 +108,7 @@ export interface PanelRailHandlers {
 export class PanelRail {
   private readonly el: HTMLDivElement;
   private readonly editorBtn: RailButton | null;
+  private readonly hubBtn: RailButton | null;
   private readonly treeBtn: RailButton;
   private readonly globalParamsBtn: RailButton | null;
   private readonly floatQuery: MediaQueryList | null;
@@ -116,13 +126,16 @@ export class PanelRail {
     container.appendChild(this.el);
     document.documentElement.style.setProperty(RAIL_WIDTH_VARIABLE, RAIL_WIDTH);
 
-    // Tree (timeline) first, editor beneath it, project parameters last.
+    // Tree (timeline) first, editor beneath it, project parameters, the Hub last.
     this.treeBtn = this.addButton(ICON_LIST_TREE, handlers.onToggleTree);
     this.editorBtn = handlers.onToggleEditor
       ? this.addButton(ICON_CODE, handlers.onToggleEditor)
       : null;
     this.globalParamsBtn = handlers.onToggleGlobalParams
       ? this.addButton(ICON_SLIDERS, handlers.onToggleGlobalParams)
+      : null;
+    this.hubBtn = handlers.onToggleHub
+      ? this.addButton(HubIcons.PACKAGES, handlers.onToggleHub)
       : null;
 
     this.floatQuery = window.matchMedia?.(FLOAT_QUERY) ?? null;
@@ -164,6 +177,9 @@ export class PanelRail {
         this.handlers.isGlobalParamsOpen?.() === true,
         'Global Parameters',
       );
+    }
+    if (this.hubBtn) {
+      this.setState(this.hubBtn, this.handlers.isHubOpen?.() === true, 'FluidCAD Hub');
     }
   }
 

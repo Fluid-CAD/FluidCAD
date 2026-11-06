@@ -166,7 +166,7 @@ export async function handlePlane(ctx: ApplyFeatureRequestContext, req: Request,
       bases,
       ...(resolution.refs.length > 0 ? { foreign: resolution.refs } : {}),
     };
-    const producerVars = await allocateProducerVars(producers, code);
+    const producerVars = await allocateProducerVars(producers, code, await ctx.currentCallees());
     const statement = renderPlaneStatement(
       options, renderPlaneBaseExprs(options, parts, i => producerVars[i], resolution.expressions),
     );

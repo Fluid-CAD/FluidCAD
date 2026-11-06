@@ -18,7 +18,8 @@ import { AnchorableSelection } from "./anchored-vertex.js";
 export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   private type: ShapeType;
-  private shapes: Shape[] = [];
+  /** How many faces or edges the last build resolved — kept after a feature consumes them. */
+  private resolvedCount = 0;
   private _claimed: boolean = false;
 
   constructor(private filters: FilterBuilderBase<Shape>[]) {
@@ -130,6 +131,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
         filteredShapes = source.getAddedShapes();
       }
     }
+    this.resolvedCount = filteredShapes.length;
     this.addShapes(filteredShapes);
   }
 
@@ -222,7 +224,9 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
     const releaseFrom = injectFromMembership(filters);
     try {
-      this.addShapes(SelectSceneObject.applyFilters(universe, filters));
+      const matched = SelectSceneObject.applyFilters(universe, filters);
+      this.resolvedCount = matched.length;
+      this.addShapes(matched);
     } finally {
       releaseFrom();
     }
@@ -357,7 +361,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   serialize() {
     return {
-      selectionLength: this.shapes.length,
+      selectionLength: this.resolvedCount,
       type: this.type
     }
   }

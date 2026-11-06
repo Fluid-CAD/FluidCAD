@@ -1,6 +1,7 @@
 // Rendering a create spec into its feature statement.
 
 import { renderBooleanStatement } from '../features/boolean.ts';
+import { renderColorStatement } from '../features/color.ts';
 import { renderChamferValueArgs } from '../features/chamfer.ts';
 import { renderConnectorAnchorSuffix, renderConnectorChain } from '../features/connector.ts';
 import { renderCopyAxisExpr, renderCopyCenterExpr, renderCopyStatement } from '../features/copy.ts';
@@ -161,6 +162,15 @@ export function buildStatement(
   if (spec.feature === 'boolean') {
     const bo = spec.boolean!;
     return renderBooleanStatement(bo.kind, bo.targets.map(t => bindings[t.producer].varName!));
+  }
+  if (spec.feature === 'color') {
+    // Whole objects by their bound variables (the Solid tab), else the
+    // picked faces' selectors or the expression row's text (the Face tab).
+    const co = spec.color!;
+    const args = co.targets.length > 0
+      ? co.targets.map(t => bindings[t.producer].varName!).join(', ')
+      : renderSelectorArgs(spec, bindings, foreignArgs);
+    return renderColorStatement(co.value, args);
   }
   if (spec.feature === 'loft') {
     const lo = spec.loft!;

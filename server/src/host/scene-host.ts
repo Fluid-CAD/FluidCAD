@@ -10,6 +10,23 @@
  *   - LocalSceneHost: Vite SSR over the workspace directory (desktop).
  *   - HubSceneHost (Phase 2): in-memory consumer of a packed model bundle.
  */
+import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
+import type { PackageDependencies } from '../project-config.ts';
+
+/**
+ * What the renders that run while it is set read in place of the
+ * workspace's own state — never written anywhere, never visible to
+ * {@link SceneHost.getBuffer}: an assembly preview's (G4), the session's
+ * code with an edit applied in memory, and the pins the edit's Apply will
+ * write.
+ */
+export type RenderOverlay = {
+  /** Module text by absolute, normalized path: evaluated for that file instead of its live buffer or its bytes on disk. */
+  code: ReadonlyMap<string, string>;
+  /** Pins packages resolve through beside the project's own; a pin the project has of the same name wins. */
+  pins: PackageDependencies;
+};
+
 /** What an entry render asks of {@link SceneHost.loadModule} beyond loading the module. */
 export type LoadModuleOptions = {
   /**
@@ -43,12 +60,40 @@ export interface SceneHost {
    */
   getModuleDependencies?(filePath: string): string[];
   /**
+   * The workspace files that import a loaded file, directly or through
+   * another, as far as the loader has evaluated them — the feature modules
+   * a saved helper reaches. Best-effort: empty when nothing loaded the file.
+   */
+  getModuleImporters?(filePath: string): string[];
+  /**
    * The kernel entry file the host itself hands to the workspace's
    * `import 'fluidcad'` (see `EngineImportResolver`), or null when the
    * workspace's own resolution stands. `lib-identity.ts` compares it with
    * the copy the server imports.
    */
   steeredEngineEntry?(): string | null;
+  /**
+   * The installed packages (`@scope/name` imports) the current render
+   * loaded, each with the pin it was checked against — what tells a
+   * session that a package changed under its cached scene. Optional: a
+   * host without packages has none.
+   */
+  resolvedPackages?(): ResolvedPackage[];
+  /** The package imports the current render refused, one per package name. */
+  packageProblems?(): PackageResolveError[];
+  /**
+   * Bring the workspace's editor types for its pinned packages (the
+   * tsserver shims in `node_modules/@types`) in line with its pins.
+   * Optional: a host without a workspace on disk keeps none.
+   */
+  refreshEditorTypes?(): void;
+  /**
+   * Set (or, with null, clear) what the next module loads read in place of
+   * the workspace's own state ({@link RenderOverlay}). The caller holds the
+   * engine's lock from set to clear, so no other render sees it. Optional:
+   * a host without one can't preview.
+   */
+  setRenderOverlay?(overlay: RenderOverlay | null): void;
 }
 
 /**

@@ -871,7 +871,7 @@ export class SketchToolbarService {
         return applySolvedContext(new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.slotCenteredChecked));
       case 'text': {
         const tool = new TextTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container,
-          () => this.handleToolSelect(null));
+          () => this.handleToolSelect(null), fetchVars);
         // Seed the path-pick index — without a scene re-render during the
         // dialog session, onSceneUpdate would otherwise never fire.
         tool.onSceneUpdate(sceneObjects, sketchId);

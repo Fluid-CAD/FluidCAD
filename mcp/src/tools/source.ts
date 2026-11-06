@@ -326,6 +326,113 @@ export type RenderOutcome =
   | { state: 'render-failed'; error: string };
 
 /**
+ * What writing a file that is not a model did to the scene (see
+ * `OpenModelRender`): the open model re-rendered with the file's new
+ * contents in effect — `rendered` / `build-error` as for a model, with
+ * `openModel: true` — or nothing re-rendered, and why.
+ */
+export type OpenModelRenderOutcome =
+  | {
+      state: 'rendered' | 'build-error';
+      /** The model that re-rendered is the open one, not the file written. */
+      openModel: true;
+      objectErrors?: ObjectBuildError[];
+      changes?: RenderChanges;
+      uiApplied?: boolean;
+    }
+  | { state: 'no-open-model'; reason: string }
+  | { state: 'not-rendered'; reason: string }
+  | { state: 'render-failed'; error: string };
+
+/**
+ * After a write to a file that is not a model (`.fluid.js`, `.part.js`,
+ * `.assembly.js`): such a file never becomes the rendered model — a
+ * `*.feature.js` custom feature module rendered as one would leave the
+ * viewport on an empty scene, or on a misleading compile error. A file the
+ * open model can read — a JavaScript module it may import (a feature
+ * module, a helper) or `fluidcad.json` — re-renders the open model instead,
+ * rebuilt in full so a module's new code takes effect even where a
+ * statement's values match its cached build. Any other file (an icon, a
+ * note) re-renders nothing.
+ */
+export class OpenModelRender {
+
+  private static readonly MODULE = /\.(m|c)?js$/i;
+
+  /** Whether a model may read `absPath`: a JavaScript module or the project's `fluidcad.json`. */
+  static isModelInput(absPath: string): boolean {
+    return OpenModelRender.MODULE.test(absPath) || path.basename(absPath) === 'fluidcad.json';
+  }
+
+  static async after(entry: RegistryEntry, absPath: string, changes: boolean): Promise<OpenModelRenderOutcome> {
+    if (!OpenModelRender.isModelInput(absPath)) {
+      return { state: 'not-rendered', reason: 'Not a model, nor a module or fluidcad.json a model reads: nothing re-rendered.' };
+    }
+    const client = new FluidCadClient(entry);
+    try {
+      const report = await client.postJson<{
+        state?: 'rendered' | 'build-error';
+        objectErrors?: ObjectBuildError[];
+        changes?: RenderChanges;
+        uiApplied?: boolean;
+      }>('/api/recompute', { awaitUi: true, ...(changes ? { changes: true } : {}) });
+      return {
+        state: report.state ?? ((report.objectErrors?.length ?? 0) > 0 ? 'build-error' : 'rendered'),
+        openModel: true,
+        ...(report.objectErrors ? { objectErrors: report.objectErrors } : {}),
+        ...(report.changes ? { changes: report.changes } : {}),
+        ...(report.uiApplied !== undefined ? { uiApplied: report.uiApplied } : {}),
+      };
+    } catch (e: any) {
+      if (e instanceof HttpError && e.statusCode === 404) {
+        return {
+          state: 'no-open-model',
+          reason: 'No model is open, so nothing re-rendered. Write (or open) the model that imports the file to see it build.',
+        };
+      }
+      if (e instanceof HttpError) {
+        return {
+          state: 'render-failed',
+          error: `The open model failed to re-render with the new file: ${OpenModelRender.messageOf(e.body)} — call get_compile_error for where.`,
+        };
+      }
+      return { state: 'render-failed', error: e?.message ?? String(e) };
+    } finally {
+      await client.close().catch(() => {});
+    }
+  }
+
+  /**
+   * The error an engine's failing route answered with: a JSON `{ error }`,
+   * or the HTML page the HTTP server writes for a thrown error, read down to
+   * the error's first line.
+   */
+  static messageOf(body: string): string {
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed && typeof parsed.error === 'string') {
+        return parsed.error;
+      }
+    } catch {
+      // Not JSON: the HTML error page.
+    }
+    const pre = body.match(/<pre>([\s\S]*?)<\/pre>/i);
+    const text = (pre ? pre[1] : body)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, '&');
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    const message = lines.filter(line => !line.startsWith('at ')).slice(0, 3).join(' ');
+    return (message || text.trim()).slice(0, 500);
+  }
+}
+
+/**
  * Ask the running FluidCAD server to render `code` for `filePath`. Used by
  * `write_file` / `edit_range` to make the agent's edit synchronous: the
  * disk write returns once the render settles, so the caller doesn't need a
@@ -496,7 +603,8 @@ function wantsChanges(input: { includeChanges?: boolean }): boolean {
 export type WriteFileOutput = {
   path: string;
   bytesWritten: number;
-  render: RenderOutcome;
+  /** A model's own render, or — for any other file — what became of the open model (see `OpenModelRender`). */
+  render: RenderOutcome | OpenModelRenderOutcome;
 };
 
 export async function writeFile(input: WriteFileInput): Promise<ToolResult<WriteFileOutput>> {
@@ -529,7 +637,12 @@ export async function writeFile(input: WriteFileInput): Promise<ToolResult<Write
   } catch (e: any) {
     return err('internal', e?.message ?? String(e));
   }
-  const render = await triggerRender(entry.data, resolved.data.absPath, input.content, wantsChanges(input));
+  // A model renders itself; a *.params.js file folds into the open model as
+  // a dependency (keepCurrent, see triggerRender); any other file re-renders
+  // the open model through OpenModelRender.
+  const render = isFluidScriptPath(resolved.data.absPath) || isParamsPath(resolved.data.absPath)
+    ? await triggerRender(entry.data, resolved.data.absPath, input.content, wantsChanges(input))
+    : await OpenModelRender.after(entry.data, resolved.data.absPath, wantsChanges(input));
   return ok({
     path: resolved.data.absPath,
     bytesWritten: Buffer.byteLength(input.content, 'utf8'),
@@ -555,7 +668,8 @@ export type EditRangeOutput = {
   path: string;
   bytesWritten: number;
   replacedRange: { start: Position; end: Position };
-  render: RenderOutcome;
+  /** As `WriteFileOutput.render`. */
+  render: RenderOutcome | OpenModelRenderOutcome;
 };
 
 function isValidPosition(value: unknown): value is Position {
@@ -653,7 +767,12 @@ export async function editRange(input: EditRangeInput): Promise<ToolResult<EditR
   } catch (e: any) {
     return err('internal', e?.message ?? String(e));
   }
-  const render = await triggerRender(entry.data, resolved.data.absPath, next, wantsChanges(input));
+  // A model renders itself; a *.params.js file folds into the open model as
+  // a dependency (keepCurrent, see triggerRender); any other file re-renders
+  // the open model through OpenModelRender.
+  const render = isFluidScriptPath(resolved.data.absPath) || isParamsPath(resolved.data.absPath)
+    ? await triggerRender(entry.data, resolved.data.absPath, next, wantsChanges(input))
+    : await OpenModelRender.after(entry.data, resolved.data.absPath, wantsChanges(input));
   return ok({
     path: resolved.data.absPath,
     bytesWritten: Buffer.byteLength(next, 'utf8'),
@@ -667,7 +786,8 @@ export async function editRange(input: EditRangeInput): Promise<ToolResult<EditR
 // ---------------------------------------------------------------------------
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.fluidcad', 'dist', 'build']);
-const FLUID_SUFFIX = '.fluid.js';
+/** Every FluidCAD file kind: the models, and the custom feature modules they import. */
+const FLUID_SUFFIXES = ['.fluid.js', '.part.js', '.assembly.js', '.feature.js'];
 const WALK_FILE_LIMIT = 5000;
 
 export type ListFluidFilesInput = WorkspaceArg;
@@ -721,7 +841,7 @@ async function walk(root: string, dir: string, out: string[]): Promise<void> {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) {
       await walk(root, full, out);
-    } else if (e.isFile() && e.name.endsWith(FLUID_SUFFIX)) {
+    } else if (e.isFile() && FLUID_SUFFIXES.some((suffix) => e.name.endsWith(suffix))) {
       out.push(path.relative(root, full));
     }
   }

@@ -7,14 +7,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer } from '../src/server.ts';
 import { registryFilePath } from '../src/discovery.ts';
-import { exportShapes, packModel, recompute, selectConfiguration } from '../src/tools/engine.ts';
+import { exportShapes, recompute, selectConfiguration } from '../src/tools/engine.ts';
 import { screenshot, screenshotMulti } from '../src/tools/screenshot.ts';
 import { getSceneSummary } from '../src/tools/inspection.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
 // The MCP side of configurations (docs/assembly-configurations-plan.md §3.7):
 // select_configuration, `configuration` on recompute / export / screenshot /
-// screenshot_multi / pack_model, and the table on get_scene_summary.
+// screenshot_multi, and the table on get_scene_summary.
 
 const PNG = Buffer.from('89504e470d0a1a0a', 'hex');
 const TABLE = {
@@ -161,7 +161,7 @@ describe('configuration on the other tools', () => {
     expect(requests.some((r) => r.url.startsWith('/api/configurations'))).toBe(false);
   });
 
-  it('export, screenshot, screenshot_multi and pack_model forward the row', async () => {
+  it('export, screenshot and screenshot_multi forward the row', async () => {
     expect((await exportShapes({ format: 'step', shapeIds: ['s1'], configuration: 'Wide' })).ok).toBe(true);
     expect(posted('/api/export')[0].body.configuration).toBe('Wide');
 
@@ -171,15 +171,12 @@ describe('configuration on the other tools', () => {
     expect(shots[0].configuration).toBe('Wide');
     expect(shots[1]).toMatchObject({ configuration: 'Compact', multi: true });
 
-    expect((await packModel({ configuration: 'Default' })).ok).toBe(true);
-    expect(posted('/api/pack')[0].body.configuration).toBe('Default');
   });
 
   it('leaves configuration out of the bodies when not given', async () => {
     await exportShapes({ format: 'step', shapeIds: ['s1'] });
     await screenshot({});
-    await packModel({});
-    for (const url of ['/api/export', '/api/screenshot', '/api/pack']) {
+    for (const url of ['/api/export', '/api/screenshot']) {
       expect(posted(url)[0].body).not.toHaveProperty('configuration');
     }
   });
@@ -187,7 +184,6 @@ describe('configuration on the other tools', () => {
   it('refuses an empty configuration before contacting the server', async () => {
     expect((await exportShapes({ format: 'step', shapeIds: ['s1'], configuration: ' ' })).ok).toBe(false);
     expect((await screenshot({ configuration: '' })).ok).toBe(false);
-    expect((await packModel({ configuration: '' })).ok).toBe(false);
     expect(requests.filter((r) => r.method === 'POST')).toEqual([]);
   });
 
@@ -209,7 +205,7 @@ describe('over MCP', () => {
       const { tools } = await client.listTools();
       const byName = new Map(tools.map((t) => [t.name, t]));
       expect((byName.get('select_configuration')?.inputSchema as any)?.required).toContain('name');
-      for (const name of ['recompute', 'export', 'screenshot', 'screenshot_multi', 'pack_model']) {
+      for (const name of ['recompute', 'export', 'screenshot', 'screenshot_multi']) {
         expect(Object.keys((byName.get(name)?.inputSchema as any)?.properties ?? {})).toContain('configuration');
       }
 

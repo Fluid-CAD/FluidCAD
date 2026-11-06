@@ -96,7 +96,7 @@ export function applyTreeWarmStarts(
   }
   for (const component of components) {
     for (const edge of component.treeEdges) {
-      seedTreeEdge(edge, mates, drag, bodyById, prevPoses, clusters);
+      seedTreeEdge(edge, mates, drag, bodyById, prevPoses, clusters, component);
     }
   }
 }
@@ -157,6 +157,7 @@ function seedTreeEdge(
   bodyById: Map<string, BodyState>,
   prevPoses: PrevPoses,
   clusters: FastenedClusterCache | undefined,
+  component: Component,
 ): void {
   const { parent: driver, child: follower, parentConn: driverConn, childConn: followerConn, mate } = edge;
   // Tripwire: with multi-source BFS every grounded body is a BFS root,
@@ -220,14 +221,24 @@ function seedTreeEdge(
   // Kinematic driver: pin the free scalar at the commanded value. Same
   // sign convention as mateReadoutValue — B-side traversal measures the
   // authored value face-to-face and its negation under flip.
-  if (drag.drivenJoint?.mateId === mate.mateId && spec.limitParam) {
+  const driven = drag.drivenJoint?.mateId === mate.mateId && spec.limitParam !== undefined;
+  if (driven) {
     const sign = reversed && options.flip ? -1 : 1;
-    params[spec.limitParam] = sign * drag.drivenJoint.value;
+    params[spec.limitParam!] = sign * drag.drivenJoint!.value;
   }
 
-  const delta = dragDelta(
-    spec, driver, driverConn, follower, mates, drag, bodyById, clusters,
-  );
+  // A follower on a closed loop gets NO analytic drag delta: that delta
+  // swings the body about its tree joint to face the cursor, however far,
+  // and the loop relaxation then closes the loop from wherever it landed
+  // — on the other branch of the mechanism when the cursor is out of
+  // reach (a toggle clamp's cam link dragged past its stroke folded the
+  // cams back over the toggle). The LM's drag rows move a loop body from
+  // its previous configuration instead, which is local and stays on the
+  // branch the user is on.
+  const onLoop = component.closureEdges.length > 0 && component.loopBodies.has(follower.instanceId);
+  const delta = onLoop
+    ? { rotZ: 0, slideZ: 0, x: 0, y: 0 }
+    : dragDelta(spec, driver, driverConn, follower, mates, drag, bodyById, clusters);
   // A coupled scalar moves with its relation train, which the loop
   // relaxation solves exactly; turning it alone here would break the
   // relation (and start the relaxation from a pose off the train's line).
@@ -242,10 +253,14 @@ function seedTreeEdge(
   // Clamp AFTER the drag delta so a drag past the bound pins at the
   // bound; the rotZ unwrap keeps the clamp stable across the ±180° cut.
   // Reversed edges clamp against the bounds mapped into B-space.
+  // A driven value is ABSOLUTE (the Animate bar's number in the authored
+  // space) and clamps on the limits' own branch; a dragged value is the
+  // snapshot plus a delta and keeps the snapshot's branch, so a push past
+  // the bound pins there instead of unwrapping across the cut.
   const effLimits = reversed && options.limits
     ? reversedLimits(options.limits, poseOptions.flip)
     : options.limits;
-  clampParamsToLimits(spec, params, effLimits, snapshotParams);
+  clampParamsToLimits(spec, params, effLimits, driven ? null : snapshotParams);
 
   // Reversed edges re-derive the option-fixed components at the final
   // angle (they're angle-dependent when a lateral offset meets a free

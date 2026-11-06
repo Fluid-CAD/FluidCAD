@@ -31,6 +31,8 @@ export type MenuActions = {
   openProject: (target: string | null) => Promise<unknown>;
   /** Scaffold a project with `fluidcad init` in a folder the user picks, then open it. */
   newProject: () => Promise<unknown>;
+  /** A package workspace: the start screen asks its name, then the folder as New Project does. */
+  newPackage: () => void;
   newWindow: () => void;
 };
 
@@ -114,6 +116,7 @@ export function buildApplicationMenu(actions: MenuActions): void {
       submenu: [
         { label: 'New File', accelerator: 'CmdOrCtrl+N', enabled: project, click: () => toProject('new-file') },
         { label: 'New Project…', accelerator: 'CmdOrCtrl+Shift+N', click: () => void actions.newProject() },
+        { label: 'New Package…', click: () => actions.newPackage() },
         { label: 'Open Project…', accelerator: 'CmdOrCtrl+O', click: () => void actions.openProject(null) },
         { label: 'Open Recent', submenu: recentProjectsSubmenu(actions) },
         { label: 'Start Screen', enabled: enabled.startScreen, click: () => AppWindow.focused()?.startScreenCommand() },

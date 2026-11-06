@@ -40,3 +40,14 @@ export function ReleaseLink({children}: {children?: ReactNode}) {
   const version = useFluidcadVersion();
   return <a href={`${RELEASES}/tag/v${version}`}>{children ?? `FluidCAD ${version}`}</a>;
 }
+
+/** A Docker image reference pinned to the version the docs were built against. */
+export function DockerImageTag() {
+  const version = useFluidcadVersion();
+  return <code>ghcr.io/fluid-cad/fluidcad:{version}</code>;
+}
+
+/** The version the docs were built against, as inline code (`0.0.48`). */
+export function FluidcadVersion() {
+  return <code>{useFluidcadVersion()}</code>;
+}

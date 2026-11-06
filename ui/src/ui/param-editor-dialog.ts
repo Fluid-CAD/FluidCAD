@@ -2,6 +2,7 @@ import {
   addGlobalParam,
   addParam,
   getParamUsage,
+  getScopeVariables,
   removeParam,
   updateParam,
   type ParamSelectOption,
@@ -13,7 +14,8 @@ import {
 import type { GlobalParam, SourceLocation, UIParamDefinition } from '../types';
 import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
 import { ICON_CLOSE, ICON_TRASH } from './icons';
-import { isValidNewIdentifier } from './expression-core';
+import { isValidNewIdentifier, type VariableInfo } from './expression-core';
+import { ExpressionField } from './expression-field';
 import { identifierFromLabel } from './label-identifier';
 import {
   MULTI_CONTROL_CHOICES,
@@ -92,6 +94,12 @@ export class ParamEditorDialog {
   private partProvider: (() => PartChoices) | null = null;
   /** The parts the dropdown currently lists, by option index. */
   private partChoices: PartChoice[] = [];
+  /** The Number default's expression field — null while another type's control shows. */
+  private defaultField: ExpressionField | null = null;
+  /** What the Number default may read: the declaration's scope, refreshed per open and part. */
+  private variables: VariableInfo[] = [];
+  /** Identity of the last variables request — a stale answer must not land on a newer form. */
+  private variablesRequest = 0;
 
   constructor(container: HTMLElement, private scope: 'part' | 'assembly' = 'part') {
     this.overlay = document.createElement('div');
@@ -164,6 +172,7 @@ export class ParamEditorDialog {
     this.title.textContent = 'Add parameter';
     this.seed({ label: '', defaultValue: 0, type: 'number' });
     this.populateParts(preferredPart);
+    void this.loadVariables();
     // Off on every open: exposing is a choice made per parameter, and only a
     // new one can be exposed from here — a property lives in a part body, so
     // the toggle has nothing to offer an assembly parameter.
@@ -201,6 +210,7 @@ export class ParamEditorDialog {
     this.labelInput.focus();
     this.labelInput.select();
     void this.loadUsage(this.target);
+    void this.loadVariables(def.sourceLocation?.line ?? null);
   }
 
   /**
@@ -276,6 +286,10 @@ export class ParamEditorDialog {
     if (!global) {
       this.globalFile = null;
     }
+    // A params file is not the file on screen, whose scope is the only one
+    // the server lists: its Number default takes plain arithmetic.
+    this.variablesRequest++;
+    this.setVariables([]);
     this.identifierRow.classList.toggle('hidden', !global);
     this.identifierRow.classList.toggle('flex', global);
     this.usageNote.classList.add('hidden');
@@ -445,6 +459,9 @@ export class ParamEditorDialog {
       }
     });
 
+    // Another part, another set of variables for the Number default.
+    this.partSelect.addEventListener('change', () => void this.loadVariables());
+
     this.overlay.querySelector('[data-ref="add-option"]')!.addEventListener('click', () => {
       this.appendOptionRow({ label: '', value: '' });
       this.refreshSelectDefault();
@@ -523,6 +540,8 @@ export class ParamEditorDialog {
   private renderDefaultControl(type: ParamType, value: ParamSpec['defaultValue']): void {
     const previous = this.defaultRow.querySelector('[data-ref="default"]');
     previous?.remove();
+    this.defaultField?.destroy();
+    this.defaultField = null;
 
     let control: HTMLElement;
     if (type === 'checkbox') {
@@ -546,12 +565,24 @@ export class ParamEditorDialog {
         select.appendChild(el);
       }
       control = select;
+    } else if (type === 'number') {
+      // Arithmetic over the in-scope variables (`wall * 2`), evaluated on
+      // save: a default is a literal, which the panel's own edits can rewrite.
+      const input = document.createElement('input');
+      input.className = 'input input-sm input-bordered w-full';
+      input.placeholder = '0';
+      const field = new ExpressionField(input, { arithmeticOnly: true });
+      field.setValue(coerceDefaultValue(type, value) as number);
+      field.setVariables(this.variables);
+      field.onSubmit = () => void this.save();
+      this.defaultField = field;
+      control = input;
     } else {
       const input = document.createElement('input');
       input.className = type === 'color'
         ? 'w-full h-8 cursor-pointer bg-transparent border border-base-content/20 rounded'
         : 'input input-sm input-bordered w-full';
-      input.type = type === 'number' || type === 'slider' ? 'number' : type === 'color' ? 'color' : 'text';
+      input.type = type === 'slider' ? 'number' : type === 'color' ? 'color' : 'text';
       input.value = String(coerceDefaultValue(type, value));
       control = input;
     }
@@ -648,6 +679,10 @@ export class ParamEditorDialog {
     if (!control) {
       return '';
     }
+    if (this.defaultField) {
+      // An expression that does not evaluate carries over as its text.
+      return this.readNumberDefault() ?? this.defaultField.element.value;
+    }
     if (control instanceof HTMLSelectElement) {
       const selected = Array.from(control.selectedOptions, (o) => o.value);
       const options = this.readOptions();
@@ -664,6 +699,16 @@ export class ParamEditorDialog {
     return input.value;
   }
 
+  /** The Number default evaluated — blank reads as 0 — or null when it does not evaluate. */
+  private readNumberDefault(): number | null {
+    const field = this.defaultField!;
+    if (field.element.value.trim() === '') {
+      return 0;
+    }
+    const read = field.read();
+    return 'error' in read ? null : read.value as number;
+  }
+
   /** Everything the form describes, or the first reason it describes nothing. */
   private readSpec(): ParamSpec | { error: string } {
     const label = this.labelInput.value.trim();
@@ -671,6 +716,11 @@ export class ParamEditorDialog {
       return { error: 'Give the parameter a label.' };
     }
     const type = this.typeSelect.value as ParamType;
+    if (this.defaultField) {
+      if (this.readNumberDefault() === null) {
+        return { error: 'The default value has to be a number, or arithmetic over the variables in scope.' };
+      }
+    }
     const spec: ParamSpec = { label, defaultValue: this.readDefaultValue(), type };
     if (this.isGlobal) {
       const identifier = this.identifierInput.value.trim();
@@ -808,6 +858,26 @@ export class ParamEditorDialog {
     } finally {
       this.setBusy(false);
     }
+  }
+
+  /**
+   * Offer the Number default the variables in scope: at the declaration's own
+   * line while editing, else the chosen part's body (or the assembly's).
+   */
+  private async loadVariables(line: number | null = null): Promise<void> {
+    const request = ++this.variablesRequest;
+    const variables = this.scope === 'assembly'
+      ? await getScopeVariables(line, 'assembly')
+      : await getScopeVariables(line, undefined, line === null ? this.chosenPart() : null);
+    if (request !== this.variablesRequest) {
+      return;
+    }
+    this.setVariables(variables);
+  }
+
+  private setVariables(variables: VariableInfo[]): void {
+    this.variables = variables;
+    this.defaultField?.setVariables(variables);
   }
 
   /**

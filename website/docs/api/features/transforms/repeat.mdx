@@ -17,7 +17,7 @@ See the [guide](/docs/patterns/repeat) for detailed usage examples.
 ## Signatures
 
 ```ts
-repeat(type: "linear", axis: AxisLike, options: LinearRepeatOptions, ...objects: SceneObject[]): Repeat
+repeat(type: "linear", axis: AxisLike | Connector, options: LinearRepeatOptions, ...objects: T): Repeat
 ```
 
 Creates linear repeated instances along an axis.
@@ -25,14 +25,14 @@ Creates linear repeated instances along an axis.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "linear" | Must be `'linear'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to repeat along |
+| `axis` | [AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector) | The axis to repeat along — a world axis, an `axis()`, or a connector (its Z axis) |
 | `options` | [LinearRepeatOptions](/docs/api/types/linear-repeat-options) | Repeat count, spacing, etc. |
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
+| `...objects` | T | The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
 
 ---
 
 ```ts
-repeat(type: "linear", axis: AxisLike[], options: LinearRepeatOptions, ...objects: SceneObject[]): Repeat
+repeat(type: "linear", axis: (AxisLike | Connector)[], options: LinearRepeatOptions, ...objects: T): Repeat
 ```
 
 Creates linear repeated instances along multiple axes.
@@ -40,9 +40,9 @@ Creates linear repeated instances along multiple axes.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "linear" | Must be `'linear'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like)[] | The axes to repeat along |
+| `axis` | ([AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector))[] | The axes to repeat along — each a world axis, an `axis()`, or a connector (its Z axis) |
 | `options` | [LinearRepeatOptions](/docs/api/types/linear-repeat-options) | Repeat count, spacing, etc. |
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
+| `...objects` | T | The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
 
 #### LinearRepeatOptions
 
@@ -57,7 +57,7 @@ Creates linear repeated instances along multiple axes.
 ---
 
 ```ts
-repeat(type: "circular", axis: AxisLike, options: CircularRepeatOptions, ...objects: SceneObject[]): Repeat
+repeat(type: "circular", axis: AxisLike | Connector, options: CircularRepeatOptions, ...objects: T): Repeat
 ```
 
 Creates circular repeated instances around an axis.
@@ -65,9 +65,9 @@ Creates circular repeated instances around an axis.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "circular" | Must be `'circular'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to repeat around |
+| `axis` | [AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector) | The axis to repeat around — a world axis, an `axis()`, or a connector (its Z axis through its origin) |
 | `options` | [CircularRepeatOptions](/docs/api/types/circular-repeat-options) | Repeat count, angle, etc. |
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
+| `...objects` | T | The objects to repeat (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
 
 #### CircularRepeatOptions
 
@@ -82,7 +82,7 @@ Creates circular repeated instances around an axis.
 ---
 
 ```ts
-repeat(type: "mirror", plane: PlaneLike, ...objects: SceneObject[]): Repeat
+repeat(type: "mirror", plane: PlaneLike, ...objects: T): Repeat
 ```
 
 Creates a mirrored instance of objects across a plane.
@@ -91,12 +91,12 @@ Creates a mirrored instance of objects across a plane.
 |-----------|------|-------------|
 | `type` | "mirror" | Must be `'mirror'` |
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The plane to mirror across |
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to mirror (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
+| `...objects` | T | The objects to mirror (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
 
 ---
 
 ```ts
-repeat(type: "rotate", axis: AxisLike, angle?: NumberParam, ...objects: SceneObject[]): Repeat
+repeat(type: "rotate", axis: AxisLike | Connector, angle?: NumberParam, ...objects: T): Repeat
 ```
 
 Creates a rotated clone of objects around an axis.
@@ -104,14 +104,14 @@ Creates a rotated clone of objects around an axis.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "rotate" | Must be `'rotate'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to rotate around |
+| `axis` | [AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector) | The axis to rotate around — a world axis, an `axis()`, or a connector (its Z axis through its origin) |
 | `angle` | NumberParam | The rotation angle in degrees (defaults to 90) *(optional)* |
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to rotate (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
+| `...objects` | T | The objects to rotate (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
 
 ---
 
 ```ts
-repeat(matrix: Matrix4, ...objects: SceneObject[]): Repeat
+repeat(matrix: Matrix4, ...objects: T): Repeat
 ```
 
 Creates a transformed clone of objects using an arbitrary matrix.
@@ -119,4 +119,4 @@ Creates a transformed clone of objects using an arbitrary matrix.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `matrix` | Matrix4 | The transformation matrix to apply |
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to transform (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |
+| `...objects` | T | The objects to transform (defaults to last object); a `repeat()` among them stands for its whole pattern *(optional)* |

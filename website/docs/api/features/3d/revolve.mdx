@@ -17,26 +17,26 @@ See the [guide](/docs/3d-operations/revolve) for detailed usage examples.
 ## Signatures
 
 ```ts
-revolve(axisLike: AxisLike, target?: SceneObject): Revolve
+revolve(axisLike: AxisLike | Connector, target?: SceneObject): Revolve
 ```
 
 Revolves the last sketch 360 degrees around an axis.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `axisLike` | [AxisLike](/docs/api/types/axis-like) | The axis to revolve around |
+| `axisLike` | [AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector) | The axis to revolve around — a world axis, an `axis()`, or a connector (its Z axis through its origin) |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to revolve *(optional)* |
 
 ---
 
 ```ts
-revolve(axisLike: AxisLike, angle: NumberParam, target?: SceneObject): Revolve
+revolve(axisLike: AxisLike | Connector, angle: NumberParam, target?: SceneObject): Revolve
 ```
 
 Revolves the last sketch by a given angle around an axis.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `axisLike` | [AxisLike](/docs/api/types/axis-like) | The axis to revolve around |
+| `axisLike` | [AxisLike](/docs/api/types/axis-like) \| [Connector](/docs/api/types/connector) | The axis to revolve around — a world axis, an `axis()`, or a connector (its Z axis through its origin) |
 | `angle` | NumberParam | The sweep angle in degrees |
 | `target` | [SceneObject](/docs/api/types/scene-object) | The sketch to revolve *(optional)* |

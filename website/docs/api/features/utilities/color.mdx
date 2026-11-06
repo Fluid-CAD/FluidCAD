@@ -31,12 +31,13 @@ context when there is no selection (equivalent to `select(face())` first).
 ---
 
 ```ts
-color(color: StringParam, selection: SceneObject): SceneObject
+color(color: StringParam, ...selections: SceneObject[]): SceneObject
 ```
 
-Applies a color to the given selection or object.
+Applies a color to the given selections or objects — any mix of face
+selections and scene objects; every face of an object's solids is colored.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `color` | StringParam | The color value (CSS color string) |
-| `selection` | [SceneObject](/docs/api/types/scene-object) | A face selection, or any scene object — every face of the object's solids is colored |
+| `...selections` | [SceneObject](/docs/api/types/scene-object)[] | Face selections, or any scene objects *(optional)* |

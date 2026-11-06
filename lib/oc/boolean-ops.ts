@@ -1,4 +1,4 @@
-import type { BRepAlgoAPI_Cut, TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
+import type { BRepAlgoAPI_Cut, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { ShapeOps } from "./shape-ops.js";
@@ -444,6 +444,122 @@ export class BooleanOps {
     return { ok: true };
   }
 
+  /**
+   * The stock solids the tools reach, by index. Bounding boxes, padded well
+   * past the fuse's fuzzy value, rule out what is plainly apart. A lone
+   * candidate is taken as it is: the fuse hands it back unchanged when it
+   * doesn't really touch, and nothing else is near enough to merge with it.
+   * Two or more are each checked exactly — boundaries within the padding,
+   * or one inside the other — so a solid the tools miss doesn't merge with
+   * a reached one it happens to touch.
+   */
+  private static stockReachedBy(stock: Shape[], tools: Shape[]): number[] {
+    const all = stock.map((_, i) => i);
+    if (stock.length === 0 || tools.length === 0) {
+      return all;
+    }
+    const oc = getOC();
+    const pad = BooleanOps.FEATURE_BOOLEAN_FUZZY * 10;
+    const boxOf = (raw: TopoDS_Shape) => {
+      const box = new oc.Bnd_Box();
+      oc.BRepBndLib.Add(raw, box, false);
+      box.Enlarge(pad);
+      return box;
+    };
+    const toolBoxes = tools.map(tool => boxOf(tool.getShape()));
+    try {
+      const near = all.map(i => {
+        const box = boxOf(stock[i].getShape());
+        try {
+          return toolBoxes.flatMap((toolBox, t) => (box.IsOut(toolBox) ? [] : [t]));
+        } finally {
+          box.delete();
+        }
+      });
+      const candidates = all.filter(i => near[i].length > 0);
+      if (candidates.length <= 1) {
+        return candidates;
+      }
+      return candidates.filter(i => near[i].some(t => BooleanOps.touches(stock[i].getShape(), tools[t].getShape(), pad)));
+    } finally {
+      for (const box of toolBoxes) box.delete();
+    }
+  }
+
+  /** Whether any two of `solids` have overlapping bounding boxes, padded as `stockReachedBy` pads them. */
+  private static mayOverlap(solids: Shape[]): boolean {
+    if (solids.length < 2) {
+      return false;
+    }
+    const oc = getOC();
+    const pad = BooleanOps.FEATURE_BOOLEAN_FUZZY * 10;
+    const boxes = solids.map(solid => {
+      const box = new oc.Bnd_Box();
+      oc.BRepBndLib.Add(solid.getShape(), box, false);
+      box.Enlarge(pad);
+      return box;
+    });
+    try {
+      return boxes.some((box, i) => boxes.slice(i + 1).some(other => !box.IsOut(other)));
+    } finally {
+      for (const box of boxes) box.delete();
+    }
+  }
+
+  /** Whether two solids meet: their boundaries within `tolerance`, or one inside the other. A distance the kernel can't settle counts as meeting. */
+  private static touches(a: TopoDS_Shape, b: TopoDS_Shape, tolerance: number): boolean {
+    const oc = getOC();
+    const progress = new oc.Message_ProgressRange();
+    const distance = new oc.BRepExtrema_DistShapeShape(
+      a, b,
+      oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN,
+      oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
+      progress,
+    );
+    try {
+      if (!distance.IsDone() || distance.Value() <= tolerance) {
+        return true;
+      }
+    } finally {
+      distance.delete();
+      progress.delete();
+    }
+    return BooleanOps.insideOf(a, b, tolerance) || BooleanOps.insideOf(b, a, tolerance);
+  }
+
+  /** Whether `shape` lies inside one of `container`'s solids, judged by its first vertex: their boundaries don't meet, so one point decides. */
+  private static insideOf(shape: TopoDS_Shape, container: TopoDS_Shape, tolerance: number): boolean {
+    const oc = getOC();
+    const vertices = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_VERTEX as TopAbs_ShapeEnum, oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum);
+    if (!vertices.More()) {
+      vertices.delete();
+      return false;
+    }
+    const current = vertices.Current();
+    const vertex = oc.TopoDS.Vertex(current);
+    const point = oc.BRep_Tool.Pnt(vertex);
+    vertex.delete();
+    current.delete();
+    vertices.delete();
+    const solids = new oc.TopExp_Explorer(container, oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum, oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum);
+    try {
+      for (; solids.More(); solids.Next()) {
+        const solid = solids.Current();
+        const classifier = new oc.BRepClass3d_SolidClassifier(solid, point, tolerance);
+        const state = classifier.State();
+        classifier.delete();
+        solid.delete();
+        if (state === oc.TopAbs_State.TopAbs_IN) {
+          return true;
+        }
+      }
+      return false;
+    } finally {
+      solids.delete();
+      point.delete();
+    }
+  }
+
   static fuseStockAndTools(
     stock: Shape[],
     tools: Shape[],
@@ -456,9 +572,14 @@ export class BooleanOps {
     dispose: () => void;
   } {
     const oc = getOC();
-    const inputs = BooleanOps.normalizeMixedInputs([...stock, ...tools].map(s => s.getShape()));
-    const stockRaws = inputs.raws.slice(0, stock.length);
-    const toolRaws = inputs.raws.slice(stock.length);
+    // Only the stock the tools reach takes part: a solid the tools can't
+    // touch comes out of the fuse as it went in, so it stays out of the
+    // builder and the face merge. Its lineage is unchanged either way: the
+    // builder reports a shape it never saw as neither modified nor deleted.
+    const reached = BooleanOps.stockReachedBy(stock, tools).map(i => stock[i]);
+    const inputs = BooleanOps.normalizeMixedInputs([...reached, ...tools].map(s => s.getShape()));
+    const stockRaws = inputs.raws.slice(0, reached.length);
+    const toolRaws = inputs.raws.slice(reached.length);
     const builder = new oc.BRepAlgoAPI_Fuse();
     builder.SetNonDestructive(true);
     builder.SetCheckInverted(true);
@@ -470,18 +591,26 @@ export class BooleanOps {
       builder.SetGlue((oc as any).BOPAlgo_GlueEnum.BOPAlgo_GlueShift);
     }
 
-    // Wrap all stocks in a single compound argument. OCC's pave-filling step
-    // computes intersections between distinct arguments — so two touching
-    // stocks passed as separate args end up merged with each other even when
-    // the tool doesn't touch them. Bundling them under one TopoDS_Compound
-    // keeps stock-to-stock relationships out of the result; only stock↔tool
-    // interactions are computed.
-    // The builder copies both lists (and the compound through them): the
-    // handles here are freed as soon as they are set.
-    const stockCompound = ShapeOps.makeCompoundRaw(stockRaws);
+    // The reached stock goes in as one compound argument: OCC's pave filling
+    // computes intersections between distinct arguments, so stocks passed
+    // separately would merge with each other wherever they touch, and the
+    // compound is also what fixes the order the result's faces come in — the
+    // order index selections (`e.sideFaces(1)`) count by. Stocks that may
+    // overlap each other are the exception: bundled, they make a
+    // self-interfering argument and the fuse drops one of them, so they go
+    // in one argument each and their overlap is computed. The tools reach
+    // every one of them, so the fuse joins them through the tools anyway.
+    // The builder copies the lists: the handles here are freed once set.
     const stockList = new oc.TopTools_ListOfShape();
-    stockList.Append(stockCompound).delete();
-    stockCompound.delete();
+    if (BooleanOps.mayOverlap(reached)) {
+      for (const raw of stockRaws) {
+        stockList.Append(raw).delete();
+      }
+    } else {
+      const stockCompound = ShapeOps.makeCompoundRaw(stockRaws);
+      stockList.Append(stockCompound).delete();
+      stockCompound.delete();
+    }
 
     const toolList = new oc.TopTools_ListOfShape();
     for (const raw of toolRaws) {
@@ -498,11 +627,11 @@ export class BooleanOps {
     const built = builder.Shape();
     const resultShape = opts?.skipSimplify
       ? built
-      : BooleanOps.simplifyResult(builder, built, BooleanOps.FEATURE_BOOLEAN_FUZZY);
+      : BooleanOps.simplifyResult(builder, built, BooleanOps.FEATURE_BOOLEAN_FUZZY, stockRaws);
     const rawShapes = Explorer.findAllShapes(resultShape);
     const result = rawShapes.map(s => ShapeFactory.adopt(s));
 
-    const allInputs = [...stock, ...tools];
+    const allInputs = [...reached, ...tools];
     const modifiedShapes: Shape[] = [];
     allInputs.forEach((shape, index) => {
       if (builder.IsDeleted(inputs.raws[index])) {
@@ -552,8 +681,52 @@ export class BooleanOps {
    * The merge's history is folded into the builder's, as `SimplifyResult`
    * does, so the lineage queries keep following the merged faces. The
    * builder's own `Shape()` stays unsimplified — hand the returned shape on.
+   *
+   * A result solid that is one of `unchanged` (an argument the builder
+   * handed back as it went in) is left out of the merge: rebuilt by it, the
+   * solid would no longer be the argument's partner, and the caller would
+   * take an untouched solid for a new one and add it a second time.
    */
-  private static simplifyResult(builder: any, built: TopoDS_Shape, linearTolerance: number): TopoDS_Shape {
+  private static simplifyResult(builder: any, built: TopoDS_Shape, linearTolerance: number, unchanged: TopoDS_Shape[] = []): TopoDS_Shape {
+    if (unchanged.length === 0) {
+      return BooleanOps.mergeSameDomain(builder, built, linearTolerance);
+    }
+    const kept: TopoDS_Shape[] = [];
+    const merged: TopoDS_Shape[] = [];
+    for (const child of Explorer.findAllShapes(built)) {
+      (unchanged.some(raw => raw.IsPartner(child)) ? kept : merged).push(child);
+    }
+    try {
+      if (kept.length === 0) {
+        return BooleanOps.mergeSameDomain(builder, built, linearTolerance);
+      }
+      if (merged.length === 0) {
+        return built;
+      }
+      const toMerge = ShapeOps.makeCompoundRaw(merged);
+      try {
+        const simplified = BooleanOps.mergeSameDomain(builder, toMerge, linearTolerance);
+        if (simplified === toMerge) {
+          // The merge gave up: the result stays the builder's own.
+          return built;
+        }
+        const parts = Explorer.findAllShapes(simplified);
+        try {
+          return ShapeOps.makeCompoundRaw([...parts, ...kept]);
+        } finally {
+          for (const part of parts) part.delete();
+          simplified.delete();
+        }
+      } finally {
+        toMerge.delete();
+      }
+    } finally {
+      for (const child of [...kept, ...merged]) child.delete();
+    }
+  }
+
+  /** `SameDomainMerge` over `built`, its history folded into the builder's; `built` itself when the merge fails or comes out invalid. */
+  private static mergeSameDomain(builder: any, built: TopoDS_Shape, linearTolerance: number): TopoDS_Shape {
     const oc = getOC();
     let merge: SameDomainMergeResult;
     try {

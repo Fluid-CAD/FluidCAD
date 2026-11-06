@@ -73,6 +73,17 @@ describe('HubProxyPaths', () => {
     expect(HubProxyPaths.rewrite(null, HUB)).toBeNull();
     expect(HubProxyPaths.rewrite('not a url', HUB)).toBeNull();
   });
+
+  it("puts a screenshot on the hub's media origin on the same media proxy path, read for its package and id only", () => {
+    expect(HubProxyPaths.rewrite('https://media.fluidcad.io/media/@fluidcad/cabinets/4c2ffa77-90f2-4885-9f5f-e49b1bb67635.png', HUB))
+      .toBe('api/hub/media/@fluidcad/cabinets/4c2ffa77-90f2-4885-9f5f-e49b1bb67635');
+    expect(HubProxyPaths.rewrite('https://media-staging.fluidcad.io/media/%40acme/kit/9fef2c3c-1f16.webp', HUB)).toBe('api/hub/media/@acme/kit/9fef2c3c-1f16');
+    // Only that shape: no other path, no query, no plain http, no id that isn't one.
+    expect(HubProxyPaths.rewrite('https://media.fluidcad.io/packages/@acme/kit/0.2.0/x.fluidpkg', HUB)).toBeNull();
+    expect(HubProxyPaths.rewrite('https://media.fluidcad.io/media/@acme/kit/9fef2c3c.png?w=1', HUB)).toBeNull();
+    expect(HubProxyPaths.rewrite('http://media.fluidcad.io/media/@acme/kit/9fef2c3c.png', HUB)).toBeNull();
+    expect(HubProxyPaths.rewrite('https://media.fluidcad.io/media/@acme/kit/../x.png', HUB)).toBeNull();
+  });
 });
 
 describe('HubRequestError.sentence', () => {

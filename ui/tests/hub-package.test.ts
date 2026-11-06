@@ -189,6 +189,40 @@ describe('the tabs', () => {
     r.$<HTMLAnchorElement>('[data-role="readme"] a')!.click();
     expect(r.openExternal).toHaveBeenCalledWith('https://example.com/docs');
   });
+
+  it("Readme: the package's own images load through the engine's file proxy, any other stays its alt text", async () => {
+    const version = FakeHubClient.version();
+    version.readmeUrl = 'api/hub/files/@acme/feature-tests/0.1.1/README.md';
+    const r = await mount();
+    r.hub.versions.set('@acme/feature-tests@0.1.1', version);
+    r.hub.texts.set(version.readmeUrl, [
+      '![icon](features/icons/kit.png) ![a sideboard](./docs/images/side%20board.png "Sideboard")',
+      '',
+      '![remote](https://example.com/x.png) ![climbing](../../other/x.png) ![rooted](/etc/x.png)',
+    ].join('\n'));
+    await r.tab('readme');
+    await settle();
+    const images = [...r.view.el.querySelectorAll<HTMLImageElement>('[data-role="readme"] img')];
+    expect(images.map((img) => [img.alt, img.getAttribute('src')])).toEqual([
+      ['icon', 'api/hub/files/@acme/feature-tests/0.1.1/features/icons/kit.png'],
+      ['a sideboard', 'api/hub/files/@acme/feature-tests/0.1.1/docs/images/side%20board.png'],
+    ]);
+    const text = r.$('[data-role="readme"]')!.textContent!;
+    expect(text).toContain('[image: remote]');
+    expect(text).toContain('[image: climbing]');
+    expect(text).toContain('[image: rooted]');
+  });
+
+  it("readmeImage: a relative path inside the package, beside the README, and nothing else", () => {
+    const readme = 'api/hub/files/@acme/kit/1.0.0/README.md';
+    expect(HubPackageView.readmeImage(readme, 'docs/a.png')).toBe('api/hub/files/@acme/kit/1.0.0/docs/a.png');
+    expect(HubPackageView.readmeImage(readme, './docs/../features/b c.svg')).toBe('api/hub/files/@acme/kit/1.0.0/features/b%20c.svg');
+    expect(HubPackageView.readmeImage('api/hub/files/@acme/kit/1.0.0/docs/README.md', '../x.png')).toBe('api/hub/files/@acme/kit/1.0.0/x.png');
+    for (const src of ['../x.png', '/x.png', 'https://example.com/x.png', 'data:image/png;base64,AAAA', '//cdn.example.com/x.png', 'x.png?w=1', 'a\\b.png', '', '.']) {
+      expect(HubPackageView.readmeImage(readme, src)).toBeNull();
+    }
+    expect(HubPackageView.readmeImage('https://hub.example.com/README.md', 'x.png')).toBeNull();
+  });
 });
 
 describe('Install (decisions 6 and 7)', () => {
@@ -467,5 +501,16 @@ describe('HubMarkdown', () => {
     expect(open).toHaveBeenCalledWith('https://example.com');
     expect(root.textContent).toContain('local');
     expect(root.querySelector('hr')).not.toBeNull();
+  });
+
+  it('shows an image only where the resolver places it, and its alt text again when it fails to load', () => {
+    const root = HubMarkdown.render('![kept](a.png) ![dropped](b.png)', vi.fn(), (src) => (src === 'a.png' ? 'api/hub/files/@acme/kit/1.0.0/a.png' : null));
+    const img = root.querySelector('img')!;
+    expect(img.getAttribute('src')).toBe('api/hub/files/@acme/kit/1.0.0/a.png');
+    expect(img.alt).toBe('kept');
+    expect(root.textContent).toContain('[image: dropped]');
+    img.dispatchEvent(new Event('error'));
+    expect(root.querySelector('img')).toBeNull();
+    expect(root.textContent).toContain('[image: kept]');
   });
 });

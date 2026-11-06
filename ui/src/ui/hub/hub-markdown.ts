@@ -3,22 +3,27 @@
  * headings, paragraphs, lists, block quotes, code blocks and inline code,
  * bold and italic, rules, pipe tables and links. Built with DOM nodes and
  * `textContent` only, so nothing in the file becomes markup: raw HTML shows
- * as the text it is, images are not loaded (their alt text stands in), and
- * a link opens in the user's browser through `openLink` (only `http(s)`;
- * anything else stays plain text).
+ * as the text it is, and a link opens in the user's browser through
+ * `openLink` (only `http(s)`; anything else stays plain text). An image is
+ * shown only where `resolveImage` hands back a URL for its path — the
+ * package view resolves the package's own files onto the engine's file
+ * proxy — and its alt text stands in for any other, or one that fails.
  */
 export class HubMarkdown {
   /** The longest README rendered; the rest is cut with a note (the hub keeps README.md at 512 KB). */
   static readonly MAX_CHARS = 200_000;
 
-  private constructor(private readonly openLink: (url: string) => void) {}
+  private constructor(
+    private readonly openLink: (url: string) => void,
+    private readonly resolveImage: (src: string) => string | null,
+  ) {}
 
-  static render(text: string, openLink: (url: string) => void): HTMLDivElement {
+  static render(text: string, openLink: (url: string) => void, resolveImage: (src: string) => string | null = () => null): HTMLDivElement {
     const root = document.createElement('div');
     root.dataset.role = 'readme';
     root.className = 'flex flex-col gap-3 text-hub-sm leading-relaxed text-base-content/85 min-w-0 break-words';
     const source = text.length > HubMarkdown.MAX_CHARS ? text.slice(0, HubMarkdown.MAX_CHARS) : text;
-    new HubMarkdown(openLink).blocks(source.replace(/\r\n?/g, '\n').split('\n'), root);
+    new HubMarkdown(openLink, resolveImage).blocks(source.replace(/\r\n?/g, '\n').split('\n'), root);
     if (text.length > HubMarkdown.MAX_CHARS) {
       const cut = document.createElement('p');
       cut.className = 'text-hub-xs text-base-content/50';
@@ -209,6 +214,9 @@ export class HubMarkdown {
   // Inline: code, links, images (as their alt text), bold, italic
   // ---------------------------------------------------------------------------
 
+  /** An image token's path: `![alt](path "title")` → `path`. */
+  private static readonly IMAGE_SRC = /^!\[[^\]]*\]\(\s*<?([^)\s>]*)>?/;
+
   private static readonly INLINE = /(`+)([\s\S]*?)\1|!\[([^\]]*)\]\([^)]*\)|\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)|<(https?:\/\/[^>\s]+)>|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*\s][^*]*)\*|_([^_\s][^_]*)_/;
 
   private inline(text: string, into: HTMLElement): void {
@@ -235,10 +243,7 @@ export class HubMarkdown {
       return code;
     }
     if (match[3] !== undefined) {
-      const alt = document.createElement('span');
-      alt.className = 'text-base-content/50 italic';
-      alt.textContent = match[3] ? `[image: ${match[3]}]` : '[image]';
-      return alt;
+      return this.image(match[3], HubMarkdown.IMAGE_SRC.exec(match[0])?.[1] ?? '');
     }
     if (match[4] !== undefined) {
       return this.link(match[4], match[5]);
@@ -256,6 +261,30 @@ export class HubMarkdown {
     const em = document.createElement('em');
     this.inline(match[9] ?? match[10] ?? '', em);
     return em;
+  }
+
+  /** The image at `src` when `resolveImage` places it, else its alt text; a picture that fails to load turns back into its alt text. */
+  private image(alt: string, src: string): Node {
+    const url = src ? this.resolveImage(src) : null;
+    if (!url) {
+      return HubMarkdown.altText(alt);
+    }
+    const img = document.createElement('img');
+    img.className = 'inline-block max-w-full h-auto align-middle rounded';
+    img.alt = alt;
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', () => img.replaceWith(HubMarkdown.altText(alt)), { once: true });
+    img.src = url;
+    return img;
+  }
+
+  private static altText(alt: string): HTMLSpanElement {
+    const span = document.createElement('span');
+    span.className = 'text-base-content/50 italic';
+    span.textContent = alt ? `[image: ${alt}]` : '[image]';
+    return span;
   }
 
   private link(text: string, url: string): Node {

@@ -213,3 +213,7 @@ The server also serves the companion modeling skills to the agent (`read_skill`)
 FluidCAD uses the [OpenCascade](https://dev.opencascade.org/) B-Rep modeling kernel through [opencascade.js](https://ocjs.org/) for precise solid geometry. Thanks to the opencascade.js team for making it available in WebAssembly.
 
 Licensed under [MIT](LICENSE.txt).
+
+### FluidCAD Hub is supported by Neon
+
+<a href="https://neon.com"><img src="website/static/img/readme/neon.svg" alt="Neon" width="180" /></a>

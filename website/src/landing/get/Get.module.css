@@ -11,13 +11,6 @@
   font-weight: 650;
   color: var(--fc-ink);
 }
-.lead {
-  margin: 1rem auto 0;
-  max-width: 54ch;
-  font-size: var(--fc-step-1);
-  line-height: 1.55;
-  color: var(--fc-ink-muted);
-}
 .columns {
   display: grid;
   gap: 3rem;

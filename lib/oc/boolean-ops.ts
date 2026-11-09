@@ -16,6 +16,7 @@ import { requireValidSolid } from "./solid-validation.js";
 import { ShapeValidator } from "./shape-validator.js";
 import { BooleanBuilders } from "./boolean-builders.js";
 import { CutToolImages } from "./cut-tool-images.js";
+import { FuseAttribution, type FuseHistory } from "./fuse-attribution.js";
 
 export class BooleanOps {
   // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
@@ -568,6 +569,8 @@ export class BooleanOps {
     result: Shape[];
     modifiedShapes: Shape[];
     newShapes: Shape[];
+    /** Reached stock the fuse rebuilt but merged with nothing — handed back as it went in, see `stockLeftApart`. */
+    apart: Shape[];
     maker: any;
     dispose: () => void;
   } {
@@ -631,16 +634,29 @@ export class BooleanOps {
     const rawShapes = Explorer.findAllShapes(resultShape);
     const result = rawShapes.map(s => ShapeFactory.adopt(s));
 
+    const maker = inputs.direct || resultShape !== built
+      ? BooleanOps.adaptMaker(builder, inputs.direct, resultShape)
+      : builder;
+
     const allInputs = [...reached, ...tools];
-    const modifiedShapes: Shape[] = [];
-    allInputs.forEach((shape, index) => {
-      if (builder.IsDeleted(inputs.raws[index])) {
-        modifiedShapes.push(shape);
-      }
-    });
+    const rebuilt = allInputs.filter((_, index) => builder.IsDeleted(inputs.raws[index]));
+
+    // A stock the fuse rebuilt without merging — split where a tool only
+    // touches it, along a tangent line or at a corner — is no stock the fuse
+    // consumed: as a cut that only lands on a face does, it hands the body
+    // back as it was. Such a stock stays out of `modifiedShapes`, with its
+    // holder, and its rebuilt twin leaves the result.
+    const apart = BooleanOps.stockLeftApart(reached, allInputs, rebuilt, result, maker);
+    const apartImages = new Set(apart.map(entry => entry.image));
+    for (const image of apartImages) {
+      image.dispose();
+    }
+    const kept = result.filter(s => !apartImages.has(s));
+    const apartStock = apart.map(entry => entry.stock);
+    const modifiedShapes = rebuilt.filter(shape => !apartStock.includes(shape));
 
     const newShapes: Shape[] = [];
-    for (const s of result) {
+    for (const s of kept) {
       const existsInArgs = inputs.raws.some(raw => raw.IsPartner(s.getShape()));
       if (!existsInArgs) {
         newShapes.push(s);
@@ -663,10 +679,48 @@ export class BooleanOps {
       built.delete();
     };
 
-    const maker = inputs.direct || resultShape !== built
-      ? BooleanOps.adaptMaker(builder, inputs.direct, resultShape)
-      : builder;
-    return { result, newShapes, modifiedShapes, maker, dispose };
+    return { result: kept, newShapes, modifiedShapes, apart: apartStock, maker, dispose };
+  }
+
+  /**
+   * The reached stock the fuse rebuilt but merged with nothing, each with its
+   * rebuilt twin among `result`. Read off the result's faces (see
+   * {@link FuseAttribution}): a stock is apart when the result holding its
+   * faces holds no face of any other input. An input no result holds a face
+   * of — a tool buried whole in a stock — leaves the attribution incomplete,
+   * and the builder's word stands: nothing is apart.
+   */
+  private static stockLeftApart(
+    stock: Shape[],
+    inputs: Shape[],
+    rebuilt: Shape[],
+    result: Shape[],
+    maker: FuseHistory,
+  ): { stock: Shape; image: Shape }[] {
+    if (!stock.some(solid => rebuilt.includes(solid))) {
+      return [];
+    }
+    const attribution = new FuseAttribution(result, maker);
+    try {
+      const into = inputs.map(input => attribution.resultOf(input));
+      if (into.some(index => index < 0)) {
+        return [];
+      }
+      const apart: { stock: Shape; image: Shape }[] = [];
+      stock.forEach((solid, index) => {
+        if (!rebuilt.includes(solid)) {
+          return;
+        }
+        const target = into[index];
+        const alone = into.every((other, i) => i === index || other !== target);
+        if (alone) {
+          apart.push({ stock: solid, image: result[target] });
+        }
+      });
+      return apart;
+    } finally {
+      attribution.delete();
+    }
   }
 
   /**

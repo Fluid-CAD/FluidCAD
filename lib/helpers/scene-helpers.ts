@@ -19,6 +19,7 @@ import { requireValidSolid } from "../oc/solid-validation.js";
 import { RenderSeams } from "../oc/render-seams.js";
 import { CutToolImages } from "../oc/cut-tool-images.js";
 import { heldSolidsOf, type HeldSolid } from "./live-solids.js";
+import { FuseAttribution } from "../oc/fuse-attribution.js";
 
 /**
  * The edges of the object's geometry, for the inputs that build a curve from
@@ -76,9 +77,14 @@ export function fuseWithSceneObjects(
 
   let sceneShapes = Array.from(objShapeMap.keys());
   const fuseRun = () => BooleanOps.fuseStockAndTools(sceneShapes, extrusions, opts);
-  const { result, newShapes, modifiedShapes, maker, dispose } = p
+  const { result, newShapes, modifiedShapes, apart, maker, dispose } = p
     ? p.record('Boolean fuse', fuseRun)
     : fuseRun();
+
+  // A stock the fuse handed back as it went in — rebuilt where a tool only
+  // touches it, merged with nothing — keeps its holder and its faces: it has
+  // no history here, and no seam to carry.
+  sceneShapes = sceneShapes.filter(shape => !apart.includes(shape));
 
   // An empty or errored fuse must not be adopted: the callers would remove
   // the consumed stock and add nothing, silently emptying the scene.
@@ -220,39 +226,18 @@ export function fusedInto(consumed: Shape[], results: Shape[], cleaned: Shape[],
     }
     return fused;
   }
-  const oc = getOC();
-  const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
-  const faceMaps = results.map(result => {
-    const map = new oc.TopTools_IndexedMapOfShape();
-    oc.TopExp.MapShapes(result.getShape(), FACE, map);
-    return map;
-  });
+  const attribution = new FuseAttribution(results, maker);
   try {
     for (const solid of consumed) {
-      const index = faceIndexIn(solid, faceMaps, maker, FACE);
+      const index = attribution.resultOf(solid);
       if (index >= 0) {
         fused.set(solid, [cleaned[index]]);
       }
     }
   } finally {
-    for (const map of faceMaps) map.delete();
+    attribution.delete();
   }
   return fused;
-}
-
-/** The index of the face map holding a face of `solid` as the fuse left or changed it, or -1. */
-function faceIndexIn(solid: Shape, faceMaps: any[], maker: any, FACE: TopAbs_ShapeEnum): number {
-  for (const face of Explorer.findShapes(solid.getShape(), FACE)) {
-    const modified = ShapeOps.shapeListToArray(maker.Modified(face));
-    const images = modified.length > 0 ? modified : maker.IsDeleted(face) ? [] : [face];
-    for (const image of images) {
-      const index = faceMaps.findIndex(map => map.FindIndex(image) !== 0);
-      if (index >= 0) {
-        return index;
-      }
-    }
-  }
-  return -1;
 }
 
 // Remap a pre-clean history through a set of cleanup lineages. Modified

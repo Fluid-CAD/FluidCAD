@@ -236,7 +236,7 @@ describe('signed out', () => {
 });
 
 describe('the status line (fluidcad publish --status)', () => {
-  it('a draft: the footer\'s Continue and Withdraw (asked first, in the CLI\'s words) for Check and Publish, the expiry', async () => {
+  it('a draft: the footer\'s Continue in browser and Withdraw (asked first, in the CLI\'s words) for Check and Publish, the expiry', async () => {
     const h = await mount((client) => {
       client.statusValue = FakePublishClient.onHub({ openVersion: FakePublishClient.version({ draftExpiresAt: '2026-11-23T12:00:00.000Z' }) });
     });
@@ -249,18 +249,19 @@ describe('the status line (fluidcad publish --status)', () => {
     expect(h.shown('publish')).toBe(false);
     expect(h.shown('bump')).toBe(false);
     expect(h.shown('continue')).toBe(true);
-    expect(h.shown('draft-withdraw')).toBe(true);
+    expect(words(h.$('continue'))).toBe('Continue in browser');
+    expect(h.shown('open-withdraw')).toBe(true);
     await h.click('continue');
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/publish/@acme/kit/0.1.0`);
 
-    await h.click('draft-withdraw');
+    await h.click('open-withdraw');
     expect(h.client.withdraw).not.toHaveBeenCalled();
     expect(words(h.$('withdraw-confirm'))).toBe(
       '@acme/kit@0.1.0 is the draft on http://localhost:8787. Withdrawing deletes it there; its number is free again. Keep it Withdraw it',
     );
     await h.click('withdraw-keep');
     expect(h.$('withdraw-confirm')).toBeNull();
-    await h.click('draft-withdraw');
+    await h.click('open-withdraw');
     await h.click('withdraw-go');
     expect(h.client.withdraw).toHaveBeenCalledTimes(1);
     expect(h.$('withdraw-confirm')).toBeNull();
@@ -270,24 +271,31 @@ describe('the status line (fluidcad publish --status)', () => {
     expect(h.$('open-draft')).toBeNull();
     expect(h.$('hub-status')!.childElementCount).toBe(0);
     expect(h.shown('continue')).toBe(false);
-    expect(h.shown('draft-withdraw')).toBe(false);
+    expect(h.shown('open-withdraw')).toBe(false);
     expect(h.shown('check')).toBe(true);
     expect(h.shown('publish')).toBe(true);
   });
 
-  it('in review: the date, its status page, Withdraw', async () => {
+  it('in review: the date, why publishing waits; the footer\'s View status and Withdraw for Check and Publish', async () => {
     const h = await mount((client) => {
       client.statusValue = FakePublishClient.onHub({
         openVersion: FakePublishClient.version({ version: '0.2.0', status: 'in_review', wizardUrl: null, submittedAt: '2026-10-20T08:00:00.000Z' }),
       }, FakePublishClient.version({ version: '0.1.0', status: 'published', publishedAt: '2026-10-01T08:00:00.000Z' }));
     });
-    expect(words(h.$('open-in-review'))).toBe('@acme/kit@0.2.0 is in review since 2026-10-20. View its status Withdraw');
+    expect(words(h.$('open-in-review'))).toBe('@acme/kit@0.2.0 is in review since 2026-10-20.');
+    expect(words(h.$('open-waits'))).toBe('The next version can be published once it is approved or withdrawn.');
     expect(words(h.$('latest'))).toBe('Latest published 0.1.0 on 2026-10-01. Manage on the hub');
-    await h.click('open-review');
+    // The hub takes no other upload meanwhile: no version field, notes, Check or Publish.
+    expect(h.shown('check')).toBe(false);
+    expect(h.shown('publish')).toBe(false);
+    expect(h.shown('bump')).toBe(false);
+    expect(h.shown('notes')).toBe(false);
+    expect(words(h.$('continue'))).toBe('View status');
+    await h.click('continue');
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/@acme/kit/status`);
     await h.click('manage');
     expect(h.openExternal).toHaveBeenLastCalledWith(`${HUB}/@acme/kit/manage`);
-    await h.click('withdraw');
+    await h.click('open-withdraw');
     expect(words(h.$('withdraw-confirm'))).toMatch(/^@acme\/kit@0\.2\.0 is in review on http:\/\/localhost:8787\./);
   });
 
@@ -320,7 +328,7 @@ describe('the status line (fluidcad publish --status)', () => {
       client.statusValue = FakePublishClient.onHub({ openVersion: FakePublishClient.version() });
       client.withdrawRefusal = { ok: false, status: 409, error: '@acme/kit has nothing open to withdraw.', code: 'nothing-open' };
     });
-    await h.click('draft-withdraw');
+    await h.click('open-withdraw');
     await h.click('withdraw-go');
     expect(h.$('notice')!.dataset.code).toBe('nothing-open');
     expect(h.$('notice')!.classList.contains('text-error')).toBe(true);
@@ -572,7 +580,7 @@ describe('Publish: the summary, the upload and the result', () => {
     expect(h.$('progress')).not.toBeNull();
   });
 
-  it('Upload → progress → a first version opens the wizard once, Continue goes back to it, and the status is read again', async () => {
+  it('Upload → progress → a first version: the success message, the wizard opened once, Continue in browser goes back to it', async () => {
     const h = await mount();
     await toSummary(h);
     await h.click('upload');
@@ -591,30 +599,40 @@ describe('Publish: the summary, the upload and the result', () => {
     h.client.advance({ status: 'done', progress: null, result: FakePublishClient.result() });
     await h.timers.fire();
     expect(h.$('session')!.dataset.status).toBe('done');
-    expect(words(h.$('result-text'))).toBe('Uploaded @acme/kit@0.1.0. Continue to finish publishing in your browser.');
-    expect(h.$('wizard-link')).toBeNull();
+    expect(h.$('result')!.getAttribute('role')).toBe('status');
+    expect(words(h.$('result-title'))).toBe('Uploaded as a draft');
+    expect(words(h.$('result-at'))).toBe('@acme/kit@0.1.0');
+    expect(words(h.$('result-text'))).toBe("The hub's wizard opened in your browser. Add screenshots, a license and release notes there to finish publishing.");
     expect(h.openExternal).toHaveBeenCalledTimes(1);
     expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/publish/@acme/kit/0.1.0`);
-    // The after-state: the hub's own status; the footer trades Check and Publish for Continue and Withdraw.
+    // The success message stands alone, the status read again behind it: Close and Continue in browser, nothing else.
     expect(h.client.status).toHaveBeenCalledTimes(2);
-    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft.');
-    expect(h.shown('check')).toBe(false);
-    expect(h.shown('publish')).toBe(false);
-    expect(h.shown('continue')).toBe(true);
-    expect(h.shown('draft-withdraw')).toBe(true);
+    for (const ref of ['version-row', 'hub-status', 'notes', 'check', 'publish', 'open-withdraw', 'upload', 'sign-in']) {
+      expect(h.shown(ref)).toBe(false);
+    }
+    expect(h.shown('done')).toBe(true);
+    expect(words(h.$('continue'))).toBe('Continue in browser');
+    expect(document.activeElement).toBe(h.$('continue'));
     expect(h.timers.pending).toHaveLength(0);
 
     // Nothing opens it again: not a re-render, not a reopen.
     await h.click('continue');
     expect(h.openExternal).toHaveBeenCalledTimes(2);
+    expect(h.openExternal).toHaveBeenLastCalledWith(`${HUB}/publish/@acme/kit/0.1.0`);
     h.dialog.hide();
     h.dialog.show();
     await settle();
     expect(h.openExternal).toHaveBeenCalledTimes(2);
-    expect(h.$('session')!.dataset.status).toBe('done');
+    // Reopened, the hub's own status tells it: the draft, with Continue in browser and Withdraw for Check and Publish.
+    expect(h.$('result')).toBeNull();
+    expect(words(h.$('open-draft'))).toBe('@acme/kit@0.1.0 is a draft.');
+    expect(h.shown('check')).toBe(false);
+    expect(h.shown('publish')).toBe(false);
+    expect(h.shown('continue')).toBe(true);
+    expect(h.shown('open-withdraw')).toBe(true);
   });
 
-  it('a later version is submitted for review, with its status page; a replaced draft is said', async () => {
+  it('a later version: submitted for review, Continue in browser to its status page, never Check or Publish again; a replaced draft is said', async () => {
     const h = await mount((client) => {
       client.statusValue = FakePublishClient.onHub({}, FakePublishClient.version({ status: 'published' }));
     });
@@ -625,12 +643,33 @@ describe('Publish: the summary, the upload and the result', () => {
       progress: null,
       result: FakePublishClient.result({ version: '0.1.1', status: 'in_review', wizardUrl: null, reviewUrl: `${HUB}/@acme/kit/status`, replaced: true }),
     });
+    h.client.statusValue = FakePublishClient.onHub(
+      { openVersion: FakePublishClient.version({ version: '0.1.1', status: 'in_review', wizardUrl: null, reviewUrl: `${HUB}/@acme/kit/status` }) },
+      FakePublishClient.version({ status: 'published' }),
+    );
     await h.timers.fire();
-    expect(words(h.$('result-text'))).toBe('Submitted @acme/kit@0.1.1 for review.');
-    expect(words(h.$('replaced'))).toBe('Replaced the draft of @acme/kit@0.1.1; the wizard keeps what you filled in.');
-    expect(h.$('review-link')!.textContent).toBe(`${HUB}/@acme/kit/status`);
+    expect(words(h.$('result-title'))).toBe('Submitted for review');
+    expect(words(h.$('result-at'))).toBe('@acme/kit@0.1.1');
+    expect(words(h.$('result-text'))).toBe('An admin approves it before it is public. Follow the review in your browser, where you can also edit its screenshots and release notes.');
+    expect(words(h.$('replaced'))).toBe('It replaced the draft of 0.1.1; the wizard kept what you filled in.');
     expect(h.openExternal).not.toHaveBeenCalled();
-    expect(h.shown('notes')).toBe(false);
+    for (const ref of ['version-row', 'hub-status', 'notes', 'check', 'publish', 'open-withdraw']) {
+      expect(h.shown(ref)).toBe(false);
+    }
+    expect(words(h.$('continue'))).toBe('Continue in browser');
+    await h.click('continue');
+    expect(h.openExternal).toHaveBeenCalledWith(`${HUB}/@acme/kit/status`);
+
+    // Reopened: the version in review, its status page and Withdraw; still no Check or Publish.
+    h.dialog.hide();
+    h.dialog.show();
+    await settle();
+    expect(h.$('result')).toBeNull();
+    expect(words(h.$('open-in-review'))).toBe('@acme/kit@0.1.1 is in review.');
+    expect(h.shown('check')).toBe(false);
+    expect(h.shown('publish')).toBe(false);
+    expect(words(h.$('continue'))).toBe('View status');
+    expect(h.shown('open-withdraw')).toBe(true);
   });
 
   it('Cancel while it waits: declined, nothing uploaded, back on Publish', async () => {
@@ -749,12 +788,9 @@ describe('a refusal before the pack, with its action', () => {
     expect(words(h.$('notice'))).toBe('Withdrew @acme/kit@0.0.9 from http://localhost:8787.');
   });
 
-  it('in-review: Withdraw too, from the status\'s open version', async () => {
+  it('in-review: Withdraw too, from the version the refusal names', async () => {
     const h = await failed(
-      { message: '@acme/kit@0.1.0 is in review on http://localhost:8787. Withdraw it, or finish it on the hub, then publish again.', code: 'in-review' },
-      (client) => {
-        client.statusValue = FakePublishClient.onHub({ openVersion: FakePublishClient.version({ status: 'in_review' }) });
-      },
+      { message: '@acme/kit@0.1.0 is in review on http://localhost:8787. Withdraw it, or finish it on the hub, then publish again.', code: 'in-review', details: { version: '0.1.0', status: 'in_review' } },
     );
     expect(h.overlay.querySelector('[data-ref="failed"] [data-ref="withdraw"]')).not.toBeNull();
   });

@@ -7,6 +7,7 @@ import {
   type HubPublishStatus,
   type HubPublishSummary,
   type HubPublishWarning,
+  type HubUploadResult,
   type HubVersionStatus,
   type PublishClient,
   type PublishRefusal,
@@ -468,6 +469,20 @@ export class PublishText {
     const next = result.status === 'draft' ? 'a draft you finish in your browser' : 'submitted for review';
     // The CLI prints the integrity here too; the dialog leaves it out (the summary below shows it).
     return `Dry run: ${publish.hub} accepts ${PublishText.at(result.name, result.version)}. It would be ${next}. Nothing was stored.`;
+  }
+
+  /**
+   * What happens after an upload went through, under its success message:
+   * a draft is finished in the hub's wizard (opened in the browser), a
+   * version in review waits for an admin while its listing stays editable.
+   */
+  static finished(result: Pick<HubUploadResult, 'status' | 'wizardUrl'>): string {
+    if (result.status === 'draft') {
+      return result.wizardUrl
+        ? "The hub's wizard opened in your browser. Add screenshots, a license and release notes there to finish publishing."
+        : 'Add screenshots, a license and release notes on the hub to finish publishing.';
+    }
+    return 'An admin approves it before it is public. Follow the review in your browser, where you can also edit its screenshots and release notes.';
   }
 
   /** `Uploading 12.3 kB of 48.6 kB (25%)`. */

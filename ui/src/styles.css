@@ -337,6 +337,19 @@ html.fluidcad-editor-animating {
   }
 }
 
+/* The Publish dialog's success message settling in (PublishDialog.success);
+   motion-reduce:animate-none turns it off. */
+@keyframes publish-success-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* One-shot attention flash when a 3D pick highlights its creating feature's
    timeline row (TimelinePanel.setPickedFeature) — settles into the row's
    steady bg-base-content/10. */

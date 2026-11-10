@@ -1,4 +1,5 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
+import { isShownOnBar, toolIndex, toolSlug } from '../../ui/quick-find/tool-index';
 import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from '../../ui/toolbar-styles';
 
 /**
@@ -36,6 +37,8 @@ export class FeatureButton implements FeatureLauncher {
   private _visible: boolean;
   private _disabled = false;
   private _active = false;
+  /** Takes the button out of the Quick Find index ({@link remove}). */
+  private readonly unindex: () => void;
 
   constructor(group: HTMLElement, opts: {
     icon: string;
@@ -76,6 +79,19 @@ export class FeatureButton implements FeatureLauncher {
     } else {
       group.appendChild(this.wrap);
     }
+    // Quick Find lists the button under `part:<tool>`, answering its live
+    // state; a click from there is a click here.
+    this.unindex = toolIndex.register({
+      id: `part:${opts.datasetTool ?? toolSlug(opts.label)}`,
+      label: opts.label,
+      tip: opts.tip,
+      bench: 'Part',
+      iconSrc: opts.icon,
+      isAvailable: () => isShownOnBar(this.wrap),
+      isDisabled: () => this._disabled,
+      isActive: () => this._active,
+      run: () => this.click(),
+    });
   }
 
   /** The button's icon URL, for surfaces that mirror the button. */
@@ -148,6 +164,7 @@ export class FeatureButton implements FeatureLauncher {
 
   /** Take the button off its group for good (a feature its catalog no longer offers). */
   remove(): void {
+    this.unindex();
     this.wrap.remove();
   }
 }

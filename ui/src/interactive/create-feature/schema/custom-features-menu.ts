@@ -6,6 +6,7 @@ import type { Navbar } from '../../../ui/navbar';
 import type { NavbarMode } from '../../../ui/navbar/navbar';
 import { ICON_IMG_FALLBACK } from '../../../ui/object-icons';
 import { showPopupMenu } from '../../../ui/popup-menu';
+import { isShownOnBar, toolIndex } from '../../../ui/quick-find/tool-index';
 import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from '../../../ui/toolbar-styles';
 import { viewportChrome } from '../../../ui/viewport-chrome';
 import type { FeatureLauncher } from '../feature-button';
@@ -253,6 +254,8 @@ export class CustomFeaturesMenu implements SketchHideable {
   private readonly button: HTMLButtonElement;
   private readonly panel: HTMLDivElement;
   private readonly cells: CustomFeatureCell[] = [];
+  /** Each cell's exit from the Quick Find index. */
+  private readonly unindex = new Map<CustomFeatureCell, () => void>();
   private sketchHidden = false;
   private opened = false;
   /** The packages pinned to the toolbar, by name. */
@@ -327,6 +330,23 @@ export class CustomFeaturesMenu implements SketchHideable {
       regroup: () => this.layout(),
     });
     this.cells.push(cell);
+    // Quick Find finds the feature whether it sits in the dropdown (the
+    // button on the bar) or, its package pinned, on the bar itself.
+    this.unindex.set(cell, toolIndex.register({
+      id: `custom:${spec.tool ?? spec.id ?? spec.label}`,
+      label: spec.label,
+      tip: spec.description ?? spec.tip,
+      bench: this.mode === 'assembly' ? 'Generated' : 'Custom',
+      iconSrc: spec.iconSrc,
+      isAvailable: () => (cell.pinned ? isShownOnBar(cell.el) : isShownOnBar(this.wrap)),
+      isDisabled: () => cell.disabled,
+      disabledReason: () => (cell.disabled ? spec.tip : null),
+      isActive: () => cell.active,
+      run: () => {
+        this.close();
+        cell.onClick?.();
+      },
+    }));
     this.layout();
     return cell;
   }
@@ -445,6 +465,8 @@ export class CustomFeaturesMenu implements SketchHideable {
       return;
     }
     this.cells.splice(index, 1);
+    this.unindex.get(cell)?.();
+    this.unindex.delete(cell);
     cell.el.remove();
     this.layout();
   }

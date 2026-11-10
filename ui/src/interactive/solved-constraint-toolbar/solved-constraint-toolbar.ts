@@ -12,6 +12,7 @@ import {
 } from '../../ui/object-icons';
 import type { ConstraintButtonId, ConstraintOption } from './legality';
 import { iconUrl } from '../../ui/icon-url';
+import { toolIndex } from '../../ui/quick-find/tool-index';
 
 const BUTTONS: { id: ConstraintButtonId; label: string }[] = [
   { id: 'coincident', label: 'Coincident' },
@@ -139,6 +140,31 @@ export class SolvedConstraintToolbar {
 
     this.render();
     container.appendChild(this.root);
+
+    // Quick Find lists the constraints while the bar is up, greyed with the
+    // button's own reason when the picks don't allow one.
+    for (const { id, label } of BUTTONS) {
+      toolIndex.register({
+        id: `constraint:${id}`,
+        label,
+        tip: label,
+        bench: 'Constraint',
+        iconSrc: iconUrl(iconFor(id)),
+        shortcut: CONSTRAINT_SHORTCUTS[id],
+        isAvailable: () => this.isVisible,
+        isDisabled: () => !this.isEnabled(id),
+        disabledReason: () => {
+          const reason = this.options.find(o => o.id === id)?.reason;
+          return reason ? `${label}: ${reason}` : `${label} needs a different pick`;
+        },
+        isActive: () => id === 'dimension' && this.dimensionArmed,
+        run: () => {
+          if (this.isEnabled(id)) {
+            this.onApply?.(id);
+          }
+        },
+      });
+    }
   }
 
   private divider(): HTMLDivElement {

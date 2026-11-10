@@ -1,3 +1,4 @@
+import { toolIndex } from '../../ui/quick-find/tool-index';
 import { TOOLBAR_BTN_LABEL } from '../../ui/toolbar-styles';
 
 /**
@@ -79,6 +80,17 @@ export class FinishSketchButton {
     this.wrap.appendChild(button);
 
     group.prepend(this.wrap);
+
+    toolIndex.register({
+      id: 'part:finish-sketch',
+      label: 'Finish Sketch',
+      tip: 'Finish the sketch and bring the 3D tools back',
+      bench: 'Sketch',
+      iconSrc: null,
+      iconSvg: FINISH_ICON,
+      isAvailable: () => this.visible,
+      run: () => this.onClick?.(),
+    });
   }
 
   /**

@@ -56,6 +56,7 @@ import iconArrowBarToLeft from '@tabler/icons/outline/arrow-bar-to-left.svg?raw'
 import iconArrowBarToRight from '@tabler/icons/outline/arrow-bar-to-right.svg?raw';
 import iconPackage from '@tabler/icons/outline/package.svg?raw';
 import iconPin from '@tabler/icons/outline/pin.svg?raw';
+import iconSearch from '@tabler/icons/outline/search.svg?raw';
 import iconPinnedOff from '@tabler/icons/outline/pinned-off.svg?raw';
 import iconPuzzle from '@tabler/icons/outline/puzzle.svg?raw';
 
@@ -118,6 +119,7 @@ export const ICON_UNDO = iconArrowBackUp;
 /** An installed package: the project's Packages dialog, the badge on a package's timeline rows. */
 export const ICON_PACKAGE = iconPackage;
 export const ICON_PIN = iconPin;
+export const ICON_SEARCH = iconSearch;
 export const ICON_PINNED_OFF = iconPinnedOff;
 /** A custom feature module (`*.feature.js`): a piece that plugs into the toolbar. */
 export const ICON_PUZZLE = iconPuzzle;

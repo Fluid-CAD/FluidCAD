@@ -34,6 +34,9 @@ import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
 import { EditParamsDialog } from './ui/edit-params-dialog';
 import { HISTORY_SHORTCUTS, HistoryToolbar } from './ui/history-toolbar';
 import { ShortcutManager } from './ui/shortcut-manager';
+import { QuickFindPins } from './ui/quick-find/quick-find-pins';
+import { QuickFindPopover } from './ui/quick-find/quick-find-popover';
+import { toolIndex } from './ui/quick-find/tool-index';
 import { SelectionContextMenu } from './interactive/selection-menu';
 import { ProjectionPickService } from './interactive/projection-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
@@ -92,7 +95,8 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
 import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
-import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SEARCH, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { HubPanelState } from './ui/hub/hub-panel-state';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
 import { applyEditorPreferences } from './editor/editor-prefs';
@@ -275,6 +279,7 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   applyPackagePreferences(prefs);
   featureCatalog.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
   generatedMenu.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
+  quickFindPins.set(prefs.quickFindPins ?? null);
   pendingShowBuildTimings = !!prefs.showBuildTimings;
   if (currentRail?.kind === 'part') {
     currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
@@ -1341,9 +1346,12 @@ const partTool = new PartToolButton(navbar, {
 /**
  * Shortcuts that hold in every mode and both workbenches. Letter chords stay
  * on the sketch-mode manager (sketch-toolbar-service) — this one carries
- * modifier combos only, so the two never contend for a key. Undo/Redo bind
- * only while the editor host has declared the capability: without it the
- * keys are not consumed and keep their browser meaning. A focused field — the code editor included — keeps its native history.
+ * modifier combos, plus the one letter the whole page answers to (Quick
+ * Find's <kbd>s</kbd>, below), which stands down while the sketch chords are
+ * live so the two never contend for a key. Undo/Redo bind only while the
+ * editor host has declared the capability: without it the keys are not
+ * consumed and keep their browser meaning. A focused field — the code editor
+ * included — keeps its native history.
  */
 const globalShortcuts = new ShortcutManager();
 const historyAvailable = () => historyToolbar.isAvailable;
@@ -2616,6 +2624,40 @@ sketchService.onActiveChange = (active) => {
   breakpointIndicator.setSketchActive(active);
   errorBanner.setSketchActive(active);
 };
+
+// Quick Find: <kbd>s</kbd>, or the bar's Find button, opens a search over
+// every tool the toolbars register (toolIndex) where the pointer is, with
+// the user's six pins first; with no tool matching it asks the hub, through
+// a search of its own so the Hub panel's results stay put. The letter lives
+// on the page manager outside sketch mode and on the sketch-mode manager
+// inside it (ShortcutManager's one-manager rule: `sl`, `sp` and `sy` share
+// its prefix there, so it fires after the chord pause). The pins are the
+// user's (a preference, by tool id), so they follow them into every project.
+const quickFindPins = new QuickFindPins(toolIndex);
+quickFindPins.onChange = (pins) => savePreference('quickFindPins', pins);
+const quickFind = new QuickFindPopover({
+  index: toolIndex,
+  pins: quickFindPins,
+  hub: {
+    state: new HubPanelState(hubClient),
+    openPackage: (name) => {
+      hubPanel.show();
+      void hubPanel.openPackage(name);
+    },
+    searchHub: (q) => hubPanel.searchFor(q),
+  },
+});
+globalShortcuts.register('s', () => quickFind.toggleAtPointer(), { when: () => !sketchService.chordsActive });
+sketchService.registerShortcut('s', () => quickFind.toggleAtPointer());
+// The mouse's way in: a top-bar action beside Import and Export, in view in
+// both benches and at every width (the toolbar scrolls, the top bar doesn't).
+const quickFindButton = topBar.addAction({
+  icon: ICON_SEARCH,
+  title: 'Find a tool (S)',
+  label: 'Find a tool',
+  onClick: () => quickFind.toggleBelow(quickFindButton),
+});
+quickFindButton.dataset.tool = 'quick-find';
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their

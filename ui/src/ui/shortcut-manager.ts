@@ -186,6 +186,11 @@ export class ShortcutManager {
     return out;
   }
 
+  /** Listening for keys right now. */
+  get isEnabled(): boolean {
+    return this.enabled;
+  }
+
   enable(): void {
     if (this.enabled) {
       return;

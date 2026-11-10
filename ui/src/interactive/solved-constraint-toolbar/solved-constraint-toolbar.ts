@@ -36,9 +36,10 @@ const BUTTONS: { id: ConstraintButtonId; label: string }[] = [
  * the bar is up. They share the sketch-mode ShortcutManager with the drawing
  * tools (`c` circle, `l` line, `p` polygon, `m` mirror, `f` fillet, `a`
  * arc…), so the kinds whose initial is taken use a two-letter chord; single
- * letters go to the kinds whose initial is free. Each chord fires the same
- * path as a click, and only while the button is enabled for the picks —
- * otherwise the key is not consumed at all.
+ * letters go to the kinds whose initial is free. `s` alone opens Quick Find
+ * in every mode, so Symmetric is `sy`. Each chord fires the same path as a
+ * click, and only while the button is enabled for the picks — otherwise the
+ * key is not consumed at all.
  */
 export const CONSTRAINT_SHORTCUTS: Record<ConstraintButtonId, string> = {
   coincident: 'cc',
@@ -51,7 +52,7 @@ export const CONSTRAINT_SHORTCUTS: Record<ConstraintButtonId, string> = {
   concentric: 'cn',
   collinear: 'cl',
   midpoint: 'mp',
-  symmetric: 's',
+  symmetric: 'sy',
   fix: 'fx',
   dimension: 'd',
   angle: 'da',

@@ -361,3 +361,16 @@ html.fluidcad-editor-animating {
     background-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
   }
 }
+
+/* Quick Find (QuickFindPopover) settling in where the pointer is: a fade and
+   a touch of scale, transform only; motion-reduce:animate-none turns it off. */
+@keyframes quick-find-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

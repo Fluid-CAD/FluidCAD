@@ -1,0 +1,97 @@
+import type { QuickFindTool, ToolIndex } from './tool-index';
+
+/**
+ * The tools the Quick Find popover shows before a word is typed: the user's
+ * pins, by tool id, a preference that follows them into every project
+ * (`quickFindPins`, like the toolbar's pinned packages). Until the user pins
+ * or unpins anything the list is {@link QuickFindPins.DEFAULTS}, six tools
+ * for each bench; the stored list is null then, so a new default can reach
+ * a user who never touched the pins.
+ *
+ * Pins are one list across the benches: a pinned tool shows whenever its
+ * bench does (the part tools in a part, the sketch tools in a sketch), and
+ * the popover shows at most {@link LIMIT} at a time — a seventh pin in a
+ * context that already shows six is refused, the pin control saying so.
+ */
+export class QuickFindPins {
+  /** Most pins shown at once. */
+  static readonly LIMIT = 6;
+
+  /** What a user who never pinned anything sees: six tools per bench. */
+  static readonly DEFAULTS: readonly string[] = Object.freeze([
+    'part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:shell',
+    'sketch:line', 'sketch:rect', 'sketch:circle', 'constraint:dimension', 'sketch:trim', 'sketch:fillet',
+    'assembly:insert', 'assembly:fastened', 'assembly:revolute', 'assembly:slider', 'assembly:replicate', 'assembly:connector',
+  ]);
+
+  /** The user pinned or unpinned a tool: the list to store, null once it is the defaults again. */
+  onChange?: (pins: string[] | null) => void;
+
+  private pins: string[] | null = null;
+
+  constructor(private readonly index: ToolIndex) {}
+
+  /** The pins as stored (the preferences loaded, or reset): no {@link onChange}. */
+  set(pins: readonly string[] | null): void {
+    this.pins = pins === null ? null : [...pins];
+  }
+
+  /** The pinned ids, in pin order: the user's, or the defaults. */
+  get list(): readonly string[] {
+    return this.pins ?? QuickFindPins.DEFAULTS;
+  }
+
+  isPinned(id: string): boolean {
+    return this.list.includes(id);
+  }
+
+  /** The pinned tools on the bar right now, in pin order, at most {@link LIMIT}. */
+  shown(): QuickFindTool[] {
+    const shown: QuickFindTool[] = [];
+    for (const id of this.list) {
+      const tool = this.index.get(id);
+      if (tool && tool.isAvailable()) {
+        shown.push(tool);
+        if (shown.length === QuickFindPins.LIMIT) {
+          break;
+        }
+      }
+    }
+    return shown;
+  }
+
+  /** No room for another pin in the current context. */
+  get full(): boolean {
+    return this.shown().length >= QuickFindPins.LIMIT;
+  }
+
+  /** Pin `id`; false when the context already shows {@link LIMIT} pins. */
+  pin(id: string): boolean {
+    if (this.isPinned(id)) {
+      return true;
+    }
+    if (this.full) {
+      return false;
+    }
+    this.pins = [...this.list, id];
+    this.changed();
+    return true;
+  }
+
+  unpin(id: string): void {
+    if (!this.isPinned(id)) {
+      return;
+    }
+    this.pins = this.list.filter(pinned => pinned !== id);
+    this.changed();
+  }
+
+  private changed(): void {
+    const pins = this.pins!;
+    const defaults = QuickFindPins.DEFAULTS;
+    if (pins.length === defaults.length && pins.every((id, i) => id === defaults[i])) {
+      this.pins = null;
+    }
+    this.onChange?.(this.pins === null ? null : [...this.pins]);
+  }
+}

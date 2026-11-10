@@ -176,6 +176,18 @@ Opening a `.assembly.js` file swaps the toolbar for the assembly tools and the p
 
 See [Assembly](/docs/assembly/introduction) for the joints and the [Getting started](/docs/getting-started) chain for the full flow.
 
+## Finding a tool
+
+Press <kbd>S</kbd> with the viewport focused (or click **Find a tool**, the magnifier in the top bar) and a small search box opens where the pointer is. It lists your six **pinned** tools; type to search every tool the current toolbar offers, by its name, by its tooltip, or by what other CAD applications call it (*pattern* finds Repeat, *round* finds Fillet). <kbd>Enter</kbd> runs the first match, the arrow keys move between results, <kbd>Esc</kbd> closes the box. Picking a tool does exactly what its toolbar button does.
+
+![The Quick Find box over the viewport: the search field above the six pinned tools](/img/docs/ui/quick-find.png)
+
+Hover a tool and click its pin to keep it among the six, or to let it go; the pins are yours and follow you into every project. With six already pinned for the current toolbar, pin another after unpinning one.
+
+The box follows the toolbar: in a sketch it searches the drawing tools and the constraints (a constraint that the current picks don't allow is greyed, with the reason), in an assembly the insert, mate and relation tools.
+
+When no tool matches, the box asks [FluidCAD Hub](/docs/packages) for packages that do: a row opens the package in the Hub panel, and **Search the hub for …** takes the whole search there.
+
 ## Undo and redo
 
 Every toolbar operation is one edit to the source file, so Undo and Redo step the editor's own history: the first two buttons on the toolbar, <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (<kbd>Ctrl</kbd>+<kbd>Y</kbd> also redoes; on macOS use <kbd>⌘</kbd>). The keys work in both workbenches with the viewport focused; inside the code editor or a text field they keep their native meaning. The group appears once the in-page editor is attached.

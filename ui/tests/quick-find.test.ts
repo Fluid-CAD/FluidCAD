@@ -184,7 +184,8 @@ describe('QuickFindPopover', () => {
     expect(el()!.style.top).toBe('280px');
     expect(document.activeElement).toBe(input());
     expect(tiles()).toEqual(['part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:shell']);
-    expect(el()!.querySelector('[data-ref="pinned-heading"]')!.textContent).toBe('Pinned6 / 6');
+    // The tiles alone: no heading or count above them.
+    expect(el()!.querySelector('[data-ref="body"]')!.firstElementChild!.dataset.ref).toBe('pinned');
 
     el()!.querySelector<HTMLElement>('[data-tool="part:hole"] [role="option"]')!.click();
     expect(tools.hole.runs).toHaveBeenCalledTimes(1);

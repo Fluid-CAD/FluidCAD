@@ -51,7 +51,6 @@ const ROOT =
 const FIELD_ROW = 'flex items-center gap-2 h-10 px-3 border-b border-base-content/10 shrink-0';
 const FIELD = 'grow min-w-0 bg-transparent outline-none text-[13px] text-base-content placeholder:text-base-content/40';
 const BODY = 'min-h-0 overflow-y-auto p-1.5';
-const SECTION_HEADING = 'flex items-center px-1.5 pt-1 pb-1.5 text-[11px] text-base-content/50';
 /** Three tiles across, the Custom dropdown's grid. */
 const GRID = 'grid grid-cols-3 gap-1';
 // The toolbar's own idle and armed looks, stretched to the tile.
@@ -317,32 +316,24 @@ export class QuickFindPopover {
     }
   }
 
-  /** The pinned tiles, or what to do with none. */
+  /** The pinned tiles alone (no heading: the pins on the tiles say what they are), or what to do with none. */
   private renderPinned(): HTMLElement[] {
     const shown = this.deps.pins.shown();
-    const heading = document.createElement('div');
-    heading.className = SECTION_HEADING;
-    heading.dataset.ref = 'pinned-heading';
-    const title = document.createElement('span');
-    title.textContent = 'Pinned';
-    const count = document.createElement('span');
-    count.className = 'ml-auto tabular-nums text-base-content/35';
-    count.textContent = `${shown.length} / ${QuickFindPins.LIMIT}`;
-    heading.append(title, count);
     if (shown.length === 0) {
       const notice = document.createElement('p');
       notice.className = NOTICE;
       notice.dataset.ref = 'no-pins';
       notice.textContent = 'Nothing pinned here. Type a tool’s name, then pin it to keep it in this list.';
       this.status.textContent = 'No pinned tools';
-      return [heading, notice];
+      return [notice];
     }
     const grid = document.createElement('div');
     grid.className = GRID;
     grid.dataset.ref = 'pinned';
+    grid.setAttribute('aria-label', 'Pinned tools');
     grid.append(...shown.map(tool => this.tile(tool)));
     this.status.textContent = `${shown.length} pinned ${shown.length === 1 ? 'tool' : 'tools'}`;
-    return [heading, grid];
+    return [grid];
   }
 
   /** A pinned tool as a tile: its icon over its name, the unpin at its corner. */

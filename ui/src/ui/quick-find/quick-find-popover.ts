@@ -58,6 +58,10 @@ const TILE_SHAPE = 'btn btn-sm h-auto w-full min-w-0 flex-col gap-1 px-1 py-2';
 const TILE_BASE = `${TILE_SHAPE} btn-ghost text-base-content/70`;
 const TILE_ACTIVE = `${TILE_SHAPE} btn-soft btn-primary`;
 const TILE_ICON = 'w-7 h-7 object-contain shrink-0';
+/** The tile under the pointer while it is dragged to another slot. */
+const TILE_DRAGGING = 'opacity-60 rounded-md ring-1 ring-primary/40';
+/** How far the pointer travels before a press on a tile is a drag, not a click, in pixels. */
+const DRAG_SLOP = 4;
 const TILE_LABEL = 'block max-w-full truncate text-[11px] leading-tight';
 const ROW = 'group/row relative flex items-center gap-2.5 w-full pl-2 pr-1 py-1.5 rounded text-left text-[13px] text-base-content/80 cursor-pointer';
 const ROW_ICON = 'size-5 object-contain shrink-0';
@@ -112,6 +116,10 @@ export class QuickFindPopover {
   private highlighted = -1;
   /** The words the hub was last asked about, so an answer for another query is not shown. */
   private hubQuery: string | null = null;
+  /** A press on a pinned tile, until it is released: a drag once the pointer has moved {@link DRAG_SLOP}. */
+  private drag: { id: string; cell: HTMLElement; pointerId: number; x: number; y: number; active: boolean } | null = null;
+  /** The press just released was a drag: the click that follows it is not a pick. */
+  private suppressClick = false;
   private readonly unsubscribe: (() => void)[] = [];
   private static sequence = 0;
   private readonly listboxId = `quick-find-list-${++QuickFindPopover.sequence}`;
@@ -226,6 +234,7 @@ export class QuickFindPopover {
       return;
     }
     this.opened = false;
+    this.endDrag();
     this.dropHubLookup();
     this.el.remove();
     document.removeEventListener('pointerdown', this.onPointerDown, true);
@@ -285,7 +294,9 @@ export class QuickFindPopover {
     if (query === '') {
       this.dropHubLookup();
       children.push(...this.renderPinned());
-      this.highlighted = -1;
+      // A highlight the keyboard holds on a tile survives the redraw (a pin
+      // just moved); none before typing, so Enter does nothing yet.
+      this.highlighted = this.highlighted < this.items.length ? this.highlighted : -1;
     } else {
       const matches = this.deps.index.search(query);
       if (matches.length > 0) {
@@ -360,7 +371,134 @@ export class QuickFindPopover {
     pin.className = `${PIN_BUTTON} absolute top-0.5 right-0.5 opacity-0 group-hover/tile:opacity-100 focus-visible:opacity-100 group-data-[highlighted]/tile:opacity-100`;
     cell.append(button, pin);
     this.listen(cell, button, { el: cell, run: () => this.run(tool), disabled });
+    // A tile drags to another slot (the pins' order is the user's); the pin
+    // at its corner is a button of its own and never starts one.
+    cell.classList.add('touch-none');
+    cell.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (e.target as Element).closest('[data-ref="pin"]')) {
+        return;
+      }
+      this.beginDrag(tool.id, cell, e);
+    });
     return cell;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reordering the pins
+  // ---------------------------------------------------------------------------
+
+  private beginDrag(id: string, cell: HTMLElement, e: PointerEvent): void {
+    this.endDrag();
+    this.drag = { id, cell, pointerId: e.pointerId, x: e.clientX, y: e.clientY, active: false };
+    document.addEventListener('pointermove', this.onDragMove, true);
+    document.addEventListener('pointerup', this.onDragEnd, true);
+    document.addEventListener('pointercancel', this.onDragCancel, true);
+  }
+
+  /** The pointer moved with a tile pressed: past the slop it is a drag, and the tile follows it from slot to slot. */
+  private readonly onDragMove = (e: PointerEvent): void => {
+    const drag = this.drag;
+    if (!drag || e.pointerId !== drag.pointerId) {
+      return;
+    }
+    if (!drag.active) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < DRAG_SLOP) {
+        return;
+      }
+      drag.active = true;
+      drag.cell.classList.add(...TILE_DRAGGING.split(' '));
+      document.body.style.cursor = 'grabbing';
+    }
+    e.preventDefault();
+    const grid = drag.cell.parentElement;
+    if (!grid) {
+      return;
+    }
+    const cells = [...grid.children] as HTMLElement[];
+    const over = cells.find((other) => {
+      if (other === drag.cell) {
+        return false;
+      }
+      const r = other.getBoundingClientRect();
+      return e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom;
+    });
+    if (!over) {
+      return;
+    }
+    // The dragged tile takes the slot under the pointer; the tiles between shift one slot toward where it came from.
+    if (cells.indexOf(drag.cell) < cells.indexOf(over)) {
+      over.after(drag.cell);
+    } else {
+      over.before(drag.cell);
+    }
+  };
+
+  /** Released: a drag stores the grid's new order; a press that never moved stays a click. */
+  private readonly onDragEnd = (e: PointerEvent): void => {
+    const drag = this.drag;
+    if (!drag || e.pointerId !== drag.pointerId) {
+      return;
+    }
+    const grid = drag.cell.parentElement;
+    const active = drag.active;
+    this.endDrag();
+    if (!active) {
+      return;
+    }
+    this.suppressClick = true;
+    setTimeout(() => {
+      this.suppressClick = false;
+    }, 0);
+    if (grid) {
+      this.deps.pins.reorder(([...grid.children] as HTMLElement[]).map(cell => cell.dataset.tool!));
+    }
+    this.render();
+  };
+
+  private readonly onDragCancel = (e: PointerEvent): void => {
+    if (this.drag && e.pointerId === this.drag.pointerId) {
+      this.cancelDrag();
+    }
+  };
+
+  /** Drop the drag and put the tiles back where the pins say. */
+  private cancelDrag(): void {
+    const active = this.drag?.active ?? false;
+    this.endDrag();
+    if (active) {
+      this.render();
+    }
+  }
+
+  private endDrag(): void {
+    if (!this.drag) {
+      return;
+    }
+    this.drag.cell.classList.remove(...TILE_DRAGGING.split(' '));
+    document.body.style.cursor = '';
+    this.drag = null;
+    document.removeEventListener('pointermove', this.onDragMove, true);
+    document.removeEventListener('pointerup', this.onDragEnd, true);
+    document.removeEventListener('pointercancel', this.onDragCancel, true);
+  }
+
+  /**
+   * The keyboard's reorder: the highlighted tile moves `delta` slots (one
+   * with Alt+Left/Right, a row of three with Alt+Up/Down) and stays
+   * highlighted where it lands.
+   */
+  private moveHighlightedPin(delta: number): void {
+    const from = this.highlighted;
+    const ids = this.deps.pins.shown().map(tool => tool.id);
+    const to = from + delta;
+    if (from < 0 || to < 0 || to >= ids.length) {
+      return;
+    }
+    const [id] = ids.splice(from, 1);
+    ids.splice(to, 0, id);
+    this.deps.pins.reorder(ids);
+    this.highlighted = to;
+    this.render();
   }
 
   /** A matching tool as a row: icon, name, what it does or where it lives, its chord, its pin. */
@@ -552,6 +690,11 @@ export class QuickFindPopover {
     const index = this.items.length;
     this.items.push(item);
     target.addEventListener('click', (e) => {
+      if (this.suppressClick) {
+        // The click that ends a drag: consumed, not a pick.
+        this.suppressClick = false;
+        return;
+      }
       if ((e.target as Element).closest('[data-ref="pin"]')) {
         return;
       }
@@ -620,26 +763,46 @@ export class QuickFindPopover {
     switch (e.key) {
       case 'Escape':
         e.preventDefault();
+        if (this.drag?.active) {
+          this.cancelDrag();
+          return;
+        }
         this.close();
         return;
       case 'ArrowDown':
         e.preventDefault();
+        if (inGrid && e.altKey) {
+          this.moveHighlightedPin(3);
+          return;
+        }
         this.move(inGrid ? 3 : 1);
         return;
       case 'ArrowUp':
         e.preventDefault();
+        if (inGrid && e.altKey) {
+          this.moveHighlightedPin(-3);
+          return;
+        }
         this.move(inGrid ? -3 : -1);
         return;
       case 'ArrowRight':
         if (inGrid) {
           e.preventDefault();
-          this.move(1);
+          if (e.altKey) {
+            this.moveHighlightedPin(1);
+          } else {
+            this.move(1);
+          }
         }
         return;
       case 'ArrowLeft':
         if (inGrid) {
           e.preventDefault();
-          this.move(-1);
+          if (e.altKey) {
+            this.moveHighlightedPin(-1);
+          } else {
+            this.move(-1);
+          }
         }
         return;
       case 'Home':

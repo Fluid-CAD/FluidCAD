@@ -174,6 +174,27 @@ describe('QuickFindPins', () => {
   });
 });
 
+describe('QuickFindPins reorder', () => {
+  it('gives the shown pins their new order in the slots they held, leaving the other benches\' pins where they were', () => {
+    const index = new ToolIndex();
+    partBench(index);
+    const pins = new QuickFindPins(index);
+    const saved = vi.fn();
+    pins.onChange = saved;
+    pins.reorder(['part:shell', 'part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet']);
+    expect(pins.shown().map(t => t.id)).toEqual(['part:shell', 'part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet']);
+    // The sketch and assembly defaults follow, untouched.
+    expect(saved).toHaveBeenLastCalledWith([
+      'part:shell', 'part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet',
+      ...QuickFindPins.DEFAULTS.slice(6),
+    ]);
+    // The same order again, or an order of one, changes nothing.
+    pins.reorder(['part:shell', 'part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet']);
+    pins.reorder(['part:hole']);
+    expect(saved).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('QuickFindPopover', () => {
   it('opens where the pointer is with the pinned tiles, and a tile runs its tool and closes it', () => {
     const { popover, tools, el, tiles, input } = mount();
@@ -348,6 +369,72 @@ describe('QuickFindPopover', () => {
     type('zzq');
     await vi.advanceTimersByTimeAsync(HubPanelState.DEBOUNCE_MS + 10);
     expect(el()!.querySelector('[data-ref="hub-notice"]')!.textContent).toBe('Nothing on the hub either.');
+  });
+
+  it('a tile dragged onto another slot reorders the pins and is not a click; a press that never moves still picks', () => {
+    const { popover, pins, saved, tools, el, tiles } = mount();
+    popover.openAt({ x: 100, y: 100 });
+    // Three tiles per row, 90 wide and 60 tall, from (10, 10).
+    const cells = [...el()!.querySelectorAll<HTMLElement>('[data-ref="pinned"] [data-tool]')];
+    cells.forEach((cell, i) => {
+      const left = 10 + (i % 3) * 90;
+      const top = 10 + Math.floor(i / 3) * 60;
+      cell.getBoundingClientRect = () => ({ left, top, right: left + 90, bottom: top + 60, width: 90, height: 60, x: left, y: top, toJSON() {} } as DOMRect);
+    });
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX: x, clientY: y }));
+
+    // Sketch (slot 0) dragged onto Revolve's slot (2): the two between shift left.
+    pointer('pointerdown', cells[0], 20, 20);
+    pointer('pointermove', document, 22, 21);
+    expect(cells[0].classList.contains('ring-1')).toBe(false);
+    pointer('pointermove', document, 230, 30);
+    expect(cells[0].classList.contains('ring-1')).toBe(true);
+    expect(tiles()).toEqual(['part:extrude', 'part:revolve', 'part:sketch', 'part:hole', 'part:fillet', 'part:shell']);
+    pointer('pointerup', document, 230, 30);
+    expect(pins.shown().map(t => t.id)).toEqual(['part:extrude', 'part:revolve', 'part:sketch', 'part:hole', 'part:fillet', 'part:shell']);
+    expect(saved).toHaveBeenCalledTimes(1);
+    expect(tiles()).toEqual(['part:extrude', 'part:revolve', 'part:sketch', 'part:hole', 'part:fillet', 'part:shell']);
+    // The click the browser sends after the release is not a pick.
+    el()!.querySelector<HTMLElement>('[data-tool="part:sketch"] [role="option"]')!.click();
+    expect(tools.sketch.runs).not.toHaveBeenCalled();
+    expect(popover.isOpen).toBe(true);
+
+    // A press without movement is a click as before.
+    const hole = el()!.querySelector<HTMLElement>('[data-tool="part:hole"]')!;
+    pointer('pointerdown', hole, 20, 80);
+    pointer('pointerup', document, 20, 80);
+    hole.querySelector<HTMLElement>('[role="option"]')!.click();
+    expect(tools.hole.runs).toHaveBeenCalledTimes(1);
+  });
+
+  it('Escape during a drag puts the tiles back; Alt with an arrow moves the highlighted tile', () => {
+    const { popover, pins, saved, el, tiles, key, input } = mount();
+    popover.openAt({ x: 100, y: 100 });
+    const cells = [...el()!.querySelectorAll<HTMLElement>('[data-ref="pinned"] [data-tool]')];
+    cells.forEach((cell, i) => {
+      const left = 10 + (i % 3) * 90;
+      const top = 10 + Math.floor(i / 3) * 60;
+      cell.getBoundingClientRect = () => ({ left, top, right: left + 90, bottom: top + 60, width: 90, height: 60, x: left, y: top, toJSON() {} } as DOMRect);
+    });
+    const pointer = (type: string, target: EventTarget, x: number, y: number) =>
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, button: 0, clientX: x, clientY: y }));
+    pointer('pointerdown', cells[0], 20, 20);
+    pointer('pointermove', document, 140, 30);
+    expect(tiles()[1]).toBe('part:sketch');
+    key('Escape');
+    expect(popover.isOpen).toBe(true);
+    expect(tiles()).toEqual(['part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:shell']);
+    expect(saved).not.toHaveBeenCalled();
+
+    key('ArrowRight');
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true, cancelable: true }));
+    expect(tiles()).toEqual(['part:extrude', 'part:sketch', 'part:revolve', 'part:hole', 'part:fillet', 'part:shell']);
+    expect(el()!.querySelector('[data-tool="part:sketch"] [role="option"]')!.getAttribute('aria-selected')).toBe('true');
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, bubbles: true, cancelable: true }));
+    expect(tiles()).toEqual(['part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:sketch', 'part:shell']);
+    expect(pins.shown().map(t => t.id)).toEqual(tiles());
+    expect(saved).toHaveBeenCalledTimes(2);
   });
 
   it('stays inside the window and opens under a button', () => {

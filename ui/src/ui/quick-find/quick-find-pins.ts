@@ -78,6 +78,30 @@ export class QuickFindPins {
     return true;
   }
 
+  /**
+   * The shown pins in a new order (a tile dragged to another slot): they
+   * take, in that order, the slots they held in the stored list, so pins of
+   * the other benches keep theirs. Ids that aren't shown pins are ignored;
+   * shown pins left out keep their place.
+   */
+  reorder(ids: readonly string[]): void {
+    const shown = this.shown().map(tool => tool.id);
+    const moving = ids.filter(id => shown.includes(id));
+    if (moving.length < 2) {
+      return;
+    }
+    const list = [...this.list];
+    const slots = list.map((id, i) => (moving.includes(id) ? i : -1)).filter(i => i >= 0);
+    if (slots.every((slot, k) => list[slot] === moving[k])) {
+      return;
+    }
+    slots.forEach((slot, k) => {
+      list[slot] = moving[k];
+    });
+    this.pins = list;
+    this.changed();
+  }
+
   unpin(id: string): void {
     if (!this.isPinned(id)) {
       return;

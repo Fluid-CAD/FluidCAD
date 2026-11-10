@@ -85,9 +85,38 @@ export interface Preferences {
    * project that offers them.
    */
   toolbarPackages: string[];
+  /**
+   * The tools Quick Find (the <kbd>S</kbd> popover) shows before a word is
+   * typed, by tool id (`part:extrude`, `sketch:line`…) — in every project.
+   * Null until the user pins or unpins one: the UI's defaults then, so a
+   * new default reaches a user who never touched the pins.
+   */
+  quickFindPins: string[] | null;
 }
 
 export const PACKAGE_INSTALL_TARGETS = ['library', 'project'] as const;
+
+/** Most tool ids a Quick Find pin list keeps, and the longest one may be. */
+const MAX_QUICK_FIND_PINS = 60;
+const MAX_TOOL_ID_CHARS = 120;
+
+/**
+ * A Quick Find pin list as stored: unique non-empty tool ids, in the user's
+ * order; null for an explicit null (the defaults). Undefined when `value`
+ * is neither.
+ */
+export function parseQuickFindPins(value: unknown): string[] | null | undefined {
+  if (value === null) {
+    return null;
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const ids = value.filter(
+    (id): id is string => typeof id === 'string' && id.trim() !== '' && id.length <= MAX_TOOL_ID_CHARS,
+  );
+  return [...new Set(ids.map(id => id.trim()))].slice(0, MAX_QUICK_FIND_PINS);
+}
 
 /** Most packages the toolbar keeps pinned, and the longest name one may have (npm's limit). */
 const MAX_TOOLBAR_PACKAGES = 100;
@@ -139,11 +168,12 @@ const DEFAULTS: Preferences = {
   packageLibraryPath: '',
   packageInstallTarget: 'library',
   toolbarPackages: [],
+  quickFindPins: null,
 };
 
 /** A fresh copy of the defaults — what "Reset all to defaults" writes. */
 export function defaultPreferences(): Preferences {
-  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing }, materials: {}, toolbarPackages: [] };
+  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing }, materials: {}, toolbarPackages: [], quickFindPins: null };
 }
 
 function getConfigDir(): string {
@@ -197,6 +227,7 @@ function parsePreferences(data: string): Preferences {
     gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing, ...(parsed.gridFixedSpacing ?? {}) },
     materials: 'materials' in materials ? materials.materials : {},
     toolbarPackages: parseToolbarPackages(parsed.toolbarPackages) ?? [],
+    quickFindPins: parseQuickFindPins(parsed.quickFindPins) ?? null,
   };
 }
 

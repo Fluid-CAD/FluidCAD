@@ -118,6 +118,23 @@ describe.runIf(onLinux)('preferences — the Settings dialog keys', () => {
     });
   });
 
+  it('keeps the Quick Find pins as one list, null for the defaults, and drops anything else', async () => {
+    expect((await loadPreferences()).quickFindPins).toBeNull();
+    await withServer(async (base) => {
+      let prefs = await post(`${base}/preferences`, { quickFindPins: ['part:extrude', 'sketch:line', 'part:extrude', '  ', 7] });
+      expect(prefs.quickFindPins).toEqual(['part:extrude', 'sketch:line']);
+      expect((await loadPreferences()).quickFindPins).toEqual(['part:extrude', 'sketch:line']);
+      // Not a list: the stored pins stay.
+      prefs = await post(`${base}/preferences`, { quickFindPins: 'part:hole' });
+      expect(prefs.quickFindPins).toEqual(['part:extrude', 'sketch:line']);
+      // An empty list is a choice (nothing pinned); null is the defaults again.
+      prefs = await post(`${base}/preferences`, { quickFindPins: [] });
+      expect(prefs.quickFindPins).toEqual([]);
+      prefs = await post(`${base}/preferences`, { quickFindPins: null });
+      expect(prefs.quickFindPins).toBeNull();
+    });
+  });
+
   it('reset puts the file back to the defaults and answers with them', async () => {
     await withServer(async (base) => {
       await post(`${base}/preferences`, { theme: 'fluidcad-light', editorFontSize: 20, defaultProjectUnit: 'ft', showGrid: false });

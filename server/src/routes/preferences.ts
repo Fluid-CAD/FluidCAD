@@ -10,6 +10,7 @@ import {
   SNAP_RADIUS_PX_RANGE,
   TIMELINE_SKETCH_CHILDREN,
   loadPreferences,
+  parseQuickFindPins,
   parseToolbarPackages,
   resetPreferences,
   savePreferences,
@@ -181,6 +182,11 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
         const toolbarPackages = parseToolbarPackages(body.toolbarPackages);
         if (toolbarPackages !== null) {
           current.toolbarPackages = toolbarPackages;
+        }
+        // The whole list as Quick Find holds it; null puts the defaults back.
+        const quickFindPins = parseQuickFindPins(body.quickFindPins);
+        if (quickFindPins !== undefined) {
+          current.quickFindPins = quickFindPins;
         }
         await savePreferences(current);
         return current;

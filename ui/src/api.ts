@@ -291,6 +291,8 @@ export interface UserPreferences {
   packageInstallTarget?: PackageTarget;
   /** The packages whose custom features are pinned to the toolbar, by name. Default none. */
   toolbarPackages?: string[];
+  /** The tools Quick Find shows before a word is typed, by tool id; null (or absent) means its defaults. */
+  quickFindPins?: string[] | null;
 }
 
 /** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */

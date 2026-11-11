@@ -61,6 +61,7 @@ import { createGlobalParamsRouter, type GlobalParamsRouterDeps } from './routes/
 import { GlobalParamCatalog } from './global-params/catalog.ts';
 import { createWorkspaceWatcher, type WorkspaceWatcher } from './files/workspace-watcher.ts';
 import { RenderInputChanges } from './files/render-input-changes.ts';
+import { ParamsDiskEdits } from './files/params-disk-edits.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { HostRegistry } from './host-registry.ts';
 import { attachEditorHostTransport, broadcastEditorCapabilities } from './editor-host-transport.ts';
@@ -451,6 +452,13 @@ const renderInputChanges = new RenderInputChanges({
  * (a PART the assembly's mate dialog just wrote a connector into).
  */
 const pageWrites = new PageWriteLedger();
+// A params file edited on disk under a buffer the server still holds for it.
+const paramsDiskEdits = new ParamsDiskEdits({
+  getBuffer: (absPath) => fluidCadServer.getLiveBuffer(absPath),
+  readFile: (absPath) => fs.promises.readFile(absPath, 'utf8').catch((): null => null),
+  isPageWrite: (absPath, code) => pageWrites.isEcho(absPath, code),
+  render: (absPath, code) => runLiveRender(absPath, code, { keepCurrent: true }),
+});
 const lastSceneByFile = new Map<string, {
   result: any[];
   rollbackStop: number;
@@ -763,6 +771,11 @@ async function handleExtensionMessage(msg: any) {
         if (PackageRoots.isManaged(msg.fileName, WORKSPACE_PATH)) {
           break;
         }
+        // The CLI watcher announcing a params file the workspace watcher has
+        // already folded in (`ParamsDiskEdits`): the buffer is this text.
+        if (isParamsFile(msg.fileName) && fluidCadServer.getLiveBuffer(msg.fileName) === msg.code) {
+          break;
+        }
         await runLiveRender(msg.fileName, msg.code, { keepCurrent: msg.keepCurrent === true });
         break;
       }
@@ -955,10 +968,14 @@ httpServer.listen(PORT, HOST, () => {
         if (normalizePath(event.absPath) === `${normalizePath(WORKSPACE_PATH)}/${PROJECT_CONFIG_FILENAME}`) {
           fluidCadServer.refreshEditorTypes();
         }
-        renderInputChanges.note(event.absPath);
-        // The catalog follows every external edit of a params file — even one
-        // no open model imports, since the panel must still update.
-        void noteParamsFileChange(event.absPath);
+        // A params file saved from outside first replaces the buffer a column
+        // edit left for it; the catalog and the render below read that buffer.
+        void paramsDiskEdits.note(event.type, event.absPath).then(() => {
+          renderInputChanges.note(event.absPath);
+          // The catalog follows every external edit of a params file — even
+          // one no open model imports, since the panel must still update.
+          void noteParamsFileChange(event.absPath);
+        });
       });
     } catch (err: any) {
       console.warn(`Failed to watch the workspace: ${err?.message ?? err}`);

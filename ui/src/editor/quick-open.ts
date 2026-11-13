@@ -1,4 +1,4 @@
-import { ICON_CUBE, ICON_FILE_CODE, ICON_FOLDER_PLUS, ICON_PLUS, ICON_PUZZLE, ICON_SLIDERS } from '../ui/icons';
+import { ICON_CUBE, ICON_FILE_CODE, ICON_FOLDER, ICON_PUZZLE, ICON_SLIDERS } from '../ui/icons';
 import { listWorkspaceFiles, type FileKind, type WorkspaceFileEntry } from './editor-api';
 import { ASSEMBLY_ACCENT, splitModelName } from './model-name';
 
@@ -49,6 +49,9 @@ const CREATE_TYPES: ReadonlyArray<{ type: CreateType; suffix: string; label: str
 /** A custom feature module (`*.feature.js`): the server's `FeatureModules.SUFFIX`. */
 const FEATURE_SUFFIX = '.feature.js';
 
+/** A global params file (`*.params.js`), the Parameters column's sliders. */
+const PARAMS_SUFFIX = '.params.js';
+
 /** Subsequence match — the same shape of matching every quick-open uses. */
 function fuzzyScore(candidate: string, query: string): number | null {
   if (query === '') {
@@ -82,6 +85,38 @@ function fuzzyScore(candidate: string, query: string): number | null {
 
 const MAX_RESULTS = 12;
 
+/** The list's height before it scrolls: about six two-line rows. */
+const LIST_MAX_HEIGHT = 280;
+
+/**
+ * An overflow smaller than this — under half a two-line row — grows the list
+ * to fit instead of scrolling: a scrollbar that reveals a sliver of one row
+ * (six rows ran 1px over the cap) is noise. Past it, a scroll has a row to
+ * show, and the row cut at the bottom says there is more.
+ */
+const LIST_OVERFLOW_SLACK = 24;
+
+/**
+ * The mark a Create row's icon wears: a filled plus disc at its lower right,
+ * in the icon's own tint, so `Create part` reads as a part that isn't there
+ * yet. The outer ring is cut from the row's own background
+ * (`--quick-open-row-bg`) to part the disc from the strokes under it.
+ */
+const CREATE_BADGE =
+  '<svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true">' +
+  '<circle cx="5" cy="5" r="5" fill="var(--quick-open-row-bg)"/>' +
+  '<circle cx="5" cy="5" r="3.75" fill="currentColor"/>' +
+  '<path d="M5 3.2v3.6M3.2 5h3.6" stroke="var(--quick-open-row-bg)" stroke-width="1.2" stroke-linecap="round"/>' +
+  '</svg>';
+
+/** The highlight the arrow keys and the pointer share: the menus' hover tint, as Quick Find's rows wear it. */
+const ROW_HIGHLIGHT = ['bg-base-content/[0.08]', 'text-base-content'];
+const ROW_RESTING = 'text-base-content/70';
+
+/** A row's background, resting and highlighted, as an opaque color the badge's ring can match. */
+const ROW_BG = 'var(--color-base-100)';
+const ROW_BG_HIGHLIGHTED = 'color-mix(in srgb, var(--color-base-content) 8%, var(--color-base-100))';
+
 export class QuickOpen {
   private popover: HTMLDivElement | null = null;
   private input: HTMLInputElement | null = null;
@@ -90,6 +125,9 @@ export class QuickOpen {
   private query = '';
   private highlighted = 0;
   private rows: Row[] = [];
+  private rowElements: HTMLElement[] = [];
+  /** Where the pointer last moved over the list; a move that lands where it already was is no move. */
+  private lastPointer: { x: number; y: number } | null = null;
 
   constructor(private readonly handlers: QuickOpenHandlers) {}
 
@@ -130,14 +168,31 @@ export class QuickOpen {
     popover.appendChild(input);
 
     const list = document.createElement('div');
-    list.className = 'max-h-[280px] overflow-y-auto py-1';
+    list.className = 'overflow-y-auto py-1';
     popover.appendChild(list);
+    // The pointer over a row highlights it — the one highlight Enter and a
+    // click both act on, as in Quick Find. Only a real move counts: a list
+    // redrawn under a resting pointer (each keystroke redraws it) must not
+    // pull the highlight off the top row the user is about to Enter.
+    list.addEventListener('pointermove', (event) => {
+      if (this.lastPointer?.x === event.clientX && this.lastPointer.y === event.clientY) {
+        return;
+      }
+      this.lastPointer = { x: event.clientX, y: event.clientY };
+      const row = (event.target as Element).closest<HTMLElement>('[data-row-index]');
+      const index = row ? Number(row.dataset.rowIndex) : -1;
+      if (index >= 0 && index !== this.highlighted) {
+        this.highlighted = index;
+        this.syncHighlight();
+      }
+    });
 
     document.body.appendChild(popover);
     this.popover = popover;
     this.input = input;
     this.query = '';
     this.highlighted = 0;
+    this.lastPointer = null;
     document.addEventListener('pointerdown', this.onDocumentPointerDown, true);
 
     input.addEventListener('input', () => {
@@ -185,7 +240,9 @@ export class QuickOpen {
       if (total > 0) {
         const step = event.key === 'ArrowDown' ? 1 : -1;
         this.highlighted = (this.highlighted + step + total) % total;
-        this.renderResults(list);
+        this.syncHighlight();
+        // The list is capped in height; keep the highlight on screen.
+        this.rowElements[this.highlighted]?.scrollIntoView({ block: 'nearest' });
       }
       return;
     }
@@ -307,26 +364,35 @@ export class QuickOpen {
 
     list.replaceChildren();
 
+    const rowElements: HTMLElement[] = [];
     for (const [index, row] of this.rows.entries()) {
-      const highlighted = index === this.highlighted;
-      const onPick = (): void => this.activate(index, list);
-      if (row.kind === 'create') {
-        list.appendChild(this.buildRow({ ...QuickOpen.describeCreate(row.target), highlighted, onPick }));
-        continue;
+      // A rule where opening ends and creating begins (or the other way
+      // round), so the two kinds of row read as two groups.
+      if (index > 0 && row.kind !== this.rows[index - 1].kind) {
+        const divider = document.createElement('div');
+        divider.setAttribute('role', 'separator');
+        divider.className = 'mx-3 my-1.5 border-t border-base-content/20';
+        list.appendChild(divider);
       }
-      const basename = row.file.path.split('/').pop() || row.file.path;
-      list.appendChild(this.buildRow({
-        icon: QuickOpen.buildIcon(QuickOpen.fileIcon(row.file.kind, basename), basename),
-        label: basename,
-        detail: row.file.path,
-        highlighted,
-        onPick,
-      }));
+      const onPick = (): void => this.activate(index, list);
+      let element: HTMLElement;
+      if (row.kind === 'create') {
+        element = this.buildRow({ ...QuickOpen.describeCreate(row.target), onPick });
+      } else {
+        const basename = row.file.path.split('/').pop() || row.file.path;
+        element = this.buildRow({
+          icon: QuickOpen.buildIcon(QuickOpen.fileIcon(row.file.kind, basename), basename),
+          label: basename,
+          detail: row.file.path,
+          onPick,
+        });
+      }
+      element.dataset.rowIndex = String(index);
+      rowElements.push(element);
+      list.appendChild(element);
     }
-
-    // The list is capped in height, so an arrow-key highlight can land on a
-    // row the popover has scrolled out of sight; keep it on screen.
-    (list.children[this.highlighted] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
+    this.rowElements = rowElements;
+    this.syncHighlight();
 
     if (this.rows.length === 0) {
       const empty = document.createElement('div');
@@ -338,25 +404,69 @@ export class QuickOpen {
         : this.files.length === 0 ? 'No files in this workspace.' : 'No matches.';
       list.appendChild(empty);
     }
+
+    QuickOpen.fitHeight(list);
+    // A capped list can have the highlight scrolled out of sight; keep it on screen.
+    rowElements[this.highlighted]?.scrollIntoView({ block: 'nearest' });
   }
 
-  /** A listed file's icon: a model's cube, a feature module's puzzle piece, a plain module's file. */
+  /**
+   * Cap the list at {@link LIST_MAX_HEIGHT} only when its rows run past it by
+   * more than {@link LIST_OVERFLOW_SLACK}; short of that it grows to fit, so a
+   * scrollbar shows only when there is a row to scroll to.
+   */
+  private static fitHeight(list: HTMLElement): void {
+    list.style.maxHeight = '';
+    const fits = list.scrollHeight <= LIST_MAX_HEIGHT + LIST_OVERFLOW_SLACK;
+    list.style.maxHeight = fits ? '' : `${LIST_MAX_HEIGHT}px`;
+  }
+
+  /** Paint the highlight onto its row, in place: the pointer moves it without a redraw. */
+  private syncHighlight(): void {
+    for (const [index, row] of this.rowElements.entries()) {
+      const on = index === this.highlighted;
+      row.classList.toggle(ROW_RESTING, !on);
+      for (const name of ROW_HIGHLIGHT) {
+        row.classList.toggle(name, on);
+      }
+      row.style.setProperty('--quick-open-row-bg', on ? ROW_BG_HIGHLIGHTED : ROW_BG);
+    }
+  }
+
+  /**
+   * A listed file's icon: a model's cube, a feature module's puzzle piece, a
+   * global params file's sliders, a plain module's file.
+   */
   private static fileIcon(kind: FileKind, basename: string): string {
     if (kind === 'model') {
       return ICON_CUBE;
     }
-    return basename.endsWith(FEATURE_SUFFIX) ? ICON_PUZZLE : ICON_FILE_CODE;
+    if (basename.endsWith(FEATURE_SUFFIX)) {
+      return ICON_PUZZLE;
+    }
+    return basename.endsWith(PARAMS_SUFFIX) ? ICON_SLIDERS : ICON_FILE_CODE;
   }
 
-  /** The icon a Create offer's row wears: the file's own, as {@link fileIcon} draws it once it exists. */
-  private static createIcon(type: CreateType): string {
+  /**
+   * The icon a Create offer's row wears: the file's own, as {@link fileIcon}
+   * draws it once it exists — a name typed with its extension included, by
+   * the suffix it ends in.
+   */
+  private static createIcon(target: CreateTarget): string {
+    if (target.kind === 'folder') {
+      return ICON_FOLDER;
+    }
+    const type = target.type ?? CREATE_TYPES.find(({ suffix }) => target.path.endsWith(suffix))?.type;
     switch (type) {
+      case 'part':
+      case 'assembly':
+        return ICON_CUBE;
       case 'params':
         return ICON_SLIDERS;
       case 'feature':
         return ICON_PUZZLE;
       default:
-        return ICON_CUBE;
+        return ICON_FILE_CODE;
     }
   }
 
@@ -364,46 +474,69 @@ export class QuickOpen {
    * A Create row's icon and wording. A typed bare name reads as the kind of
    * file it makes — `Create part "bracket"` under its cube, the assembly's in
    * teal, global params under the Parameters column's sliders, a feature
-   * under a puzzle piece — with the file name it lands as underneath.
+   * under a puzzle piece — with the file name it lands as underneath. Every
+   * Create row's icon carries the plus badge, so it reads as new at a glance.
    */
   private static describeCreate(target: CreateTarget): { icon: HTMLElement; label: string | Node; detail?: string } {
+    const basename = target.path.split('/').pop() || target.path;
+    const icon = QuickOpen.buildIcon(QuickOpen.createIcon(target), target.kind === 'file' ? basename : undefined, true);
     if (target.kind === 'folder') {
-      return { icon: QuickOpen.buildIcon(ICON_FOLDER_PLUS), label: `Create folder ${target.path}/` };
+      return { icon, label: `Create folder ${target.path}/` };
     }
     const offer = CREATE_TYPES.find((entry) => entry.type === target.type);
     if (!offer) {
-      return { icon: QuickOpen.buildIcon(ICON_PLUS), label: `Create ${target.path}` };
+      return { icon, label: `Create ${target.path}` };
     }
-    const basename = target.path.split('/').pop() || target.path;
     const stem = basename.slice(0, -offer.suffix.length);
     const kind = document.createElement('strong');
     kind.className = 'font-semibold';
     kind.textContent = offer.label;
     const label = document.createDocumentFragment();
     label.append('Create ', kind, ` "${stem}"`);
-    return {
-      icon: QuickOpen.buildIcon(QuickOpen.createIcon(offer.type), basename),
-      label,
-      detail: target.path,
-    };
+    return { icon, label, detail: target.path };
   }
 
   /**
-   * A row's icon, tinted the way the file tabs tint theirs: a part's cube in
-   * the theme's primary blue, an assembly's in the assembly teal, and a helper
-   * (or the Create row's plus) in the quiet gray everything else here uses.
+   * A row's icon, tinted by the kind of file: a part's cube in the theme's
+   * primary blue and an assembly's in the assembly teal, as the file tabs
+   * tint theirs; a global params file's sliders in the accent green the
+   * expression suggestions' G (project parameter) chip wears; a feature
+   * module's puzzle piece in the feature violet; anything else, a folder
+   * included, in the quiet gray everything else here uses. `create` adds the
+   * plus badge.
    */
-  private static buildIcon(svg: string, basename?: string): HTMLElement {
+  private static buildIcon(svg: string, basename?: string, create = false): HTMLElement {
     const icon = document.createElement('span');
-    icon.className = 'shrink-0 [&>svg]:size-3.5';
+    icon.className = 'relative shrink-0 [&>svg]:size-3.5';
     icon.innerHTML = svg;
-    const model = basename === undefined ? null : splitModelName(basename);
-    if (model?.type === 'Assembly') {
+    if (create) {
+      const badge = document.createElement('span');
+      badge.className = 'absolute -right-[3px] -bottom-[3px] flex';
+      badge.innerHTML = CREATE_BADGE;
+      icon.appendChild(badge);
+    }
+    icon.classList.add(QuickOpen.iconTint(basename));
+    if (basename !== undefined && splitModelName(basename)?.type === 'Assembly') {
       icon.style.color = ASSEMBLY_ACCENT;
-    } else {
-      icon.classList.add(model?.type === 'Part' ? 'text-primary' : 'text-base-content/40');
     }
     return icon;
+  }
+
+  /** The text colour class an icon takes for its file's name; an assembly's teal is set inline over it. */
+  private static iconTint(basename: string | undefined): string {
+    if (basename === undefined) {
+      return 'text-base-content/40';
+    }
+    if (splitModelName(basename)?.type === 'Part') {
+      return 'text-primary';
+    }
+    if (basename.endsWith(PARAMS_SUFFIX)) {
+      return 'text-accent';
+    }
+    if (basename.endsWith(FEATURE_SUFFIX)) {
+      return 'text-feature';
+    }
+    return 'text-base-content/40';
   }
 
   /**
@@ -415,13 +548,10 @@ export class QuickOpen {
     icon: HTMLElement;
     label: string | Node;
     detail?: string;
-    highlighted: boolean;
     onPick: () => void;
   }): HTMLElement {
     const row = document.createElement('button');
-    row.className =
-      'w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm ' +
-      (options.highlighted ? 'bg-base-content/10 text-base-content' : 'text-base-content/70');
+    row.className = 'w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm cursor-pointer';
     row.appendChild(options.icon);
 
     const text = document.createElement('span');

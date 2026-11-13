@@ -34,6 +34,7 @@
   --color-error-content: #470000;
   --color-variable: #f472b6;
   --color-property: #2dd4bf;
+  --color-feature: #a78bfa;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -94,6 +95,7 @@
   --color-error-content: #ffffff;
   --color-variable: #db2777;
   --color-property: #0d9488;
+  --color-feature: #7c3aed;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -140,6 +142,14 @@
 @theme {
   --color-variable: #f472b6;
   --color-property: #2dd4bf;
+}
+
+/* A custom feature module's (`*.feature.js`) violet, worn by its puzzle
+   piece in the + picker beside a part's primary blue, an assembly's teal and
+   a params file's accent green (the expression suggestions' G chip). A hue
+   nothing else in the UI claims; deepened per theme above. */
+@theme {
+  --color-feature: #a78bfa;
 }
 
 /* The Hub panel's type scale (the user, 2026-10-12: "increase the font

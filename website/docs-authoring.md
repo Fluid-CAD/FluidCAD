@@ -208,7 +208,7 @@ Verified against `ui/src` at the time of writing. Use these names.
 rename; drag to reorder; **+** = *Open a file* — a quick-open box that opens
 an existing file or creates a new one when the name does not exist),
 **Import** (STEP), **Export** (menu of solids; in an assembly it leads with
-*Whole assembly*), **Packages** (the *Packages in this project* dialog: each
+*Whole assembly*, and a part with several solids adds *Whole part*), **Packages** (the *Packages in this project* dialog: each
 pinned package with *From your library* / *Copied into this project's packages/
 folder*, **Copy into project** / **Use from library**, the missing-package banner
 with **Install from file…**, **Install package…**; a red dot while a pin is

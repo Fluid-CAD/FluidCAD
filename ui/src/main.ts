@@ -1111,13 +1111,17 @@ const topBar = new TopBar(container, {
   saveTheme: (theme) => savePreference('theme', theme),
   onSettings: editorSurfaceEnabled ? () => settingsModal.show() : undefined,
   // The bar's Export dropdown picks ONE solid — its thumbnail is what makes
-  // the choice — or, in an assembly, the whole assembly where it sits;
-  // File ▸ Export stays the whole-scene path.
+  // the choice — or one of the rows ahead of them: the whole assembly where
+  // it sits, or a part that holds several solids, whole. A part that is its
+  // file's entire output exports as File ▸ Export does — every solid of the
+  // configuration exported, not the ids on screen.
   export: {
     onExport: (shapeId) => exportDialog.show(shapesExportTarget([shapeId])),
     captureThumbnail: (shapeId) => viewer.captureSolidThumbnail(shapeId),
     onExportAssembly: () => exportDialog.show({ kind: 'assembly' }),
     captureAssemblyThumbnail: () => viewer.captureSceneThumbnail(),
+    onExportPart: (shapeIds, everySolid) => exportDialog.show(shapesExportTarget(everySolid ? EVERY_SOLID : shapeIds)),
+    capturePartThumbnail: (shapeIds) => viewer.captureSolidsThumbnail(shapeIds),
   },
   onImport: () => fileImporter.openPicker(),
 });

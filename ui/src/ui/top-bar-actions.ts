@@ -13,8 +13,23 @@ import {
   ICON_SUN,
 } from './icons';
 
-/** One exportable solid, as the Export list names it — see {@link TopBarActions.collectSolids}. */
+/** One exportable solid, as the Export list names it — see {@link TopBarActions.collectExportables}. */
 export type ExportableSolid = { shapeId: string; name: string };
+
+/**
+ * A part that holds several solids, as its "Whole part" row exports it — see
+ * {@link TopBarActions.collectExportables}.
+ */
+export type ExportablePart = {
+  /** The row's thumbnail key — never a shape id. */
+  key: string;
+  /** "Whole part", with the part in brackets when the list has to tell parts apart. */
+  label: string;
+  /** The part's solids, in timeline order. */
+  shapeIds: string[];
+  /** The part's solids are every solid of a part scene: the export is the file's whole output. */
+  everySolid: boolean;
+};
 
 export interface TopBarExportHandlers {
   /** Open the export flow on the picked solid. */
@@ -29,11 +44,24 @@ export interface TopBarExportHandlers {
   onExportAssembly?(): void;
   /** A small transparent PNG of the whole scene — that row's thumbnail. Absent: an icon stands in. */
   captureAssemblyThumbnail?(): Promise<Blob>;
+  /**
+   * Open the export flow on a whole part — its solids together, in one file.
+   * `everySolid` says they are every solid of a part scene, so the host can
+   * export the file's output rather than the ids on screen (another
+   * configuration row then exports its own set of bodies). Absent: the list
+   * never offers a "Whole part" row.
+   */
+  onExportPart?(shapeIds: string[], everySolid: boolean): void;
+  /** A small transparent PNG of those solids together — that row's thumbnail. Absent: an icon stands in. */
+  capturePartThumbnail?(shapeIds: string[]): Promise<Blob>;
 }
 
 /** The thumbnail key of the "Whole assembly" row — never a shape id. */
 const WHOLE_ASSEMBLY_THUMB = 'whole-assembly';
 const WHOLE_ASSEMBLY_LABEL = 'Whole assembly';
+/** Prefix of a "Whole part" row's thumbnail key ({@link ExportablePart.key}). */
+const WHOLE_PART_THUMB = 'whole-part:';
+const WHOLE_PART_LABEL = 'Whole part';
 
 /**
  * How a host action sits on the bar: `icon` (the default) is the icon alone,
@@ -116,7 +144,8 @@ const LIGHT_THEME = 'fluidcad-light';
  *
  * Export lists the scene's solids with a rendered thumbnail apiece rather than
  * exporting the whole scene blind, so picking the right one is a matter of
- * recognising it. On a window narrower than {@link COLLAPSE_QUERY} the buttons
+ * recognising it. Ahead of them sit the rows that export several at once: the
+ * whole assembly, and each part that holds more than one solid. On a window narrower than {@link COLLAPSE_QUERY} the buttons
  * give the tabs their width back and become rows of one menu, where that same
  * list opens in place under an Export row.
  */
@@ -132,9 +161,13 @@ export class TopBarActions {
   /** What the host added through {@link addAction}, with its bar button, so the menu can list it too and {@link setAction} can find it. */
   private readonly hostActions: { action: TopBarAction; button: HTMLButtonElement }[] = [];
   private solids: ExportableSolid[] = [];
+  /** The parts holding several solids: each gets a "Whole part" row ahead of the solids. */
+  private parts: ExportablePart[] = [];
   /** An assembly scene with at least one inserted part: the list leads with "Whole assembly". */
   private wholeAssembly = false;
-  /** shapeId (or {@link WHOLE_ASSEMBLY_THUMB}) → object URL, for the current scene only. */
+  /** What the list shows, as one comparable string — see {@link updateSolids}. */
+  private listSignature = '';
+  /** shapeId (or {@link WHOLE_ASSEMBLY_THUMB}, or an {@link ExportablePart.key}) → object URL, for the current scene only. */
   private thumbs = new Map<string, string>();
   private panel: HTMLDivElement | null = null;
   private panelCleanup: (() => void) | null = null;
@@ -263,24 +296,27 @@ export class TopBarActions {
    * With `assembly` (an assembly scene) the list leads with the whole
    * assembly and the per-part rows keep only parts that are inserted — the
    * render carries every part the file declares, the way the viewport does.
+   * Either kind of scene then gets a "Whole part" row per part that holds
+   * more than one solid.
    */
   updateSolids(objects: SceneObjectRender[], assembly?: SerializedAssembly): void {
     if (!this.handlers.export) {
       return;
     }
-    const solids = TopBarActions.collectSolids(
+    const { solids, parts } = TopBarActions.collectExportables(
       assembly ? filterToReferencedParts(objects, assembly.instances) : objects,
+      assembly !== undefined,
     );
     const wholeAssembly =
       assembly !== undefined && assembly.instances.length > 0 && this.handlers.export.onExportAssembly !== undefined;
-    // Re-renders with the same solids (a parameter tweak, a preference) keep
+    // Re-renders with the same rows (a parameter tweak, a preference) keep
     // the open list and its cached thumbnails.
-    const unchanged =
-      wholeAssembly === this.wholeAssembly &&
-      solids.length === this.solids.length &&
-      solids.every((s, i) => s.shapeId === this.solids[i].shapeId && s.name === this.solids[i].name);
+    const signature = JSON.stringify([wholeAssembly, solids, parts]);
+    const unchanged = signature === this.listSignature;
     this.solids = solids;
+    this.parts = this.handlers.export.onExportPart ? parts : [];
     this.wholeAssembly = wholeAssembly;
+    this.listSignature = signature;
     if (unchanged) {
       return;
     }
@@ -447,9 +483,10 @@ export class TopBarActions {
   }
 
   /**
-   * The rows both panels share: the whole assembly first when there is one,
-   * a divider, then a row per solid — or the empty notice when there is
-   * nothing at all.
+   * The rows both panels share: the ones that export several solids at once
+   * first — the whole assembly when there is one, then each part holding
+   * more than one solid — a divider, then a row per solid; or the empty
+   * notice when there is nothing at all.
    */
   private fillExportRows(host: HTMLElement): void {
     if (!this.wholeAssembly && this.solids.length === 0) {
@@ -458,11 +495,14 @@ export class TopBarActions {
     }
     if (this.wholeAssembly) {
       host.appendChild(this.buildAssemblyRow());
-      if (this.solids.length > 0) {
-        const divider = document.createElement('div');
-        divider.className = 'my-1 border-t border-base-content/10';
-        host.appendChild(divider);
-      }
+    }
+    for (const part of this.parts) {
+      host.appendChild(this.buildPartRow(part));
+    }
+    if ((this.wholeAssembly || this.parts.length > 0) && this.solids.length > 0) {
+      const divider = document.createElement('div');
+      divider.className = 'my-1 border-t border-base-content/10';
+      host.appendChild(divider);
     }
     for (const solid of this.solids) {
       host.appendChild(this.buildSolidRow(solid));
@@ -498,6 +538,15 @@ export class TopBarActions {
   private buildAssemblyRow(): HTMLButtonElement {
     const row = this.buildThumbRow(WHOLE_ASSEMBLY_THUMB, WHOLE_ASSEMBLY_LABEL, () => this.handlers.export?.onExportAssembly?.());
     row.dataset.wholeAssembly = '';
+    return row;
+  }
+
+  /** A "Whole part" row: the part's solids together, previewed side by side as they sit. */
+  private buildPartRow(part: ExportablePart): HTMLButtonElement {
+    const row = this.buildThumbRow(part.key, part.label, () =>
+      this.handlers.export?.onExportPart?.(part.shapeIds, part.everySolid),
+    );
+    row.dataset.wholePart = '';
     return row;
   }
 
@@ -542,13 +591,9 @@ export class TopBarActions {
   }
 
   private async loadThumb(key: string, host: HTMLElement): Promise<void> {
-    const whole = key === WHOLE_ASSEMBLY_THUMB;
-    const handlers = this.handlers.export!;
-    const capture: (() => Promise<Blob>) | undefined = whole
-      ? handlers.captureAssemblyThumbnail?.bind(handlers)
-      : () => handlers.captureThumbnail(key);
+    const capture = this.thumbCapture(key);
     if (capture === undefined) {
-      // No scene capture on offer for the whole assembly: an icon stands in.
+      // No capture on offer for a whole assembly or part: an icon stands in.
       host.innerHTML = `<span class="${ROW_ICON}">${ICON_CUBE}</span>`;
       return;
     }
@@ -557,8 +602,7 @@ export class TopBarActions {
       if (url === undefined) {
         const blob = await capture();
         // A scene update may have raced the capture; don't cache stale pixels.
-        const stillListed = whole ? this.wholeAssembly : this.solids.some((s) => s.shapeId === key);
-        if (!stillListed) {
+        if (!this.thumbListed(key)) {
           return;
         }
         url = URL.createObjectURL(blob);
@@ -575,6 +619,27 @@ export class TopBarActions {
         host.replaceChildren();
       }
     }
+  }
+
+  /** How the row keyed `key` takes its picture; undefined when the host offers none for it. */
+  private thumbCapture(key: string): (() => Promise<Blob>) | undefined {
+    const handlers = this.handlers.export!;
+    if (key === WHOLE_ASSEMBLY_THUMB) {
+      return handlers.captureAssemblyThumbnail?.bind(handlers);
+    }
+    const part = this.parts.find((p) => p.key === key);
+    if (part) {
+      return handlers.capturePartThumbnail ? () => handlers.capturePartThumbnail!(part.shapeIds) : undefined;
+    }
+    return () => handlers.captureThumbnail(key);
+  }
+
+  /** Whether the current scene still lists the row keyed `key`. */
+  private thumbListed(key: string): boolean {
+    if (key === WHOLE_ASSEMBLY_THUMB) {
+      return this.wholeAssembly;
+    }
+    return this.parts.some((p) => p.key === key) || this.solids.some((s) => s.shapeId === key);
   }
 
   // -------------------------------------------------------------------------
@@ -608,32 +673,65 @@ export class TopBarActions {
   }
 
   /**
-   * The scene's exportable solids, named like the Shapes panel names them:
-   * the owning object's name, numbered when one object contributes several.
+   * The Export rows of `objects`.
+   *
+   * `solids`, in timeline order: a solid whose holder the user named reads as
+   * that name; any other reads the way the Shapes panel lists it — `<Type>
+   * <n>`, numbered per part — with its part in brackets so two parts' first
+   * solids stay apart.
+   *
+   * `parts`: one entry per part that holds more than one of those solids,
+   * grouped as the Shapes panel groups them (solids no part holds count as
+   * one part, its "Model"), in order of each part's first solid. A lone
+   * such part in a part scene reads "Whole part"; where the list has other
+   * parts beside it, or the whole assembly above it (`assemblyScene`), it
+   * names its part in brackets. In an assembly a part is a template among
+   * others, never the file's whole output, so `everySolid` stays false.
    */
-  /**
-   * The Export rows, in timeline order: a solid whose holder the user named
-   * reads as that name; any other reads the way the Shapes panel lists it —
-   * `<Type> <n>`, numbered per part — with its part in brackets so two
-   * parts' first solids stay apart.
-   */
-  private static collectSolids(objects: SceneObjectRender[]): ExportableSolid[] {
+  private static collectExportables(
+    objects: SceneObjectRender[],
+    assemblyScene: boolean,
+  ): { solids: ExportableSolid[]; parts: ExportablePart[] } {
     const solids: ExportableSolid[] = [];
     const seen = new Set<string>();
     const labels = ShapeLabels.labelsFor(objects);
+    const groups = new Map<SceneObjectRender | null, string[]>();
     for (const object of objects) {
-      for (const part of object.sceneShapes ?? []) {
-        if (part.shapeType !== 'solid' || part.isMetaShape || part.isGuide) {
+      for (const shape of object.sceneShapes ?? []) {
+        if (shape.shapeType !== 'solid' || shape.isMetaShape || shape.isGuide) {
           continue;
         }
-        if (part.shapeId === undefined || seen.has(part.shapeId)) {
+        if (shape.shapeId === undefined || seen.has(shape.shapeId)) {
           continue;
         }
-        seen.add(part.shapeId);
-        solids.push({ shapeId: part.shapeId, name: TopBarActions.solidName(object, labels.get(part.shapeId)) });
+        seen.add(shape.shapeId);
+        const labelled = labels.get(shape.shapeId);
+        solids.push({ shapeId: shape.shapeId, name: TopBarActions.solidName(object, labelled) });
+        const partRow = labelled?.partRow ?? null;
+        const group = groups.get(partRow);
+        if (group) {
+          group.push(shape.shapeId);
+        } else {
+          groups.set(partRow, [shape.shapeId]);
+        }
       }
     }
-    return solids;
+
+    const named = assemblyScene || groups.size > 1;
+    const parts: ExportablePart[] = [];
+    for (const [partRow, shapeIds] of groups) {
+      if (shapeIds.length < 2) {
+        continue;
+      }
+      const partName = partRow ? partRow.name || 'Part' : ShapeLabels.MODEL_LABEL;
+      parts.push({
+        key: `${WHOLE_PART_THUMB}${partRow?.id ?? ''}`,
+        label: named ? `${WHOLE_PART_LABEL} (${partName})` : WHOLE_PART_LABEL,
+        shapeIds,
+        everySolid: !assemblyScene && shapeIds.length === solids.length,
+      });
+    }
+    return { solids, parts };
   }
 
   private static solidName(holder: SceneObjectRender, labelled: ShapeLabel<SceneObjectRender> | undefined): string {

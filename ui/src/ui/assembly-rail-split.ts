@@ -13,6 +13,8 @@
  * same terms as the part-design column (see accordion-section.ts).
  */
 
+import { CLICK_THROUGH } from './rail-styles';
+
 export type RailSection = 'parts' | 'connectors' | 'joints' | 'params';
 
 /** Which sections are open; a section nothing is mounted in counts as closed. */
@@ -27,9 +29,11 @@ export type RailSplit = Record<RailSection, string>;
  * are measured against the host's rect. The split rewrites the host's whole
  * class list, so `relative` has to live here rather than be patched on by
  * the section (it would go with the first re-split, and the menu would then
- * resolve against the column and open over Parts).
+ * resolve against the column and open over Parts). So does
+ * {@link CLICK_THROUGH}: a host is layout like the column it sits in, and only
+ * its header, body and menus take the pointer.
  */
-const HOST_BASE = 'relative flex flex-col gap-1 min-h-0 max-h-max';
+const HOST_BASE = `relative flex flex-col gap-1 min-h-0 max-h-max ${CLICK_THROUGH}`;
 
 /** A closed section is exactly its header: no claim on the column, never crushed. */
 const CLOSED = 'grow-0 shrink-0 basis-auto';

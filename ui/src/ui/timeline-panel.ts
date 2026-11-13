@@ -9,7 +9,7 @@ import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL
 import { ObjectIcons, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 import { AccordionSection } from './accordion-section';
-import { RAIL_PANEL_CLASS } from './rail-styles';
+import { CLICK_THROUGH, RAIL_PANEL_CLASS } from './rail-styles';
 import { viewerSettings, type ViewerSettings } from '../scene/viewer-settings';
 import { iconUrl } from './icon-url';
 import { TimelineBreakpointBar, type BreakpointStop } from './timeline-breakpoint-bar';
@@ -400,7 +400,9 @@ export class TimelinePanel {
     this.applyPanelWidth();
 
     this.contentWrapper = document.createElement('div');
-    this.contentWrapper.className = 'flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto';
+    // Fills the column like the column fills the viewport, so it lets the
+    // scene through its empty part the same way (see CLICK_THROUGH).
+    this.contentWrapper.className = `flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto ${CLICK_THROUGH}`;
     this.panel.appendChild(this.contentWrapper);
 
     // History accordion section

@@ -5,6 +5,7 @@ import { ConnectorsPanel } from '../src/ui/connectors-panel';
 import { JointsPanel } from '../src/ui/joints-panel';
 import { railSplit } from '../src/ui/assembly-rail-split';
 import { AccordionSection } from '../src/ui/accordion-section';
+import { CLICK_THROUGH } from '../src/ui/rail-styles';
 
 // The assembly rail's column splits by who is open: Parts holds half of it
 // beside anything else, the other open sections share the rest equally, a
@@ -107,6 +108,22 @@ describe('assembly rail split policy', () => {
     for (const host of Object.values(split)) {
       expect(host).toContain('max-h-max');
       expect(host).toContain('min-h-0');
+    }
+  });
+
+  it('lets the scene through every host, open or closed, but not its cards (#96)', () => {
+    for (const open of [true, false]) {
+      const split = railSplit({ parts: open, connectors: open, joints: open, params: open });
+      for (const host of Object.values(split)) {
+        expect(host.split(/\s+/)).toContain(CLICK_THROUGH);
+      }
+    }
+    const rail = mount();
+    expect(rail.hosts.parts.parentElement!.classList).toContain(CLICK_THROUGH);
+    for (const title of ['Parts', 'Connectors', 'Joints']) {
+      const header = rail.header(title);
+      expect(header.classList).not.toContain(CLICK_THROUGH);
+      expect(header.nextElementSibling!.classList).not.toContain(CLICK_THROUGH);
     }
   });
 

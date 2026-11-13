@@ -208,6 +208,24 @@ html {
   -webkit-backdrop-filter: blur(12px);
 }
 
+/* A docked panel column over the scene (CLICK_THROUGH in ui/rail-styles.ts)
+   and the boxes it lays its cards out in. The column runs the full height of
+   the viewport so its sections have room to split, but most of that is scene:
+   with every section collapsed it is a stack of headers and a long empty run
+   below them. So the boxes themselves never catch the pointer and only what
+   they hold does: headers, bodies, and the menus and popovers the panels hang
+   off the column. In the components layer so a child that sets its own
+   pointer-events utility still has the last word. */
+@layer components {
+  .fluidcad-click-through {
+    pointer-events: none;
+  }
+
+  .fluidcad-click-through > :not(.fluidcad-click-through) {
+    pointer-events: auto;
+  }
+}
+
 /* The Three.js viewport fills this container, which is inset below the top
    application bar (TopBar, h-12 = 48px) and the secondary tool bar (Navbar,
    top-12 + h-14 = 104px total) so the scene starts flush beneath the toolbar

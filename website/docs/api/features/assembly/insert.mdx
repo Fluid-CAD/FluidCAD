@@ -30,6 +30,14 @@ PART's unit (10 in for an inch part), whatever the assembly runs in — the
 values feed the part's own `param()` calls, whose numbers are the part
 file's numbers.
 
+A generated definition (`definePart()`, `defineAssembly()`) takes its
+values by id, as its schema declares them — `insert(gearPart, { teeth:
+18 })`, `insert(wardrobe, { width: 1200, drawers: 3 })` — each checked
+and defaulted as its feature's or generator's declaration says. It has no
+configurations. An id it doesn't take, a value its declaration refuses,
+or a configuration name is a build error on this statement; the render
+goes on.
+
 **Returns**: **`Instance`** \| **`Occurrence`**
 
 :::tip
@@ -66,10 +74,18 @@ PART's unit (10 in for an inch part), whatever the assembly runs in — the
 values feed the part's own `param()` calls, whose numbers are the part
 file's numbers.
 
+A generated definition (`definePart()`, `defineAssembly()`) takes its
+values by id, as its schema declares them — `insert(gearPart, { teeth:
+18 })`, `insert(wardrobe, { width: 1200, drawers: 3 })` — each checked
+and defaulted as its feature's or generator's declaration says. It has no
+configurations. An id it doesn't take, a value its declaration refuses,
+or a configuration name is a build error on this statement; the render
+goes on.
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `definition` | PartDefinition&lt;T&gt; | A `part()` or `assembly()` definition. |
-| `overrides` | ParamOverrides | `{ label: value }` for the definition's `param()` calls. *(optional)* |
+| `definition` | PartDefinition&lt;T&gt; | A `part()` or `assembly()` definition, or a generated one (`definePart()`, `defineAssembly()`). |
+| `overrides` | ParamOverrides | `{ label: value }` for the definition's `param()` calls; a generated definition's values by id. *(optional)* |
 
 ---
 

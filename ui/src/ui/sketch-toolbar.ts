@@ -5,6 +5,7 @@ import {
   TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_ACTIVE_STRONG, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL,
 } from './toolbar-styles';
 import { iconUrl } from './icon-url';
+import { toolIndex } from './quick-find/tool-index';
 
 /**
  * Each tool renders a PNG from `/icons` (the same artwork the timeline uses —
@@ -161,6 +162,33 @@ export class SketchToolbar {
       shortcuts.register(keys, () => this.handleToolClick(toolId as ToolId));
     }
     shortcuts.register('g', () => this.onGuidePress());
+
+    // Quick Find lists every drawing tool while the bar is up; a pick there
+    // is the keyboard path (no option dropdown), like the chord.
+    for (const tool of TOOL_LAYOUT.flatMap(entry => (isGroup(entry) ? entry.tools : [entry]))) {
+      toolIndex.register({
+        id: `sketch:${tool.id}`,
+        label: tool.label,
+        tip: tool.label,
+        bench: 'Sketch',
+        iconSrc: iconUrl(tool.iconPng),
+        shortcut: TOOL_SHORTCUTS[tool.id],
+        isAvailable: () => this.visible,
+        isActive: () => (tool.id === 'rect' ? SketchToolbar.isRectVariant(this.activeToolId) : this.activeToolId === tool.id),
+        run: () => this.handleToolClick(tool.id),
+      });
+    }
+    toolIndex.register({
+      id: 'sketch:guide',
+      label: 'Guide',
+      tip: 'Guide: construction geometry, left out of the profile',
+      bench: 'Sketch',
+      iconSrc: iconUrl('guide'),
+      shortcut: 'g',
+      isAvailable: () => this.visible,
+      isActive: () => this.guideModeState,
+      run: () => this.onGuidePress(),
+    });
   }
 
   show(): void {

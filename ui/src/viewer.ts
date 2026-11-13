@@ -503,16 +503,27 @@ export class Viewer {
    * same whether or not a sketch is open.
    */
   captureSolidThumbnail(shapeId: string, size = 128): Promise<Blob> {
+    return this.captureSolidsThumbnail([shapeId], size);
+  }
+
+  /**
+   * {@link captureSolidThumbnail} for several solids framed together, each
+   * where it sits — the Export list's "Whole part" row. A solid the user hid
+   * is drawn all the same: the picture is of what the row exports.
+   */
+  captureSolidsThumbnail(shapeIds: readonly string[], size = 128): Promise<Blob> {
+    const wanted = new Set(shapeIds);
     const touched: Array<[Object3D, boolean]> = [];
     this.ctx.scene.traverse((child) => {
       const id = child.userData.shapeId as string | undefined;
       if (id === undefined) {
         return;
       }
-      if (id !== shapeId && child.visible) {
+      const show = wanted.has(id);
+      if (!show && child.visible) {
         touched.push([child, true]);
         child.visible = false;
-      } else if (id === shapeId && !child.visible) {
+      } else if (show && !child.visible) {
         touched.push([child, false]);
         child.visible = true;
       }

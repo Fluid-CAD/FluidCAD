@@ -84,7 +84,8 @@ type PageGroup = {
  * Step 2 (parameters): one carousel page per queued instance that declares
  * `param()`s — two queued extrusions can get different lengths in one pass —
  * with a form rendered from the scanned definitions. Paramless entries skip
- * the step entirely (the footer button reads "Insert N" straight away).
+ * the step entirely (the footer button reads "Insert N" straight away). Prev
+ * steps back a page, and from the first page back to the grid.
  *
  * Insert commits the whole basket as ONE batch edit: one editor round trip,
  * one re-render, statement per instance — then the dialog closes, letting
@@ -170,9 +171,8 @@ export class InsertPartDialog {
 
     this.overlay.querySelector('[data-ref="close-btn"]')!.addEventListener('click', () => this.hide());
     this.overlay.querySelector('[data-ref="refresh-btn"]')!.addEventListener('click', () => void this.load());
-    this.overlay.querySelector('[data-ref="back-btn"]')!.addEventListener('click', () => this.showSelectStep());
     this.nextBtn.addEventListener('click', () => void this.advance());
-    this.prevPageBtn.addEventListener('click', () => this.showPage(this.pageIndex - 1));
+    this.prevPageBtn.addEventListener('click', () => this.pageBack());
     this.nextPageBtn.addEventListener('click', () => void this.pageForward());
     const libraryToggle = this.overlay.querySelector<HTMLInputElement>('[data-ref="show-library"]')!;
     libraryToggle.addEventListener('change', () => this.setShowLibrary(libraryToggle.checked));
@@ -218,10 +218,7 @@ export class InsertPartDialog {
     return `
       <div class="w-[680px] max-w-[92vw] h-[78vh] bg-base-100 border border-base-content/10 rounded-lg p-5 shadow-[0_4px_24px_rgba(0,0,0,0.5)] flex flex-col">
         <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <button data-ref="back-btn" class="btn btn-ghost btn-xs text-base-content/60 hidden">‹ Back</button>
-            <h3 data-ref="title" class="text-sm font-medium text-base-content/90">Insert part</h3>
-          </div>
+          <h3 data-ref="title" class="text-sm font-medium text-base-content/90">Insert part</h3>
           <div class="flex items-center gap-1">
             <button data-ref="refresh-btn" class="btn btn-ghost btn-xs text-base-content/60">Refresh</button>
             <button data-ref="close-btn" class="btn btn-ghost btn-square btn-xs text-base-content/60">
@@ -849,7 +846,6 @@ export class InsertPartDialog {
     this.selectStepEl.classList.add('flex');
     this.paramsStepEl.classList.add('hidden');
     this.paramsStepEl.classList.remove('flex');
-    this.overlay.querySelector('[data-ref="back-btn"]')!.classList.add('hidden');
     this.overlay.querySelector('[data-ref="title"]')!.textContent = 'Insert part';
     this.updateFooter();
   }
@@ -859,7 +855,6 @@ export class InsertPartDialog {
     this.selectStepEl.classList.remove('flex');
     this.paramsStepEl.classList.remove('hidden');
     this.paramsStepEl.classList.add('flex');
-    this.overlay.querySelector('[data-ref="back-btn"]')!.classList.remove('hidden');
     this.overlay.querySelector('[data-ref="title"]')!.textContent = 'Parameters';
     this.showPage(0);
   }
@@ -932,7 +927,6 @@ export class InsertPartDialog {
       + (count > 1 ? ` · ${count} instances` : '')
       + (paramless > 0 ? ` · +${paramless} without parameters` : '');
 
-    this.prevPageBtn.disabled = this.pageIndex === 0;
     this.nextPageBtn.textContent = this.pageIndex === this.pages.length - 1
       ? `Insert ${this.basket.length}`
       : 'Next ›';
@@ -985,6 +979,15 @@ export class InsertPartDialog {
     field.appendChild(caption);
     field.appendChild(select);
     return field;
+  }
+
+  /** Prev: the previous part's page, or from the first back to the grid — the queue and the values typed so far kept. */
+  private pageBack(): void {
+    if (this.pageIndex > 0) {
+      this.showPage(this.pageIndex - 1);
+      return;
+    }
+    this.showSelectStep();
   }
 
   private async pageForward(): Promise<void> {

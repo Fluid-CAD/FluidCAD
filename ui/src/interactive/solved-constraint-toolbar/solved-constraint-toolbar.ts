@@ -12,6 +12,7 @@ import {
 } from '../../ui/object-icons';
 import type { ConstraintButtonId, ConstraintOption } from './legality';
 import { iconUrl } from '../../ui/icon-url';
+import { toolIndex } from '../../ui/quick-find/tool-index';
 
 const BUTTONS: { id: ConstraintButtonId; label: string }[] = [
   { id: 'coincident', label: 'Coincident' },
@@ -35,9 +36,10 @@ const BUTTONS: { id: ConstraintButtonId; label: string }[] = [
  * the bar is up. They share the sketch-mode ShortcutManager with the drawing
  * tools (`c` circle, `l` line, `p` polygon, `m` mirror, `f` fillet, `a`
  * arc…), so the kinds whose initial is taken use a two-letter chord; single
- * letters go to the kinds whose initial is free. Each chord fires the same
- * path as a click, and only while the button is enabled for the picks —
- * otherwise the key is not consumed at all.
+ * letters go to the kinds whose initial is free. `s` alone opens Quick Find
+ * in every mode, so Symmetric is `sy`. Each chord fires the same path as a
+ * click, and only while the button is enabled for the picks — otherwise the
+ * key is not consumed at all.
  */
 export const CONSTRAINT_SHORTCUTS: Record<ConstraintButtonId, string> = {
   coincident: 'cc',
@@ -50,7 +52,7 @@ export const CONSTRAINT_SHORTCUTS: Record<ConstraintButtonId, string> = {
   concentric: 'cn',
   collinear: 'cl',
   midpoint: 'mp',
-  symmetric: 's',
+  symmetric: 'sy',
   fix: 'fx',
   dimension: 'd',
   angle: 'da',
@@ -139,6 +141,31 @@ export class SolvedConstraintToolbar {
 
     this.render();
     container.appendChild(this.root);
+
+    // Quick Find lists the constraints while the bar is up, greyed with the
+    // button's own reason when the picks don't allow one.
+    for (const { id, label } of BUTTONS) {
+      toolIndex.register({
+        id: `constraint:${id}`,
+        label,
+        tip: label,
+        bench: 'Constraint',
+        iconSrc: iconUrl(iconFor(id)),
+        shortcut: CONSTRAINT_SHORTCUTS[id],
+        isAvailable: () => this.isVisible,
+        isDisabled: () => !this.isEnabled(id),
+        disabledReason: () => {
+          const reason = this.options.find(o => o.id === id)?.reason;
+          return reason ? `${label}: ${reason}` : `${label} needs a different pick`;
+        },
+        isActive: () => id === 'dimension' && this.dimensionArmed,
+        run: () => {
+          if (this.isEnabled(id)) {
+            this.onApply?.(id);
+          }
+        },
+      });
+    }
   }
 
   private divider(): HTMLDivElement {

@@ -35,7 +35,7 @@ const PLATFORMS: { id: PlatformId; name: string; detail: string }[] = [
 /**
  * Which build this visitor wants, guessed from the browser.
  *
- * Only ever a guess, so it decides the *order* and nothing else: every
+ * Only ever a guess, so it decides the *placement* and nothing else: every
  * platform is on the page, and a wrong guess costs one glance rather than a
  * hunt through a menu. Resolved after mount because the server has no idea
  * who is asking.
@@ -55,6 +55,13 @@ function detectPlatform(): PlatformId | null {
   return null
 }
 
+function centred(mine: PlatformId): typeof PLATFORMS {
+  const own = PLATFORMS.filter((p) => p.id === mine)
+  const others = PLATFORMS.filter((p) => p.id !== mine)
+  const middle = Math.floor(others.length / 2)
+  return [...others.slice(0, middle), ...own, ...others.slice(middle)]
+}
+
 function megabytes(size: number): string {
   return `${Math.round(size / 1e5) / 10} MB`
 }
@@ -67,21 +74,15 @@ export default function Get() {
 
   useEffect(() => setMine(detectPlatform()), [])
 
-  // The visitor's own platform first, the rest in their usual order. Until
-  // the guess resolves the server's order stands, so nothing shifts under a
-  // pointer that is already moving.
-  const ordered = mine
-    ? [...PLATFORMS].sort((a, b) => Number(b.id === mine) - Number(a.id === mine))
-    : PLATFORMS
+  // The visitor's own platform in the middle, the other two either side in
+  // their usual order. Until the guess resolves the server's order stands, so
+  // nothing shifts under a pointer that is already moving.
+  const ordered = mine ? centred(mine) : PLATFORMS
 
   return (
     <Section id="get" ground="sunken">
       <div className={styles.head}>
         <h2 className={styles.title}>Download</h2>
-        <p className={styles.lead}>
-          Your models, on your machine. Get the desktop app for macOS, Windows or Linux. Free and
-          open source, under the MIT license.
-        </p>
       </div>
 
       <div className={styles.columns}>

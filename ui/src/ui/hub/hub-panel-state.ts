@@ -165,6 +165,22 @@ export class HubPanelState {
   }
 
   /** Search now (Enter, Try again, a filter), dropping a pending debounce. */
+  /**
+   * Drop a search that is pending or in flight (Quick Find's lookup, once
+   * the words match a tool after all): no answer will land, and the results
+   * area goes back to idle.
+   */
+  cancel(): void {
+    this.cancelTimer();
+    this.controller?.abort();
+    this.controller = null;
+    this.sequence++;
+    if (this.mode === 'loading') {
+      this.mode = this.answer ? 'results' : 'idle';
+      this.emit();
+    }
+  }
+
   search(): void {
     this.cancelTimer();
     void this.run(false);

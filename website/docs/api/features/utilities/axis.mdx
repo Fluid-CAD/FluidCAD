@@ -41,11 +41,12 @@ Creates an axis datum on a world axis, moved and tilted by the transform options
 axis(source: SceneObject): Axis
 ```
 
-Creates an axis from a scene object's edge.
+Creates an axis from a scene object's edge — or from a connector, along
+its Z axis through its origin.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `source` | [SceneObject](/docs/api/types/scene-object) | The scene object whose edge defines the axis |
+| `source` | [SceneObject](/docs/api/types/scene-object) | The scene object whose edge defines the axis, or a connector |
 
 ---
 
@@ -53,11 +54,12 @@ Creates an axis from a scene object's edge.
 axis(source: SceneObject, options: AxisTransformOptions): Axis
 ```
 
-Creates an axis from a scene object's edge with transform options.
+Creates an axis from a scene object's edge — or from a connector, along
+its Z axis through its origin — with transform options.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `source` | [SceneObject](/docs/api/types/scene-object) | The scene object whose edge defines the axis |
+| `source` | [SceneObject](/docs/api/types/scene-object) | The scene object whose edge defines the axis, or a connector |
 | `options` | AxisTransformOptions | Offsets (`offsetX`, `offsetY`, `offsetZ`), applied first, then rotations (`rotateX`, `rotateY`, `rotateZ`) around the world axes |
 
 ---

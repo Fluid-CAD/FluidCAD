@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TimelinePanel } from '../src/ui/timeline-panel';
 import { ParamsPanel } from '../src/ui/params-panel';
+import { CLICK_THROUGH } from '../src/ui/rail-styles';
 import type { EngineClient } from '../src/engine-client';
 import type { UIParamDefinition } from '../src/types';
 
@@ -105,6 +106,21 @@ describe('docked panel column', () => {
       // than to what the section actually holds.
       expect(body.className).not.toMatch(/\bmin-h-\[|\bshrink-0\b/);
       expect(body.className).not.toMatch(/max-h-\[/);
+    }
+  });
+
+  it('lets the scene through everywhere the column has no card (#96)', () => {
+    const h = mount();
+    // The column and the wrapper it stacks the sections in run to the bottom
+    // of the viewport, so neither may catch the pointer itself...
+    const column = h.container.firstElementChild as HTMLElement;
+    const wrapper = h.header('History').parentElement!;
+    expect(column.classList).toContain(CLICK_THROUGH);
+    expect(wrapper.parentElement).toBe(column);
+    expect(wrapper.classList).toContain(CLICK_THROUGH);
+    // ...while every header and body in it does, open or closed.
+    for (const card of wrapper.children) {
+      expect(card.classList).not.toContain(CLICK_THROUGH);
     }
   });
 

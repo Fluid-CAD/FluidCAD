@@ -39,6 +39,7 @@ describe("fuse with an empty kernel result", () => {
       result: [],
       modifiedShapes: [...stock],
       newShapes: [],
+      apart: [],
       maker: { HasErrors: () => false },
       dispose: () => {},
     }));

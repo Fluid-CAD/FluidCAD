@@ -146,6 +146,41 @@ describe('instance parameter dialogs', () => {
     ], undefined));
   });
 
+  it('Insert: Prev on the first page goes back to the grid, the queue and the typed values kept (#97)', async () => {
+    await insertForm();
+    const prev = root.querySelector<HTMLButtonElement>('[data-ref="prev-page"]')!;
+    expect(prev.disabled).toBe(false);
+    expect(root.querySelector('[data-ref="back-btn"]')).toBeNull();
+    type('width / 2');
+    prev.click();
+    expect(root.querySelector('[data-ref="step-select"]')!.classList.contains('hidden')).toBe(false);
+    expect(root.querySelector('[data-ref="step-params"]')!.classList.contains('hidden')).toBe(true);
+    expect(root.querySelector('[data-ref="title"]')!.textContent).toBe('Insert part');
+    expect(root.querySelector('[data-ref="queued-note"]')!.textContent).toBe('1 queued');
+    click('next-btn');
+    expect(root.querySelector<HTMLInputElement>('[data-ref="page-host"] input')!.value).toBe('width / 2');
+  });
+
+  it('Insert: Prev on a later page goes back one page', async () => {
+    vi.mocked(api.scanPartCatalogFile).mockResolvedValue({
+      parts: [
+        { exportName: 'beam', partName: 'Beam', kind: 'value', params: [definition], objects: [] },
+        { exportName: 'post', partName: 'Post', kind: 'value', params: [definition], objects: [] },
+      ],
+      assemblies: [], errors: [],
+    } as any);
+    dialog = new InsertPartDialog(root);
+    dialog.show('/ws/frame.assembly.js');
+    await vi.waitFor(() => expect(root.querySelectorAll('[data-kind="part"]').length).toBe(2));
+    root.querySelectorAll<HTMLButtonElement>('[data-kind="part"]').forEach(tile => tile.click());
+    click('next-btn');
+    click('next-page');
+    expect(root.querySelector('[data-ref="page-pos"]')!.textContent).toMatch(/^2 \/ 2/);
+    click('prev-page');
+    expect(root.querySelector('[data-ref="page-pos"]')!.textContent).toMatch(/^1 \/ 2/);
+    expect(root.querySelector('[data-ref="step-params"]')!.classList.contains('hidden')).toBe(false);
+  });
+
   it('Insert: no select without a table', async () => {
     await insertForm();
     expect(root.querySelector('[data-insert-configuration]')).toBeNull();

@@ -330,6 +330,25 @@ export class SketchToolbarService {
 
   }
 
+  /**
+   * The sketch-mode letter chords are live (the sketch toolbar is up). The
+   * page's own letter binding stands down then: a letter must be a chord in
+   * one manager at a time (ShortcutManager's rule), and in sketch mode this
+   * service's manager owns them all.
+   */
+  get chordsActive(): boolean {
+    return this.shortcuts.isEnabled;
+  }
+
+  /**
+   * Bind a letter chord on the sketch-mode manager beside the drawing tools
+   * and the constraints — for a page-wide key (Quick Find's) that must keep
+   * working while a sketch is up. Throws if the chord is taken.
+   */
+  registerShortcut(keys: string, action: () => void): void {
+    this.shortcuts.register(keys, action);
+  }
+
   get hasActiveDrawingTool(): boolean {
     return this.activeDrawingTool !== null;
   }

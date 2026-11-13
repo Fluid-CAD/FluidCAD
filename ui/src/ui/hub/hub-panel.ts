@@ -245,6 +245,16 @@ export class HubPanel {
     await this.detail.show(name);
   }
 
+  /** Open the panel on a search for `q` (Quick Find's "Search the hub" row). */
+  searchFor(q: string): void {
+    this.show();
+    if (this.view === 'package') {
+      this.showSearch();
+    }
+    this.state.setQuery(q);
+    this.search.focus();
+  }
+
   /** Back to the results where they were; their marks are read again after an install. */
   showSearch(): void {
     this.view = 'search';

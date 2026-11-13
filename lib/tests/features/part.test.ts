@@ -91,14 +91,16 @@ describe("part", () => {
     });
 
     it("should fuse extrudes within the same part", () => {
+      // Two ⌀10 posts 6 mm apart overlap; posts that only touched (centres
+      // 10 apart) would stay two bodies — see fuse-touching-stock.test.ts.
       part("fusing-part", () => {
         sketch("xy", () => {
-          circle([-5, 0], 10);
+          circle([-3, 0], 10);
         });
         extrude(20);
 
         sketch("xy", () => {
-          circle([5, 0], 10);
+          circle([3, 0], 10);
         });
         extrude(20);
       });

@@ -34,6 +34,7 @@
   --color-error-content: #470000;
   --color-variable: #f472b6;
   --color-property: #2dd4bf;
+  --color-feature: #a78bfa;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -94,6 +95,7 @@
   --color-error-content: #ffffff;
   --color-variable: #db2777;
   --color-property: #0d9488;
+  --color-feature: #7c3aed;
   --radius-selector: 0.5rem;
   --radius-field: 0.25rem;
   --radius-box: 0.5rem;
@@ -140,6 +142,14 @@
 @theme {
   --color-variable: #f472b6;
   --color-property: #2dd4bf;
+}
+
+/* A custom feature module's (`*.feature.js`) violet, worn by its puzzle
+   piece in the + picker beside a part's primary blue, an assembly's teal and
+   a params file's accent green (the expression suggestions' G chip). A hue
+   nothing else in the UI claims; deepened per theme above. */
+@theme {
+  --color-feature: #a78bfa;
 }
 
 /* The Hub panel's type scale (the user, 2026-10-12: "increase the font
@@ -206,6 +216,24 @@ html {
   background: light-dark(oklch(0.95 0 0 / 0.85), oklch(0.2 0 0 / 0.85));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+/* A docked panel column over the scene (CLICK_THROUGH in ui/rail-styles.ts)
+   and the boxes it lays its cards out in. The column runs the full height of
+   the viewport so its sections have room to split, but most of that is scene:
+   with every section collapsed it is a stack of headers and a long empty run
+   below them. So the boxes themselves never catch the pointer and only what
+   they hold does: headers, bodies, and the menus and popovers the panels hang
+   off the column. In the components layer so a child that sets its own
+   pointer-events utility still has the last word. */
+@layer components {
+  .fluidcad-click-through {
+    pointer-events: none;
+  }
+
+  .fluidcad-click-through > :not(.fluidcad-click-through) {
+    pointer-events: auto;
+  }
 }
 
 /* The Three.js viewport fills this container, which is inset below the top
@@ -337,6 +365,19 @@ html.fluidcad-editor-animating {
   }
 }
 
+/* The Publish dialog's success message settling in (PublishDialog.success);
+   motion-reduce:animate-none turns it off. */
+@keyframes publish-success-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* One-shot attention flash when a 3D pick highlights its creating feature's
    timeline row (TimelinePanel.setPickedFeature) — settles into the row's
    steady bg-base-content/10. */
@@ -346,5 +387,18 @@ html.fluidcad-editor-animating {
   }
   to {
     background-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  }
+}
+
+/* Quick Find (QuickFindPopover) settling in where the pointer is: a fade and
+   a touch of scale, transform only; motion-reduce:animate-none turns it off. */
+@keyframes quick-find-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }

@@ -1,5 +1,5 @@
-/* Quiet. One sentence of provenance and the four links a reader might still
-   want, then the site footer takes over. */
+/* Quiet. The four links a reader might still want, then the site footer
+   takes over. */
 
 .close {
   padding-block: clamp(3rem, 2rem + 4vw, 5rem);
@@ -14,32 +14,11 @@
   padding-inline: var(--fc-gutter);
 }
 
-.line {
-  margin: 0;
-  max-width: 60ch;
-  font-size: var(--fc-step-0);
-  line-height: 1.65;
-  color: var(--fc-ink-muted);
-  text-wrap: pretty;
-}
-
-.line a {
-  color: var(--fc-ink);
-  text-decoration: underline;
-  text-underline-offset: 0.18em;
-  text-decoration-color: var(--fc-line-strong);
-}
-
-.line a:hover {
-  text-decoration-color: var(--fc-live);
-}
-
 .links {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.6rem 1.5rem;
-  margin-top: 1.75rem;
 }
 
 .repo {

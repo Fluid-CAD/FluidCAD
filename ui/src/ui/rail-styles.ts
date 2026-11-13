@@ -1,4 +1,13 @@
 /**
+ * Marks a box of a docked panel column that is layout and nothing else: the
+ * column itself and any wrapper it stacks its sections in. styles.css turns
+ * the pointer off on it and back on for each child that is not another such
+ * box, so the scene behind the empty part of the column stays clickable while
+ * headers, rows, menus and popovers keep it.
+ */
+export const CLICK_THROUGH = 'fluidcad-click-through';
+
+/**
  * The class string both left rails wear — the part scene's feature tree
  * (TimelinePanel) and the assembly scene's parts/joints column (PartsPanel).
  * They occupy the same slot and are swapped as the scene kind changes, so
@@ -17,12 +26,15 @@
  *   overlays. The scene still fills the frame — only the floating panels
  *   step aside — so a page can set copy over the top of the viewport, or
  *   controls along its bottom, without the rail running underneath.
+ *
+ * It runs to the bottom of the viewport whatever its sections hold, so it is
+ * {@link CLICK_THROUGH}: only the cards in it take the pointer.
  */
 export const RAIL_PANEL_CLASS =
   'absolute left-[calc(var(--fluidcad-panel-left,0px)+var(--fluidcad-panel-gap))] ' +
   'top-[calc(var(--fluidcad-chrome-top,104px)+var(--fluidcad-panel-inset-top,0px)+var(--fluidcad-panel-gap))] ' +
   'bottom-[calc(var(--fluidcad-panel-inset-bottom,0px)+1.5rem)] ' +
-  'w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+  `w-[220px] z-[99] flex flex-col gap-1 select-none hidden ${CLICK_THROUGH}`;
 
 /** How wide the project Parameters column is, in px — published through {@link GLOBAL_PANEL_WIDTH_VARIABLE} while open. */
 export const GLOBAL_PANEL_WIDTH = 260;

@@ -43,6 +43,12 @@ translate([x, y, z], true, target) // copy a specific solid
 
 The trailing targets are optional; without them `translate()` moves the object built last. The boolean before the targets switches from moving to copying. Distances are in the file's [unit](/docs/extra/units).
 
+## Moving a feature that fused
+
+A feature that adds material — an extrude, a revolve, the instances of a [repeat](/docs/patterns/repeat) — merges into any solid it overlaps or shares a face with, and from then on it names the merged body: `translate(5, 0, 0, boss)` moves the plate the boss grew on as well. A solid the new feature only touches, along a line or at a corner, is not merged and stays a body of its own, so moving the feature leaves it where it is.
+
+To move a feature alone, keep it a separate body with `.new()` before the move, or place it where it belongs before it fuses — a staggered second row of posts is a `repeat()` along an axis tilted toward the stagger (`axis("y", { rotateZ: … })`), not a straight row slid afterwards.
+
 ## Positioning parts
 
 Translating a part inside its own file is rarely what you want: a part is authored around its own origin and placed when it is [inserted into an assembly](/docs/assembly/introduction). Use `translate()` for placing bodies relative to each other within one part — a second body kept separate with `.new()`, an imported STEP file (`load()`), a primitive.

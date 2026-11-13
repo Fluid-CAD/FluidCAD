@@ -9,13 +9,19 @@ FluidCAD writes STEP, STL and PNG files. Export from the top bar, from a shape's
 
 ## From the top bar
 
-1. Click **Export** (the download icon at the right end of the top bar). The menu lists every solid in the scene with a thumbnail. In an assembly it leads with **Whole assembly**.
+1. Click **Export** (the download icon at the right end of the top bar). The menu lists every solid in the scene with a thumbnail. In an assembly it leads with **Whole assembly**, and a part that holds more than one solid gets a **Whole part** entry above the solids.
 
    ![Export menu in a part](/img/docs/ui/export-menu.png)
 
 2. Choose a solid. The export dialog opens: pick **STEP**, **STL** or **PNG**, keep or drop colors, set the STL resolution or the PNG view, and click **Export**. The file downloads through the browser.
 
 The exported file includes geometry and color information and opens in any standard CAD tool (Fusion 360, SolidWorks, FreeCAD, etc.).
+
+## Parts with several solids
+
+A part can build more than one solid, such as a box and its lid modelled in place. The Export menu then leads with **Whole part**, above the solids. Choosing it writes all of the part's solids into one file, placed as the part has them: **STEP** keeps them as separate solids, **STL** merges them into one mesh. Choosing a solid below still writes that solid alone.
+
+When a file holds several parts, each part with more than one solid gets its own entry, named after it: **Whole part (Lid)**. In an assembly these entries follow **Whole assembly**.
 
 ## From the Shapes panel
 
@@ -39,6 +45,7 @@ An assembly with [configurations](/docs/assembly/configurations) adds a **Config
 A part with [configurations](/docs/part/configurations) gets the same **Configuration** select in its export dialog, set to the row on screen, with **All configurations (.zip)** after the rows. The files are named after the part's file: `bracket.step`, `bracket-M8.step`, `bracket-configurations.zip`.
 
 - **File ▸ Export…** in the desktop app exports every solid the chosen configuration builds, so a row that adds or leaves out a body exports exactly its own bodies.
+- **Whole part** does the same when the part's solids are all the file builds. When other parts of the file build solids too, it exports the part's solids on screen, each found in the chosen configuration like a picked solid.
 - A solid picked from the top bar's Export menu or the Shapes panel is found in the chosen configuration by its history. If that configuration does not build it, the export is refused with a message naming the solid, rather than exporting a different body.
 - **All configurations** is all or nothing: if any row fails, no zip is delivered.
 

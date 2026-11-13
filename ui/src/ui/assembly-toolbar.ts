@@ -1,5 +1,6 @@
 import { Navbar } from './navbar';
 import { ICON_IMG_FALLBACK } from './object-icons';
+import { isShownOnBar, toolIndex, toolSlug } from './quick-find/tool-index';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './toolbar-styles';
 import type { AssemblyMateType, AssemblyRelationType } from '../api';
 import { iconUrl } from './icon-url';
@@ -114,6 +115,15 @@ export class AssemblyToolbar {
     wrap.dataset.tip = `${opts.tip}${tipSuffix}`;
     wrap.appendChild(button);
     group.appendChild(wrap);
+    toolIndex.register({
+      id: `assembly:${toolSlug(opts.label)}`,
+      label: opts.label,
+      tip: opts.tip,
+      bench: 'Assembly',
+      iconSrc: iconUrl(opts.icon),
+      isAvailable: () => isShownOnBar(wrap),
+      run: onClick,
+    });
   }
 
   /** A not-yet-implemented tool: real-looking button that only warns on click. */

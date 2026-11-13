@@ -37,8 +37,8 @@ export default function Hero() {
           </span>
         </Heading>
         <p className={styles.sub}>
-          Sketch and shape parts with familiar CAD tools. Every feature becomes editable
-          JavaScript, so you can fine-tune dimensions, reuse designs, and make the model your own.
+          Every sketch, extrude and fillet you make with the mouse is written as a line of
+          JavaScript. Change the code and the part rebuilds; change the part and the code follows.
         </p>
         <div className={styles.actions}>
           <Link className={styles.primary} to="/docs/getting-started">

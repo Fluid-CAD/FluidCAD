@@ -35,6 +35,9 @@ type CreateTarget = { kind: 'file' | 'folder'; path: string; type?: CreateType }
 
 type CreateType = 'part' | 'assembly' | 'params' | 'feature';
 
+/** A row of the list: an existing file to open, or a name to create. */
+type Row = { kind: 'open'; file: WorkspaceFileEntry } | { kind: 'create'; target: CreateTarget };
+
 /** The file each offer for a bare name creates, in the order they are listed. */
 const CREATE_TYPES: ReadonlyArray<{ type: CreateType; suffix: string; label: string }> = [
   { type: 'part', suffix: '.part.js', label: 'part' },
@@ -86,7 +89,7 @@ export class QuickOpen {
   private folders: string[] = [];
   private query = '';
   private highlighted = 0;
-  private results: WorkspaceFileEntry[] = [];
+  private rows: Row[] = [];
 
   constructor(private readonly handlers: QuickOpenHandlers) {}
 
@@ -178,7 +181,7 @@ export class QuickOpen {
     }
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
-      const total = this.results.length + this.createTargets().length;
+      const total = this.rows.length;
       if (total > 0) {
         const step = event.key === 'ArrowDown' ? 1 : -1;
         this.highlighted = (this.highlighted + step + total) % total;
@@ -218,17 +221,30 @@ export class QuickOpen {
     return targets.filter((target) => !this.files.some((file) => file.path === target.path));
   }
 
+  /**
+   * Whether the Create rows lead the list. A bare name that is already a
+   * part or an assembly is most likely typed to open it, so the matching
+   * files stay on top; one that is neither names something new — the
+   * near-misses that fuzzy-match it (`desk-box` for `desk`) shouldn't sit
+   * between the user and Enter creating it.
+   */
+  private createFirst(): boolean {
+    const name = this.query.trim();
+    return !this.files.some((file) =>
+      file.path === `${name}.part.js` || file.path === `${name}.assembly.js`);
+  }
+
   private activate(index: number, list: HTMLElement): void {
-    const entry = this.results[index];
-    if (entry) {
+    const row = this.rows[index];
+    if (!row) {
+      return;
+    }
+    if (row.kind === 'open') {
       this.close();
-      this.handlers.onOpen(entry);
+      this.handlers.onOpen(row.file);
       return;
     }
-    const target = this.createTargets()[index - this.results.length];
-    if (!target) {
-      return;
-    }
+    const target = row.target;
     if (target.kind === 'file') {
       this.close();
       this.handlers.onCreate(target.path);
@@ -267,11 +283,12 @@ export class QuickOpen {
     // A dot means the user is spelling out a file name, not filtering: offer
     // only Create — except a name an existing file already answers to, which
     // shows that file so a fully typed name still opens it.
+    let results: WorkspaceFileEntry[];
     if (this.query.includes('.')) {
       const name = this.query.trim();
-      this.results = this.files.filter((file) => file.path === name);
+      results = this.files.filter((file) => file.path === name);
     } else {
-      this.results = this.files
+      results = this.files
         .map((file) => ({ file, score: fuzzyScore(file.path, this.query) }))
         .filter((row): row is { file: WorkspaceFileEntry; score: number } => row.score !== null)
         // Models before helpers, then by match quality: opening a part is the
@@ -284,26 +301,26 @@ export class QuickOpen {
         .map((row) => row.file);
     }
 
+    const opens: Row[] = results.map((file) => ({ kind: 'open', file }));
+    const creates: Row[] = this.createTargets().map((target) => ({ kind: 'create', target }));
+    this.rows = this.createFirst() ? [...creates, ...opens] : [...opens, ...creates];
+
     list.replaceChildren();
 
-    for (const [index, file] of this.results.entries()) {
-      const basename = file.path.split('/').pop() || file.path;
+    for (const [index, row] of this.rows.entries()) {
+      const highlighted = index === this.highlighted;
+      const onPick = (): void => this.activate(index, list);
+      if (row.kind === 'create') {
+        list.appendChild(this.buildRow({ ...QuickOpen.describeCreate(row.target), highlighted, onPick }));
+        continue;
+      }
+      const basename = row.file.path.split('/').pop() || row.file.path;
       list.appendChild(this.buildRow({
-        icon: QuickOpen.buildIcon(QuickOpen.fileIcon(file.kind, basename), basename),
+        icon: QuickOpen.buildIcon(QuickOpen.fileIcon(row.file.kind, basename), basename),
         label: basename,
-        detail: file.path,
-        highlighted: index === this.highlighted,
-        onPick: () => this.activate(index, list),
-      }));
-    }
-
-    const createTargets = this.createTargets();
-    for (const [offset, target] of createTargets.entries()) {
-      const index = this.results.length + offset;
-      list.appendChild(this.buildRow({
-        ...QuickOpen.describeCreate(target),
-        highlighted: this.highlighted === index,
-        onPick: () => this.activate(index, list),
+        detail: row.file.path,
+        highlighted,
+        onPick,
       }));
     }
 
@@ -311,7 +328,7 @@ export class QuickOpen {
     // row the popover has scrolled out of sight; keep it on screen.
     (list.children[this.highlighted] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
 
-    if (this.results.length === 0 && createTargets.length === 0) {
+    if (this.rows.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'px-3 py-2 text-xs text-base-content/40';
       const name = this.query.trim();

@@ -135,7 +135,7 @@ describe('ToolIndex', () => {
 });
 
 describe('QuickFindPins', () => {
-  it('starts from the defaults, shows the six that are on the bar, and refuses a seventh', () => {
+  it('starts from the defaults, shows the six that are on the bar, and a seventh takes the sixth one\'s slot', () => {
     const index = new ToolIndex();
     partBench(index);
     const pins = new QuickFindPins(index);
@@ -143,16 +143,27 @@ describe('QuickFindPins', () => {
     pins.onChange = saved;
     expect(pins.shown().map(t => t.id)).toEqual(['part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:shell']);
     expect(pins.full).toBe(true);
-    expect(pins.pin('part:chamfer')).toBe(false);
-    expect(saved).not.toHaveBeenCalled();
-
-    pins.unpin('part:shell');
-    expect(saved).toHaveBeenLastCalledWith(expect.not.arrayContaining(['part:shell']));
-    expect(pins.full).toBe(false);
-    expect(pins.pin('part:chamfer')).toBe(true);
+    expect(pins.evictee?.id).toBe('part:shell');
+    expect(pins.pin('part:chamfer')).toBe('part:shell');
+    expect(pins.isPinned('part:shell')).toBe(false);
     expect(pins.shown().map(t => t.id)).toEqual(['part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:chamfer']);
+    // In Shell's slot of the stored list: the other benches' pins keep theirs.
+    expect(saved).toHaveBeenLastCalledWith([
+      'part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:chamfer',
+      ...QuickFindPins.DEFAULTS.slice(6),
+    ]);
+    // Pinning a pinned tool changes nothing.
+    expect(pins.pin('part:chamfer')).toBeNull();
+    expect(saved).toHaveBeenCalledTimes(1);
+
+    pins.unpin('part:chamfer');
+    expect(saved).toHaveBeenLastCalledWith(expect.not.arrayContaining(['part:chamfer']));
+    expect(pins.full).toBe(false);
+    expect(pins.evictee).toBeNull();
+    expect(pins.pin('part:repeat')).toBeNull();
+    expect(pins.shown().map(t => t.id)).toEqual(['part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:repeat']);
     // The stored list keeps the other benches' defaults: a sketch pin still shows in a sketch.
-    expect(saved).toHaveBeenLastCalledWith(expect.arrayContaining(['sketch:line', 'part:chamfer']));
+    expect(saved).toHaveBeenLastCalledWith(expect.arrayContaining(['sketch:line', 'part:repeat']));
   });
 
   it('pins put back exactly to the defaults store as null; loaded pins replace the defaults without a save', () => {
@@ -271,14 +282,26 @@ describe('QuickFindPopover', () => {
     expect(popover.isOpen).toBe(false);
   });
 
-  it('the pin on a row pins the tool (saving the list) and is refused while six already show here', () => {
+  it('the pin on a row pins the tool (saving the list), in place of the last pin while six already show here', () => {
     const { popover, pins, saved, type, el, tiles } = mount();
     popover.openAt({ x: 100, y: 100 });
-    type('cham');
-    const pin = () => el()!.querySelector<HTMLButtonElement>('[data-tool="part:chamfer"] [data-ref="pin"]')!;
-    expect(pin().disabled).toBe(true);
-    expect(pin().title).toContain('Unpin one');
+    type('rep');
+    const repeatPin = () => el()!.querySelector<HTMLButtonElement>('[data-tool="part:repeat"] [data-ref="pin"]')!;
+    expect(repeatPin().disabled).toBe(false);
+    expect(repeatPin().title).toBe('Pin in place of Shell');
+    repeatPin().click();
+    expect(pins.isPinned('part:repeat')).toBe(true);
+    expect(pins.isPinned('part:shell')).toBe(false);
+    expect(repeatPin().dataset.pinned).toBe('true');
+    expect(el()!.querySelector('[role="status"]')!.textContent).toBe('Repeat pinned in place of Shell');
+    expect(saved).toHaveBeenCalledTimes(1);
+    expect(popover.isOpen).toBe(true);
+    type('');
+    expect(tiles()).toEqual(['part:sketch', 'part:extrude', 'part:revolve', 'part:hole', 'part:fillet', 'part:repeat']);
+    pins.set(null);
+    saved.mockClear();
 
+    const pin = () => el()!.querySelector<HTMLButtonElement>('[data-tool="part:chamfer"] [data-ref="pin"]')!;
     type('shell');
     const unpin = el()!.querySelector<HTMLButtonElement>('[data-tool="part:shell"] [data-ref="pin"]')!;
     expect(unpin.dataset.pinned).toBe('true');
@@ -288,7 +311,7 @@ describe('QuickFindPopover', () => {
     expect(popover.isOpen).toBe(true);
 
     type('cham');
-    expect(pin().disabled).toBe(false);
+    expect(pin().title).toBe('Pin to Quick Find');
     pin().click();
     expect(pins.isPinned('part:chamfer')).toBe(true);
     expect(pin().dataset.pinned).toBe('true');

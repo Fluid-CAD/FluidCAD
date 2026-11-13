@@ -29,6 +29,7 @@ import { PanelRail } from './ui/panel-rail';
 import { DEFAULT_PARAMS_FILE, GlobalParamsPanel } from './ui/global-params-panel';
 import { listWorkspaceFiles } from './editor/editor-api';
 import { Navbar } from './ui/navbar';
+import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
 import { EditParamsDialog } from './ui/edit-params-dialog';
@@ -2649,15 +2650,24 @@ const quickFind = new QuickFindPopover({
 });
 globalShortcuts.register('s', () => quickFind.toggleAtPointer(), { when: () => !sketchService.chordsActive });
 sketchService.registerShortcut('s', () => quickFind.toggleAtPointer());
-// The mouse's way in: a top-bar action beside Import and Export, in view in
-// both benches and at every width (the toolbar scrolls, the top bar doesn't).
-const quickFindButton = topBar.addAction({
-  icon: ICON_SEARCH,
-  title: 'Find a tool (S)',
-  label: 'Find a tool',
-  onClick: () => quickFind.toggleBelow(quickFindButton),
-});
-quickFindButton.dataset.tool = 'quick-find';
+// The mouse's way in: a toolbar group of its own, just before the Part
+// button (`Undo Redo | Find | Part | Sketch …`). `mode: 'all'` keeps it in
+// both benches and `immune` keeps it reachable while the sketch toolbar owns
+// the bar — the <kbd>s</kbd> it mirrors answers in every one of those.
+const quickFindGroup = navbar.addGroup('find', { immune: true, mode: 'all', before: 'part' });
+const quickFindButton = document.createElement('button');
+quickFindButton.className = TOOLBAR_BTN_BASE;
+quickFindButton.setAttribute('aria-label', 'Find a tool');
+quickFindButton.innerHTML =
+  `<span class="w-7 h-7 shrink-0 flex items-center justify-center [&>svg]:w-6 [&>svg]:h-6">${ICON_SEARCH}</span>`
+  + `<span class="${TOOLBAR_BTN_LABEL}">Find</span>`;
+quickFindButton.addEventListener('click', () => quickFind.toggleBelow(quickFindButton));
+const quickFindWrap = document.createElement('span');
+quickFindWrap.className = 'tooltip tooltip-bottom shrink-0';
+quickFindWrap.dataset.tip = 'Find a tool (S)';
+quickFindWrap.dataset.tool = 'quick-find';
+quickFindWrap.appendChild(quickFindButton);
+quickFindGroup.appendChild(quickFindWrap);
 
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their

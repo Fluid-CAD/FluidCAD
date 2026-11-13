@@ -656,31 +656,38 @@ export class QuickFindPopover {
     return span;
   }
 
-  /** The pin toggle: unpin a pinned tool, pin another while there is room. */
+  /**
+   * The pin toggle: unpin a pinned tool, pin another — with six already
+   * shown here, in place of the last one, which the tooltip names.
+   */
   private pinButton(tool: QuickFindTool): HTMLButtonElement {
     const pinned = this.deps.pins.isPinned(tool.id);
-    const full = !pinned && this.deps.pins.full;
+    const evictee = pinned ? null : this.deps.pins.evictee;
     const button = document.createElement('button');
     button.type = 'button';
     button.dataset.ref = 'pin';
     button.dataset.pinned = String(pinned);
     button.tabIndex = -1;
     button.innerHTML = pinned ? ICON_PINNED_OFF : ICON_PIN;
-    button.disabled = full;
     button.title = pinned
       ? 'Unpin'
-      : full
-        ? `${QuickFindPins.LIMIT} tools are pinned here. Unpin one to make room.`
+      : evictee
+        ? `Pin in place of ${evictee.label}`
         : 'Pin to Quick Find';
     button.setAttribute('aria-label', pinned ? `Unpin ${tool.label}` : `Pin ${tool.label}`);
     button.addEventListener('click', (e) => {
       e.stopPropagation();
+      let replaced: string | null = null;
       if (pinned) {
         this.deps.pins.unpin(tool.id);
       } else {
-        this.deps.pins.pin(tool.id);
+        replaced = this.deps.pins.pin(tool.id);
       }
       this.render();
+      if (replaced) {
+        const label = this.deps.index.get(replaced)?.label ?? replaced;
+        this.status.textContent = `${tool.label} pinned in place of ${label}`;
+      }
     });
     return button;
   }

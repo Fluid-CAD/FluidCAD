@@ -11,7 +11,8 @@ import type { QuickFindTool, ToolIndex } from './tool-index';
  * Pins are one list across the benches: a pinned tool shows whenever its
  * bench does (the part tools in a part, the sketch tools in a sketch), and
  * the popover shows at most {@link LIMIT} at a time — a seventh pin in a
- * context that already shows six is refused, the pin control saying so.
+ * context that already shows six takes the sixth one's slot, and that tool
+ * is unpinned (the pin control says which beforehand).
  */
 export class QuickFindPins {
   /** Most pins shown at once. */
@@ -65,17 +66,29 @@ export class QuickFindPins {
     return this.shown().length >= QuickFindPins.LIMIT;
   }
 
-  /** Pin `id`; false when the context already shows {@link LIMIT} pins. */
-  pin(id: string): boolean {
+  /** The pin a new one would take the slot of: the last shown, while the context is {@link full}; else null. */
+  get evictee(): QuickFindTool | null {
+    const shown = this.shown();
+    return shown.length >= QuickFindPins.LIMIT ? shown[shown.length - 1] : null;
+  }
+
+  /**
+   * Pin `id`. While the context already shows {@link LIMIT} pins it takes
+   * the last one's slot in the stored list (so the other benches' pins keep
+   * theirs) and that tool is unpinned. Returns the id it replaced, else null.
+   */
+  pin(id: string): string | null {
     if (this.isPinned(id)) {
-      return true;
+      return null;
     }
-    if (this.full) {
-      return false;
+    const evictee = this.evictee;
+    if (evictee) {
+      this.pins = this.list.map(pinned => (pinned === evictee.id ? id : pinned));
+    } else {
+      this.pins = [...this.list, id];
     }
-    this.pins = [...this.list, id];
     this.changed();
-    return true;
+    return evictee?.id ?? null;
   }
 
   /**

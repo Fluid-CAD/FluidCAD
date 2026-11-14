@@ -1,4 +1,4 @@
-// Solved-sketch editing endpoints: constraints, split, trim, fillet, delete, distance tangency and solved insertion.
+// Solved-sketch editing endpoints: constraints, split, trim, fillet, delete, distance tangency, dimension label placement and solved insertion.
 
 import type { Router } from 'express';
 import type { ApplyFeatureEditSpec } from '../../../apply-feature-edit/index.ts';
@@ -6,6 +6,7 @@ import { isExpressionText } from '../../../code-editor/index.ts';
 import {
   applySolvedEmission,
   constraintTargetCountValid,
+  DimensionLabel,
   sanitizeEmissionTarget,
   type SolvedConstraintEmission,
   type SolvedEmissionTarget,
@@ -406,6 +407,39 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
       parts: [],
       imports: [],
       distanceTangency: { line, tangency },
+    };
+    await dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // Dimension label placement: a dimension dragged in the sketcher writes
+  // (or moves) the statement's chained `.labelAt(u, v)`; a null position
+  // strips it — the timeline's "Reset label position". `kind` is the
+  // dimension command the UI saw on that line, the transform's drift guard.
+  router.post('/sketch/set-dimension-label', async (req, res) => {
+    const { filePath, line, kind, position } = req.body ?? {};
+    if (!Number.isInteger(line) || line < 1
+      || (kind !== undefined && (typeof kind !== 'string' || !DimensionLabel.CALLEES.has(kind)))
+      || (position !== null && !DimensionLabel.isPosition(position))
+      || (filePath !== undefined && typeof filePath !== 'string')) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
+    if (!targetFile) {
+      res.status(422).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: targetFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      dimensionLabel: {
+        line,
+        ...(kind !== undefined ? { kind } : {}),
+        position,
+      },
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });

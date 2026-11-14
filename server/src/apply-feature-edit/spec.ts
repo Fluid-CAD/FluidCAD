@@ -6,7 +6,7 @@ import type { SketchSplitSpec } from '../sketch-split.ts';
 import type { SketchTrimSpec } from '../sketch-trim.ts';
 import type { SketchFilletSpec } from '../sketch-fillet.ts';
 import type { SketchDeleteSpec } from '../sketch-entity-delete.ts';
-import type { DistanceTangencySpec, SolvedEmissionSpec } from '../sketch-solved-edit/index.ts';
+import type { DimensionLabelSpec, DistanceTangencySpec, SolvedEmissionSpec } from '../sketch-solved-edit/index.ts';
 import type { ParamEditSpec } from '../param-edit.ts';
 import type { PropertyEditSpec } from '../property-edit.ts';
 import type { UsageEditSpec } from '../declaration-usages.ts';
@@ -230,6 +230,13 @@ export type ApplyFeatureEditSpec = {
    * `sketchConstraint`; every other spec field is ignored.
    */
   distanceTangency?: DistanceTangencySpec;
+  /**
+   * Dimension label placement (dragging a dimension in the sketcher, or the
+   * timeline's "Reset label position"): write, move or strip the statement's
+   * chained `.labelAt(u, v)`. Rides the same round trip as
+   * `sketchConstraint`; every other spec field is ignored.
+   */
+  dimensionLabel?: DimensionLabelSpec;
   /**
    * Sketch Split tool (2D): rewrite an entity statement as the first piece
    * the kernel cut, bind the second piece right after it, re-home the

@@ -1271,6 +1271,26 @@ export class SketchHoverSelectHandler {
     return this.findBadgeAt(clientX, clientY) !== null;
   }
 
+  /** The badge or dimension label under the cursor — the same pick the
+   * hover, the click and the double-click make, for the label drag to
+   * grab. */
+  glyphAt(clientX: number, clientY: number): BadgeHitTarget | null {
+    return this.findBadgeAt(clientX, clientY);
+  }
+
+  /**
+   * The active sketch's annotations were rebuilt outside a render (a live
+   * label drag, a preview put back): its mesh now carries NEW pick targets,
+   * and the ones held here point at disposed materials and placements the
+   * layout no longer drives. Re-read them, dropping the hover on a target
+   * that no longer exists; pinned statements take their tint back.
+   */
+  refreshBadgeTargets(): void {
+    this.clearBadgeHover();
+    this.badgeTargets = this.collectBadgeTargets(this.sketchId);
+    this.applyPinnedTint();
+  }
+
   private handleDoubleClick(e: MouseEvent): void {
     if (this.isExternalResizing()) {
       return;

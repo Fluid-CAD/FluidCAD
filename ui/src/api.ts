@@ -2412,6 +2412,35 @@ export async function setDistanceTangency(options: {
   }
 }
 
+/**
+ * Place a dimension's label (dragging it in the sketcher): writes or moves
+ * the statement's chained `.labelAt(u, v)`, the position being in the
+ * dimension's own frame. A null position strips the chain and hands the
+ * label back to the automatic layout. `kind` is the dimension command the
+ * UI saw on that line — the server refuses when the source says otherwise.
+ */
+export async function setDimensionLabel(options: {
+  line: number;
+  filePath?: string;
+  kind?: string;
+  position: [number, number] | null;
+}): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('api/sketch/set-dimension-label', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(options),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 /** One target of a solved-emission constraint: an existing statement by
  * 1-indexed line, a geometry entry of the same emission by index, or an
  * implicit sketch datum (rendered as origin()/xAxis()/yAxis()). */

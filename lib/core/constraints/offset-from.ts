@@ -1,5 +1,6 @@
 import { SceneParserContext, registerBuilder } from "../../index.js";
-import { ISceneObject } from "../interfaces.js";
+import { IDimension } from "../interfaces.js";
+import { SolvedDimension } from "../../features/2d/constraints/solved/dimension.js";
 import { type NumberParam, resolveParam } from "../param.js";
 import { SketchDatum } from "../../features/2d/solved/datum.js";
 import { ConstraintTarget, emitConstraint, requireValue, toRef } from "./common.js";
@@ -28,7 +29,7 @@ function build(context: SceneParserContext) {
     offsets: ConstraintTarget | ConstraintTarget[],
     sources: ConstraintTarget | ConstraintTarget[],
     distance: NumberParam,
-  ): ISceneObject {
+  ): IDimension {
     const targetList = Array.isArray(offsets) ? offsets : [offsets];
     const sourceList = Array.isArray(sources) ? sources : [sources];
     const resolved = resolveParam(distance);
@@ -51,7 +52,7 @@ function build(context: SceneParserContext) {
         sources: sourceList.map((s, i) => entityRefOf(s, `source ${i + 1}`)),
         value,
       };
-    }, [...targetList, ...sourceList]);
+    }, [...targetList, ...sourceList], new SolvedDimension('offsetFrom', resolved)) as IDimension;
   };
 }
 

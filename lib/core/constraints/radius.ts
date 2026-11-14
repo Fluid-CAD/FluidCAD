@@ -1,5 +1,6 @@
 import { SceneParserContext, registerBuilder } from "../../index.js";
-import { ISceneObject } from "../interfaces.js";
+import { IDimension } from "../interfaces.js";
+import { SolvedDimension } from "../../features/2d/constraints/solved/dimension.js";
 import { type NumberParam, resolveParam } from "../param.js";
 import { ConstraintTarget, emitConstraint, requireValue, toRef } from "./common.js";
 import type { ConstraintSpec } from "../../sketch-solver/index.js";
@@ -13,7 +14,7 @@ import type { ConstraintSpec } from "../../sketch-solver/index.js";
  * @param axis - Ellipses only: which semi-radius, `'x'` (RX) or `'y'` (RY)
  */
 function build(context: SceneParserContext) {
-  return function radius(c: ConstraintTarget, value: NumberParam, axis?: 'x' | 'y'): ISceneObject {
+  return function radius(c: ConstraintTarget, value: NumberParam, axis?: 'x' | 'y'): IDimension {
     const resolved = resolveParam(value);
     return emitConstraint(context, 'radius', resolved, (): ConstraintSpec => {
       if (axis !== undefined && axis !== 'x' && axis !== 'y') {
@@ -25,7 +26,7 @@ function build(context: SceneParserContext) {
         value: requireValue(resolved, 'radius'),
         ...(axis !== undefined ? { axis } : {}),
       };
-    }, [c]);
+    }, [c], new SolvedDimension('radius', resolved)) as IDimension;
   };
 }
 

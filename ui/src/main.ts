@@ -1197,9 +1197,9 @@ packagesState.subscribe(() => {
   void editorSurface?.refreshPackageTypes();
 });
 packagesState.subscribe(() => {
-  const missing = packagesState.missing.length > 0;
-  packagesMissingDot.classList.toggle('hidden', !missing);
-  packagesButton.title = missing ? 'Packages in this project — one is not installed' : 'Packages in this project';
+  const missing = packagesState.missing.length;
+  packagesMissingDot.classList.toggle('hidden', missing === 0);
+  packagesButton.title = missing > 0 ? `Packages in this project: ${missing} not installed` : 'Packages in this project';
 });
 
 // The Hub panel (H11): searching, reading and installing packages, from the

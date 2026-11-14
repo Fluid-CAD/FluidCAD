@@ -1,5 +1,5 @@
 import type { HubPinMarks, PackagesOverview, PinnedPackage } from '../../api';
-import { ICON_ALERT_TRIANGLE, ICON_CLOSE } from '../icons';
+import { ICON_CLOSE } from '../icons';
 import { HubIcons } from '../hub/hub-icons';
 import { PackageText, type PackagesState } from './packages-state';
 
@@ -29,10 +29,11 @@ const CHIP = 'badge badge-xs shrink-0 whitespace-nowrap';
  *   library (or finds it there with the same contents), then removes the
  *   copy. A library holding other contents under that version refuses it,
  *   and the copy stays.
- * - A pin installed nowhere leads the dialog as the missing-package
- *   banner, naming the command that downloads it,
- *   `fluidcad install @acme/kit@0.1.0`, with Install from the hub (H11:
- *   the download, then the consent dialog, as the error banner does).
+ * - A pin installed nowhere says so in its own row, in the error tone,
+ *   under it the command that downloads it,
+ *   `fluidcad install @acme/kit@0.1.0`, and as its action Install from
+ *   the hub (H11: the download, then the consent dialog, as the error
+ *   banner does). The top bar's dot is what points here.
  * - "Find packages in the Hub panel" opens the Hub panel (H11).
  * - An **update available** chip names a newer version the library holds;
  *   moving to it is Stage P10's previewed upgrade.
@@ -45,7 +46,6 @@ const CHIP = 'badge badge-xs shrink-0 whitespace-nowrap';
  */
 export class ProjectPackagesDialog {
   private readonly overlay: HTMLDivElement;
-  private readonly banner: HTMLDivElement;
   private readonly list: HTMLDivElement;
   private readonly status: HTMLDivElement;
   private readonly unsubscribe: () => void;
@@ -55,7 +55,7 @@ export class ProjectPackagesDialog {
   constructor(container: HTMLElement, private readonly deps: ProjectPackagesDialogDeps) {
     this.overlay = document.createElement('div');
     // Above the error banner (z-[1001]): its missing-package sentence would
-    // otherwise sit on the dialog's own banner.
+    // otherwise sit on the dialog's rows.
     this.overlay.className = 'fixed inset-0 z-[1100] bg-black/50 flex items-center justify-center hidden';
     this.overlay.setAttribute('role', 'dialog');
     this.overlay.setAttribute('aria-modal', 'true');
@@ -73,7 +73,6 @@ export class ProjectPackagesDialog {
           The project records the exact version of each package it uses. A package loads from your library,
           or from a copy in the project's <span class="font-mono">packages/</span> folder when there is one.
         </p>
-        <div data-ref="banner" class="hidden flex-col gap-2 mb-3 shrink-0"></div>
         <div data-ref="list" class="overflow-y-auto min-h-0 border border-base-content/10 rounded-md"></div>
         <div data-ref="status" class="text-xs min-h-4 mt-2 shrink-0"></div>
         <div data-ref="footer" class="flex items-center justify-end gap-2 pt-2 shrink-0">
@@ -82,7 +81,6 @@ export class ProjectPackagesDialog {
       </div>
     `;
     container.appendChild(this.overlay);
-    this.banner = this.overlay.querySelector<HTMLDivElement>('[data-ref="banner"]')!;
     this.list = this.overlay.querySelector<HTMLDivElement>('[data-ref="list"]')!;
     this.status = this.overlay.querySelector<HTMLDivElement>('[data-ref="status"]')!;
     this.overlay.querySelector('[data-ref="close"]')!.addEventListener('click', () => this.hide());
@@ -142,7 +140,6 @@ export class ProjectPackagesDialog {
   // ---------------------------------------------------------------------------
 
   private render(overview: PackagesOverview | null): void {
-    this.renderBanner(overview);
     this.list.replaceChildren();
     if (!overview) {
       this.list.appendChild(ProjectPackagesDialog.empty('The engine did not answer.'));
@@ -165,43 +162,6 @@ export class ProjectPackagesDialog {
     for (const pin of pins) {
       const version = overview.updates?.[pin.name];
       this.list.appendChild(this.row(pin, version ? { version, from: overview.updatesFrom?.[pin.name] ?? 'library' } : null, overview.hubMarks?.[pin.name] ?? null));
-    }
-  }
-
-  private renderBanner(overview: PackagesOverview | null): void {
-    const missing = (overview?.pins ?? []).filter((pin) => pin.availability === 'missing');
-    this.banner.replaceChildren();
-    this.banner.classList.toggle('hidden', missing.length === 0);
-    this.banner.classList.toggle('flex', missing.length > 0);
-    for (const pin of missing) {
-      const box = document.createElement('div');
-      box.dataset.missing = pin.name;
-      box.className = 'flex items-start gap-2 rounded-md px-3 py-2 text-xs leading-snug border border-error/40 bg-error/10';
-      const icon = document.createElement('span');
-      icon.className = 'text-error shrink-0 [&>svg]:size-4';
-      icon.innerHTML = ICON_ALERT_TRIANGLE;
-      const text = document.createElement('span');
-      text.className = 'flex-1 min-w-0 text-base-content/90';
-      text.append(`This project uses ${PackageText.label(pin.name, pin.version)}, which isn't installed: `);
-      const command = document.createElement('code');
-      command.dataset.ref = 'install-command';
-      command.className = 'font-mono text-[11px] text-base-content select-all';
-      command.textContent = ProjectPackagesDialog.installCommand(pin);
-      text.append(command, ' downloads it from the hub.');
-      box.append(icon, text);
-      if (this.deps.onInstallMissing) {
-        const install = document.createElement('button');
-        install.type = 'button';
-        install.dataset.ref = 'install-missing';
-        install.className = 'btn btn-xs btn-primary shrink-0';
-        install.textContent = 'Install from the hub';
-        install.addEventListener('click', () => {
-          this.hide();
-          this.deps.onInstallMissing?.({ name: pin.name, version: pin.version });
-        });
-        box.appendChild(install);
-      }
-      this.banner.appendChild(box);
     }
   }
 
@@ -240,12 +200,28 @@ export class ProjectPackagesDialog {
     }
     const where = document.createElement('div');
     where.dataset.ref = 'where';
-    where.className = 'text-[11px] text-base-content/50 truncate';
-    where.textContent = ProjectPackagesDialog.whereText(pin);
-    if (pin.directory) {
-      where.title = pin.directory;
+    if (pin.availability === 'missing') {
+      // The row's own alert: the error tone and its icon, then the command
+      // that downloads the pin on a line of its own, so it never truncates.
+      const status = document.createElement('div');
+      status.className = 'flex items-center gap-1 text-[11px] text-error';
+      where.textContent = ProjectPackagesDialog.whereText(pin);
+      status.append(HubIcons.span(HubIcons.WARNING, '[&>svg]:size-3'), where);
+      text.append(title, status);
+      const command = document.createElement('code');
+      command.dataset.ref = 'install-command';
+      command.className = 'block mt-0.5 font-mono text-[11px] leading-snug text-base-content/60 select-all break-all';
+      command.textContent = ProjectPackagesDialog.installCommand(pin);
+      command.title = 'Run this in a terminal to download it from the hub';
+      text.appendChild(command);
+    } else {
+      where.className = 'text-[11px] text-base-content/50 truncate';
+      where.textContent = ProjectPackagesDialog.whereText(pin);
+      if (pin.directory) {
+        where.title = pin.directory;
+      }
+      text.append(title, where);
     }
-    text.append(title, where);
     for (const line of ProjectPackagesDialog.markLines(marks)) {
       text.appendChild(line);
     }
@@ -287,14 +263,23 @@ export class ProjectPackagesDialog {
   }
 
   private actionFor(pin: PinnedPackage): HTMLButtonElement | null {
-    if (pin.availability === 'missing') {
+    if (pin.availability === 'missing' && !this.deps.onInstallMissing) {
       return null;
     }
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'btn btn-ghost btn-xs shrink-0';
     button.disabled = this.busy !== null;
-    if (pin.availability === 'library') {
+    if (pin.availability === 'missing') {
+      // The one fix for a row that can't load: the only filled button in the list.
+      button.dataset.ref = 'install-missing';
+      button.className = 'btn btn-primary btn-xs shrink-0';
+      button.textContent = 'Install from the hub';
+      button.addEventListener('click', () => {
+        this.hide();
+        this.deps.onInstallMissing?.({ name: pin.name, version: pin.version });
+      });
+    } else if (pin.availability === 'library') {
       button.dataset.action = 'copy-into-project';
       button.textContent = 'Copy into project';
       button.title = "Copy the package into this project's packages/ folder, so the project carries it.";

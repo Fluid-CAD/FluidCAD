@@ -5,7 +5,7 @@
 // whichever root is mounted.
 import { describe, expect, it } from 'vitest';
 import { BoxGeometry, Group, Mesh, MeshBasicMaterial, Scene, Vector3 } from 'three';
-import { COMPILED_MESH_NAME, findGeometryRoot, sceneGeometryBounds } from '../src/scene/scene-geometry-bounds';
+import { COMPILED_MESH_NAME, PLACED_ANNOTATION_FLAG, findGeometryRoot, sceneGeometryBounds } from '../src/scene/scene-geometry-bounds';
 
 function cube(size: number, at: [number, number, number], meta = false): Mesh {
   const mesh = new Mesh(new BoxGeometry(size, size, size), new MeshBasicMaterial());
@@ -26,6 +26,26 @@ function partScene(): { scene: Scene; compiled: Group } {
 }
 
 describe('sceneGeometryBounds', () => {
+  it('leaves a hand-placed dimension out of what the view frames', () => {
+    // A dragged dimension can be parked any distance from its geometry; if
+    // it counted, dropping one off to the side would zoom the sketch out on
+    // the very render the drop triggers.
+    const { scene, compiled } = partScene();
+    const placed = new Group();
+    placed.userData[PLACED_ANNOTATION_FLAG] = true;
+    placed.add(cube(2, [40, 0, 0]));
+    compiled.add(placed);
+    // An automatic annotation next to it still counts, as it always did.
+    const automatic = new Group();
+    automatic.userData.isConstraintIcon = true;
+    automatic.add(cube(2, [0, 3, 0]));
+    compiled.add(automatic);
+
+    const box = sceneGeometryBounds(scene, null);
+    expect(box!.min.toArray()).toEqual([-1, -1, -1]);
+    expect(box!.max.toArray()).toEqual([1, 4, 1]);
+  });
+
   it('measures the compiled part mesh when no assembly container is mounted', () => {
     const { scene, compiled } = partScene();
     const container = new Group(); // exists but never added to the scene

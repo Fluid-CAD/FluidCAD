@@ -26,8 +26,15 @@ export type {
 } from './model';
 export {
   layoutConstraintGlyphs, distanceLeaderLayout, distanceSpecEndpoints, distanceSpecExtensions,
-  formatDim, BADGE_LABELS,
+  dimensionFrame, dimensionLabelText, formatDim, BADGE_LABELS,
 } from './glyphs';
+export {
+  labelAttach, labelCenter, labelCoordsForCenter, labelCoordsOf, placedDimension, readingSide,
+} from './dimension-label';
+export type {
+  AngularFrame, ArcStretch, DimensionFrame, LabelCoords, LabelDragOptions, PlacedDimension,
+  RadialFrame, SpanFrame,
+} from './dimension-label';
 export type { ArrowEnds, ConstraintGlyph, DistanceLeaderLayout, GlyphColorRole } from './glyphs';
 export { diameterChord } from './diameter-chord';
 export { angleLabelPlacement } from './angle-label';

@@ -49,6 +49,7 @@ import type {
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { pixelScale, pixelsToWorld } from '../screen-scale';
 import { getIconTexture } from './badge-textures';
+import { placedLabelOffsetPx } from './glyph-box';
 import type { BoxPx, GlyphBox } from './glyph-box';
 
 export type { BoxPx, GlyphBox } from './glyph-box';
@@ -114,6 +115,10 @@ export type DimensionSprite = LayoutSprite & {
   /** The dimension line this label belongs to, for the link stub. */
   leader: [Vec2, Vec2] | null;
   link: Line | null;
+  /** The statement placed this value (`.labelAt()`): the anchor is its
+   * attach point on the dimension, and the sprite sits one clearance off it
+   * along `pushLocal` — the declutterer takes that as given. */
+  placed: boolean;
   /**
    * The rectangle this label is DRAWN as, owned by this pass and SHARED BY
    * REFERENCE with the glyph's hit target (like `placement`). An aligned
@@ -367,9 +372,14 @@ export class SolvedGlyphLayout {
       // declutterer needs the axis-aligned bounds of the result.
       sprite.box.roll = sprite.style === 'aligned' ? rollFor(slide) : 0;
       const rolled = rolledBounds(sprite, sprite.box.roll);
+      const push = unitDir(projection, sprite.pushLocal, { x: 0, y: -1 });
+      // A placed value hangs exactly one clearance off its attach point; the
+      // roll is already set, so the reach is that of the box as drawn.
+      const offsetPx = sprite.placed ? placedLabelOffsetPx(sprite.box, push) : 0;
       return {
         anchor: project(sprite.anchorWorld),
-        push: unitDir(projection, sprite.pushLocal, { x: 0, y: -1 }),
+        push,
+        ...(sprite.placed ? { fixed: { x: push.x * offsetPx, y: push.y * offsetPx } } : {}),
         slide,
         style: sprite.style,
         // Clamp the reach: a label 300 px down its own dimension line reads

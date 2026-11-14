@@ -18,9 +18,18 @@ export function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
   }
 }
 
-/** Every drawn piece under `object` as its own world-space box, meta shapes skipped. */
+/**
+ * `userData` flag of a dimension annotation the user placed by hand (a
+ * dragged dimension — the statement's `.labelAt()`). It can sit any distance
+ * from what it measures, so it never counts toward what the view frames: a
+ * label parked off to the side must not zoom the sketch out on the next
+ * render, least of all the render its own drop triggers.
+ */
+export const PLACED_ANNOTATION_FLAG = 'isPlacedAnnotation';
+
+/** Every drawn piece under `object` as its own world-space box; meta shapes and placed annotations skipped. */
 function collectParts(object: Object3D, into: Box3[]): Box3[] {
-  if (object.userData.isMetaShape) return into;
+  if (object.userData.isMetaShape || object.userData[PLACED_ANNOTATION_FLAG]) return into;
   const o = object as any;
   if ((o.isMesh || o.isLine || o.isPoints) && o.geometry) {
     o.geometry.computeBoundingBox();

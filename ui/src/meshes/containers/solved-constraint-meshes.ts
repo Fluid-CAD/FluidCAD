@@ -32,13 +32,14 @@ import {
 } from 'three';
 import type { PlaneData, SourceLocation, Vec3Data } from '../../types';
 import type {
-  ConstraintGlyph, GlyphColorRole, SolvedSketchModel,
+  ArcStretch, ConstraintGlyph, GlyphColorRole, SolvedSketchModel,
 } from '../../sketch-solver-client';
 import { angleLabelPlacement } from '../../sketch-solver-client';
 import type { Placement } from '../../sketch-solver-client/declutter';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { applyConstantPixelSize, pixelScale, pixelsToWorld } from '../screen-scale';
 import { themeColors } from '../../scene/theme-colors';
+import { PLACED_ANNOTATION_FLAG } from '../../scene/scene-geometry-bounds';
 import { createTextTexture, getIconTexture, getTextTexture, IconTexture } from './badge-textures';
 import { buildDimensionArrows } from './dimension-arrows';
 import {
@@ -66,6 +67,12 @@ const ANGLE_ARC_RADIUS = 5;
 export const ANGLE_ARC_PX_RADIUS = 26;
 const ANGLE_TEXT_PX_SIZE = ANGLE_LABEL_PX_SIZE;
 const ANGLE_ARC_SEGMENTS = 32;
+/** A placed angle's arc is world-scale — it can fill the screen — so it is
+ * tessellated by angle instead of with a fixed count: this many segments per
+ * full turn, never fewer than the floor. */
+const WORLD_ARC_SEGMENTS_PER_TURN = 144;
+const WORLD_ARC_MIN_SEGMENTS = 12;
+const ANGLE_ARC_OPACITY = 0.9;
 
 /** Screen-space pick target for one glyph — what the hover handler tests. */
 export type BadgeHitTarget = {
@@ -223,6 +230,84 @@ export function buildAngleExtensions(
   return group.children.length > 0 ? group : null;
 }
 
+/** Points along a circular stretch, sketch-local → world. */
+function arcWorldPoints(arc: ArcStretch, plane: PlaneData): number[] {
+  const segments = Math.max(
+    WORLD_ARC_MIN_SEGMENTS,
+    Math.ceil((Math.abs(arc.sweep) / (2 * Math.PI)) * WORLD_ARC_SEGMENTS_PER_TURN),
+  );
+  const points: number[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const a = arc.a0 + arc.sweep * (i / segments);
+    const world = localToWorld(
+      [arc.center[0] + Math.cos(a) * arc.radius, arc.center[1] + Math.sin(a) * arc.radius],
+      plane,
+    );
+    points.push(world.x, world.y, world.z);
+  }
+  return points;
+}
+
+/**
+ * Dashed continuations of an arc — a radius leader landing off the drawn
+ * arc, a placed angle's value sitting outside its sector. World-scale and
+ * styled like the straight witness leaders (buildAngleExtensions): the dash
+ * is proportional to each stretch, quantized so it starts and ends on a full
+ * dash. Null when there is nothing to draw.
+ */
+export function buildWitnessArcs(
+  arcs: ArcStretch[],
+  plane: PlaneData,
+  color: Color,
+  opacity = LEADER_OPACITY,
+): Group | null {
+  const group = new Group();
+  group.renderOrder = ICON_RENDER_ORDER - 1;
+  group.userData.isConstraintIcon = true;
+  for (const arc of arcs) {
+    const length = Math.abs(arc.sweep) * arc.radius;
+    if (!(length > 1e-9)) {
+      continue;
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute(arcWorldPoints(arc, plane), 3));
+    const dash = length / (1 + 1.7 * 8);
+    const material = new LineDashedMaterial({
+      color, transparent: true, opacity, depthTest: false, dashSize: dash, gapSize: 0.7 * dash,
+    });
+    const line = new Line(geometry, material);
+    line.computeLineDistances();
+    line.renderOrder = ICON_RENDER_ORDER - 1;
+    group.add(line);
+  }
+  return group.children.length > 0 ? group : null;
+}
+
+/**
+ * The arc of a PLACED angle dimension: drawn at the sketch-unit radius the
+ * statement's `.labelAt()` put it at, so — unlike the screen-constant
+ * default (buildAngleArc) — it zooms with the geometry like a distance
+ * leader does. Its value is a separate placed label riding it.
+ */
+export function buildPlacedAngleArc(
+  arc: ArcStretch,
+  plane: PlaneData,
+  color: Color,
+): Group {
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(arcWorldPoints(arc, plane), 3));
+  const material = new LineBasicMaterial({
+    color, transparent: true, opacity: ANGLE_ARC_OPACITY, depthTest: false,
+  });
+  const line = new Line(geometry, material);
+  line.renderOrder = ICON_RENDER_ORDER;
+  const group = new Group();
+  group.renderOrder = ICON_RENDER_ORDER;
+  group.userData.isConstraintIcon = true;
+  group.add(line);
+  return group;
+}
+
 export type AngleArcVisual = {
   group: Group;
   /** World position of the arc center (the lines' intersection). */
@@ -253,7 +338,7 @@ export function buildAngleArc(
   plane: PlaneData,
   normal: Vec3Data,
   color: Color,
-  opacity = 0.9,
+  opacity = ANGLE_ARC_OPACITY,
   tails: number[] = [],
   /** Arc radius override for LABEL-LESS previews whose caller placed its
    * own readout (the value input) with angleLabelPlacement — so the arc
@@ -278,7 +363,7 @@ export function buildAngleArc(
   let arcPxRadius = arcPx ?? ANGLE_ARC_PX_RADIUS;
   let textAspect = 1;
   let ownedTexture: IconTexture['texture'] | null = null;
-  const cached = opacity >= 0.9;
+  const cached = opacity >= ANGLE_ARC_OPACITY;
   const texture = label !== null
     ? (cached ? getTextTexture(label, '#ffffff') : createTextTexture(label, '#ffffff'))
     : null;
@@ -417,6 +502,15 @@ export function buildSolvedConstraintMeshes(
   const fixedAnnotations: FixedAnnotation[] = [];
   const white = '#ffffff';
 
+  /** Add a glyph's group; a placed dimension's stays out of the view's
+   * framing (it can be parked any distance from what it measures). */
+  const addGroup = (group: Group, placed: boolean): void => {
+    if (placed) {
+      group.userData[PLACED_ANNOTATION_FLAG] = true;
+    }
+    groups.push(group);
+  };
+
   glyphs.forEach((glyph, order) => {
     const color = roleColor(glyph.color);
 
@@ -431,7 +525,7 @@ export function buildSolvedConstraintMeshes(
         const pxSize = isBadge ? BADGE_PX_SIZE : TEXT_PX_SIZE;
         const { group, material } = createGlyphSprite(texture.texture, texture.aspect, color);
         const placement: Placement = { visible: false, dx: 0, dy: 0 };
-        groups.push(group);
+        addGroup(group, glyph.type === 'text' && glyph.placed === true);
 
         const hit: BadgeHitTarget = {
           objId: glyph.objId,
@@ -468,8 +562,10 @@ export function buildSolvedConstraintMeshes(
           });
         } else {
           // An `aligned` label (a diameter chord, a radius) lies centered ON its
-          // line already — a link stub back to it would only add a line.
-          const link = glyph.leader && glyph.style !== 'aligned' ? createLinkLine(color) : null;
+          // line already — a link stub back to it would only add a line. A
+          // placed value hangs one clearance off its own line by construction.
+          const placed = glyph.placed === true;
+          const link = glyph.leader && glyph.style !== 'aligned' && !placed ? createLinkLine(color) : null;
           if (link) {
             groups.push(wrapLink(link));
           }
@@ -481,6 +577,7 @@ export function buildSolvedConstraintMeshes(
             slideRange: glyph.slideRange,
             leader: glyph.leader ?? null,
             link,
+            placed,
             order,
             // A rolled label's screen angle moves with the camera: the hit
             // target hands its own box to the layout so the pick stays on
@@ -528,13 +625,27 @@ export function buildSolvedConstraintMeshes(
       }
 
       case 'leader': {
-        const from = localToWorld(glyph.from, plane);
-        const to = localToWorld(glyph.to, plane);
+        // One polyline: the dimension line, plus — for a value parked beyond
+        // one of its ends — the collinear run out to it, on that end.
+        const run: [number, number][] = [glyph.from, glyph.to];
+        if (glyph.tail) {
+          const [tailFrom, tailTo] = glyph.tail;
+          const atStart = Math.hypot(tailFrom[0] - glyph.from[0], tailFrom[1] - glyph.from[1])
+            < Math.hypot(tailFrom[0] - glyph.to[0], tailFrom[1] - glyph.to[1]);
+          if (atStart) {
+            run.unshift(tailTo);
+          } else {
+            run.push(tailTo);
+          }
+        }
         const geometry = new BufferGeometry();
-        geometry.setAttribute('position', new Float32BufferAttribute([
-          from.x, from.y, from.z,
-          to.x, to.y, to.z,
-        ], 3));
+        geometry.setAttribute('position', new Float32BufferAttribute(
+          run.flatMap((point) => {
+            const world = localToWorld(point, plane);
+            return [world.x, world.y, world.z];
+          }),
+          3,
+        ));
         const material = new LineBasicMaterial({
           color,
           transparent: true,
@@ -556,18 +667,42 @@ export function buildSolvedConstraintMeshes(
             group.add(arrows);
           }
         }
-        groups.push(group);
+        const placedLine = glyph.placed === true;
+        addGroup(group, placedLine);
         // Dashed witness extensions to anchors the leader doesn't reach
         // (axis-locked distances) — same styling as the angle extensions.
         const leaderExt = buildAngleExtensions(glyph.extensions ?? [], plane, color);
         if (leaderExt) {
-          groups.push(leaderExt);
+          addGroup(leaderExt, placedLine);
+        }
+        const witnessArcs = buildWitnessArcs(glyph.witnessArcs ?? [], plane, color);
+        if (witnessArcs) {
+          addGroup(witnessArcs, placedLine);
         }
         // Leaders are context, not pick targets — the paired text glyph is.
         break;
       }
 
       case 'angle-arc': {
+        if (glyph.placed) {
+          // A placed angle: world-scale arc and helper lines only. The value
+          // is its own placed label glyph — it carries the pick target, and
+          // the layout reserves its box like any other parked value.
+          addGroup(buildPlacedAngleArc(
+            { center: glyph.at, radius: glyph.placed.radius, a0: glyph.startAngle, sweep: glyph.sweep },
+            plane, color,
+          ), true);
+          const placedExt = buildAngleExtensions(glyph.extensions, plane, color);
+          if (placedExt) {
+            addGroup(placedExt, true);
+          }
+          const witness = glyph.placed.witness
+            ? buildWitnessArcs([glyph.placed.witness], plane, color) : null;
+          if (witness) {
+            addGroup(witness, true);
+          }
+          break;
+        }
         const visual = buildAngleArc(
           glyph.at, glyph.startAngle, glyph.sweep, glyph.label, plane, normal, color,
           undefined, glyph.tails,

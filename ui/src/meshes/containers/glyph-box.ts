@@ -39,3 +39,34 @@ export function insideGlyphBox(dx: number, dy: number, box: GlyphBox, slackPx = 
   return Math.abs(dx * c - dy * s) <= box.halfWidthPx + slackPx
     && Math.abs(dx * s + dy * c) <= box.halfHeightPx + slackPx;
 }
+
+/**
+ * How far a glyph's box reaches from its center along a screen direction
+ * (unit, px space, y down) — its support in that direction. A box pushed
+ * this far off a line, along the line's normal, exactly touches it.
+ *
+ * Same frame as {@link insideGlyphBox}: the rolled box's long axis reads
+ * (cos, -sin) on screen and its short axis (sin, cos).
+ */
+export function boxReach(box: GlyphBox, dir: { x: number; y: number }): number {
+  const c = Math.cos(box.roll);
+  const s = Math.sin(box.roll);
+  return Math.abs(dir.x * c - dir.y * s) * box.halfWidthPx
+    + Math.abs(dir.x * s + dir.y * c) * box.halfHeightPx;
+}
+
+/** Clear space between a placed dimension value and the line it hangs off. */
+export const PLACED_LABEL_GAP_PX = 3;
+
+/**
+ * Distance from a placed dimension value's attach point — a point ON its
+ * dimension line, leader or arc — to the center of its drawn text, pushed
+ * along `dir`: far enough that the box clears the line by one gap whatever
+ * the line's angle. A horizontal line gives the automatic layout's own
+ * "one gap clear" rung; a vertical one pushes the wider side of the box out.
+ * The layout draws with this and the label drag inverts it, so the text
+ * stays under the cursor that carries it.
+ */
+export function placedLabelOffsetPx(box: GlyphBox, dir: { x: number; y: number }): number {
+  return boxReach(box, dir) + PLACED_LABEL_GAP_PX;
+}

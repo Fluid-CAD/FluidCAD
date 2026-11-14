@@ -4,12 +4,12 @@ title: Distance
 summary: "A distance dimension statement in a constraint-mode sketch."
 tags: [api, type, interface]
 symbols: [Distance, IDistance]
-seeAlso: [api/constraints, api/types/scene-object]
+seeAlso: [api/constraints, api/types/dimension]
 ---
 # Distance
 
 ```ts
-interface Distance extends SceneObject {
+interface Distance extends Dimension {
   max(): this;
   min(): this;
 }
@@ -17,7 +17,7 @@ interface Distance extends SceneObject {
 
 A distance dimension statement in a constraint-mode sketch.
 
-Extends [[api/types/scene-object]].
+Extends [[api/types/dimension]].
 
 ## Methods
 
@@ -36,5 +36,7 @@ Measures to the NEAR side of the circumference — the default; an
 explicit `.min()` only documents intent.
 
 ## Inherited
+
+From [[api/types/dimension]]: `labelAt()`
 
 From [[api/types/scene-object]]: `name()`

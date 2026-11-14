@@ -264,7 +264,7 @@ side of the circumference by default; chain `.max()` for the far side.
 ### angle()
 
 ```ts
-angle(a: ConstraintTarget, b: ConstraintTarget, degrees: NumberParam): SceneObject
+angle(a: ConstraintTarget, b: ConstraintTarget, degrees: NumberParam): Dimension
 ```
 
 Dimensions the counterclockwise angle from line a to line b, in degrees
@@ -273,6 +273,8 @@ orients the line toward that endpoint — `angle(l1, l2.start(), 45)`
 measures to l2 pointing at its start. A bare line points at its end.
 There are no negative angles: a clockwise angle is the counterclockwise
 angle of the swapped pair.
+
+**Returns**: [`Dimension`](/docs/api/types/dimension)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -285,12 +287,14 @@ angle of the swapped pair.
 ### radius()
 
 ```ts
-radius(c: ConstraintTarget, value: NumberParam, axis?: 'x' | 'y'): SceneObject
+radius(c: ConstraintTarget, value: NumberParam, axis?: 'x' | 'y'): Dimension
 ```
 
 Dimensions the radius of a circle or arc, or one semi-radius of an
 ellipse: `radius(el, 20, 'x')` sizes the RX axis, `'y'` the RY axis
 (the axis is required for an ellipse and refused elsewhere).
+
+**Returns**: [`Dimension`](/docs/api/types/dimension)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -303,10 +307,12 @@ ellipse: `radius(el, 20, 'x')` sizes the RX axis, `'y'` the RY axis
 ### diameter()
 
 ```ts
-diameter(c: ConstraintTarget, value: NumberParam): SceneObject
+diameter(c: ConstraintTarget, value: NumberParam): Dimension
 ```
 
 Dimensions the diameter of a circle or arc.
+
+**Returns**: [`Dimension`](/docs/api/types/dimension)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -318,7 +324,7 @@ Dimensions the diameter of a circle or arc.
 ### offsetFrom()
 
 ```ts
-offsetFrom(offsets: ConstraintTarget | ConstraintTarget[], sources: ConstraintTarget | ConstraintTarget[], distance: NumberParam): SceneObject
+offsetFrom(offsets: ConstraintTarget | ConstraintTarget[], sources: ConstraintTarget | ConstraintTarget[], distance: NumberParam): Dimension
 ```
 
 Offset constraint: holds each offset entity at `distance` from its source —
@@ -334,6 +340,8 @@ of the same statement is a corner of the chain and slides to where the two
 offsets meet; every other end sits straight across from its source's end,
 so open chains end square and tangent junctions stay joined without a
 coincident of their own. Deleting the statement leaves plain curves.
+
+**Returns**: [`Dimension`](/docs/api/types/dimension)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

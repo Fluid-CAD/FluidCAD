@@ -51,6 +51,10 @@ The solver's verdict (fully constrained, remaining degrees of freedom, conflicts
 - **Size.** `circle(center, diameter)` takes a diameter. Dimension with `diameter(c, v)` or `radius(c, v)`; the literal alone is a guess the solver may keep or change.
 - **Distances to a circle** measure to the near side of the circumference by default; chain `.max()` for the far side, or dimension `c.center()` for a center distance.
 
+## Dimension labels are not yours to place
+
+A dimension statement may carry `.labelAt(u, v)`, as in `distance(a, b, 100).labelAt(0, -12)`. It is where the value is drawn, written when someone drags a dimension in the sketcher, and it changes nothing about the solve or the geometry. Do not add it to dimensions you write: the automatic layout places every value. When you edit a statement that has one, keep it, including when you change the value in front of it.
+
 ## Guesses pick the branch
 
 A circle tangent to a line can rest on either side; an angle can open either way. The solver converges to the solution nearest the guesses, so draw the guess roughly on the side you mean. Precision is the solver's job; side is yours. `angle(a, b, deg)` is counterclockwise from `a` to `b` and orients each line toward its end unless you pass an endpoint accessor; there are no negative angles.

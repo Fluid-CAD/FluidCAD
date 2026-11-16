@@ -9,6 +9,7 @@
 <p align="center">
   <a href="#see-what-you-can-build">Explore</a> &middot;
   <a href="#download">Download</a> &middot;
+  <a href="https://hub.fluidcad.io">Hub</a> &middot;
   <a href="https://fluidcad.io/docs/getting-started">Documentation</a> &middot;
   <a href="https://fluidcad.io/docs/tutorials/">Tutorials</a>
 </p>
@@ -77,6 +78,22 @@ Insert parts into an `.assembly.js` file and connect them with mates. Build a hi
 </p>
 
 Reuse sub-assemblies and replicate them across a design, like the piston assemblies in this engine. [Explore assemblies →](https://fluidcad.io/docs/assembly/introduction)
+
+### Packages from FluidCAD Hub
+
+[FluidCAD Hub](https://hub.fluidcad.io) is where packages of ready-made features, parts, and assemblies are shared: gears and racks, fasteners, T-slot extrusions, propellers, and more. Browse a package's models and README on the hub, then install it from the Hub panel in the app or from the terminal:
+
+```bash
+npx fluidcad install @fluidcad/gears
+```
+
+Its features appear in the toolbar's **Custom** menu, and its parts in an assembly's **Insert** dialog. A project records the exact version it uses, so its geometry never changes under it. Package your own features and parts to publish them under your hub handle. [Explore packages →](https://fluidcad.io/docs/packages)
+
+<p align="center">
+  <a href="https://hub.fluidcad.io">
+    <img src="website/static/img/readme/hub-home.png" alt="The FluidCAD Hub home page, featuring the @fluidcad/gears package above the airfoils, fasteners, quick-rib, and extrusions packages" />
+  </a>
+</p>
 
 ### From everyday objects to mechanical parts
 

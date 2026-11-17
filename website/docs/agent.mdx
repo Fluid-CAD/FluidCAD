@@ -22,14 +22,17 @@ FluidCAD looks for the program on your `PATH` and in the usual install folders (
 
 ## Signing in
 
-You sign in to the agent, not to FluidCAD. Run the command in a terminal and finish the sign-in in your browser:
+You sign in to the agent, not to FluidCAD. Sign-in goes through the vendor's own flow; FluidCAD does not read, store or pass on your credentials or your account details. It only asks the program whether it is signed in.
+
+- **Codex**: when Codex is not signed in, the panel offers **Sign in to Codex**. Your browser opens the ChatGPT sign-in page; finish there, and the panel notices by itself and shows the message box. **Open the page again** reopens the page if the browser blocked or lost it, and **Cancel** stops waiting. The terminal command below works too.
+- **Claude Code**: run the command in a terminal and finish the sign-in in your browser.
 
 ```bash
 claude auth login   # Claude Code
 codex login         # Codex
 ```
 
-Then click **Check again** in the panel. Sign-in goes through the vendor's own flow; FluidCAD does not read, store or pass on your credentials. It only asks the program whether it is signed in. When the sign-in is missing or expired, the panel shows the command to run, with a copy button.
+Then click **Check again** in the panel. When the sign-in is missing or expired, the panel shows the command to run, with a copy button.
 
 ### Claude Code and `ANTHROPIC_API_KEY`
 
@@ -65,7 +68,7 @@ A card left unanswered for an hour times out, and the call is not run. **Stop** 
 
 ### Unsaved changes in the editor
 
-The agent never overwrites a file that has unsaved changes in the code editor. Its write is refused, and a card names the file. Save the file, then ask again.
+The agent never overwrites a file that has unsaved changes in the code editor. Its write is refused, and a card names the file. Save the file, then ask again. Unsaved changes in a browser tab you have closed no longer count: they went with the tab.
 
 ### Reverting a turn
 
@@ -75,34 +78,51 @@ Reverting covers project files the agent wrote. It does not undo an export, a pa
 
 ## Pointing at geometry
 
-With the panel open, select faces or edges in the viewport. A row above the message box says what is selected, for example "4 edges selected", with **Add**:
+With the panel open, select faces or edges in the viewport. A row above the message box says what is selected, for example "4 edges selected" or "1 face and 2 edges selected", with **Add**:
 
-1. Click **Add**. The selection becomes one reference: a coloured chip above the box, and a token such as `[1]` typed at the cursor. The selection in the viewport clears.
-2. Select something else and click **Add** again for `[2]`, and so on. Add things separately when you want to tell them apart: "fillet [1] by 2 mm and chamfer [2] by 1 mm".
-3. Send the message. It carries an image of the model with each reference drawn in its own colour, shown in your message, and for each reference the selector code that finds that geometry in the file, the same code a feature dialog writes for a pick.
+1. Click **Add**. The whole selection becomes one reference: a chip above the box, such as "[1] 4 edges" with its colour, and the token `[1]` typed where the cursor was in your message. The selection in the viewport clears.
+2. Select something else and click **Add** again for `[2]`, and so on. Add things separately when you want to tell them apart: "fillet [1] by 2 mm and chamfer [2] by 1 mm". Each reference takes the lowest free number and its colour; removing a chip (its **×**) removes its token and frees its number and colour.
+3. Send the message. Your message shows the chips, and it carries an image of the current view, framed to the references, with each one drawn in its own colour. For each reference the agent gets the selector code that finds that geometry in the file (the same code a feature dialog writes for a pick), the features it comes from, the imports it needs, and its size and position.
 
-A message holds up to eight references. Removing a chip removes its token. If the model re-renders before you send, the chips are dropped with a note to select again, since the selection no longer matches the model.
+A selection you made after the last **Add** is not part of the message, and it is left out of the image.
 
-When FluidCAD cannot describe a selection with a selector, it is not attached and the row says why; for several entities it offers to add them one at a time.
+A message holds up to eight references; after the eighth, **Add** is off until you remove one. If the model re-renders before you send, the chips and their tokens are dropped with "The model changed — select again.", since the selection no longer matches the model.
+
+When FluidCAD cannot write a selector for a selection, nothing is attached and the row says why. For a selection of several faces or edges it then offers **Add one at a time**: each one that can be described becomes a reference of its own, and a note says how many could not be attached and why.
+
+A selector describes the model as it was when you sent the message. An edit can change or consume the geometry it names: after a fillet, for example, the faces it rounded off are gone. To point at geometry again after such an edit, select it and add it again.
 
 References are not available:
 
-- in assembly files,
-- for sketch entities, constraints and dimensions,
-- for vertices,
-- while the timeline is rolled back.
+- for faces and edges of parts inserted in an assembly: open the part file and select them there,
+- for sketch entities, constraints, dimensions and vertices: a reference is made of faces and edges only,
+- while the timeline is rolled back: **Add** is off until you roll the timeline forward to the last feature.
 
 ## Chats
 
-The title in the panel header opens the list of this project's chats; pick one to reopen it, or start a **New chat**. A chat stays with the agent it was started with. The model can be changed from the header between messages: **Default** uses the program's own default, and **Other model…** takes any model name the program accepts.
+The title in the panel header opens the list of this project's chats, newest first. Each row shows the chat's title, its agent, when it last changed, and what it is doing when it is not idle (Working, Waiting for you, Interrupted, Limit reached, Error). Pick a row to reopen the chat, or start a **New chat**.
+
+Point at a row to rename or delete it:
+
+- The pencil renames the chat in place: type the new title and press Enter, or Escape to keep the old one. A new chat takes its title from your first message until you rename it.
+- The bin deletes the chat after you confirm: its conversation, images and the copies kept for reverting are removed, and a turn it was running stops. Files the agent changed stay as they are. Deleting the chat that is open starts a new chat.
+
+A chat stays with the agent it was started with. The model and the effort can be changed from the header between messages:
+
+- **Model**: **Default** uses the program's own default, and **Other model…** takes any model name the program accepts.
+- **Effort**: how hard the model thinks before it answers. **Default effort** leaves it to the program. Claude Code offers Low, Medium, High, Extra high and Max. Codex offers the levels the chosen model lists (for example up to Max, or Ultra on some models); switching to a model without the chosen level goes back to its default. Higher effort takes longer and uses more of your plan.
 
 Chats are stored in the project, under `.fluidcad/agent/sessions/`: the conversation, images, and the copies of files kept for reverting. A new project's `.gitignore` already ignores `.fluidcad/`, so chats stay out of git. Claude Code and Codex also keep their own record of the conversation in their own folders, as they do for any session.
 
-If FluidCAD stopped while the agent was working, the chat reopens with a notice and **Continue**. The last tool call may or may not have run; the agent is told to check the model before going on.
+If FluidCAD stopped while the agent was working, the chat reopens with a notice and **Continue**. The last tool call may or may not have run. Continuing tells the agent what you had asked and how each of its tool calls in that turn ended (done, failed, declined, waiting for your approval, or result unknown), so it can check the files and the model and carry on.
 
 ## Usage
 
 Every message is run by your own Claude Code or Codex, on your own account. It counts against your Claude or ChatGPT plan, or is billed to your API key, exactly as if you had used the program directly. FluidCAD does not meter or charge for it.
+
+Under each answer a small line shows what the turn used, as the program reported it: tokens in (including the context it re-read) and tokens out, for example "23k in · 512 out". Point at it for the exact counts. When Claude Code runs on an API key, the line adds the cost Claude Code reports; on a subscription that figure is only what the tokens would cost at API prices, so it appears in the tooltip, not on the line.
+
+When your plan's limit is reached, or nearly reached, a notice says so, with when it resets in your own time, for example "It resets in 3 h, at 17:00."
 
 ## Settings
 
@@ -112,8 +132,9 @@ Settings › Agent holds:
 |---------|--------------|
 | Agent for new chats | Claude Code, Codex, or the first one ready. |
 | Claude Code model, Codex model | The model a new chat starts with. Empty: the program's own default. For Claude Code an alias (`opus`, `sonnet`, `haiku`, `fable`) or a full model name. |
-| Effort | How hard the model thinks before it answers: Low, Medium, High, or the agent's default. |
-| Changes to the project | Ask before every change, or change project files without asking. The same choice as the mode button in the panel. |
+| Claude Code effort | How hard Claude Code's model thinks before it answers: Low, Medium, High, Extra high, Max, or Claude Code's own default. |
+| Codex effort | The same for Codex: the levels its models list, or the model's own default. A level the chosen model lacks falls back to its default. |
+| Edits | **Ask before edits** or **Apply edits automatically**: the same switch as the mode button in the panel header. |
 | Use my Claude subscription even if ANTHROPIC_API_KEY is set | See [above](#claude-code-and-anthropic_api_key). |
 | Claude Code program, Codex program | The absolute path to `claude` or `codex`, when FluidCAD does not find it. |
 
@@ -125,10 +146,11 @@ Under them, **What FluidCAD found** lists each program with its version, path an
 |--------------|------------|
 | The panel says the program was not found | Install it, or set its path in Settings › Agent (**Claude Code program** / **Codex program**), then **Check again**. On macOS an app started from the Dock does not see your shell's `PATH`, so a program installed somewhere unusual needs the path. |
 | The program needs an update | Run `claude update`, or update Codex the way you installed it (`npm install -g @openai/codex` for an npm install), then **Check again**. |
-| Not signed in, or the login expired | Run `claude auth login` or `codex login` in a terminal, then **Check again**. |
+| Not signed in, or the login expired | For Codex, click **Sign in to Codex** in the panel. Otherwise run `claude auth login` or `codex login` in a terminal, then **Check again**. |
 | The **API key** badge shows when you meant to use your subscription | Turn on **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent. |
-| A usage-limit or credits message | Your plan's limit was reached. The message is the vendor's, with the reset time when the vendor gives it. Wait for the reset or change your plan with the vendor; FluidCAD cannot lift it. |
+| A usage-limit or credits message | Your plan's limit was reached. The message is the vendor's, with when it resets in your local time when the vendor gives it. Wait for the reset or change your plan with the vendor; FluidCAD cannot lift it. |
 | "FluidCAD's tools did not connect" | The program started but could not reach FluidCAD. Send the message again; if it keeps happening, restart FluidCAD. |
 | The program exited | The error shows the last lines it printed. The next message starts it again and resumes the conversation. |
 | A write refused for unsaved changes | Save the file in the editor, then ask again. |
+| A reference does not point where you expect after an edit | A selector describes the model as it was when you sent it. Select the geometry again and add it again. |
 | No **Agent** button on the rail | The button appears once the project's engine answers for the agent. An engine pinned to an older FluidCAD version does not have it. |

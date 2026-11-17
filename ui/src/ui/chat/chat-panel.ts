@@ -657,7 +657,8 @@ export class ChatPanel {
     chip.addEventListener('click', () => this.showChipMenu(chip, 'effort-menu',
       [DEFAULT_EFFORT, ...this.effortLevels()].map((value) => ({
         icon: value === current ? ChatIcons.CHECK : '',
-        label: label(value),
+        // The menu is already about effort: "Default", "Low", "High"…
+        label: value === DEFAULT_EFFORT ? 'Default' : effortLabel(value),
         className: value === current ? 'font-medium' : undefined,
         onSelect: () => {
           this.effortChoices.set(this.state.agent, value);

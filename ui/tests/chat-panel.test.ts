@@ -789,7 +789,7 @@ describe('the chips under the message box', () => {
     const effort = (k = h) => k.$<HTMLButtonElement>('[data-ref="effort-picker"]')!;
     pick(h, model(), 'model-menu', 'Sonnet');
     expect(h.onModelChosen).toHaveBeenLastCalledWith('claude', 'sonnet');
-    pick(h, effort(), 'effort-menu', 'Max effort');
+    pick(h, effort(), 'effort-menu', 'Max');
     expect(h.onEffortChosen).toHaveBeenLastCalledWith('claude', 'max');
     pick(h, model(), 'model-menu', 'Other model…');
     const name = h.$<HTMLInputElement>('[data-ref="model-input"]')!;
@@ -812,7 +812,7 @@ describe('the chips under the message box', () => {
     // Default on either chip goes back to the program's own.
     pick(again, model(again), 'model-menu', 'Default');
     expect(again.onModelChosen).toHaveBeenLastCalledWith('claude', 'default');
-    pick(again, effort(again), 'effort-menu', 'Default effort');
+    pick(again, effort(again), 'effort-menu', 'Default');
     expect(again.onEffortChosen).toHaveBeenLastCalledWith('claude', '');
     expect(again.settings.claudeModel).toBeUndefined();
     expect(again.settings.claudeEffort).toBeUndefined();
@@ -869,11 +869,11 @@ describe('the chips under the message box', () => {
     await opened(h);
     const chip = () => h.$<HTMLButtonElement>('[data-ref="effort-picker"]')!;
     expect(menuRows(h, chip(), 'effort-menu')).toEqual([
-      'Default effort', 'Low effort', 'Medium effort', 'High effort', 'Extra high effort', 'Max effort',
+      'Default', 'Low', 'Medium', 'High', 'Extra high', 'Max',
     ]);
     expect(chip().dataset.value).toBe('xhigh');
     expect(label(chip())).toBe('Extra high effort');
-    pick(h, chip(), 'effort-menu', 'Max effort');
+    pick(h, chip(), 'effort-menu', 'Max');
     h.type('think hard');
     h.key('Enter');
     await settle();
@@ -881,7 +881,7 @@ describe('the chips under the message box', () => {
     h.client.emit(h.client.sent[0].id, { type: 'status', status: { state: 'idle' } });
 
     // "Default effort" sends none: the CLI's own.
-    pick(h, chip(), 'effort-menu', 'Default effort');
+    pick(h, chip(), 'effort-menu', 'Default');
     expect(label(chip())).toBe('Effort');
     h.type('quick');
     h.key('Enter');
@@ -902,10 +902,10 @@ describe('the chips under the message box', () => {
     const effort = () => h.$<HTMLButtonElement>('[data-ref="effort-picker"]')!;
     const levels = () => menuRows(h, effort(), 'effort-menu');
     // Default is Luna, which has no "ultra": the default holds.
-    expect(levels()).toEqual(['Default effort', 'Low effort', 'Medium effort', 'High effort', 'Extra high effort', 'Max effort']);
+    expect(levels()).toEqual(['Default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
     expect(effort().dataset.value).toBe('');
     pick(h, h.$<HTMLButtonElement>('[data-ref="model-picker"]')!, 'model-menu', 'Terra');
-    expect(levels()).toEqual(['Default effort', 'Low effort', 'Medium effort', 'High effort', 'Extra high effort', 'Max effort', 'Ultra effort']);
+    expect(levels()).toEqual(['Default', 'Low', 'Medium', 'High', 'Extra high', 'Max', 'Ultra']);
     expect(effort().dataset.value).toBe('ultra');
     h.type('go');
     h.key('Enter');

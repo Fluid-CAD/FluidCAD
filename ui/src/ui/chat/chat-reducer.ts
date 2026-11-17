@@ -63,7 +63,8 @@ export function reduceChatAll(messages: readonly ChatMessage[], events: Iterable
  * - `checkpoint` sets the turn's files to the event's full list; the turn is
  *   revertible while that list is not empty (`checkpointsChanged`);
  * - `reverted` ends its revertibility and stamps `revertedAt` (`revert`),
- *   keeping `files` as the engine does.
+ *   keeping `files` as the engine does;
+ * - `usage` sets what the turn used (`onBackendEvent`).
  *
  * `endedAt` and `endReason` come with snapshots only: no event carries them.
  * Pure, like {@link reduceChat}: `turns` comes back itself when the event
@@ -94,6 +95,13 @@ export function reduceTurns(
       });
     case 'reverted':
       return updateTurn(turns, event.turnId, (turn) => ({ ...turn, revertible: false, revertedAt: now() }));
+    case 'usage': {
+      if (!event.turnId) {
+        return turns as TurnRecord[];
+      }
+      const { type: _type, turnId, ...usage } = event;
+      return updateTurn(turns, turnId, (turn) => ({ ...turn, usage }));
+    }
     default:
       return turns as TurnRecord[];
   }

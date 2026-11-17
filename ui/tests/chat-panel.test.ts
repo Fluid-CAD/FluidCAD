@@ -437,8 +437,69 @@ describe('the attach protocol (§7.3)', () => {
     h.$<HTMLButtonElement>('[data-ref="status-check-again"]')!.click();
     await settle();
     expect(client.agents).toHaveBeenLastCalledWith(true);
-    client.emit('s', { type: 'status', status: { state: 'error', kind: 'rate-limit', message: 'Limit reached.', resetsAt: '2030-01-01T15:00:00.000Z' } });
-    expect(h.$('[data-ref="status"]')!.textContent).toMatch(/Limit reached\. It resets at /);
+    const resetsAt = new Date(Date.now() + 3 * 3600_000 + 60_000).toISOString();
+    client.emit('s', { type: 'status', status: { state: 'error', kind: 'rate-limit', message: 'Limit reached.', resetsAt } });
+    const at = new Date(resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    expect(h.$('[data-ref="status-text"]')!.textContent).toBe(`Limit reached. It resets in 3 h 1 min, at ${at}.`);
+  });
+
+  it('a plan-limit notice says when it resets in local time; one stored with the raw instant reads the same', async () => {
+    const client = new FakeChatClient();
+    const resetsAt = new Date(Date.now() + 2 * 3600_000 + 30 * 60_000).toISOString();
+    const at = new Date(resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    client.addSession({
+      id: 's',
+      title: 'S',
+      messages: [
+        { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'x', text: 'hi' }] },
+        { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [
+          { type: 'notice', id: 'n1', level: 'warning', text: "Claude Code reached your plan's five-hour usage limit.", resetsAt },
+          // As the runtime wrote it before the reset time had its own field.
+          { type: 'notice', id: 'n2', level: 'error', text: `Claude Code reached your plan's five-hour usage limit; it resets at ${resetsAt}.` },
+        ] },
+      ],
+      turns: [{ id: 't1', userMessageId: 'u1', revertible: false }],
+    });
+    const h = mount(client);
+    await opened(h);
+    const notices = h.$$('[data-part="notice"]').map((n) => n.textContent!.trim());
+    expect(notices[0]).toMatch(new RegExp(`^Claude Code reached your plan's five-hour usage limit\\. It resets in 2 h (29|30) min, at ${at}\\.$`));
+    expect(notices[1]).toMatch(new RegExp(`^Claude Code reached your plan's five-hour usage limit; it resets in 2 h (29|30) min, at ${at}\\.$`));
+  });
+
+  it('shows what each turn used under its answer; the cost only when it is billed', async () => {
+    const client = new FakeChatClient();
+    client.addSession({
+      id: 's',
+      title: 'S',
+      messages: [
+        { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'x', text: 'hi' }] },
+        { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'y', text: 'Hello.' }] },
+      ],
+      turns: [{ id: 't1', userMessageId: 'u1', revertible: false, usage: { inputTokens: 23456, outputTokens: 512, costUsd: 0.0421 } }],
+    });
+    const h = mount(client);
+    await opened(h);
+    const usage = () => h.$('[data-message-id="a1"] [data-ref="usage"]')!;
+    // On a subscription the figure is not a charge: in the tooltip only.
+    expect(usage().textContent).toBe('23k in · 512 out');
+    expect(usage().title).toMatch(/23,456 input tokens.*512 output tokens.*\$0\.04 at API prices/);
+
+    // A turn streaming now gets its line when its usage arrives.
+    h.type('more');
+    h.key('Enter');
+    await settle();
+    const assistant = client.startAssistant('s', 'a2');
+    client.part('s', assistant, { type: 'text', id: 'z', text: 'Sure.' });
+    expect(h.$('[data-message-id="a2"] [data-ref="usage"]')).toBeNull();
+    client.emit('s', { type: 'usage', turnId: 'turn-1', inputTokens: 900, outputTokens: 40 });
+    client.finish('s', assistant);
+    expect(h.$('[data-message-id="a2"] [data-ref="usage"]')!.textContent).toBe('900 in · 40 out');
+
+    // On an API key the cost is a charge: shown.
+    client.recheckValue = [FakeChatClient.install({ authMethod: 'api_key' })];
+    await h.panel.state.loadAgents(true);
+    expect(usage().textContent).toBe('23k in · 512 out · $0.04');
   });
 });
 

@@ -10,6 +10,8 @@ import { ChatTranscript } from './chat-transcript';
 import { isBusy, type AgentKind, type ApprovalDecision, type AgentModel, type Effort, type PermissionMode, type SessionStatus, type TurnRecord } from './chat-types';
 import type { Colorizer } from './code-block';
 import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
+import { resetsText } from './time-format';
+import { usageText } from './usage';
 import './chat-panel.css';
 
 /** The agent preferences the panel follows (Settings → Agent, `agent` in the preferences file). */
@@ -406,7 +408,7 @@ export class ChatPanel {
         } else if (change.event.type === 'message-start') {
           this.paintBody();
           this.paintTurns();
-        } else if (change.event.type === 'checkpoint' || change.event.type === 'reverted') {
+        } else if (change.event.type === 'checkpoint' || change.event.type === 'reverted' || change.event.type === 'usage') {
           this.paintTurns();
         }
         return;
@@ -419,6 +421,7 @@ export class ChatPanel {
         this.paintToolbar();
         this.paintBody();
         this.paintStatus();
+        this.paintTurns();
         return;
       case 'sessions':
         this.paintTitle();
@@ -613,7 +616,40 @@ export class ChatPanel {
     }
     for (const turn of session.turns) {
       this.transcript.messageView(turn.userMessageId)?.actions.replaceChildren(...this.turnActions(turn));
+      this.paintUsage(turn);
     }
+  }
+
+  /** What the turn used, small under its last answer (§12.3: "show usage"). */
+  private paintUsage(turn: TurnRecord): void {
+    const messages = this.state.session?.messages ?? [];
+    let answer: string | null = null;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].turnId === turn.id && messages[i].role === 'assistant') {
+        answer = messages[i].id;
+        break;
+      }
+    }
+    const view = answer ? this.transcript.messageView(answer) : undefined;
+    if (!view) {
+      return;
+    }
+    const words = turn.usage ? usageText(turn.usage, { billed: this.billedPerUse() }) : null;
+    if (!words) {
+      view.actions.replaceChildren();
+      return;
+    }
+    const line = document.createElement('span');
+    line.className = 'chat-turn-usage';
+    line.dataset.ref = 'usage';
+    line.textContent = words.short;
+    line.title = words.long;
+    view.actions.replaceChildren(line);
+  }
+
+  /** Whether the session's agent bills each use (an API key), so a cost is worth showing. */
+  private billedPerUse(): boolean {
+    return authDescription(this.state.install(this.state.agent))?.apiKey === true;
   }
 
   private turnActions(turn: TurnRecord): HTMLElement[] {
@@ -830,7 +866,8 @@ export class ChatPanel {
           // The transcript's notice says it.
           return null;
         }
-        const text = status.kind === 'rate-limit' && status.resetsAt ? `${status.message} ${resetsAtText(status.resetsAt)}` : status.message;
+        const resets = status.kind === 'rate-limit' && status.resetsAt ? resetsText(status.resetsAt) : null;
+        const text = resets ? `${status.message} It ${resets}.` : status.message;
         const row = statusRow(status.kind === 'rate-limit' ? 'warning' : 'error', text);
         if (status.kind === 'auth' || status.kind === 'not-installed') {
           const check = document.createElement('button');
@@ -913,14 +950,3 @@ function statusRow(level: 'warning' | 'error', text: string): HTMLDivElement {
   return row;
 }
 
-function resetsAtText(resetsAt: string): string {
-  const date = new Date(resetsAt);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  const sameDay = date.toDateString() === new Date().toDateString();
-  const when = sameDay
-    ? date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : date.toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-  return `It resets at ${when}.`;
-}

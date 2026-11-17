@@ -239,7 +239,7 @@ export class ClaudeStreamMapper {
     if (info.status === 'rejected') {
       this.rateLimit = {
         kind: 'rate-limit',
-        message: `Claude Code reached your plan's ${windowLabel(window)} usage limit${resetsAt ? `; it resets at ${resetsAt}` : ''}.`,
+        message: `Claude Code reached your plan's ${windowLabel(window)} usage limit.`,
         ...(resetsAt ? { resetsAt } : {}),
       };
       return [];
@@ -251,7 +251,8 @@ export class ClaudeStreamMapper {
         {
           type: 'notice',
           level: 'warning',
-          text: `Claude Code warns about your plan's ${windowLabel(window)} usage limit${used}${resetsAt ? `; it resets at ${resetsAt}` : ''}.`,
+          text: `Claude Code warns about your plan's ${windowLabel(window)} usage limit${used}.`,
+          ...(resetsAt ? { resetsAt } : {}),
         },
       ];
     }

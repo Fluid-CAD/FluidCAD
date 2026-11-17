@@ -93,7 +93,19 @@ export type ChatPart =
   | { type: 'image'; id: string; file: string }
   | { type: 'references'; id: string; references: SceneReference[] }
   | ToolPart
-  | { type: 'notice'; id: string; level: 'info' | 'warning' | 'error'; text: string };
+  | NoticePart;
+
+/**
+ * A line from the runtime: stopped, a plan limit, a sign-in problem, a
+ * restart. `resetsAt` (an ISO instant) is when a plan limit resets: the page
+ * words it in the user's local time ("resets in 3 h, at 17:00"); `text`
+ * never carries it. (Notices stored before it existed may have the instant
+ * in `text`.)
+ */
+export type NoticePart = { type: 'notice'; id: string; level: 'info' | 'warning' | 'error'; text: string; resetsAt?: string };
+
+/** What a turn cost, as the CLI reported it at its end. */
+export type TurnUsage = { inputTokens?: number; outputTokens?: number; costUsd?: number };
 
 export type ChatMessage = {
   id: string;
@@ -114,6 +126,8 @@ export type TurnRecord = {
   files?: string[];
   /** Set when the turn's changes were reverted. */
   revertedAt?: string;
+  /** What the turn used, from its `usage` event (tokens; the cost when the CLI gives one). */
+  usage?: TurnUsage;
 };
 
 export type SessionSnapshot = {
@@ -152,7 +166,8 @@ export type ChatEvent =
   | { type: 'part-update'; messageId: string; partId: string; patch: Partial<ChatPart> }
   | { type: 'message-end'; messageId: string }
   | { type: 'status'; status: SessionStatus }
-  | { type: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number }
+  /** What the turn `turnId` used; recorded on its turn (`TurnRecord.usage`). */
+  | { type: 'usage'; turnId?: string; inputTokens?: number; outputTokens?: number; costUsd?: number }
   /**
    * The turn kept a copy of a file before changing it. `files` is every file
    * the turn has a copy of so far (workspace-relative): the turn is

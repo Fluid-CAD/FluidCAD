@@ -312,7 +312,15 @@ describe('agent sessions API', () => {
     expect(sse.events.every((e) => e.epoch === empty.epoch)).toBe(true);
     const types = sse.events.map((e) => e.event.type);
     expect(types.slice(0, 4)).toEqual(['message-start', 'part-start', 'message-end', 'title']);
-    expect(types).toContain('usage');
+    expect(sse.events.find((e) => e.event.type === 'usage')!.event).toEqual({
+      type: 'usage',
+      turnId: done.turns[0].id,
+      inputTokens: 10,
+      outputTokens: 5,
+      costUsd: 0.01,
+    });
+    // The turn keeps what it used, for the page after a reload.
+    expect(done.turns[0].usage).toEqual({ inputTokens: 10, outputTokens: 5, costUsd: 0.01 });
     expect(types[types.length - 1]).toBe('status');
 
     // Saved to disk.
@@ -374,7 +382,10 @@ describe('agent sessions API', () => {
     await json('POST', `${base}/sessions/${id}/messages`, { text: 'fail please' });
     const done = await idle(id);
     expect(done.status).toEqual({ state: 'error', kind: 'rate-limit', message: 'Limit reached.', resetsAt: '2026-11-18T00:00:00.000Z' });
-    expect(done.messages[1].parts).toEqual([{ type: 'notice', id: expect.any(String), level: 'error', text: 'Limit reached.' }]);
+    // The reset time rides apart from the words: the page says it in local time.
+    expect(done.messages[1].parts).toEqual([
+      { type: 'notice', id: expect.any(String), level: 'warning', text: 'Limit reached.', resetsAt: '2026-11-18T00:00:00.000Z' },
+    ]);
   });
 
   it('says what is missing when Claude Code is not installed or not signed in', async () => {

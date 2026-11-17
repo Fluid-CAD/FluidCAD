@@ -31,6 +31,7 @@ import type {
   SessionSummary,
   ToolPart,
   TurnRecord,
+  TurnUsage,
 } from './types.ts';
 
 /** How long a CLI may sit idle between turns before it is closed (§6.2); the next message resumes it. */
@@ -563,16 +564,22 @@ export class AgentSession {
         }
         return;
       }
-      case 'usage':
-        this.emit({
-          type: 'usage',
+      case 'usage': {
+        const usage: TurnUsage = {
           ...(event.inputTokens !== undefined ? { inputTokens: event.inputTokens } : {}),
           ...(event.outputTokens !== undefined ? { outputTokens: event.outputTokens } : {}),
           ...(event.costUsd !== undefined ? { costUsd: event.costUsd } : {}),
-        });
+        };
+        // The turn's record keeps it, so a reload still shows what the turn used.
+        const record = this.record.turns.find((t) => t.id === turn.turnId);
+        if (record) {
+          record.usage = usage;
+        }
+        this.emit({ type: 'usage', turnId: turn.turnId, ...usage });
         return;
+      }
       case 'notice':
-        this.addNotice(event.level, event.text);
+        this.addNotice(event.level, event.text, event.resetsAt);
         return;
     }
   }
@@ -589,7 +596,7 @@ export class AgentSession {
     turn.stopping = true;
     this.settleApprovals('stopped');
     if (error) {
-      this.addNotice('error', error.message);
+      this.addNotice(error.kind === 'rate-limit' ? 'warning' : 'error', error.message, error.resetsAt);
     } else if (reason === 'interrupted') {
       this.addNotice('info', 'Stopped.');
     }
@@ -644,12 +651,12 @@ export class AgentSession {
     return turn.assistantMessageId;
   }
 
-  private addNotice(level: 'info' | 'warning' | 'error', text: string): void {
+  private addNotice(level: 'info' | 'warning' | 'error', text: string, resetsAt?: string): void {
     if (!this.turn) {
       return;
     }
     const messageId = this.assistantMessageId();
-    this.emit({ type: 'part-start', messageId, part: { type: 'notice', id: randomUUID(), level, text } });
+    this.emit({ type: 'part-start', messageId, part: { type: 'notice', id: randomUUID(), level, text, ...(resetsAt ? { resetsAt } : {}) } });
   }
 
   // -------------------------------------------------------------------------

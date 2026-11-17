@@ -137,9 +137,23 @@ describe('ClaudeStreamMapper on synthetic lines', () => {
     const end = events.find((e) => e.type === 'turn-end') as Extract<BackendEvent, { type: 'turn-end' }>;
     expect(end.error).toEqual({
       kind: 'rate-limit',
-      message: expect.stringContaining('five-hour'),
+      message: "Claude Code reached your plan's five-hour usage limit.",
       resetsAt: new Date(1795453200 * 1000).toISOString(),
     });
+  });
+
+  it('warns once per window as a plan limit nears, the reset time apart from the words', () => {
+    const mapper = new ClaudeStreamMapper();
+    const info = { status: 'allowed_warning', resetsAt: 1795453200, rateLimitType: 'seven_day', utilization: 0.85 };
+    expect(mapper.push({ type: 'rate_limit_event', rate_limit_info: info })).toEqual([
+      {
+        type: 'notice',
+        level: 'warning',
+        text: "Claude Code warns about your plan's weekly usage limit, 85% used.",
+        resetsAt: new Date(1795453200 * 1000).toISOString(),
+      },
+    ]);
+    expect(mapper.push({ type: 'rate_limit_event', rate_limit_info: info })).toEqual([]);
   });
 
   it('turns credits_required into a rate-limit error', () => {

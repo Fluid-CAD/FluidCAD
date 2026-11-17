@@ -87,6 +87,7 @@ export interface AgentRun {
   close(): Promise<void>;
 }
 
+/** `resetsAt`: when a plan limit resets (ISO); `message` never carries it, the page words it in local time. */
 export type TurnError = { kind: 'auth' | 'rate-limit' | 'other'; message: string; resetsAt?: string };
 
 export type BackendEvent =
@@ -105,5 +106,6 @@ export type BackendEvent =
       error?: string;
     }
   | { type: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number }
-  | { type: 'notice'; level: 'info' | 'warning' | 'error'; text: string }
+  /** `resetsAt`: when a plan limit resets (ISO); the words never carry it. */
+  | { type: 'notice'; level: 'info' | 'warning' | 'error'; text: string; resetsAt?: string }
   | { type: 'turn-end'; reason: 'done' | 'interrupted' | 'error'; error?: TurnError };

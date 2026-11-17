@@ -358,10 +358,9 @@ export function mapCodexError(error: any, rateLimits: RateLimits = {}): TurnErro
   const info = error?.codexErrorInfo;
   if (info === 'usageLimitExceeded') {
     const resetsAt = exhaustedResetsAt(rateLimits);
-    const when = resetsAt ? ` It resets at ${resetsAt}.` : '';
     return {
       kind: 'rate-limit',
-      message: `${vendor || "Codex reached your ChatGPT plan's usage limit."}${when}`,
+      message: vendor || "Codex reached your ChatGPT plan's usage limit.",
       ...(resetsAt ? { resetsAt } : {}),
     };
   }

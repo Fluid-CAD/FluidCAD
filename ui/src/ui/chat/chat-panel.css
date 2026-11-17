@@ -223,6 +223,18 @@
   color: var(--chat-faint);
 }
 
+/* Under an answer: what the turn used, quietly. */
+[data-role='chat-panel'] .chat-message-assistant .chat-message-actions {
+  align-items: flex-start;
+  max-width: 100%;
+  margin-top: 0;
+}
+
+[data-role='chat-panel'] .chat-turn-usage {
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
 [data-role='chat-panel'] .chat-turn-revert {
   display: inline-flex;
   align-items: center;

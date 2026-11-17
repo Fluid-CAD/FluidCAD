@@ -250,7 +250,7 @@ describe('CodexEventMapper on synthetic items', () => {
     const events = m.push(turnCompleted('failed', { message: "You've hit your usage limit.", codexErrorInfo: 'usageLimitExceeded' }));
     const resetsAt = new Date(1795000000 * 1000).toISOString();
     expect(events).toEqual([
-      { type: 'turn-end', reason: 'error', error: { kind: 'rate-limit', message: `You've hit your usage limit. It resets at ${resetsAt}.`, resetsAt } },
+      { type: 'turn-end', reason: 'error', error: { kind: 'rate-limit', message: "You've hit your usage limit.", resetsAt } },
     ]);
   });
 });

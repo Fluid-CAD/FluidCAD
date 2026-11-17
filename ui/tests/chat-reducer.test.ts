@@ -206,4 +206,12 @@ describe('reduceTurns', () => {
     // A turn it does not hold: nothing changes.
     expect(reduceTurns(turns, { type: 'reverted', turnId: 'nope', files: [] }, now)).toBe(turns);
   });
+
+  it('usage is recorded on its turn; a usage event without a turn changes nothing', () => {
+    const start: TurnRecord[] = [{ id: 't1', userMessageId: 'u1', revertible: false }];
+    const turns = reduceTurns(start, { type: 'usage', turnId: 't1', inputTokens: 1200, outputTokens: 80, costUsd: 0.02 }, now);
+    expect(turns[0]).toEqual({ id: 't1', userMessageId: 'u1', revertible: false, usage: { inputTokens: 1200, outputTokens: 80, costUsd: 0.02 } });
+    expect(start[0].usage).toBeUndefined();
+    expect(reduceTurns(turns, { type: 'usage', inputTokens: 1 }, now)).toBe(turns);
+  });
 });

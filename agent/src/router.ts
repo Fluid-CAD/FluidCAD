@@ -7,9 +7,9 @@ import path from 'node:path';
 import { Router, type Request, type Response } from 'express';
 import type { AgentRuntime } from './runtime.ts';
 import { UnsupportedAgentError } from './runtime.ts';
-import { SessionBusyError, type AgentSession } from './session.ts';
+import { RevertError, SessionBusyError, type AgentSession } from './session.ts';
 import { SessionStore } from './session-store.ts';
-import type { AgentKind, ChatEventEnvelope, SceneReference, SendMessage } from './types.ts';
+import type { AgentKind, ApprovalDecision, ChatEventEnvelope, PermissionMode, SceneReference, SendMessage } from './types.ts';
 
 /** A comment line this often keeps proxies and the browser from timing the stream out. */
 export const HEARTBEAT_MS = 15_000;
@@ -142,15 +142,74 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
     if (!session) {
       return;
     }
+    const mode = req.body?.mode;
+    if (mode !== undefined && mode !== 'ask' && mode !== 'auto-edits') {
+      res.status(400).json({ error: '`mode` must be "ask" or "auto-edits".' });
+      return;
+    }
     if (session.status.state !== 'interrupted') {
       res.status(409).json({ error: 'The session was not interrupted.' });
       return;
     }
     try {
-      res.status(202).json(session.continueAfterRestart());
+      res.status(202).json(session.continueAfterRestart((mode as PermissionMode | undefined) ?? 'ask'));
     } catch (e) {
       if (e instanceof SessionBusyError) {
         res.status(409).json({ error: e.message });
+        return;
+      }
+      throw e;
+    }
+  });
+
+  // --- Approval and revert (§12.1, §12.2) -----------------------------------
+
+  router.post('/sessions/:id/approvals/:approvalId', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const decision = req.body?.decision;
+    if (decision !== 'allow' && decision !== 'allow-session' && decision !== 'deny') {
+      res.status(400).json({ error: '`decision` must be "allow", "allow-session" or "deny".' });
+      return;
+    }
+    const result = session.decideApproval(String(req.params.approvalId), decision as ApprovalDecision);
+    switch (result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'not-offered':
+        res.status(400).json({ error: '"Allow for this session" is not offered for this action.' });
+        return;
+      case 'already-decided':
+        res.status(409).json({ error: 'This approval was already settled.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such approval.' });
+        return;
+    }
+  });
+
+  router.post('/sessions/:id/revert', async (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const turnId = req.body?.turnId;
+    if (typeof turnId !== 'string' || turnId === '') {
+      res.status(400).json({ error: '`turnId` must be a turn id.' });
+      return;
+    }
+    try {
+      res.json(await session.revert(turnId));
+    } catch (e) {
+      if (e instanceof SessionBusyError) {
+        res.status(409).json({ error: e.message });
+        return;
+      }
+      if (e instanceof RevertError) {
+        res.status(e.kind === 'not-found' ? 404 : 409).json({ error: e.message });
         return;
       }
       throw e;

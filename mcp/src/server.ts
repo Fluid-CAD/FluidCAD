@@ -72,6 +72,17 @@ export type { RegistryEntry } from './types.ts';
 export { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 export { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
 export { TOOL_CLASSES, isReadOnlyClass, type McpToolClass } from './tool-classes.ts';
+// The in-app agent's gate previews file edits and restores files the way
+// the tools write them.
+export {
+  writeFile,
+  previewSourceEdit,
+  applyRangeEdit,
+  type SourceEditPreview,
+  type WriteFileInput,
+  type EditRangeInput,
+} from './tools/source.ts';
+export type { ToolResult } from './types.ts';
 export {
   createMcpHttpHandler,
   type McpHttpHandler,

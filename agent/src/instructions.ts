@@ -30,6 +30,8 @@ export const IN_APP_PREAMBLE = [
   '- `<scene_references>`, when the user attached geometry from the viewport: `[n]` in their text refers to',
   '  `<ref n="…">` and to the geometry drawn in that colour in the attached image. Each ref\'s `selector` is the',
   '  code to write for that geometry.',
+  '- `<reverted_changes>`, when the user reverted changes you made in an earlier turn: those files are back to',
+  '  what they were before that turn, whatever your history shows. Read them again before editing them.',
 ].join('\n');
 
 /** The full system prompt for a chat session's CLI. */
@@ -51,11 +53,35 @@ export function formatSceneReferences(_references: SceneReference[]): string | n
   return null;
 }
 
+/**
+ * The note the CLI gets with the next message after a revert (§12.2): its
+ * own history still holds the edits the user undid.
+ */
+export function revertedChangesNote(files: string[]): string {
+  const list = files.map((f) => `- ${f}`).join('\n');
+  return (
+    '<reverted_changes>\n' +
+    'The user reverted changes you made earlier in this conversation. These files are back to what they were ' +
+    'before those changes (a file you had created no longer exists):\n' +
+    `${list}\n` +
+    '</reverted_changes>'
+  );
+}
+
 /** The text the CLI gets for a user message (§7.2). */
-export function buildCliText(input: { text: string; references?: SceneReference[]; workspace: WorkspaceState }): string {
+export function buildCliText(input: {
+  text: string;
+  references?: SceneReference[];
+  workspace: WorkspaceState;
+  /** Files reverted since the CLI was last told (§12.2). */
+  revertedFiles?: string[];
+}): string {
   const blocks = [input.text.trim()];
   const references = input.references && input.references.length > 0 ? formatSceneReferences(input.references) : null;
   const tail: string[] = [];
+  if (input.revertedFiles && input.revertedFiles.length > 0) {
+    tail.push(revertedChangesNote(input.revertedFiles));
+  }
   if (references) {
     tail.push(references);
   }

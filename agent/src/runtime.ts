@@ -10,6 +10,7 @@ import { composeInstructions } from './instructions.ts';
 import { McpEndpoints, SharedMcpIndexes } from './mcp-endpoint.ts';
 import { AgentSession, type SessionDeps, type TurnSetup } from './session.ts';
 import { SessionStore } from './session-store.ts';
+import type { ToolGateOptions } from './tool-gate.ts';
 import type { AgentKind, SessionSummary } from './types.ts';
 
 export const AGENT_KINDS: AgentKind[] = ['claude', 'codex'];
@@ -20,7 +21,19 @@ export type AgentRuntimeOptions = {
   /** The environment children inherit (tests pass their own). */
   env?: NodeJS.ProcessEnv;
   idleMs?: number;
+  /** Approval timeout and timers for every session's gate (tests). */
+  gate?: ToolGateOptions;
 };
+
+/** Runtimes of this process, told when it exits (§12.1: approvals still waiting end as denied). */
+const liveRuntimes = new Set<AgentRuntime>();
+let exitHooked = false;
+
+function onProcessExit(): void {
+  for (const runtime of liveRuntimes) {
+    runtime.onEngineExit();
+  }
+}
 
 type Detection = { key: string; promise: Promise<AgentInstall> };
 
@@ -33,6 +46,7 @@ export class AgentRuntime {
   private readonly baseEnv: NodeJS.ProcessEnv;
   private readonly indexes = new SharedMcpIndexes();
   private readonly idleMs: number | undefined;
+  private readonly gateOptions: ToolGateOptions | undefined;
   private readonly sessions = new Map<string, AgentSession>();
   private readonly detections = new Map<AgentKind, Detection>();
   private loaded = false;
@@ -44,6 +58,24 @@ export class AgentRuntime {
     this.store = options.store ?? SessionStore.forWorkspace(deps.workspacePath);
     this.baseEnv = options.env ?? process.env;
     this.idleMs = options.idleMs;
+    this.gateOptions = options.gate;
+    liveRuntimes.add(this);
+    if (!exitHooked) {
+      exitHooked = true;
+      // `exit` handlers run synchronously; settling and saving are too.
+      process.on('exit', onProcessExit);
+    }
+  }
+
+  /** The engine is exiting: approvals still waiting end as denied, and are saved so. Synchronous. */
+  onEngineExit(): void {
+    for (const session of this.sessions.values()) {
+      try {
+        session.onEngineExit();
+      } catch (e) {
+        console.error('[agent] settling approvals on exit failed:', e);
+      }
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -176,6 +208,7 @@ export class AgentRuntime {
 
   /** Ends every session's CLI (engine shutdown, tests). */
   async shutdown(): Promise<void> {
+    liveRuntimes.delete(this);
     await Promise.all([...this.sessions.values()].map((s) => s.dispose()));
     this.sessions.clear();
   }
@@ -194,6 +227,7 @@ export class AgentRuntime {
       endpoints: this.endpoints,
       indexes: this.indexes,
       ...(this.idleMs !== undefined ? { idleMs: this.idleMs } : {}),
+      ...(this.gateOptions ? { gate: this.gateOptions } : {}),
       pinnedWorkspace: () => ({
         workspacePath: this.deps.workspacePath,
         port: this.deps.port,

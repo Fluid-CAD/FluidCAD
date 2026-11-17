@@ -13,14 +13,27 @@ export function createAgentRouter(deps: AgentHostDeps): Router {
 
 export { AgentRuntime, AGENT_KINDS, UnsupportedAgentError, type AgentRuntimeOptions } from './runtime.ts';
 export { createRuntimeRouter, parseSendMessage, streamEvents, HEARTBEAT_MS } from './router.ts';
-export { AgentSession, SessionBusyError, DEFAULT_IDLE_MS, type SessionDeps, type TurnSetup } from './session.ts';
-export { SessionStore, type SessionRecord } from './session-store.ts';
+export { AgentSession, SessionBusyError, RevertError, DEFAULT_IDLE_MS, type SessionDeps, type TurnSetup, type RevertResult } from './session.ts';
+export { SessionStore, type SessionRecord, type Checkpoint } from './session-store.ts';
 export { EventLog, type ReplayResult } from './event-log.ts';
-export { ToolGate, toolClass, toolKind, toolTitle, editsUnavailableMessage, type ToolGateHost } from './tool-gate.ts';
+export {
+  ToolGate,
+  toolClass,
+  toolKind,
+  toolTitle,
+  needsApproval,
+  canAllowForSession,
+  unifiedDiff,
+  APPROVAL_TIMEOUT_MS,
+  DECLINED_MESSAGE,
+  type ToolGateHost,
+  type ToolGateOptions,
+  type GateTimers,
+} from './tool-gate.ts';
 export { McpEndpoint, McpEndpoints, SharedMcpIndexes } from './mcp-endpoint.ts';
 export { ClaudeBackend, ClaudeRun, claudeChildEnv, CLAUDE_MIN_VERSION, CLAUDE_MODELS } from './claude/claude-backend.ts';
 export { ClaudeStreamMapper } from './claude/stream-json.ts';
-export { composeInstructions, buildCliText, workspaceStateTag, IN_APP_PREAMBLE } from './instructions.ts';
+export { composeInstructions, buildCliText, workspaceStateTag, revertedChangesNote, IN_APP_PREAMBLE } from './instructions.ts';
 export { applyChatEvent } from './transcript.ts';
 export { killAllChildren } from './children.ts';
 export type * from './backend.ts';

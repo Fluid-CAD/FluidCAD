@@ -722,7 +722,15 @@ function offsetAt(text: string, pos: Position): number {
   return Math.min(lineStart + pos.column, lineEnd);
 }
 
-export async function editRange(input: EditRangeInput): Promise<ToolResult<EditRangeOutput>> {
+/**
+ * The text `edit_range` writes: `original` with `[start, end)` replaced by
+ * `newText`, positions clamped as `offsetAt` clamps them.
+ */
+export function applyRangeEdit(original: string, start: Position, end: Position, newText: string): string {
+  return original.slice(0, offsetAt(original, start)) + newText + original.slice(offsetAt(original, end));
+}
+
+function checkEditRangeInput(input: EditRangeInput): ToolResult<void> {
   if (typeof input?.newText !== 'string') {
     return err('invalid-input', '`newText` is required and must be a string.');
   }
@@ -734,6 +742,70 @@ export async function editRange(input: EditRangeInput): Promise<ToolResult<EditR
   }
   if (comparePositions(input.start, input.end) > 0) {
     return err('invalid-input', '`start` must be at or before `end`.');
+  }
+  return ok(undefined);
+}
+
+/** What a `write_file` or `edit_range` call would change: the file now, and after. */
+export type SourceEditPreview = {
+  /** Canonical absolute path, as the tool resolves it. */
+  absPath: string;
+  /** False when `write_file` would create the file; `before` is then ''. */
+  existed: boolean;
+  before: string;
+  after: string;
+};
+
+/**
+ * What `write_file` / `edit_range` would write, without writing: the same
+ * input checks, path confinement and edit as the tools, on the file as it is
+ * now. The dirty-buffer and lint guards need the engine and are not run, so
+ * the real call may still refuse. A host uses this to show a diff before
+ * approving a call, and to keep a copy of the file before it runs.
+ */
+export async function previewSourceEdit(
+  tool: 'write_file' | 'edit_range',
+  input: WriteFileInput | EditRangeInput,
+): Promise<ToolResult<SourceEditPreview>> {
+  if (tool === 'write_file') {
+    if (typeof (input as WriteFileInput)?.content !== 'string') {
+      return err('invalid-input', '`content` is required and must be a string.');
+    }
+  } else {
+    const checked = checkEditRangeInput(input as EditRangeInput);
+    if (checked.ok === false) {
+      return checked as ToolResult<SourceEditPreview>;
+    }
+  }
+  const entry = resolveEntry(input);
+  if (entry.ok === false) {
+    return entry as ToolResult<SourceEditPreview>;
+  }
+  const resolved = resolveWithinWorkspace(entry.data.workspacePath, input?.path, { mustExist: tool === 'edit_range' });
+  if (resolved.ok === false) {
+    return resolved as ToolResult<SourceEditPreview>;
+  }
+  const absPath = resolved.data.absPath;
+  let before = '';
+  let existed = true;
+  try {
+    before = await fsp.readFile(absPath, 'utf8');
+  } catch (e: any) {
+    if (e?.code !== 'ENOENT' || tool === 'edit_range') {
+      return err('internal', e?.message ?? String(e));
+    }
+    existed = false;
+  }
+  const after = tool === 'write_file'
+    ? (input as WriteFileInput).content
+    : applyRangeEdit(before, (input as EditRangeInput).start, (input as EditRangeInput).end, (input as EditRangeInput).newText);
+  return ok({ absPath, existed, before, after });
+}
+
+export async function editRange(input: EditRangeInput): Promise<ToolResult<EditRangeOutput>> {
+  const checked = checkEditRangeInput(input);
+  if (checked.ok === false) {
+    return checked as ToolResult<EditRangeOutput>;
   }
 
   const entry = resolveEntry(input);
@@ -754,9 +826,7 @@ export async function editRange(input: EditRangeInput): Promise<ToolResult<EditR
   } catch (e: any) {
     return err('internal', e?.message ?? String(e));
   }
-  const startOffset = offsetAt(original, input.start);
-  const endOffset = offsetAt(original, input.end);
-  const next = original.slice(0, startOffset) + input.newText + original.slice(endOffset);
+  const next = applyRangeEdit(original, input.start, input.end, input.newText);
   const importGuard = await assertImportsPresent(
     entry.data,
     resolved.data.absPath,

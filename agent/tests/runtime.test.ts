@@ -14,6 +14,7 @@ import { createRuntimeRouter } from '../src/router.ts';
 import { McpEndpoints } from '../src/mcp-endpoint.ts';
 import { RESTART_REASON } from '../src/session.ts';
 import { SessionStore, type SessionRecord } from '../src/session-store.ts';
+import { NO_TURN_MESSAGE, STOPPED_MESSAGE } from '../src/tool-gate.ts';
 import type { ChatEventEnvelope, SessionSnapshot, ToolPart } from '../src/types.ts';
 
 // The runtime end to end, with a fake backend in place of a CLI: the fake run
@@ -26,9 +27,12 @@ class FakeRun implements AgentRun {
   readonly ref: string;
   readonly queue = new AsyncQueue<BackendEvent>();
   readonly sent: string[] = [];
+  /** What each scripted tool call returned to the "model". */
+  readonly results: any[] = [];
   closed = false;
-  private client: Client | null = null;
+  client: Client | null = null;
   private interrupted: (() => void) | null = null;
+  private scripted: { stopped: boolean } | null = null;
 
   constructor(private readonly opts: OpenOptions) {
     this.ref = opts.resume ?? `ref-${Math.random().toString(16).slice(2)}`;
@@ -44,6 +48,32 @@ class FakeRun implements AgentRun {
   }
 
   private async turn(text: string): Promise<void> {
+    if (text.startsWith('calls ')) {
+      // `calls [{ name, arguments }, …]` on the first line: make those tool
+      // calls in order, as a model would, then answer and end the turn.
+      const calls = JSON.parse(text.split('\n')[0].slice('calls '.length)) as { name: string; arguments: object }[];
+      const script = { stopped: false };
+      this.scripted = script;
+      this.client ??= await connectMcp(this.opts.mcpUrl);
+      for (const call of calls) {
+        if (script.stopped) {
+          return;
+        }
+        try {
+          this.results.push(await this.client.callTool({ name: call.name, arguments: call.arguments as Record<string, unknown> }));
+        } catch (e) {
+          // The run was closed under the call (the test ended).
+          this.results.push({ thrown: e });
+          return;
+        }
+      }
+      if (!script.stopped) {
+        this.scripted = null;
+        this.queue.push({ type: 'text-delta', id: 'b1', delta: 'Done.' });
+        this.queue.push({ type: 'turn-end', reason: 'done' });
+      }
+      return;
+    }
     if (text.startsWith('slow')) {
       this.queue.push({ type: 'text-delta', id: 'b0', delta: 'working…' });
       await new Promise<void>((resolve) => (this.interrupted = resolve));
@@ -58,7 +88,6 @@ class FakeRun implements AgentRun {
     this.queue.push({ type: 'reasoning-delta', id: 'b0', delta: 'Let me look.' });
     this.queue.push({ type: 'block-end', id: 'b0' });
     await this.client.callTool({ name: 'read_skill', arguments: { name: 'fluidcad' } });
-    await this.client.callTool({ name: 'write_file', arguments: { path: 'a.fluid.js', content: '' } });
     this.queue.push({ type: 'tool', id: 'g1', name: 'Grep', title: 'Search: hole', state: 'running', input: { pattern: 'hole' } });
     this.queue.push({ type: 'tool', id: 'g1', name: 'Grep', title: 'Search: hole', state: 'done', output: 'a.fluid.js:3' });
     this.queue.push({ type: 'text-delta', id: 'b1', delta: 'A plate ' });
@@ -70,6 +99,11 @@ class FakeRun implements AgentRun {
   async interrupt(): Promise<void> {
     this.interrupted?.();
     this.interrupted = null;
+    if (this.scripted) {
+      this.scripted.stopped = true;
+      this.scripted = null;
+      this.queue.push({ type: 'turn-end', reason: 'interrupted' });
+    }
   }
 
   async close(): Promise<void> {
@@ -110,11 +144,18 @@ let base: string;
 let runtime: AgentRuntime;
 let backend: FakeBackend;
 let prefs: any;
+/** What this test engine reports as unsaved editor buffers (write_file asks before writing). */
+let dirtyFiles: string[] = [];
 
 async function start(options: { idleMs?: number } = {}): Promise<void> {
   backend = new FakeBackend();
   const app = express();
   app.use(express.json({ limit: '50mb' }));
+  // The engine routes the MCP write tools use: dirty buffers only; the lint
+  // and the render answer 404 (an older engine), and the tools carry on.
+  app.get('/api/editor/dirty-files', (_req, res) => {
+    res.json(dirtyFiles.map((p) => ({ path: p, lastModifiedMs: 0 })));
+  });
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
   const port = (server.address() as AddressInfo).port;
@@ -136,7 +177,8 @@ async function start(options: { idleMs?: number } = {}): Promise<void> {
 }
 
 beforeEach(async () => {
-  workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-agent-runtime-'));
+  workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-agent-runtime-')));
+  dirtyFiles = [];
   prefs = { agent: { defaultAgent: null, permissionMode: 'ask' } };
   await start();
 });
@@ -255,12 +297,11 @@ describe('agent sessions API', () => {
     expect(user.role).toBe('user');
     expect(user.parts).toEqual([{ type: 'text', id: expect.any(String), text: 'what is in this model? one sentence' }]);
     expect(assistant.role).toBe('assistant');
-    expect(assistant.parts.map((p) => p.type)).toEqual(['reasoning', 'tool', 'tool', 'tool', 'text']);
-    const [read, write, grep] = assistant.parts.filter((p): p is ToolPart => p.type === 'tool');
+    expect(assistant.parts.map((p) => p.type)).toEqual(['reasoning', 'tool', 'tool', 'text']);
+    const [read, grep] = assistant.parts.filter((p): p is ToolPart => p.type === 'tool');
     expect(read).toMatchObject({ source: 'fluidcad', name: 'read_skill', state: 'done', kind: 'read' });
-    expect(write).toMatchObject({ source: 'fluidcad', name: 'write_file', state: 'denied', kind: 'edit' });
     expect(grep).toMatchObject({ source: 'agent', name: 'Grep', state: 'done', output: { text: 'a.fluid.js:3' } });
-    expect(assistant.parts[4]).toMatchObject({ type: 'text', text: 'A plate with four holes.' });
+    expect(assistant.parts[3]).toMatchObject({ type: 'text', text: 'A plate with four holes.' });
 
     // The stream carried the same events, in seq order, ids matching.
     expect(sse.retry).toBe('1000');
@@ -474,6 +515,17 @@ describe('restart recovery', () => {
           parts: [
             { type: 'tool', id: 'x', source: 'fluidcad', name: 'get_scene_summary', title: 't', kind: 'read', state: 'done', input: {} },
             { type: 'tool', id: 'y', source: 'fluidcad', name: 'write_file', title: 't', kind: 'edit', state: 'running', input: {} },
+            {
+              type: 'tool',
+              id: 'z',
+              source: 'fluidcad',
+              name: 'edit_range',
+              title: 't',
+              kind: 'edit',
+              state: 'awaiting-approval',
+              input: {},
+              approval: { id: 'ap-1', canAllowSession: true },
+            },
           ],
         },
       ],
@@ -484,8 +536,11 @@ describe('restart recovery', () => {
     const snap = await snapshot(id);
     expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
     const parts = snap.messages[1].parts as ToolPart[];
-    expect(parts.map((p) => p.state)).toEqual(['done', 'error']);
-    expect(parts[1].error).toContain('restarted');
+    expect(parts.map((p) => p.state)).toEqual(['done', 'error', 'error']);
+    expect(parts[1].error).toBe('The app restarted while this was running; its effect is unknown.');
+    expect(parts[2].error).toBe('The app restarted while this was running; its effect is unknown.');
+    // The approval no one answered is settled: answering it now is a conflict.
+    expect((await json('POST', `${base}/sessions/${id}/approvals/ap-1`, { decision: 'allow' })).status).toBe(409);
     expect(snap.turns[0].endReason).toBe('interrupted');
     // Persisted, so another restart does not lose it.
     expect(store.read(id)?.interrupted).toEqual({ reason: RESTART_REASON });
@@ -498,5 +553,230 @@ describe('restart recovery', () => {
     expect(backend.runs[0].sent[0]).toContain('The app restarted while you were working.');
     expect(store.read(id)?.interrupted).toBeUndefined();
     expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(409);
+  });
+});
+
+/** The text that makes the fake CLI call these tools in order (see FakeRun). */
+const calls = (...list: { name: string; arguments: object }[]) => `calls ${JSON.stringify(list)}`;
+const write = (file: string, content: string) => ({ name: 'write_file', arguments: { path: file, content } });
+const toolParts = (snap: SessionSnapshot) => snap.messages.flatMap((m) => m.parts).filter((p): p is ToolPart => p.type === 'tool');
+const awaitingApproval = (id: string) => until(() => snapshot(id), (s) => s.status.state === 'awaiting-approval');
+const textOf = (result: any) => (result.content as any[]).map((b) => b.text).join('');
+const inWorkspace = (name: string) => path.join(workspace, name);
+const readFile = (name: string) => fs.readFileSync(inWorkspace(name), 'utf8');
+const checkpointDir = (id: string, turnId: string) => path.join(workspace, '.fluidcad', 'agent', 'sessions', id, 'checkpoints', turnId);
+
+describe('approval, checkpoints and revert', () => {
+  it('asks before an edit, applies it on allow, and keeps a checkpoint', async () => {
+    fs.writeFileSync(inWorkspace('plate.part.js'), 'a\nb\nc\n');
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const sent = await json('POST', `${base}/sessions/${id}/messages`, {
+      text: calls({ name: 'edit_range', arguments: { path: 'plate.part.js', start: { line: 1, column: 0 }, end: { line: 1, column: 1 }, newText: 'B' } }),
+    });
+    const turnId = sent.body.turnId;
+    const waiting = await awaitingApproval(id);
+    const [part] = toolParts(waiting);
+    expect(part).toMatchObject({
+      name: 'edit_range',
+      title: 'Edit plate.part.js, line 2',
+      state: 'awaiting-approval',
+      approval: { canAllowSession: true },
+      diff: '--- a/plate.part.js\n+++ b/plate.part.js\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n',
+    });
+    const approvalId = part.approval!.id;
+    expect(waiting.status).toEqual({ state: 'awaiting-approval', turnId, approvalIds: [approvalId] });
+    expect(readFile('plate.part.js')).toBe('a\nb\nc\n');
+
+    expect((await json('POST', `${base}/sessions/${id}/approvals/${approvalId}`, { decision: 'maybe' })).status).toBe(400);
+    expect((await json('POST', `${base}/sessions/${id}/approvals/nope`, { decision: 'allow' })).status).toBe(404);
+    expect((await json('POST', `${base}/sessions/${id}/approvals/${approvalId}`, { decision: 'allow' })).status).toBe(204);
+    const done = await idle(id);
+    expect((await json('POST', `${base}/sessions/${id}/approvals/${approvalId}`, { decision: 'deny' })).status).toBe(409);
+
+    expect(readFile('plate.part.js')).toBe('a\nB\nc\n');
+    expect(toolParts(done)[0]).toMatchObject({ state: 'done', approval: { id: approvalId, decision: 'allow' } });
+    expect(done.turns[0]).toMatchObject({ id: turnId, revertible: true, files: ['plate.part.js'] });
+    expect(JSON.parse(fs.readFileSync(path.join(checkpointDir(id, turnId), '1.json'), 'utf8'))).toEqual({
+      path: inWorkspace('plate.part.js'),
+      existed: true,
+      content: 'a\nb\nc\n',
+    });
+    // The model was told the edit ran.
+    expect(backend.runs[0].results[0].isError).not.toBe(true);
+  });
+
+  it('keeps one checkpoint per file per turn, reverts later turns too, newest first, and tells the CLI once', async () => {
+    fs.writeFileSync(inWorkspace('plate.part.js'), 'v1');
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+
+    // Turn 1, edits applied without asking: the plate twice, and a new file.
+    const t1 = (
+      await json('POST', `${base}/sessions/${id}/messages`, {
+        text: calls(write('plate.part.js', 'v2'), write('plate.part.js', 'v3'), write('new.fluid.js', 'n1')),
+        mode: 'auto-edits',
+      })
+    ).body.turnId;
+    const s1 = await idle(id);
+    expect(s1.turns[0]).toMatchObject({ revertible: true, files: ['plate.part.js', 'new.fluid.js'] });
+    expect(fs.readdirSync(checkpointDir(id, t1)).sort()).toEqual(['1.json', '2.json']);
+    expect(JSON.parse(fs.readFileSync(path.join(checkpointDir(id, t1), '1.json'), 'utf8')).content).toBe('v1');
+    expect(JSON.parse(fs.readFileSync(path.join(checkpointDir(id, t1), '2.json'), 'utf8'))).toMatchObject({ existed: false });
+
+    // Turn 2 changes both again.
+    const t2 = (
+      await json('POST', `${base}/sessions/${id}/messages`, {
+        text: calls(write('new.fluid.js', 'n2'), write('plate.part.js', 'v4')),
+        mode: 'auto-edits',
+      })
+    ).body.turnId;
+    const s2 = await idle(id);
+    expect(s2.turns[1]).toMatchObject({ revertible: true, files: ['new.fluid.js', 'plate.part.js'] });
+    expect(readFile('plate.part.js')).toBe('v4');
+
+    expect((await json('POST', `${base}/sessions/${id}/revert`, {})).status).toBe(400);
+    expect((await json('POST', `${base}/sessions/${id}/revert`, { turnId: 'no-such-turn' })).status).toBe(404);
+
+    const stream = readSse(`${base}/sessions/${id}/events?after=${s2.seq}`, (s) => s.events.filter((e) => e.event.type === 'reverted').length >= 2);
+    await new Promise((r) => setTimeout(r, 50));
+    const reverted = await json('POST', `${base}/sessions/${id}/revert`, { turnId: t1 });
+    expect(reverted.status).toBe(200);
+    expect([...reverted.body.restored].sort()).toEqual(['new.fluid.js', 'plate.part.js']);
+    expect(reverted.body.failed).toBeUndefined();
+    expect(readFile('plate.part.js')).toBe('v1');
+    expect(fs.existsSync(inWorkspace('new.fluid.js'))).toBe(false);
+
+    const sse = await stream;
+    const revertEvents = sse.events.map((e) => e.event).filter((e) => e.type === 'reverted');
+    expect(revertEvents.map((e: any) => e.turnId)).toEqual([t2, t1]);
+
+    const after = await snapshot(id);
+    for (const turn of after.turns) {
+      expect(turn).toMatchObject({ revertible: false, revertedAt: expect.any(String) });
+    }
+    const notices = after.messages.filter((m) => m.role === 'assistant').map((m) => m.parts[m.parts.length - 1]);
+    expect(notices).toEqual([
+      { type: 'notice', id: expect.any(String), level: 'info', text: expect.stringMatching(/^Reverted the changes of this turn: /) },
+      { type: 'notice', id: expect.any(String), level: 'info', text: expect.stringMatching(/^Reverted the changes of this turn: /) },
+    ]);
+    expect(fs.existsSync(checkpointDir(id, t1))).toBe(false);
+    expect(fs.existsSync(checkpointDir(id, t2))).toBe(false);
+    expect((await json('POST', `${base}/sessions/${id}/revert`, { turnId: t1 })).status).toBe(409);
+
+    // The next message tells the CLI, whose history still has the edits; the one after does not.
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'hello' });
+    await idle(id);
+    const told = backend.runs[0].sent[2];
+    expect(told.startsWith('hello\n\n<reverted_changes>\n')).toBe(true);
+    expect(told).toContain('- plate.part.js\n');
+    expect(told).toContain('- new.fluid.js\n');
+    expect(told).toContain('</reverted_changes>\n<workspace_state');
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'again' });
+    await idle(id);
+    expect(backend.runs[0].sent[3]).not.toContain('reverted_changes');
+    expect(runtime.store.read(id)?.revertedFiles).toBeUndefined();
+  });
+
+  it('refuses to revert while a turn runs', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const t1 = (await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('a.fluid.js', 'x')), mode: 'auto-edits' })).body.turnId;
+    await idle(id);
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'slow one' });
+    await until(() => snapshot(id), (s) => s.status.state === 'running');
+    const refused = await json('POST', `${base}/sessions/${id}/revert`, { turnId: t1 });
+    expect(refused.status).toBe(409);
+    expect(fs.existsSync(inWorkspace('a.fluid.js'))).toBe(true);
+    await json('POST', `${base}/sessions/${id}/cancel`);
+  });
+
+  it('keeps a turn revertible when a file cannot be put back, and says which', async () => {
+    fs.writeFileSync(inWorkspace('plate.part.js'), 'v1');
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const t1 = (await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('plate.part.js', 'v2')), mode: 'auto-edits' })).body.turnId;
+    await idle(id);
+    dirtyFiles = [inWorkspace('plate.part.js')];
+    const blocked = await json('POST', `${base}/sessions/${id}/revert`, { turnId: t1 });
+    expect(blocked.body).toEqual({ restored: [], failed: [{ path: 'plate.part.js', error: expect.stringContaining('unsaved changes') }] });
+    expect(readFile('plate.part.js')).toBe('v2');
+    expect((await snapshot(id)).turns[0].revertible).toBe(true);
+
+    dirtyFiles = [];
+    expect((await json('POST', `${base}/sessions/${id}/revert`, { turnId: t1 })).body).toEqual({ restored: ['plate.part.js'] });
+    expect(readFile('plate.part.js')).toBe('v1');
+  });
+
+  it('cancel denies a pending approval, and a call after the cancel does not run', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('a.fluid.js', 'x')) });
+    const waiting = await awaitingApproval(id);
+    const approvalId = toolParts(waiting)[0].approval!.id;
+
+    expect((await json('POST', `${base}/sessions/${id}/cancel`)).status).toBe(204);
+    const after = await idle(id);
+    expect(after.status).toEqual({ state: 'idle' });
+    expect(toolParts(after)[0]).toMatchObject({ state: 'denied', approval: { id: approvalId, decision: 'deny' }, error: 'Stopped before you answered.' });
+    const run = backend.runs[0];
+    await until(() => run.results.length, (n) => n === 1);
+    expect(textOf(run.results[0])).toBe(STOPPED_MESSAGE);
+    expect((await json('POST', `${base}/sessions/${id}/approvals/${approvalId}`, { decision: 'allow' })).status).toBe(409);
+
+    // A call that arrives late (Codex keeps one pending through an interrupt) is refused.
+    const late = await run.client!.callTool({ name: 'write_file', arguments: { path: 'a.fluid.js', content: 'late' } });
+    expect(textOf(late)).toBe(NO_TURN_MESSAGE);
+    expect(fs.existsSync(inWorkspace('a.fluid.js'))).toBe(false);
+    expect((await snapshot(id)).turns[0].revertible).toBe(false);
+  });
+
+  it('settles a pending approval as denied, and saves it, when the engine exits; the restarted engine says the turn was cut off', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('a.fluid.js', 'x')) });
+    await awaitingApproval(id);
+    runtime.onEngineExit();
+    const stored = runtime.store.read(id)!;
+    const part = stored.messages[1].parts.find((p): p is ToolPart => p.type === 'tool')!;
+    expect(part).toMatchObject({ state: 'denied', error: 'The app closed before you answered.', approval: { decision: 'deny' } });
+    expect(fs.existsSync(inWorkspace('a.fluid.js'))).toBe(false);
+
+    // A new engine process on the same workspace (read before this one's turn goes on to end).
+    const restarted = new AgentRuntime(
+      {
+        workspacePath: workspace,
+        port: 1,
+        version: '0.0.0',
+        startedAt: new Date(0).toISOString(),
+        currentFile: () => null,
+        renderState: () => ({ state: 'none' }),
+        unit: () => 'mm',
+        loadPreferences: async () => prefs,
+      },
+      { backends: { claude: new FakeBackend() } },
+    );
+    try {
+      const snap = restarted.get(id)!.snapshot();
+      expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+      expect(toolParts(snap)[0]).toMatchObject({ state: 'denied' });
+    } finally {
+      await restarted.shutdown();
+    }
+    // The model was told the action did not run.
+    await until(() => backend.runs[0].results.length, (n) => n === 1);
+    expect(textOf(backend.runs[0].results[0])).toBe(STOPPED_MESSAGE);
+  });
+
+  it('shows a dirty-buffer refusal as a card naming the file, and the turn has nothing to revert', async () => {
+    fs.writeFileSync(inWorkspace('bracket.fluid.js'), 'v1');
+    dirtyFiles = [inWorkspace('bracket.fluid.js')];
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('bracket.fluid.js', 'v2')), mode: 'auto-edits' });
+    const done = await idle(id);
+    expect(toolParts(done)[0]).toMatchObject({
+      state: 'error',
+      errorCode: 'dirty-buffer',
+      error: 'Not written: bracket.fluid.js has unsaved changes in the editor. Save it, then ask again.',
+    });
+    // The model got the tool's own refusal.
+    expect(JSON.parse(textOf(backend.runs[0].results[0])).code).toBe('dirty-buffer');
+    expect(readFile('bracket.fluid.js')).toBe('v1');
+    expect(done.turns[0].revertible).toBe(false);
+    expect(done.turns[0].files).toBeUndefined();
   });
 });

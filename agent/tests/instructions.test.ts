@@ -19,6 +19,23 @@ describe('instructions', () => {
     expect(text).toBe('what is in this model?\n\n<workspace_state file="/w/bracket.fluid.js" render="rendered" unit="mm"/>');
   });
 
+  it('tells the CLI which files a revert put back, before the workspace state', () => {
+    const text = buildCliText({
+      text: 'next',
+      workspace: { file: null, render: 'rendered', unit: 'mm' },
+      revertedFiles: ['plate.part.js', 'new.fluid.js'],
+    });
+    expect(text).toBe(
+      'next\n\n<reverted_changes>\n' +
+        'The user reverted changes you made earlier in this conversation. These files are back to what they were ' +
+        'before those changes (a file you had created no longer exists):\n' +
+        '- plate.part.js\n- new.fluid.js\n</reverted_changes>\n' +
+        '<workspace_state render="rendered" unit="mm"/>',
+    );
+    expect(IN_APP_PREAMBLE).toContain('<reverted_changes>');
+    expect(buildCliText({ text: 'x', workspace: { file: null, render: 'none', unit: 'mm' }, revertedFiles: [] })).not.toContain('reverted');
+  });
+
   it('leaves out the file when none is open and escapes attribute values', () => {
     expect(workspaceStateTag({ file: null, render: 'none', unit: 'in' })).toBe('<workspace_state render="none" unit="in"/>');
     expect(workspaceStateTag({ file: '/w/"a"<b>&.fluid.js', render: 'compile-error', unit: 'mm' })).toBe(

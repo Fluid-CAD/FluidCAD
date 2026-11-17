@@ -12,7 +12,7 @@
 import { connect } from 'node:net';
 import { listLiveInstances } from '../discovery.ts';
 import { FluidCadClient } from '../client.ts';
-import { ok, type ToolResult } from '../types.ts';
+import { ok, type RegistryEntry, type ToolResult } from '../types.ts';
 
 export type WorkspaceInfo = {
   workspacePath: string;
@@ -45,8 +45,13 @@ export type ListWorkspacesOutput = {
   workspaces: WorkspaceInfo[];
 };
 
-export async function listWorkspaces(): Promise<ToolResult<ListWorkspacesOutput>> {
-  const entries = listLiveInstances();
+/**
+ * Probes `entries`, by default every live instance in the registry. A pinned
+ * server passes its one engine and never reads the registry.
+ */
+export async function listWorkspaces(
+  entries: RegistryEntry[] = listLiveInstances(),
+): Promise<ToolResult<ListWorkspacesOutput>> {
 
   const probes = await Promise.all(
     entries.map(async (entry) => {

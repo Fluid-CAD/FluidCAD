@@ -11,6 +11,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { listWorkspaces } from './tools/workspaces.ts';
+import type { WorkspaceArg } from './tools/inspection.ts';
 import {
   getApiSignature,
   getTypeDefinition,
@@ -60,7 +61,7 @@ import { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
 import { registerSkillsExtension, skillsExtensionCapability } from './skills-extension.ts';
 import { listSkills, readSkill } from './tools/skills.ts';
 import { registerDocResources, registerSkillResources } from './resources.ts';
-import type { ToolResult } from './types.ts';
+import type { RegistryEntry, ToolResult } from './types.ts';
 
 export const SERVER_NAME = 'FluidCAD';
 export const SERVER_VERSION = readPackageVersion();
@@ -87,9 +88,16 @@ export type BuildServerOptions = {
   docsIndex?: DocsIndex;
   /** Pre-built skills index. Tests use this to inject a custom skills root. */
   skillsIndex?: SkillsIndex;
+  /**
+   * Serve one engine only: every tool calls this entry, the registry
+   * (`~/.fluidcad/instances.json`) is never read, no tool takes a
+   * `workspace` argument, and list_workspaces returns this one entry.
+   */
+  pinnedWorkspace?: RegistryEntry;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
+  const pinned = options.pinnedWorkspace;
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
@@ -202,11 +210,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'List running FluidCAD workspaces',
       description:
-        'Returns every running FluidCAD workspace on this machine (from ~/.fluidcad/instances.json), with a quick liveness probe per entry. `reachable: false` is a dead server; `busy: true` is a live one that is mid-render — it is reachable, and a request sent to it waits for the render to finish.',
+        pinned
+          ? 'Returns the one FluidCAD workspace this server serves, with a quick liveness probe. Every tool works on it; none takes a `workspace` argument. `busy: true` means it is mid-render — it is reachable, and a request sent to it waits for the render to finish.'
+          : 'Returns every running FluidCAD workspace on this machine (from ~/.fluidcad/instances.json), with a quick liveness probe per entry. `reachable: false` is a dead server; `busy: true` is a live one that is mid-render — it is reachable, and a request sent to it waits for the render to finish.',
       inputSchema: {},
     },
     async () => {
-      const result = await listWorkspaces();
+      const result = await listWorkspaces(pinned ? [pinned] : undefined);
       return toMcp(result);
     },
   );
@@ -328,14 +338,21 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   registerSkillResources(server, skillsIndex);
   registerSkillsExtension(server, skillsIndex);
 
-  const workspaceArg = {
+  // A pinned server has no `workspace` argument. The cast keeps one handler
+  // signature for both: pinned, `workspace` is always undefined (the schema
+  // has no such key, so the SDK strips it from what a client sends).
+  const workspaceArg = (pinned ? {} : {
     workspace: z
       .string()
       .optional()
       .describe(
         'Absolute workspace path of the target FluidCAD instance. Optional when only one workspace is running.',
       ),
-  };
+  }) as { workspace: z.ZodOptional<z.ZodString> };
+  // Where a workspace tool's call goes: the pinned engine, or whatever the
+  // `workspace` argument resolves to through the registry.
+  const target = (workspace: string | undefined): WorkspaceArg =>
+    pinned ? { pinnedWorkspace: pinned } : { workspace };
 
   const shapeIdArg = z
     .string()
@@ -397,7 +414,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'screenshot. An instance a generator made carries `engineOwned: true`. A part file has none of these keys.',
       inputSchema: workspaceArg,
     },
-    async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),
+    async ({ workspace }) => toMcp(await getSceneSummary(target(workspace))),
   );
 
   server.registerTool(
@@ -408,7 +425,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Returns a flat list of `{ shapeId, type, sceneObjectId, label, part, lineageKey? }`: `label` + `part` is the row the Shapes panel shows ("Solid 2" of "Bracket"; `part` null = the top-level "Model" group; both absent on a meta shape), `lineageKey` (solids only) stays the same across your own edits where `shapeId` is minted afresh. Cheaper than get_scene_summary when you only need ids — use this before calling shape/face/edge property tools.',
       inputSchema: workspaceArg,
     },
-    async ({ workspace }) => toMcp(await listShapes({ workspace })),
+    async ({ workspace }) => toMcp(await listShapes(target(workspace))),
   );
 
   server.registerTool(
@@ -419,7 +436,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Returns `{ compileError: { message, filePath?, sourceLocation? } | null }`. Useful when the scene looks stale — a non-null value means the most recent render failed and the previous scene is still being served.',
       inputSchema: workspaceArg,
     },
-    async ({ workspace }) => toMcp(await getCompileError({ workspace })),
+    async ({ workspace }) => toMcp(await getCompileError(target(workspace))),
   );
 
   server.registerTool(
@@ -430,7 +447,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Returns `{ files: [{ file, relPath, params: [{ name, label, value, defaultValue, controlType, derived, expression?, numeric, min?, max?, step?, options?, group?, description?, line, column, problems? }], problems }], projectUnit }`: every `*.params.js` file of the workspace with its exported declarations, from a static scan of the files — works with no model open. `name` is the identifier a model imports (`import { name } from "./<relPath>"`), `label` the Parameters-panel name, `value` the declared literal (a `derived` row\'s evaluated value, null when it is only computed at render); numbers are in `projectUnit`. `problems` are the params-file rule violations write_file would refuse. Read this before copying a dimension into a model: a value that already exists here is imported, not retyped.',
       inputSchema: workspaceArg,
     },
-    async ({ workspace }) => toMcp(await listGlobalParams({ workspace })),
+    async ({ workspace }) => toMcp(await listGlobalParams(target(workspace))),
   );
 
   server.registerTool(
@@ -446,7 +463,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, shapeId, partId }) =>
-      toMcp(await getShapeProperties({ workspace, shapeId, partId })),
+      toMcp(await getShapeProperties({ ...target(workspace), shapeId, partId })),
   );
 
   server.registerTool(
@@ -462,7 +479,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, shapeId, faceIndex }) =>
-      toMcp(await getFaceProperties({ workspace, shapeId, faceIndex })),
+      toMcp(await getFaceProperties({ ...target(workspace), shapeId, faceIndex })),
   );
 
   server.registerTool(
@@ -478,7 +495,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, shapeId, edgeIndex }) =>
-      toMcp(await getEdgeProperties({ workspace, shapeId, edgeIndex })),
+      toMcp(await getEdgeProperties({ ...target(workspace), shapeId, edgeIndex })),
   );
 
   const selectionScopeArg = z
@@ -568,7 +585,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, expression, picks, scope, before }) =>
-      toMcp(await resolveSelection({ workspace, expression, picks, scope: scope as any, before })),
+      toMcp(await resolveSelection({ ...target(workspace), expression, picks, scope: scope as any, before })),
   );
 
   server.registerTool(
@@ -608,7 +625,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, shapeIds, instanceId }) =>
-      toMcp(await validate({ workspace, shapeIds, instanceId })),
+      toMcp(await validate({ ...target(workspace), shapeIds, instanceId })),
   );
 
   const instancePoseArg = z.object({
@@ -667,7 +684,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, instanceIds, shapeIds, tolerance, poses }) =>
-      toMcp(await interfere({ workspace, instanceIds, shapeIds, tolerance, poses })),
+      toMcp(await interfere({ ...target(workspace), instanceIds, shapeIds, tolerance, poses })),
   );
 
   const namedViewArg = z.enum([
@@ -861,7 +878,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         image: measureImageArg,
       },
     },
-    async ({ workspace, entities, image }) => toMcp(await measure({ workspace, entities: entities as any, image: image as any })),
+    async ({ workspace, entities, image }) => toMcp(await measure({ ...target(workspace), entities: entities as any, image: image as any })),
   );
 
   const configurationArg = z
@@ -897,7 +914,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         ...screenshotOverlayArgs,
       },
     },
-    async (args) => toMcp(await screenshot(args as any)),
+    async (args) => toMcp(await screenshot({ ...args, ...target(args.workspace) } as any)),
   );
 
   server.registerTool(
@@ -928,7 +945,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         ...screenshotOverlayArgs,
       },
     },
-    async (args) => toMcp(await screenshotMulti(args as any)),
+    async (args) => toMcp(await screenshotMulti({ ...args, ...target(args.workspace) } as any)),
   );
 
   server.registerTool(
@@ -952,7 +969,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         ...screenshotOverlayArgs,
       },
     },
-    async (args) => toMcp(await screenshotShape(args as any)),
+    async (args) => toMcp(await screenshotShape({ ...args, ...target(args.workspace) } as any)),
   );
 
   server.registerTool(
@@ -963,7 +980,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Returns `{ position, target, up, projection }` for the user\'s interactive camera, as last broadcast by the UI. Useful before computing an orbit-from-current view.',
       inputSchema: workspaceArg,
     },
-    async ({ workspace }) => toMcp(await getCameraState({ workspace })),
+    async ({ workspace }) => toMcp(await getCameraState(target(workspace))),
   );
 
   const timeoutMsArg = z
@@ -989,7 +1006,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, timeoutMs, stableMs }) =>
-      toMcp(await waitForIdle({ workspace, timeoutMs, stableMs })),
+      toMcp(await waitForIdle({ ...target(workspace), timeoutMs, stableMs })),
   );
 
   server.registerTool(
@@ -1013,7 +1030,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, shapeId, rayOrigin, rayDir, edgeThreshold }) =>
       toMcp(
         await hitTest({
-          workspace,
+          ...target(workspace),
           shapeId,
           rayOrigin: rayOrigin as [number, number, number],
           rayDir: rayDir as [number, number, number],
@@ -1060,7 +1077,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Walks the workspace recursively and returns workspace-relative paths for every FluidCAD file: the models (`.fluid.js`, `.part.js`, `.assembly.js`) and the custom feature modules they import (`.feature.js`). Skips `node_modules`, `.git`, `.fluidcad`, `dist`, `build` and other dot directories.',
       inputSchema: workspaceArg,
     },
-    async ({ workspace }) => toMcp(await listFluidFiles({ workspace })),
+    async ({ workspace }) => toMcp(await listFluidFiles(target(workspace))),
   );
 
   server.registerTool(
@@ -1071,7 +1088,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Returns the full contents of a file under the workspace root. Paths that escape the workspace (via `..` or symlinks) are rejected.',
       inputSchema: { ...workspaceArg, path: pathArg },
     },
-    async ({ workspace, path }) => toMcp(await readFile({ workspace, path })),
+    async ({ workspace, path }) => toMcp(await readFile({ ...target(workspace), path })),
   );
 
   server.registerTool(
@@ -1089,7 +1106,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, path, content, force, includeChanges }) =>
-      toMcp(await writeFile({ workspace, path, content, force, includeChanges })),
+      toMcp(await writeFile({ ...target(workspace), path, content, force, includeChanges })),
   );
 
   server.registerTool(
@@ -1109,7 +1126,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       },
     },
     async ({ workspace, path, start, end, newText, force, includeChanges }) =>
-      toMcp(await editRange({ workspace, path, start, end, newText, force, includeChanges })),
+      toMcp(await editRange({ ...target(workspace), path, start, end, newText, force, includeChanges })),
   );
 
   // -------------------------------------------------------------------------
@@ -1128,7 +1145,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         configuration: configurationArg.describe('Switch the session to this configurations() row first (as select_configuration does; "Default" for the param() literals), then recompute.'),
       },
     },
-    async ({ workspace, includeChanges, configuration }) => toMcp(await recompute({ workspace, includeChanges, configuration })),
+    async ({ workspace, includeChanges, configuration }) => toMcp(await recompute({ ...target(workspace), includeChanges, configuration })),
   );
 
   server.registerTool(
@@ -1142,7 +1159,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         name: z.string().min(1).describe('The row name (get_scene_summary().configurations.names), or "Default".'),
       },
     },
-    async ({ workspace, name }) => toMcp(await selectConfiguration({ workspace, name })),
+    async ({ workspace, name }) => toMcp(await selectConfiguration({ ...target(workspace), name })),
   );
 
   server.registerTool(
@@ -1160,7 +1177,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .describe('Zero-based scene-object index to stop rendering at. Use 0 to show only the first feature.'),
       },
     },
-    async ({ workspace, index }) => toMcp(await rollbackTo({ workspace, index })),
+    async ({ workspace, index }) => toMcp(await rollbackTo({ ...target(workspace), index })),
   );
 
   server.registerTool(
@@ -1178,7 +1195,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         line: z.number().int().nonnegative().describe('Zero-based line number to break on.'),
       },
     },
-    async ({ workspace, file, line }) => toMcp(await addBreakpoint({ workspace, file, line })),
+    async ({ workspace, file, line }) => toMcp(await addBreakpoint({ ...target(workspace), file, line })),
   );
 
   server.registerTool(
@@ -1188,7 +1205,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       description: 'Clears all source-line breakpoints; subsequent renders run end-to-end.',
       inputSchema: workspaceArg,
     },
-    async ({ workspace }) => toMcp(await clearBreakpoints({ workspace })),
+    async ({ workspace }) => toMcp(await clearBreakpoints(target(workspace))),
   );
 
   server.registerTool(
@@ -1205,7 +1222,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .describe('Absolute path to a STEP file (.step or .stp) on the local filesystem.'),
       },
     },
-    async ({ workspace, path }) => toMcp(await importStep({ workspace, path })),
+    async ({ workspace, path }) => toMcp(await importStep({ ...target(workspace), path })),
   );
 
   server.registerTool(
@@ -1248,7 +1265,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo, configuration }) =>
       toMcp(
         await exportShapes({
-          workspace,
+          ...target(workspace),
           format,
           shapeIds,
           assembly,
@@ -1281,7 +1298,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .describe('Absolute path to write the .fluidpkg to (name it `fileName`, e.g. `acme-gears-1.2.0.fluidpkg`). If omitted, the archive is returned inline (base64).'),
       },
     },
-    async ({ workspace, saveAsPath }) => toMcp(await packPackage({ workspace, saveAsPath })),
+    async ({ workspace, saveAsPath }) => toMcp(await packPackage({ ...target(workspace), saveAsPath })),
   );
 
   return server;

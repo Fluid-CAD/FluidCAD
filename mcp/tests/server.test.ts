@@ -181,3 +181,127 @@ describe('MCP server', () => {
     }
   });
 });
+
+// A pretend engine answering the health probe and the compile-error route,
+// so a call reaching it is told apart from one resolved through the registry.
+function startFakeEngine(workspacePath: string): Promise<{ server: http.Server; port: number }> {
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      res.setHeader('content-type', 'application/json');
+      if (req.url === '/api/health') {
+        res.end(JSON.stringify({ ok: true, version: '0.0.33', workspacePath, startedAt: 'x', pid: process.pid }));
+        return;
+      }
+      if (req.url === '/api/scene/compile-error') {
+        res.end(JSON.stringify({ compileError: null, servedBy: workspacePath }));
+        return;
+      }
+      res.statusCode = 404;
+      res.end('{}');
+    });
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      resolve({ server, port: typeof addr === 'object' && addr ? addr.port : 0 });
+    });
+  });
+}
+
+async function connectClient(server: ReturnType<typeof buildServer>): Promise<Client> {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: 'test', version: '0.0.0' });
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+  return client;
+}
+
+function textOf(result: Awaited<ReturnType<Client['callTool']>>): string {
+  return (result.content as any[])[0].text as string;
+}
+
+describe('pinned MCP server', () => {
+  let engine: http.Server | null = null;
+  let workspaceDir: string;
+
+  beforeEach(() => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-mcp-pinned-'));
+  });
+
+  afterEach(async () => {
+    fs.rmSync(workspaceDir, { recursive: true, force: true });
+    if (engine) {
+      await new Promise<void>((resolve) => engine!.close(() => resolve()));
+      engine = null;
+    }
+  });
+
+  it('exposes no `workspace` parameter on any tool', async () => {
+    const pinnedTools = await listToolSchemas(buildServer({ pinnedWorkspace: entry() }));
+    const withWorkspace = pinnedTools
+      .filter((t) => Object.prototype.hasOwnProperty.call(t.inputSchema.properties ?? {}, 'workspace'))
+      .map((t) => t.name);
+    expect(withWorkspace).toEqual([]);
+
+    // Unpinned, the same tools keep it.
+    const unpinnedTools = await listToolSchemas(buildServer());
+    const summary = unpinnedTools.find((t) => t.name === 'get_scene_summary')!;
+    expect(Object.keys(summary.inputSchema.properties ?? {})).toContain('workspace');
+  });
+
+  it('calls the pinned engine and never the registry', async () => {
+    const started = await startFakeEngine(workspaceDir);
+    engine = started.server;
+    // Two live instances: an unpinned server would refuse with no-workspace.
+    writeRegistry([
+      entry({ workspacePath: '/tmp/ws-other-a', port: 1 }),
+      entry({ workspacePath: '/tmp/ws-other-b', port: 2 }),
+    ]);
+    fs.writeFileSync(path.join(workspaceDir, 'part.fluid.js'), '// pinned\n');
+
+    const pinnedEntry = entry({ workspacePath: workspaceDir, port: started.port });
+    const server = buildServer({ pinnedWorkspace: pinnedEntry });
+    const client = await connectClient(server);
+    try {
+      const list = await client.callTool({ name: 'list_workspaces', arguments: {} });
+      const listed = JSON.parse(textOf(list)).workspaces;
+      expect(listed).toHaveLength(1);
+      expect(listed[0]).toMatchObject({ workspacePath: workspaceDir, port: started.port, reachable: true });
+
+      // A stray `workspace` from the client is not in the schema and is dropped.
+      const compile = await client.callTool({
+        name: 'get_compile_error',
+        arguments: { workspace: '/tmp/ws-other-a' },
+      });
+      expect(compile.isError).not.toBe(true);
+      expect(JSON.parse(textOf(compile))).toEqual({ compileError: null, servedBy: workspaceDir });
+
+      // Source tools resolve paths inside the pinned workspace.
+      const read = await client.callTool({ name: 'read_file', arguments: { path: 'part.fluid.js' } });
+      expect(read.isError).not.toBe(true);
+      expect(JSON.parse(textOf(read)).content).toBe('// pinned\n');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+
+    // The same registry leaves an unpinned server unable to choose.
+    const unpinned = buildServer();
+    const unpinnedClient = await connectClient(unpinned);
+    try {
+      const result = await unpinnedClient.callTool({ name: 'get_compile_error', arguments: {} });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse(textOf(result)).code).toBe('no-workspace');
+    } finally {
+      await unpinnedClient.close();
+      await unpinned.close();
+    }
+  });
+});
+
+async function listToolSchemas(server: ReturnType<typeof buildServer>) {
+  const client = await connectClient(server);
+  try {
+    return (await client.listTools()).tools;
+  } finally {
+    await client.close();
+    await server.close();
+  }
+}

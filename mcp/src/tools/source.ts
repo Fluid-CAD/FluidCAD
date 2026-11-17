@@ -10,8 +10,9 @@ import { findByWorkspace, listLiveInstances } from '../discovery.ts';
 import { FluidCadClient, HttpError } from '../client.ts';
 import { err, ok, type ToolResult } from '../types.ts';
 import type { RegistryEntry } from '../types.ts';
+import type { WorkspaceArg } from './inspection.ts';
 
-export type WorkspaceArg = { workspace?: string };
+export type { WorkspaceArg } from './inspection.ts';
 
 /**
  * Resolve a workspace argument to a `RegistryEntry`. Distinct from the
@@ -20,6 +21,9 @@ export type WorkspaceArg = { workspace?: string };
  * return the entry directly and let callers open a client when required.
  */
 function resolveEntry(input: WorkspaceArg): ToolResult<RegistryEntry> {
+  if (input?.pinnedWorkspace) {
+    return ok(input.pinnedWorkspace);
+  }
   if (input?.workspace) {
     const entry = findByWorkspace(input.workspace);
     if (!entry) {

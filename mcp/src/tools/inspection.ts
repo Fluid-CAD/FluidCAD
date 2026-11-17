@@ -13,7 +13,14 @@ import { MeasureImage, type MeasureImageInput } from './measure-image.ts';
 import { ScreenshotRequest, type ImageBlock } from './screenshot-request.ts';
 import { ScreenshotViews } from './screenshot-views.ts';
 
-export type WorkspaceArg = { workspace?: string };
+export type WorkspaceArg = {
+  workspace?: string;
+  /**
+   * The engine a pinned server serves (`BuildServerOptions.pinnedWorkspace`).
+   * Wins over `workspace`, and the registry is never read.
+   */
+  pinnedWorkspace?: RegistryEntry;
+};
 
 export type ResolvedClient = {
   client: FluidCadClient;
@@ -28,6 +35,9 @@ export type ResolvedClient = {
 export function resolveClient(
   input: WorkspaceArg,
 ): ToolResult<ResolvedClient> {
+  if (input?.pinnedWorkspace) {
+    return ok({ client: new FluidCadClient(input.pinnedWorkspace), entry: input.pinnedWorkspace });
+  }
   if (input?.workspace) {
     const entry = findByWorkspace(input.workspace);
     if (!entry) {

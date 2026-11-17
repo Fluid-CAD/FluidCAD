@@ -11,7 +11,7 @@ export function createAgentRouter(deps: AgentHostDeps): Router {
   return createRuntimeRouter(new AgentRuntime(deps));
 }
 
-export { AgentRuntime, AGENT_KINDS, UnsupportedAgentError, type AgentRuntimeOptions } from './runtime.ts';
+export { AgentRuntime, AGENT_KINDS, AGENT_NAMES, UnsupportedAgentError, type AgentRuntimeOptions } from './runtime.ts';
 export { createRuntimeRouter, parseSendMessage, streamEvents, HEARTBEAT_MS } from './router.ts';
 export { AgentSession, SessionBusyError, RevertError, DEFAULT_IDLE_MS, type SessionDeps, type TurnSetup, type RevertResult } from './session.ts';
 export { SessionStore, type SessionRecord, type Checkpoint } from './session-store.ts';
@@ -34,7 +34,12 @@ export {
 export { McpEndpoint, McpEndpoints, SharedMcpIndexes } from './mcp-endpoint.ts';
 export { ClaudeBackend, ClaudeRun, claudeChildEnv, CLAUDE_MIN_VERSION, CLAUDE_MODELS } from './claude/claude-backend.ts';
 export { ClaudeStreamMapper } from './claude/stream-json.ts';
-export { composeInstructions, buildCliText, workspaceStateTag, revertedChangesNote, IN_APP_PREAMBLE } from './instructions.ts';
+export { CodexBackend, CodexRun, CODEX_MIN_VERSION, codexTargetTriples, resolveCodexProgram } from './codex/codex-backend.ts';
+export { CodexAppServer } from './codex/app-server.ts';
+export { CodexEventMapper, mapCodexError } from './codex/notifications.ts';
+export { buildThreadConfig, buildThreadStartParams, buildThreadResumeParams, userServerNames } from './codex/thread-config.ts';
+export { declineServerRequest } from './codex/server-requests.ts';
+export { composeInstructions, inAppPreamble, buildCliText, workspaceStateTag, revertedChangesNote, IN_APP_PREAMBLE } from './instructions.ts';
 export { applyChatEvent } from './transcript.ts';
 export { killAllChildren } from './children.ts';
 export type * from './backend.ts';

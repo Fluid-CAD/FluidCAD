@@ -6,6 +6,7 @@ import type { AgentHostDeps } from '../../server/dist/agent-host.js';
 import type { Preferences } from '../../server/dist/preferences.js';
 import type { AgentBackend, AgentInstall, AgentModel } from './backend.ts';
 import { ClaudeBackend, claudeChildEnv } from './claude/claude-backend.ts';
+import { CodexBackend } from './codex/codex-backend.ts';
 import { composeInstructions } from './instructions.ts';
 import { McpEndpoints, SharedMcpIndexes } from './mcp-endpoint.ts';
 import { AgentSession, type SessionDeps, type TurnSetup } from './session.ts';
@@ -14,6 +15,9 @@ import type { ToolGateOptions } from './tool-gate.ts';
 import type { AgentKind, SessionSummary } from './types.ts';
 
 export const AGENT_KINDS: AgentKind[] = ['claude', 'codex'];
+
+/** How the panel and the messages name each agent. */
+export const AGENT_NAMES: Record<AgentKind, string> = { claude: 'Claude Code', codex: 'Codex' };
 
 export type AgentRuntimeOptions = {
   backends?: Partial<Record<AgentKind, AgentBackend>>;
@@ -50,11 +54,14 @@ export class AgentRuntime {
   private readonly sessions = new Map<string, AgentSession>();
   private readonly detections = new Map<AgentKind, Detection>();
   private loaded = false;
-  private instructionsText: string | null = null;
+  private readonly instructionsText = new Map<AgentKind, string>();
 
   constructor(deps: AgentHostDeps, options: AgentRuntimeOptions = {}) {
     this.deps = deps;
-    this.backends = options.backends ?? { claude: new ClaudeBackend() };
+    this.backends = options.backends ?? {
+      claude: new ClaudeBackend(),
+      codex: new CodexBackend({ clientVersion: deps.version, cwd: deps.workspacePath }),
+    };
     this.store = options.store ?? SessionStore.forWorkspace(deps.workspacePath);
     this.baseEnv = options.env ?? process.env;
     this.idleMs = options.idleMs;
@@ -94,7 +101,7 @@ export class AgentRuntime {
       return [];
     }
     const prefs = await this.deps.loadPreferences();
-    return backend.models(await this.install(kind, prefs, false));
+    return backend.models(await this.install(kind, prefs, false), this.childEnv(kind, prefs));
   }
 
   /**
@@ -112,7 +119,7 @@ export class AgentRuntime {
         supported: false,
         loggedIn: null,
         authMethod: null,
-        problem: kind === 'codex' ? 'Codex is not supported by this version of FluidCAD yet.' : `${kind} is not supported.`,
+        problem: `${AGENT_NAMES[kind] ?? kind} is not available in this version of FluidCAD.`,
       });
     }
     const pathOverride = kind === 'claude' ? prefs.agent?.claudePath : prefs.agent?.codexPath;
@@ -211,6 +218,7 @@ export class AgentRuntime {
     liveRuntimes.delete(this);
     await Promise.all([...this.sessions.values()].map((s) => s.dispose()));
     this.sessions.clear();
+    await Promise.all(Object.values(this.backends).map((b) => b?.dispose?.().catch((e) => console.error('[agent] closing a backend failed:', e))));
   }
 
   private sessionDeps(kind: AgentKind): SessionDeps {
@@ -241,7 +249,14 @@ export class AgentRuntime {
         render: this.deps.renderState().state,
         unit: this.deps.unit(),
       }),
-      instructions: () => (this.instructionsText ??= composeInstructions()),
+      instructions: () => {
+        let text = this.instructionsText.get(kind);
+        if (text === undefined) {
+          text = composeInstructions(kind);
+          this.instructionsText.set(kind, text);
+        }
+        return text;
+      },
     };
   }
 
@@ -264,6 +279,6 @@ export class AgentRuntime {
 
 export class UnsupportedAgentError extends Error {
   constructor(kind: string) {
-    super(kind === 'codex' ? 'Codex is not supported by this version of FluidCAD yet.' : `Unknown agent: ${kind}`);
+    super(kind in AGENT_NAMES ? `${AGENT_NAMES[kind as AgentKind]} is not available in this version of FluidCAD.` : `Unknown agent: ${kind}`);
   }
 }

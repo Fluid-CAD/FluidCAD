@@ -16,21 +16,36 @@ export interface AgentBackend {
   readonly kind: AgentKind;
   /** Locate the binary, read its version and login state. No model request. */
   detect(options: DetectOptions): Promise<AgentInstall>;
-  /** Models to offer; empty when the CLI cannot list them. */
-  models(install: AgentInstall): Promise<AgentModel[]>;
+  /** Models to offer; empty when the CLI cannot list them. `env` is what the CLI would run with. */
+  models(install: AgentInstall, env?: NodeJS.ProcessEnv): Promise<AgentModel[]>;
   /** Spawn (or attach to) the CLI for one chat session. */
   open(options: OpenOptions): Promise<AgentRun>;
+  /** Ends whatever the backend keeps running beyond its runs (Codex's shared app server). */
+  dispose?(): Promise<void>;
 }
 
 export type AgentModel = {
   /** What goes to the CLI; `default` means no model flag (the CLI's own setting). */
   id: string;
   label?: string;
+  /** Codex (`model/list`): a one-line description. */
+  description?: string;
+  /** Codex: the model Codex uses when none is chosen. */
+  isDefault?: boolean;
+  /** Codex: the reasoning efforts the model accepts, and the one it uses by default. */
+  efforts?: string[];
+  defaultEffort?: string;
+  /** Codex: whether the model accepts images (the references capture). */
+  acceptsImages?: boolean;
 };
 
 export type OpenOptions = {
   install: AgentInstall;
-  /** Claude session UUID or Codex thread id to continue; null starts a new conversation. */
+  /**
+   * Claude session UUID or Codex thread id to continue; null starts a new
+   * conversation. A backend that cannot find the conversation may start a
+   * new one instead (Codex does, and says so): its `ref` then differs.
+   */
   resume: string | null;
   cwd: string;
   mcpUrl: string;

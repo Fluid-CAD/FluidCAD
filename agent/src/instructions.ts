@@ -7,36 +7,48 @@
 
 import { SERVER_INSTRUCTIONS } from '../../mcp/dist/server.js';
 import type { AgentRenderState } from '../../server/dist/agent-host.js';
-import type { SceneReference } from './types.ts';
+import type { AgentKind, SceneReference } from './types.ts';
 
-export const IN_APP_PREAMBLE = [
-  'You are running inside the FluidCAD app, next to the user, on their open project.',
-  'They see the 3D viewport and the feature tree as you work; do not describe what a screenshot would show them.',
-  '',
-  'Your FluidCAD tools are the `fluidcad_app` MCP server. Its workspace is fixed to this project: there is no',
-  '`workspace` argument, and list_workspaces returns this project only.',
-  'Read and change the project only with the `fluidcad_app` tools. Shell commands and direct file edits are',
-  'not available; your own Read, Glob and Grep tools may read files inside the project.',
-  '',
-  'Changes may wait for the user\'s approval. When a tool reports that the user declined, or that FluidCAD did',
-  'not run it, do not retry it: say what you wanted to do and ask the user how to proceed.',
-  'A `dirty-buffer` refusal means the user has unsaved changes in that file: ask them to save it. Never pass',
-  '`force`.',
-  '',
-  'Each user message ends with facts about the app at the moment it was sent:',
-  '- `<workspace_state file="…" render="…" unit="…"/>`: the model file on screen (absolute path; absent when',
-  '  none is open), how its last render went (`rendered`, `build-error`, `compile-error`, `none`) and the',
-  '  project\'s length unit.',
-  '- `<scene_references>`, when the user attached geometry from the viewport: `[n]` in their text refers to',
-  '  `<ref n="…">` and to the geometry drawn in that colour in the attached image. Each ref\'s `selector` is the',
-  '  code to write for that geometry.',
-  '- `<reverted_changes>`, when the user reverted changes you made in an earlier turn: those files are back to',
-  '  what they were before that turn, whatever your history shows. Read them again before editing them.',
-].join('\n');
+/** What the CLI's own tools may do, per agent. */
+const OWN_TOOLS: Record<AgentKind, string> = {
+  claude: 'not available; your own Read, Glob and Grep tools may read files inside the project.',
+  codex: 'not available (the sandbox is read-only, and apply_patch cannot write); read files with `fluidcad_app`\'s\nread_file.',
+};
+
+/** The preamble of the system prompt for `kind` (§8.3). */
+export function inAppPreamble(kind: AgentKind = 'claude'): string {
+  return [
+    'You are running inside the FluidCAD app, next to the user, on their open project.',
+    'They see the 3D viewport and the feature tree as you work; do not describe what a screenshot would show them.',
+    '',
+    'Your FluidCAD tools are the `fluidcad_app` MCP server. Its workspace is fixed to this project: there is no',
+    '`workspace` argument, and list_workspaces returns this project only.',
+    'Read and change the project only with the `fluidcad_app` tools. Shell commands and direct file edits are',
+    OWN_TOOLS[kind],
+    '',
+    'Changes may wait for the user\'s approval. When a tool reports that the user declined, or that FluidCAD did',
+    'not run it, do not retry it: say what you wanted to do and ask the user how to proceed.',
+    'A `dirty-buffer` refusal means the user has unsaved changes in that file: ask them to save it. Never pass',
+    '`force`.',
+    '',
+    'Each user message ends with facts about the app at the moment it was sent:',
+    '- `<workspace_state file="…" render="…" unit="…"/>`: the model file on screen (absolute path; absent when',
+    '  none is open), how its last render went (`rendered`, `build-error`, `compile-error`, `none`) and the',
+    '  project\'s length unit.',
+    '- `<scene_references>`, when the user attached geometry from the viewport: `[n]` in their text refers to',
+    '  `<ref n="…">` and to the geometry drawn in that colour in the attached image. Each ref\'s `selector` is the',
+    '  code to write for that geometry.',
+    '- `<reverted_changes>`, when the user reverted changes you made in an earlier turn: those files are back to',
+    '  what they were before that turn, whatever your history shows. Read them again before editing them.',
+  ].join('\n');
+}
+
+/** Claude Code's preamble. */
+export const IN_APP_PREAMBLE = inAppPreamble('claude');
 
 /** The full system prompt for a chat session's CLI. */
-export function composeInstructions(): string {
-  return `${IN_APP_PREAMBLE}\n\n---\n\n${SERVER_INSTRUCTIONS}`;
+export function composeInstructions(kind: AgentKind = 'claude'): string {
+  return `${inAppPreamble(kind)}\n\n---\n\n${SERVER_INSTRUCTIONS}`;
 }
 
 export type WorkspaceState = {

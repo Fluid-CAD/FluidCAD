@@ -389,11 +389,11 @@ export class AgentSession {
       }
       const install = setup.install;
       if (!install.path || !install.supported) {
-        this.finishTurn('error', { kind: 'not-installed', message: install.problem ?? 'Claude Code was not found.' });
+        this.finishTurn('error', { kind: 'not-installed', message: install.problem ?? `${agentName(install.kind)} was not found.` });
         return;
       }
       if (install.loggedIn === false) {
-        this.finishTurn('error', { kind: 'auth', message: install.problem ?? 'Claude Code is not signed in.' });
+        this.finishTurn('error', { kind: 'auth', message: install.problem ?? `${agentName(install.kind)} is not signed in.` });
         return;
       }
       const model = input.model ?? setup.defaultModel ?? null;
@@ -883,6 +883,10 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
   'image/webp': 'webp',
   'image/gif': 'gif',
 };
+
+function agentName(kind: AgentKind): string {
+  return kind === 'codex' ? 'Codex' : 'Claude Code';
+}
 
 function samePath(a: string, b: string): boolean {
   return process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;

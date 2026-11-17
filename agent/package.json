@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "In-engine agent runtime for FluidCAD — drives the user's own Claude Code against the engine's MCP tools.",
+  "description": "In-engine agent runtime for FluidCAD — drives the user's own Claude Code or Codex against the engine's MCP tools.",
   "main": "./dist/index.js",
   "exports": {
     ".": "./dist/index.js"

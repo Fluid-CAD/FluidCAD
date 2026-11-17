@@ -1,0 +1,27 @@
+{
+  "cwd": "<project>",
+  "sandbox": "read-only",
+  "approvalPolicy": "never",
+  "developerInstructions": "You are running inside the FluidCAD app on the user's project.\nRead and change the project only with the fluidcad_app tools. Shell commands and direct file edits are unavailable.\nThe workspace is <project>; pass it as the `workspace` argument when a tool asks for one.\nKeep answers to one short sentence.",
+  "config": {
+    "mcp_servers.fluidcad_app.url": "http://127.0.0.1:4711/mcp",
+    "mcp_servers.fluidcad_app.tool_timeout_sec": 3600,
+    "mcp_servers.fluidcad_app.default_tools_approval_mode": "approve",
+    "features.shell_tool": false,
+    "features.apps": false,
+    "web_search": "disabled",
+    "mcp_servers.figma.enabled": false,
+    "mcp_servers.node_repl.enabled": false,
+    "mcp_servers.Neon.enabled": false,
+    "mcp_servers.FluidCAD.enabled": false,
+    "mcp_servers.blender.enabled": false,
+    "features.plugins": false,
+    "features.image_generation": false,
+    "features.multi_agent": false,
+    "features.goals": false,
+    "features.view_image": false,
+    "skills.include_instructions": false,
+    "tools.experimental_request_user_input.enabled": false,
+    "tools.update_plan.enabled": false
+  }
+}

@@ -133,7 +133,7 @@ export class ChatTranscript {
     this.follow();
   }
 
-  /** The view of a message (tests; phase 4's revert action finds its user message here). */
+  /** The view of a message (tests; the panel puts each turn's revert action under its user message). */
   messageView(id: string): MessageView | undefined {
     return this.views.get(id);
   }
@@ -173,13 +173,13 @@ function findPart(messages: readonly ChatMessage[], messageId: string, partId: s
  * cards, notices). A live message settles each part when the next starts,
  * and all of them when it ends.
  *
- * **Later phases plug in here:** `actions` (`data-ref="actions"`, under a
- * user message) takes phase 4's "Revert this turn"; phase 6's reference
- * chips are the `references` part.
+ * `actions` (`data-ref="actions"`, under a user message) holds what the
+ * panel offers for the turn: Revert this turn, the Reverted marker, the
+ * revert's outcome. Phase 6's reference chips are the `references` part.
  */
 export class MessageView {
   readonly el: HTMLDivElement;
-  /** Under a user message: room for per-turn actions (phase 4's revert). */
+  /** Under a user message: the turn's actions (Revert this turn), filled by the panel. */
   readonly actions: HTMLDivElement;
   private readonly body: HTMLDivElement;
   private readonly parts = new Map<string, PartView>();

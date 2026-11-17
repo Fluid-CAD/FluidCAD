@@ -1,4 +1,4 @@
-import type { ChatEvent, ChatMessage, ChatPart } from './chat-types';
+import type { ChatEvent, ChatMessage, ChatPart, TurnRecord } from './chat-types';
 
 /**
  * Folds one event of the session's stream (docs/agent-chat-plan.md §7.3)
@@ -50,6 +50,62 @@ export function reduceChatAll(messages: readonly ChatMessage[], events: Iterable
   for (const event of events) {
     out = reduceChat(out, event);
   }
+  return out;
+}
+
+/**
+ * Folds one event into the session's turn records — what `Session` in
+ * `agent/src/session.ts` does to `record.turns` as it emits the event, so a
+ * page holding a snapshot's `turns` follows revertibility live:
+ *
+ * - a user `message-start` opens its turn (the engine records the turn as it
+ *   sends the user message), not revertible yet;
+ * - `checkpoint` sets the turn's files to the event's full list; the turn is
+ *   revertible while that list is not empty (`checkpointsChanged`);
+ * - `reverted` ends its revertibility and stamps `revertedAt` (`revert`),
+ *   keeping `files` as the engine does.
+ *
+ * `endedAt` and `endReason` come with snapshots only: no event carries them.
+ * Pure, like {@link reduceChat}: `turns` comes back itself when the event
+ * does not touch it. `now` stamps `revertedAt` (the event has no time).
+ */
+export function reduceTurns(
+  turns: readonly TurnRecord[],
+  event: ChatEvent,
+  now: () => string = () => new Date().toISOString(),
+): TurnRecord[] {
+  switch (event.type) {
+    case 'message-start': {
+      const { message } = event;
+      if (message.role !== 'user' || turns.some((t) => t.id === message.turnId)) {
+        return turns as TurnRecord[];
+      }
+      return [...turns, { id: message.turnId, userMessageId: message.id, revertible: false }];
+    }
+    case 'checkpoint':
+      return updateTurn(turns, event.turnId, (turn) => {
+        const next: TurnRecord = { ...turn, revertible: event.files.length > 0 };
+        if (event.files.length > 0) {
+          next.files = [...event.files];
+        } else {
+          delete next.files;
+        }
+        return next;
+      });
+    case 'reverted':
+      return updateTurn(turns, event.turnId, (turn) => ({ ...turn, revertible: false, revertedAt: now() }));
+    default:
+      return turns as TurnRecord[];
+  }
+}
+
+function updateTurn(turns: readonly TurnRecord[], id: string, change: (turn: TurnRecord) => TurnRecord): TurnRecord[] {
+  const index = turns.findIndex((t) => t.id === id);
+  if (index < 0) {
+    return turns as TurnRecord[];
+  }
+  const out = turns.slice();
+  out[index] = change(turns[index]);
   return out;
 }
 

@@ -211,6 +211,86 @@
   display: none;
 }
 
+/* Under a user message: Revert this turn, the Reverted marker, the outcome. */
+[data-role='chat-panel'] .chat-message-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 88%;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-turn-revert {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--chat-muted);
+  cursor: pointer;
+}
+
+[data-role='chat-panel'] .chat-turn-revert:hover:not(:disabled) {
+  color: var(--color-base-content);
+  background: color-mix(in oklab, var(--color-base-content) 7%, transparent);
+}
+
+[data-role='chat-panel'] .chat-turn-revert:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+[data-role='chat-panel'] .chat-turn-revert:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+[data-role='chat-panel'] .chat-turn-reverted {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+}
+
+[data-role='chat-panel'] .chat-revert-outcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  padding: 5px 6px 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--chat-line);
+  background: var(--chat-surface);
+  color: var(--color-base-content);
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+}
+
+[data-role='chat-panel'] .chat-revert-outcome[data-outcome='done'] > span:first-child { color: var(--color-success); }
+[data-role='chat-panel'] .chat-revert-outcome[data-outcome='failed'] {
+  border-color: color-mix(in oklab, var(--color-error) 40%, transparent);
+}
+[data-role='chat-panel'] .chat-revert-outcome[data-outcome='failed'] > span:first-child { color: var(--color-error); }
+
+[data-role='chat-panel'] .chat-revert-outcome ul {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-role='chat-panel'] .chat-revert-outcome li {
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-revert-outcome code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
 [data-role='chat-panel'] .chat-assistant-body {
   display: flex;
   flex-direction: column;
@@ -466,11 +546,83 @@
   padding: 0 8px 6px 29px;
 }
 
-[data-role='chat-panel'] .chat-tool-approval {
+/* Waiting: the change, then the question and the answers. */
+[data-role='chat-panel'] .chat-tool-approval[data-mode='waiting'] {
+  gap: 6px;
+  padding: 2px 8px 8px;
+}
+
+[data-role='chat-panel'] .chat-tool[data-state='awaiting-approval'] {
+  border-color: color-mix(in oklab, var(--color-warning) 55%, transparent);
+}
+
+[data-role='chat-panel'] .chat-approval-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+[data-role='chat-panel'] .chat-approval-question {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-approval-question > span:first-child {
+  color: var(--color-warning);
+}
+
+[data-role='chat-panel'] .chat-approval-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+[data-role='chat-panel'] .chat-approval-secondary {
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 18%, transparent);
+}
+
+/* Answered and allowed: one quiet line. */
+[data-role='chat-panel'] .chat-tool-approval[data-mode='answered'] {
   flex-direction: row;
   align-items: center;
   gap: 6px;
+  color: var(--chat-muted);
+}
+
+/* A write refused for unsaved changes. */
+[data-role='chat-panel'] .chat-tool-dirty {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin: 0 8px 8px;
+  padding: 7px 8px;
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--color-warning) 12%, var(--color-base-100));
+  color: var(--color-base-content);
+  line-height: 1.45;
+}
+
+[data-role='chat-panel'] .chat-tool-dirty > span:first-child {
   color: var(--color-warning);
+}
+
+[data-role='chat-panel'] .chat-tool-dirty-file {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-tool[data-error-code='dirty-buffer'] {
+  border-color: color-mix(in oklab, var(--color-warning) 45%, transparent);
 }
 
 [data-role='chat-panel'] .chat-tool-outcome[data-outcome='rendered'] {
@@ -552,9 +704,47 @@
   overflow-wrap: anywhere;
 }
 
-[data-role='chat-panel'] .chat-diff-add { color: var(--color-success); }
-[data-role='chat-panel'] .chat-diff-del { color: var(--color-error); }
-[data-role='chat-panel'] .chat-diff-hunk { color: var(--chat-faint); }
+/* A unified diff: one block row per line, so a tint spans the width. */
+[data-role='chat-panel'] pre.chat-diff,
+[data-role='chat-panel'] .chat-tool-section pre.chat-diff {
+  margin: 0;
+  padding: 4px 0;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 4px;
+  border: 1px solid var(--chat-line);
+  background: var(--chat-code-bg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+[data-role='chat-panel'] .chat-diff-line {
+  display: block;
+  min-width: max-content;
+  padding: 0 8px;
+}
+
+[data-role='chat-panel'] .chat-diff-add {
+  background: color-mix(in oklab, var(--color-success) 16%, transparent);
+  color: color-mix(in oklab, var(--color-success) 55%, var(--color-base-content));
+}
+
+[data-role='chat-panel'] .chat-diff-del {
+  background: color-mix(in oklab, var(--color-error) 14%, transparent);
+  color: color-mix(in oklab, var(--color-error) 55%, var(--color-base-content));
+}
+
+[data-role='chat-panel'] .chat-diff-hunk {
+  color: var(--color-info);
+  opacity: 0.8;
+}
+
+[data-role='chat-panel'] .chat-diff-file,
+[data-role='chat-panel'] .chat-diff-note {
+  color: var(--chat-faint);
+}
 
 /* --- Notices and references ------------------------------------------------ */
 
@@ -604,5 +794,13 @@
 @media (width < 640px) {
   [data-role='chat-panel'] {
     z-index: 151;
+  }
+
+  /* The view gizmo's hit area (three-viewport-gizmo, z-index 1000, drawn
+     into the scene's canvas) sits over the panel's top-right corner there and
+     would take the clicks meant for New chat: while the panel covers the
+     scene, the scene's overlays take none. */
+  #fluidcad-viewer:has(> [data-role='chat-panel']:not(.hidden)) #fluidcad-scene > div {
+    pointer-events: none;
   }
 }

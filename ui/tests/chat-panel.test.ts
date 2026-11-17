@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ChatPanel, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
+import { ChatPanel, type ChatConfirmOptions, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
+import type { ChatMessage, PermissionMode, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
 import { LeftSlot } from '../src/ui/left-slot';
 import { isEditableTarget, isChatComposer } from '../src/editable-target';
 import { FakeChatClient } from './fixtures/fake-chat-client';
@@ -57,6 +58,10 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
   const openSource = vi.fn();
   const timers = new ManualTimers();
   const current: ChatPanelSettings = { defaultAgent: null, permissionMode: 'ask', ...settings };
+  const confirm = vi.fn(async (_options: ChatConfirmOptions) => true);
+  const onPermissionModeChosen = vi.fn((mode: PermissionMode) => {
+    current.permissionMode = mode;
+  });
   const panel = new ChatPanel({
     container,
     client,
@@ -65,6 +70,8 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
     openExternal,
     openSettings,
     openSource,
+    confirm,
+    onPermissionModeChosen,
     onOpenChange: (open) => events.push(open ? 'agent open' : 'agent closed'),
     timers,
   });
@@ -83,7 +90,7 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
     return event;
   };
   const width = () => document.documentElement.style.getPropertyValue('--fluidcad-editor-width');
-  return { client, panel, container, events, slot, editor, openExternal, openSettings, openSource, timers, settings: current, $, $$, input, sendButton, type, key, width };
+  return { client, panel, container, events, slot, editor, openExternal, openSettings, openSource, confirm, onPermissionModeChosen, timers, settings: current, $, $$, input, sendButton, type, key, width };
 }
 
 /** Open the panel and let the first reads land. */
@@ -416,7 +423,8 @@ describe('the attach protocol (§7.3)', () => {
     expect(h.$('[data-ref="status"]')!.textContent).toContain('The app restarted');
     h.$<HTMLButtonElement>('[data-ref="continue"]')!.click();
     await settle();
-    expect(client.continueTurn).toHaveBeenCalledWith('s');
+    // In the mode the header holds.
+    expect(client.continueTurn).toHaveBeenCalledWith('s', 'ask');
     expect(h.panel.el.dataset.status).toBe('running');
   });
 
@@ -516,5 +524,342 @@ describe('the tool card’s line', () => {
     expect(readRenderOutcome('{"render":{"state":"build-error","objectErrors":[{"name":"Fillet 1","message":"radius too large","sourceLocation":{"filePath":"/w/a.part.js","line":3,"column":1}}]}}'))
       .toEqual({ state: 'build-error', errors: [{ name: 'Fillet 1', message: 'radius too large', location: { filePath: '/w/a.part.js', line: 3, column: 1 } }] });
     expect(readRenderOutcome('plain text')).toBeNull();
+  });
+
+  it('a tool’s own JSON refusal reads as its message, even cut short', async () => {
+    const { readableError } = await import('../src/ui/chat/parts/tool-part');
+    const refusal = JSON.stringify({ code: 'missing-imports', message: 'Refusing to write "/w/a.part.js" — uses fillet without an import.', details: {} });
+    expect(readableError(refusal)).toBe('Refusing to write "/w/a.part.js" — uses fillet without an import.');
+    expect(readableError(refusal.slice(0, -5))).toBe('Refusing to write "/w/a.part.js" — uses fillet without an import.');
+    expect(readableError('Declined.')).toBe('Declined.');
+    expect(readableError('{"no":"message"}')).toBe('{"no":"message"}');
+  });
+});
+
+// --- Phase 4: approval, the permission mode, revert, the dirty buffer -------
+
+const DIFF = '--- a/plate.part.js\n+++ b/plate.part.js\n@@ -1,3 +1,4 @@\n a\n-b\n+B\n+fillet(2)\n c\n';
+
+function editPart(overrides: Partial<ToolPart> = {}): ToolPart {
+  return {
+    type: 'tool',
+    id: 'edit',
+    source: 'fluidcad',
+    name: 'edit_range',
+    title: 'Edit plate.part.js, line 2',
+    kind: 'edit',
+    state: 'awaiting-approval',
+    input: { path: 'plate.part.js' },
+    diff: DIFF,
+    approval: { id: 'ap1', canAllowSession: true },
+    ...overrides,
+  };
+}
+
+/** A session whose running turn waits on `part`, as a snapshot holds it (a reload, a second tab). */
+function waitingSession(client: FakeChatClient, part: ToolPart = editPart()) {
+  return client.addSession({
+    id: 's',
+    title: 'Fillet',
+    status: { state: 'awaiting-approval', turnId: 't1', approvalIds: part.approval ? [part.approval.id] : [] },
+    messages: [
+      { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'u1t', text: 'add a 2 mm fillet' }] },
+      { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [part] },
+    ],
+    turns: [{ id: 't1', userMessageId: 'u1', revertible: false }],
+  });
+}
+
+describe('approval on tool cards (§12.1)', () => {
+  it('shows the diff above Allow, Allow for this session and Deny; Allow answers and the buttons go with the event', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    expect(card.dataset.state).toBe('awaiting-approval');
+    const approval = card.querySelector('[data-ref="approval"]')!;
+    expect(approval.classList.contains('hidden')).toBe(false);
+    // The diff, expanded, before the buttons; lines tinted by their sign.
+    const diff = approval.querySelector('[data-ref="diff"]')!;
+    expect(diff.compareDocumentPosition(approval.querySelector('[data-ref="allow"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect([...diff.querySelectorAll('.chat-diff-add')].map((l) => l.textContent)).toEqual(['+B\n', '+fillet(2)\n']);
+    expect([...diff.querySelectorAll('.chat-diff-del')].map((l) => l.textContent)).toEqual(['-b\n']);
+    expect(diff.querySelectorAll('.chat-diff-file')).toHaveLength(2);
+    expect(diff.querySelector('.chat-diff-hunk')!.textContent).toBe('@@ -1,3 +1,4 @@\n');
+    expect(approval.querySelector('[data-ref="approval-question"]')!.textContent!.trim()).toBe('Apply this change?');
+    const buttons = [...approval.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((b) => [b.dataset.ref, b.textContent!.trim(), b.disabled])).toEqual([
+      ['allow', 'Allow', false],
+      ['allow-session', 'Allow for this session', false],
+      ['deny', 'Deny', false],
+    ]);
+    // Real buttons: in the tab order, no shortcut needed.
+    expect(buttons.every((b) => b.tabIndex >= 0 && b.type === 'button')).toBe(true);
+    expect(h.$('[data-ref="activity"]')!.textContent).toBe('Waiting for your approval…');
+
+    buttons[0].click();
+    await settle();
+    expect(client.decideApproval).toHaveBeenCalledWith('s', 'ap1', 'allow');
+    expect(card.dataset.state).toBe('running');
+    expect(card.querySelectorAll('[data-ref="approval"] button')).toHaveLength(0);
+    expect(card.querySelector('[data-ref="approval"]')!.textContent!.trim()).toBe('You allowed this');
+    // The diff moved into the details.
+    card.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    expect(card.querySelector('[data-ref="details"] [data-ref="diff"]')).not.toBeNull();
+    expect(h.panel.el.dataset.status).toBe('running');
+  });
+
+  it('Allow for this session and Deny send their decision; a declined card says so', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client);
+    const h = mount(client);
+    await opened(h);
+    h.$<HTMLButtonElement>('[data-ref="allow-session"]')!.click();
+    await settle();
+    expect(client.decideApproval).toHaveBeenLastCalledWith('s', 'ap1', 'allow-session');
+    expect(h.$('[data-ref="approval"]')!.textContent!.trim()).toBe('You allowed this for the session');
+
+    const other = new FakeChatClient();
+    waitingSession(other);
+    const d = mount(other);
+    await opened(d);
+    d.$<HTMLButtonElement>('[data-ref="deny"]')!.click();
+    await settle();
+    expect(other.decideApproval).toHaveBeenCalledWith('s', 'ap1', 'deny');
+    const card = d.$('[data-part="tool"]')!;
+    expect(card.dataset.state).toBe('denied');
+    expect(card.querySelector('[data-ref="approval"]')!.classList.contains('hidden')).toBe(true);
+    expect(card.querySelector('[data-ref="error"]')!.textContent).toBe('Declined.');
+  });
+
+  it('offers no Allow for this session when the call does not (outside the project)', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ name: 'export', title: 'Export a STEP file', kind: 'outside', diff: undefined, approval: { id: 'ap2', canAllowSession: false } }));
+    const h = mount(client);
+    await opened(h);
+    expect(h.$$('[data-ref="approval"] button').map((b) => b.dataset.ref)).toEqual(['allow', 'deny']);
+    expect(h.$('[data-ref="approval"] [data-ref="diff"]')).toBeNull();
+    expect(h.$('[data-ref="approval-question"]')!.textContent!.trim()).toBe('This reaches outside the project. Allow it?');
+  });
+
+  it('settled elsewhere (another tab, a stop): the buttons go; stopped, timed out and cancelled cards say why', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client);
+    const h = mount(client);
+    await opened(h);
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'edit', patch: { state: 'denied', approval: { id: 'ap1', canAllowSession: true, decision: 'deny' }, error: 'Stopped before you answered.' } });
+    const card = h.$('[data-part="tool"]')!;
+    expect(card.querySelectorAll('button[data-ref="allow"]')).toHaveLength(0);
+    expect(card.querySelector('[data-ref="error"]')!.textContent).toBe('Stopped before you answered.');
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'edit', patch: { state: 'error', approval: { id: 'ap1', canAllowSession: true }, error: 'Approval timed out.' } });
+    expect(card.dataset.state).toBe('error');
+    expect(card.querySelector('[data-ref="approval"]')!.classList.contains('hidden')).toBe(true);
+    expect(card.querySelector('[data-ref="error"]')!.textContent).toBe('Approval timed out.');
+  });
+
+  it('an answer the engine did not take: the buttons come back, and the reason shows', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client);
+    let release!: () => void;
+    client.decideApproval.mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve({ ok: false, status: 0, error: 'FluidCAD did not answer.' });
+    }));
+    const h = mount(client);
+    await opened(h);
+    h.$<HTMLButtonElement>('[data-ref="allow"]')!.click();
+    await settle();
+    // While it goes, the answers wait.
+    expect(h.$$<HTMLButtonElement>('[data-ref="approval"] button').every((b) => b.disabled)).toBe(true);
+    release();
+    await settle();
+    expect(h.$$<HTMLButtonElement>('[data-ref="approval"] button').every((b) => !b.disabled)).toBe(true);
+    expect(h.$('[data-ref="status"]')!.textContent).toContain('FluidCAD did not answer.');
+  });
+});
+
+describe('the permission mode in the header', () => {
+  it('starts from Settings, switches from its menu, is remembered, and goes with the next message and Continue', async () => {
+    const h = mount(new FakeChatClient(), { permissionMode: 'ask' });
+    await opened(h);
+    const button = h.$<HTMLButtonElement>('[data-ref="mode"]')!;
+    expect(button.dataset.mode).toBe('ask');
+    expect(button.textContent!.trim()).toBe('Ask');
+    expect(button.getAttribute('aria-label')).toBe('Permission mode: Ask before edits');
+    button.click();
+    const menu = h.container.querySelector('[data-ref="mode-menu"]')!;
+    const rows = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"], button')].filter((r) => r.textContent);
+    expect(rows.map((r) => r.textContent!.trim())).toEqual(['Ask before edits', 'Apply edits automatically']);
+    rows[1].click();
+    expect(h.onPermissionModeChosen).toHaveBeenCalledWith('auto-edits');
+    expect(button.dataset.mode).toBe('auto-edits');
+    expect(button.textContent!.trim()).toBe('Auto-apply');
+    expect(button.title).toContain('Apply edits automatically');
+
+    h.type('add a fillet');
+    h.key('Enter');
+    await settle();
+    expect(h.client.sent[0].message.mode).toBe('auto-edits');
+  });
+
+  it('Settings → Agent saved again decides; Continue goes in the current mode', async () => {
+    const client = new FakeChatClient();
+    client.addSession({ id: 's', title: 'S', status: { state: 'interrupted', reason: 'The app restarted.' } });
+    const h = mount(client, { permissionMode: 'auto-edits' });
+    await opened(h);
+    expect(h.$('[data-ref="mode"]')!.dataset.mode).toBe('auto-edits');
+    h.panel.setMode('ask');
+    h.settings.permissionMode = 'auto-edits';
+    h.panel.settingsChanged();
+    expect(h.$('[data-ref="mode"]')!.dataset.mode).toBe('auto-edits');
+    h.$<HTMLButtonElement>('[data-ref="continue"]')!.click();
+    await settle();
+    expect(client.continueTurn).toHaveBeenCalledWith('s', 'auto-edits');
+  });
+});
+
+/** Three ended turns: the first and the third changed files, the second did not. */
+function turnsSession(client: FakeChatClient, status: SessionStatus = { state: 'idle' }) {
+  const messages: ChatMessage[] = [];
+  for (const n of [1, 2, 3]) {
+    messages.push({ id: `u${n}`, role: 'user', turnId: `t${n}`, createdAt: '', parts: [{ type: 'text', id: `u${n}t`, text: `turn ${n}` }] });
+    messages.push({ id: `a${n}`, role: 'assistant', turnId: `t${n}`, createdAt: '', parts: [{ type: 'text', id: `a${n}t`, text: 'Done.' }] });
+  }
+  const turns: TurnRecord[] = [
+    { id: 't1', userMessageId: 'u1', revertible: true, files: ['plate.part.js'], endedAt: 'x', endReason: 'done' },
+    { id: 't2', userMessageId: 'u2', revertible: false, endedAt: 'x', endReason: 'done' },
+    { id: 't3', userMessageId: 'u3', revertible: true, files: ['lid.part.js', 'plate.part.js'], endedAt: 'x', endReason: 'done' },
+  ];
+  return client.addSession({ id: 's', title: 'Turns', status, messages, turns });
+}
+
+describe('Revert this turn (§12.2)', () => {
+  const actions = (h: ReturnType<typeof mount>, id: string) => h.$(`[data-message-id="${id}"] [data-ref="actions"]`)!;
+
+  it('is offered under the user message of each turn with changes; confirms with the files and the later turns; then marks them Reverted', async () => {
+    const client = new FakeChatClient();
+    turnsSession(client);
+    const h = mount(client);
+    await opened(h);
+    expect(actions(h, 'u1').querySelector('[data-ref="revert"]')!.textContent!.trim()).toBe('Revert this turn');
+    expect(actions(h, 'u2').querySelector('[data-ref="revert"]')).toBeNull();
+    expect(actions(h, 'u3').querySelector('[data-ref="revert"]')).not.toBeNull();
+    // Assistant messages carry no revert.
+    expect(h.$('[data-message-id="a1"] [data-ref="revert"]')).toBeNull();
+
+    actions(h, 'u1').querySelector<HTMLButtonElement>('[data-ref="revert"]')!.click();
+    await settle();
+    expect(h.confirm).toHaveBeenCalledTimes(1);
+    const asked = h.confirm.mock.calls[0][0];
+    expect(asked.title).toBe('Revert this turn');
+    expect(asked.message).toContain('The later turn that changed files is reverted too.');
+    expect(asked.items).toEqual(['plate.part.js', 'lid.part.js']);
+    expect(asked.confirmLabel).toBe('Revert 2 turns');
+    expect(client.revert).toHaveBeenCalledWith('s', 't1');
+
+    // Both turns are marked; the outcome shows under the turn asked on.
+    expect(actions(h, 'u1').querySelector('[data-ref="reverted"]')!.textContent!.trim()).toBe('Reverted');
+    expect(actions(h, 'u3').querySelector('[data-ref="reverted"]')).not.toBeNull();
+    expect(h.$$('[data-ref="revert"]')).toHaveLength(0);
+    const outcome = actions(h, 'u1').querySelector<HTMLElement>('[data-ref="revert-outcome"]')!;
+    expect(outcome.dataset.outcome).toBe('done');
+    expect(outcome.querySelector('[data-ref="restored"]')!.textContent).toBe('Put back 2 files: lid.part.js, plate.part.js.');
+    outcome.querySelector<HTMLButtonElement>('[data-ref="dismiss-revert"]')!.click();
+    expect(h.$('[data-ref="revert-outcome"]')).toBeNull();
+  });
+
+  it('the last turn alone: no word of later turns; cancelling the confirm reverts nothing', async () => {
+    const client = new FakeChatClient();
+    turnsSession(client);
+    const h = mount(client);
+    await opened(h);
+    h.confirm.mockResolvedValueOnce(false);
+    actions(h, 'u3').querySelector<HTMLButtonElement>('[data-ref="revert"]')!.click();
+    await settle();
+    const asked = h.confirm.mock.calls[0][0];
+    expect(asked.message).not.toContain('later');
+    expect(asked.items).toEqual(['lid.part.js', 'plate.part.js']);
+    expect(asked.confirmLabel).toBe('Revert');
+    expect(client.revert).not.toHaveBeenCalled();
+    expect(actions(h, 'u3').querySelector('[data-ref="revert"]')).not.toBeNull();
+  });
+
+  it('files that could not be put back are listed with why, and the turn stays revertible', async () => {
+    const client = new FakeChatClient();
+    turnsSession(client);
+    client.revertAnswer = {
+      ok: true,
+      value: { restored: [], failed: [{ path: 'lid.part.js', error: 'The file has unsaved changes in the editor. Save or discard them, then revert again.' }] },
+    };
+    const h = mount(client);
+    await opened(h);
+    actions(h, 'u3').querySelector<HTMLButtonElement>('[data-ref="revert"]')!.click();
+    await settle();
+    const outcome = actions(h, 'u3').querySelector<HTMLElement>('[data-ref="revert-outcome"]')!;
+    expect(outcome.dataset.outcome).toBe('failed');
+    expect(outcome.textContent).toContain('Could not put back:');
+    expect(outcome.querySelector('[data-ref="failed"]')!.textContent).toBe('lid.part.js — The file has unsaved changes in the editor. Save or discard them, then revert again.');
+    expect(outcome.querySelector('[data-ref="restored"]')).toBeNull();
+    expect(actions(h, 'u3').querySelector<HTMLButtonElement>('[data-ref="revert"]')!.disabled).toBe(false);
+
+    // A refusal (409: a turn started meanwhile) says so too.
+    client.revertAnswer = { ok: false, status: 409, error: 'Stop the running turn before reverting.' };
+    actions(h, 'u3').querySelector<HTMLButtonElement>('[data-ref="revert"]')!.click();
+    await settle();
+    expect(actions(h, 'u3').querySelector('[data-ref="revert-outcome"]')!.textContent).toContain('Not reverted: Stop the running turn before reverting.');
+  });
+
+  it('is disabled while a turn runs, and appears live when a turn keeps its first checkpoint', async () => {
+    const client = new FakeChatClient();
+    turnsSession(client);
+    const h = mount(client);
+    await opened(h);
+    h.type('one more');
+    h.key('Enter');
+    await settle();
+    const button = actions(h, 'u1').querySelector<HTMLButtonElement>('[data-ref="revert"]')!;
+    expect(button.disabled).toBe(true);
+    button.click();
+    await settle();
+    expect(h.confirm).not.toHaveBeenCalled();
+    // The new turn (`user-1` / `turn-1` in the fake) changes a file.
+    expect(actions(h, 'user-1').querySelector('[data-ref="revert"]')).toBeNull();
+    client.emit('s', { type: 'checkpoint', turnId: 'turn-1', files: ['plate.part.js'] });
+    expect(actions(h, 'user-1').querySelector<HTMLButtonElement>('[data-ref="revert"]')!.disabled).toBe(true);
+    const a = client.startAssistant('s', 'assistant-4');
+    client.finish('s', a);
+    expect(actions(h, 'user-1').querySelector<HTMLButtonElement>('[data-ref="revert"]')!.disabled).toBe(false);
+    expect(actions(h, 'u1').querySelector<HTMLButtonElement>('[data-ref="revert"]')!.disabled).toBe(false);
+  });
+});
+
+describe('the dirty-buffer card (§12.2)', () => {
+  it('names the file with unsaved changes and opens it in the editor', async () => {
+    const client = new FakeChatClient();
+    client.addSession({
+      id: 's',
+      title: 'S',
+      messages: [{ id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [editPart({
+        name: 'write_file',
+        title: 'Write bracket.fluid.js',
+        state: 'error',
+        approval: undefined,
+        errorCode: 'dirty-buffer',
+        error: 'Not written: bracket.fluid.js has unsaved changes in the editor. Save it, then ask again.',
+        output: { text: JSON.stringify({ code: 'dirty-buffer', message: 'Refusing to write "/w/bracket.fluid.js" — the editor has unsaved changes.', details: { dirtyFiles: ['/w/bracket.fluid.js'] } }) },
+      })] }],
+    });
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    expect(card.dataset.errorCode).toBe('dirty-buffer');
+    const dirty = card.querySelector('[data-ref="dirty-buffer"]')!;
+    expect(dirty.classList.contains('hidden')).toBe(false);
+    expect(dirty.querySelector('[data-ref="dirty-file"]')!.textContent).toBe('bracket.fluid.js');
+    expect(dirty.textContent).toContain('has unsaved changes in the editor');
+    // Said once: the plain error line stays out of the way.
+    expect(card.querySelector('[data-ref="error"]')!.classList.contains('hidden')).toBe(true);
+    dirty.querySelector<HTMLButtonElement>('[data-ref="open-file"]')!.click();
+    expect(h.openSource).toHaveBeenCalledWith('/w/bracket.fluid.js', 1, 1);
   });
 });

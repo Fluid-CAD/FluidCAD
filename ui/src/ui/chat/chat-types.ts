@@ -59,13 +59,26 @@ export type ToolPart = {
   kind: 'read' | 'edit' | 'outside' | 'other';
   state: ToolPartState;
   input: unknown;
-  /** Unified diff, for file edits (phase 4). */
+  /** Unified diff of the file now against the result, for `write_file` and `edit_range`. */
   diff?: string;
   /** `images` are file names under the session's `files/`. */
   output?: { text?: string; images?: string[] };
   error?: string;
-  approval?: { id: string; decision?: 'allow' | 'allow-session' | 'deny' };
+  /**
+   * `dirty-buffer`: the write was refused because the file has unsaved
+   * changes in an editor; `error` names the file.
+   */
+  errorCode?: 'dirty-buffer';
+  /**
+   * Set when the call needed the user's approval. `canAllowSession` says
+   * whether "Allow for this session" is offered (never for actions outside
+   * the workspace). `decision` is set once the user answered.
+   */
+  approval?: { id: string; canAllowSession: boolean; decision?: ApprovalDecision };
 };
+
+/** Body of `POST api/agent/sessions/:id/approvals/:approvalId`. */
+export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
 
 export type TextPart = { type: 'text'; id: string; text: string };
 export type ReasoningPart = { type: 'reasoning'; id: string; text: string };
@@ -87,8 +100,13 @@ export type TurnRecord = {
   id: string;
   userMessageId: string;
   revertible: boolean;
+  /** Set when the turn ended; a turn without it was cut off by an engine restart. */
   endedAt?: string;
   endReason?: 'done' | 'interrupted' | 'error';
+  /** Workspace-relative paths the turn changed (has checkpoints for), in order. */
+  files?: string[];
+  /** Set when the turn's changes were reverted. */
+  revertedAt?: string;
 };
 
 export type SessionSnapshot = {
@@ -124,12 +142,22 @@ export type ChatEvent =
   | { type: 'message-end'; messageId: string }
   | { type: 'status'; status: SessionStatus }
   | { type: 'usage'; inputTokens?: number; outputTokens?: number; costUsd?: number }
+  /**
+   * The turn kept a copy of a file before changing it. `files` is every file
+   * the turn has a copy of so far (workspace-relative): the turn is
+   * revertible while it is not empty.
+   */
   | { type: 'checkpoint'; turnId: string; files: string[] }
+  /** The turn's changes were reverted (`POST …/revert`): `files` are back as they were before it. */
+  | { type: 'reverted'; turnId: string; files: string[] }
   | { type: 'title'; title: string }
   | { type: 'resync' };
 
 /** One SSE `data:` payload. */
 export type ChatEventEnvelope = { epoch: string; seq: number; event: ChatEvent };
+
+/** Answer of `POST api/agent/sessions/:id/revert`: what was put back, and what could not be (with why). */
+export type RevertResult = { restored: string[]; failed?: { path: string; error: string }[] };
 
 /** What detection found for one CLI (`GET api/agent/agents`). */
 export type AgentInstall = {

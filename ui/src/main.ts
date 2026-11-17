@@ -96,7 +96,7 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
 import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
-import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SEARCH, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SEARCH, ICON_SHARE, ICON_TRASH, ICON_UNDO } from './ui/icons';
 import { HubPanelState } from './ui/hub/hub-panel-state';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
@@ -1375,6 +1375,12 @@ function loadAgentPanel(): Promise<ChatPanel> {
         agentSettings.update(next);
         savePreference('agent', { defaultAgent: kind } as UserPreferences['agent']);
       },
+      // The header's switch is the same preference as Settings → Agent's.
+      onPermissionModeChosen: (mode) => {
+        agentSettings.update({ ...agentSettings.current, permissionMode: mode });
+        savePreference('agent', { permissionMode: mode } as UserPreferences['agent']);
+      },
+      confirm: (options) => confirmDialog({ ...options, icon: ICON_UNDO }),
       onOpenChange: () => panelRail.sync(),
     });
     return agentPanel;

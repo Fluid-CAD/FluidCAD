@@ -23,6 +23,10 @@ import iconSettings from '@tabler/icons/outline/settings.svg?raw';
 import iconRefresh from '@tabler/icons/outline/refresh.svg?raw';
 import iconPlayerPlay from '@tabler/icons/outline/player-play.svg?raw';
 import iconSparkles from '@tabler/icons/outline/sparkles.svg?raw';
+import iconShieldCheck from '@tabler/icons/outline/shield-check.svg?raw';
+import iconBolt from '@tabler/icons/outline/bolt.svg?raw';
+import iconArrowBackUp from '@tabler/icons/outline/arrow-back-up.svg?raw';
+import iconFilePencil from '@tabler/icons/outline/file-pencil.svg?raw';
 
 export const ChatIcons = {
   SEND: iconArrowUp,
@@ -47,6 +51,12 @@ export const ChatIcons = {
   REFRESH: iconRefresh,
   CONTINUE: iconPlayerPlay,
   AGENT: iconSparkles,
+  /** Permission mode "Ask before edits". */
+  ASK: iconShieldCheck,
+  /** Permission mode "Apply edits automatically". */
+  AUTO: iconBolt,
+  REVERT: iconArrowBackUp,
+  FILE_EDIT: iconFilePencil,
 
   /** `svg` in a span sized by `className`. */
   span(svg: string, className = '[&>svg]:size-4'): HTMLSpanElement {

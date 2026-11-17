@@ -1,12 +1,15 @@
 import { vi } from 'vitest';
 import type { ChatAnswer, ChatClient, ChatStream, ChatStreamHandlers } from '../../src/ui/chat/chat-client';
-import { reduceChat } from '../../src/ui/chat/chat-reducer';
+import { reduceChat, reduceTurns } from '../../src/ui/chat/chat-reducer';
 import type {
   AgentInstall,
   AgentKind,
   AgentModel,
+  ApprovalDecision,
   ChatEvent,
   ChatPart,
+  PermissionMode,
+  RevertResult,
   SendMessage,
   SessionSnapshot,
   SessionStatus,
@@ -44,6 +47,13 @@ export class FakeChatClient implements ChatClient {
   readonly snapshots = new Map<string, SessionSnapshot>();
   readonly subscriptions: Subscription[] = [];
   readonly sent: { id: string; message: SendMessage }[] = [];
+  /**
+   * What the next `revert` answers; null: every revertible turn from the one
+   * asked on is put back (`reverted` events newest first, as the runtime).
+   */
+  revertAnswer: ChatAnswer<RevertResult> | null = null;
+  /** What `decideApproval` answers (before the engine settles the card); null: 204 and the card settles. */
+  decideAnswer: ChatAnswer<null> | null = null;
   private nextId = 1;
 
   static install(overrides: Partial<AgentInstall> = {}): AgentInstall {
@@ -99,6 +109,7 @@ export class FakeChatClient implements ChatClient {
     const snapshot = this.snapshots.get(id)!;
     snapshot.seq += 1;
     snapshot.messages = reduceChat(snapshot.messages, event);
+    snapshot.turns = reduceTurns(snapshot.turns, event, () => '2026-11-17T10:10:00.000Z');
     if (event.type === 'status') {
       snapshot.status = event.status;
     } else if (event.type === 'title') {
@@ -223,7 +234,61 @@ export class FakeChatClient implements ChatClient {
     return { ok: true, value: null };
   });
 
-  continueTurn = vi.fn(async (id: string): Promise<ChatAnswer<{ turnId: string }>> => this.send(id, { text: 'Continue.' }));
+  continueTurn = vi.fn(async (id: string, mode?: PermissionMode): Promise<ChatAnswer<{ turnId: string }>> =>
+    this.send(id, { text: 'Continue.', ...(mode ? { mode } : {}) }));
+
+  /**
+   * Answers like the runtime: the waiting card settles (`running` with the
+   * decision, or `denied`), the status goes back to `running`.
+   */
+  decideApproval = vi.fn(async (id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>> => {
+    if (this.decideAnswer) {
+      return this.decideAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'tool' && part.approval?.id === approvalId) {
+          if (part.state !== 'awaiting-approval') {
+            return { ok: false, status: 409, error: 'This approval was already settled.' };
+          }
+          const approval = { ...part.approval, decision };
+          this.emit(id, {
+            type: 'part-update',
+            messageId: message.id,
+            partId: part.id,
+            patch: decision === 'deny' ? { state: 'denied', approval, error: 'Declined.' } : { state: 'running', approval },
+          });
+          const status = snapshot.status as SessionStatus & { turnId?: string };
+          this.emit(id, { type: 'status', status: { state: 'running', turnId: status.turnId ?? 'turn' } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such approval.' };
+  });
+
+  revert = vi.fn(async (id: string, turnId: string): Promise<ChatAnswer<RevertResult>> => {
+    if (this.revertAnswer) {
+      return this.revertAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    const index = snapshot.turns.findIndex((t) => t.id === turnId);
+    if (index < 0) {
+      return { ok: false, status: 404, error: 'No such turn.' };
+    }
+    const restored: string[] = [];
+    for (const turn of snapshot.turns.slice(index).filter((t) => t.revertible).reverse()) {
+      const files = turn.files ?? [];
+      this.emit(id, { type: 'reverted', turnId: turn.id, files });
+      for (const file of files) {
+        if (!restored.includes(file)) {
+          restored.push(file);
+        }
+      }
+    }
+    return { ok: true, value: { restored } };
+  });
 
   rename = vi.fn(async (id: string, title: string): Promise<ChatAnswer<null>> => {
     this.emit(id, { type: 'title', title });

@@ -2,7 +2,10 @@ import type {
   AgentInstall,
   AgentKind,
   AgentModel,
+  ApprovalDecision,
   ChatEventEnvelope,
+  PermissionMode,
+  RevertResult,
   SendMessage,
   SessionSnapshot,
   SessionSummary,
@@ -39,8 +42,19 @@ export interface ChatClient {
   snapshot(id: string): Promise<ChatAnswer<SessionSnapshot>>;
   send(id: string, message: SendMessage): Promise<ChatAnswer<{ turnId: string }>>;
   cancel(id: string): Promise<ChatAnswer<null>>;
-  /** Resume a turn an engine restart cut off. */
-  continueTurn(id: string): Promise<ChatAnswer<{ turnId: string }>>;
+  /** Resume a turn an engine restart cut off, in permission `mode` (absent: ask). */
+  continueTurn(id: string, mode?: PermissionMode): Promise<ChatAnswer<{ turnId: string }>>;
+  /**
+   * Answer a tool call waiting for approval (§12.1). Refused with 409 when it
+   * was already settled (another tab, a stop), 400 when "Allow for this
+   * session" is not offered, 404 when there is no such approval.
+   */
+  decideApproval(id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>>;
+  /**
+   * Revert `turnId` and every later turn that changed files, newest first
+   * (§12.2). Refused with 409 while a turn or another revert runs.
+   */
+  revert(id: string, turnId: string): Promise<ChatAnswer<RevertResult>>;
   rename(id: string, title: string): Promise<ChatAnswer<null>>;
   remove(id: string): Promise<ChatAnswer<null>>;
   /** The URL of an image the session keeps under `files/` (relative). */
@@ -93,8 +107,16 @@ export class HttpChatClient implements ChatClient {
     return this.request('POST', `${this.session(id)}/cancel`, {});
   }
 
-  continueTurn(id: string): Promise<ChatAnswer<{ turnId: string }>> {
-    return this.request('POST', `${this.session(id)}/continue`, {});
+  continueTurn(id: string, mode?: PermissionMode): Promise<ChatAnswer<{ turnId: string }>> {
+    return this.request('POST', `${this.session(id)}/continue`, mode ? { mode } : {});
+  }
+
+  decideApproval(id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${this.session(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision });
+  }
+
+  revert(id: string, turnId: string): Promise<ChatAnswer<RevertResult>> {
+    return this.request('POST', `${this.session(id)}/revert`, { turnId });
   }
 
   rename(id: string, title: string): Promise<ChatAnswer<null>> {

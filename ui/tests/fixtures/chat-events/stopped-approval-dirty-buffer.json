@@ -1,0 +1,712 @@
+{
+ "initial": {
+  "id": "a1f5a23d-75f0-49b1-828d-e6e2da85e4c0",
+  "title": "New chat",
+  "agent": "claude",
+  "createdAt": "2026-11-17T14:57:19.330Z",
+  "updatedAt": "2026-11-17T14:57:19.330Z",
+  "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+  "seq": 0,
+  "status": {
+   "state": "idle"
+  },
+  "messages": [],
+  "turns": [],
+  "model": null
+ },
+ "events": [
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 1,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "e0835ccb-f4e1-4d93-a8a1-bfc93fce5d2b",
+     "role": "user",
+     "turnId": "9061cebf-64fd-4876-aa4c-480d613dc924",
+     "createdAt": "2026-11-17T14:57:19.383Z"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 2,
+   "event": {
+    "type": "part-start",
+    "messageId": "e0835ccb-f4e1-4d93-a8a1-bfc93fce5d2b",
+    "part": {
+     "type": "text",
+     "id": "82b1821d-60d4-4bea-a72e-e33194871a2d",
+     "text": "calls [{\"name\":\"write_file\",\"arguments\":{\"path\":\"a.fluid.js\",\"content\":\"x\"}}]"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 3,
+   "event": {
+    "type": "message-end",
+    "messageId": "e0835ccb-f4e1-4d93-a8a1-bfc93fce5d2b"
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 4,
+   "event": {
+    "type": "title",
+    "title": "calls [{\"name\":\"write_file\",\"arguments\":{\"path\":\"a.fluid.js\",\"content\":\"x\"}}]"
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 5,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "starting",
+     "turnId": "9061cebf-64fd-4876-aa4c-480d613dc924"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 6,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "running",
+     "turnId": "9061cebf-64fd-4876-aa4c-480d613dc924"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 7,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "3a0cf152-2fdb-4e3d-935c-e8402e9bb23d",
+     "role": "assistant",
+     "turnId": "9061cebf-64fd-4876-aa4c-480d613dc924",
+     "createdAt": "2026-11-17T14:57:19.426Z"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 8,
+   "event": {
+    "type": "part-start",
+    "messageId": "3a0cf152-2fdb-4e3d-935c-e8402e9bb23d",
+    "part": {
+     "type": "tool",
+     "id": "tool-0c48bd20-3a7b-4363-8126-76e7159105a4",
+     "source": "fluidcad",
+     "name": "write_file",
+     "title": "Create a.fluid.js",
+     "kind": "edit",
+     "state": "running",
+     "input": {
+      "path": "a.fluid.js",
+      "content": "x"
+     },
+     "diff": "--- /dev/null\n+++ b/a.fluid.js\n@@ -0,0 +1,1 @@\n+x\n\\ No newline at end of file\n"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 9,
+   "event": {
+    "type": "part-update",
+    "messageId": "3a0cf152-2fdb-4e3d-935c-e8402e9bb23d",
+    "partId": "tool-0c48bd20-3a7b-4363-8126-76e7159105a4",
+    "patch": {
+     "state": "awaiting-approval",
+     "approval": {
+      "id": "8b1ff8d4-2ba5-4d23-8fae-9044bd123dcf",
+      "canAllowSession": true
+     }
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 10,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "awaiting-approval",
+     "turnId": "9061cebf-64fd-4876-aa4c-480d613dc924",
+     "approvalIds": [
+      "8b1ff8d4-2ba5-4d23-8fae-9044bd123dcf"
+     ]
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 11,
+   "event": {
+    "type": "part-update",
+    "messageId": "3a0cf152-2fdb-4e3d-935c-e8402e9bb23d",
+    "partId": "tool-0c48bd20-3a7b-4363-8126-76e7159105a4",
+    "patch": {
+     "state": "denied",
+     "approval": {
+      "id": "8b1ff8d4-2ba5-4d23-8fae-9044bd123dcf",
+      "canAllowSession": true,
+      "decision": "deny"
+     },
+     "error": "Stopped before you answered."
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 12,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "running",
+     "turnId": "9061cebf-64fd-4876-aa4c-480d613dc924"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 13,
+   "event": {
+    "type": "part-start",
+    "messageId": "3a0cf152-2fdb-4e3d-935c-e8402e9bb23d",
+    "part": {
+     "type": "notice",
+     "id": "3db4b240-8ad4-4555-9430-823dffd496c7",
+     "level": "info",
+     "text": "Stopped."
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 14,
+   "event": {
+    "type": "message-end",
+    "messageId": "3a0cf152-2fdb-4e3d-935c-e8402e9bb23d"
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 15,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "idle"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 16,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "a1806197-39e6-42db-9f07-6d9f90394348",
+     "role": "user",
+     "turnId": "31eb5dbe-e376-470b-90c6-f56e5624454c",
+     "createdAt": "2026-11-17T14:57:19.447Z"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 17,
+   "event": {
+    "type": "part-start",
+    "messageId": "a1806197-39e6-42db-9f07-6d9f90394348",
+    "part": {
+     "type": "text",
+     "id": "c25ccc7a-e8b0-4f40-a678-6ed8e21e334b",
+     "text": "calls [{\"name\":\"write_file\",\"arguments\":{\"path\":\"bracket.fluid.js\",\"content\":\"v2\"}}]"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 18,
+   "event": {
+    "type": "message-end",
+    "messageId": "a1806197-39e6-42db-9f07-6d9f90394348"
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 19,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "starting",
+     "turnId": "31eb5dbe-e376-470b-90c6-f56e5624454c"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 20,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "running",
+     "turnId": "31eb5dbe-e376-470b-90c6-f56e5624454c"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 21,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "dd949b2f-fbb9-4f53-b343-04a11dd00418",
+     "role": "assistant",
+     "turnId": "31eb5dbe-e376-470b-90c6-f56e5624454c",
+     "createdAt": "2026-11-17T14:57:19.449Z"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 22,
+   "event": {
+    "type": "part-start",
+    "messageId": "dd949b2f-fbb9-4f53-b343-04a11dd00418",
+    "part": {
+     "type": "tool",
+     "id": "tool-dc70c121-ab09-46ef-a1e3-24516cd687ac",
+     "source": "fluidcad",
+     "name": "write_file",
+     "title": "Write bracket.fluid.js",
+     "kind": "edit",
+     "state": "running",
+     "input": {
+      "path": "bracket.fluid.js",
+      "content": "v2"
+     },
+     "diff": "--- a/bracket.fluid.js\n+++ b/bracket.fluid.js\n@@ -1,1 +1,1 @@\n-v1\n\\ No newline at end of file\n+v2\n\\ No newline at end of file\n"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 23,
+   "event": {
+    "type": "checkpoint",
+    "turnId": "31eb5dbe-e376-470b-90c6-f56e5624454c",
+    "files": [
+     "bracket.fluid.js"
+    ]
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 24,
+   "event": {
+    "type": "checkpoint",
+    "turnId": "31eb5dbe-e376-470b-90c6-f56e5624454c",
+    "files": []
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 25,
+   "event": {
+    "type": "part-update",
+    "messageId": "dd949b2f-fbb9-4f53-b343-04a11dd00418",
+    "partId": "tool-dc70c121-ab09-46ef-a1e3-24516cd687ac",
+    "patch": {
+     "state": "error",
+     "errorCode": "dirty-buffer",
+     "error": "Not written: bracket.fluid.js has unsaved changes in the editor. Save it, then ask again.",
+     "output": {
+      "text": "{\"code\":\"dirty-buffer\",\"message\":\"Refusing to write \\\"/workspace/bracket.fluid.js\\\" — the editor has unsaved changes. Save in the editor, or pass `force: true` to overwrite.\",\"details\":{\"dirtyFiles\":[\"/workspace/bracket.fluid.js\"]}}"
+     }
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 26,
+   "event": {
+    "type": "part-start",
+    "messageId": "dd949b2f-fbb9-4f53-b343-04a11dd00418",
+    "part": {
+     "type": "text",
+     "id": "text-b1",
+     "text": ""
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 27,
+   "event": {
+    "type": "part-delta",
+    "messageId": "dd949b2f-fbb9-4f53-b343-04a11dd00418",
+    "partId": "text-b1",
+    "text": "Done."
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 28,
+   "event": {
+    "type": "message-end",
+    "messageId": "dd949b2f-fbb9-4f53-b343-04a11dd00418"
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 29,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "idle"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 30,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "19e83559-dbef-473a-9100-55cd5697dd29",
+     "role": "user",
+     "turnId": "ccef7ac4-04d4-435e-b141-21c454b71884",
+     "createdAt": "2026-11-17T14:57:19.471Z"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 31,
+   "event": {
+    "type": "part-start",
+    "messageId": "19e83559-dbef-473a-9100-55cd5697dd29",
+    "part": {
+     "type": "text",
+     "id": "452f12ac-42a7-4d9d-94bf-7abdb95ddde7",
+     "text": "calls [{\"name\":\"write_file\",\"arguments\":{\"path\":\"bracket.fluid.js\",\"content\":\"v3\"}}]"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 32,
+   "event": {
+    "type": "message-end",
+    "messageId": "19e83559-dbef-473a-9100-55cd5697dd29"
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 33,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "starting",
+     "turnId": "ccef7ac4-04d4-435e-b141-21c454b71884"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 34,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "running",
+     "turnId": "ccef7ac4-04d4-435e-b141-21c454b71884"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 35,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "316a8498-3499-4761-817b-c96280d4720d",
+     "role": "assistant",
+     "turnId": "ccef7ac4-04d4-435e-b141-21c454b71884",
+     "createdAt": "2026-11-17T14:57:19.473Z"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 36,
+   "event": {
+    "type": "part-start",
+    "messageId": "316a8498-3499-4761-817b-c96280d4720d",
+    "part": {
+     "type": "tool",
+     "id": "tool-225534ea-0e99-4439-9038-3888492975e8",
+     "source": "fluidcad",
+     "name": "write_file",
+     "title": "Write bracket.fluid.js",
+     "kind": "edit",
+     "state": "running",
+     "input": {
+      "path": "bracket.fluid.js",
+      "content": "v3"
+     },
+     "diff": "--- a/bracket.fluid.js\n+++ b/bracket.fluid.js\n@@ -1,1 +1,1 @@\n-v1\n\\ No newline at end of file\n+v3\n\\ No newline at end of file\n"
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 37,
+   "event": {
+    "type": "checkpoint",
+    "turnId": "ccef7ac4-04d4-435e-b141-21c454b71884",
+    "files": [
+     "bracket.fluid.js"
+    ]
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 38,
+   "event": {
+    "type": "part-update",
+    "messageId": "316a8498-3499-4761-817b-c96280d4720d",
+    "partId": "tool-225534ea-0e99-4439-9038-3888492975e8",
+    "patch": {
+     "state": "done",
+     "output": {
+      "text": "{\"path\":\"/workspace/bracket.fluid.js\",\"bytesWritten\":2,\"render\":{\"state\":\"render-failed\",\"error\":\"Server has no /api/render endpoint (upgrade fluidcad).\"}}"
+     }
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 39,
+   "event": {
+    "type": "part-start",
+    "messageId": "316a8498-3499-4761-817b-c96280d4720d",
+    "part": {
+     "type": "text",
+     "id": "text-b1",
+     "text": ""
+    }
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 40,
+   "event": {
+    "type": "part-delta",
+    "messageId": "316a8498-3499-4761-817b-c96280d4720d",
+    "partId": "text-b1",
+    "text": "Done."
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 41,
+   "event": {
+    "type": "message-end",
+    "messageId": "316a8498-3499-4761-817b-c96280d4720d"
+   }
+  },
+  {
+   "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+   "seq": 42,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "idle"
+    }
+   }
+  }
+ ],
+ "final": {
+  "id": "a1f5a23d-75f0-49b1-828d-e6e2da85e4c0",
+  "title": "calls [{\"name\":\"write_file\",\"arguments\":{\"path\":\"a.fluid.js\",\"content\":\"x\"}}]",
+  "agent": "claude",
+  "createdAt": "2026-11-17T14:57:19.330Z",
+  "updatedAt": "2026-11-17T14:57:19.477Z",
+  "epoch": "7da2c7b2-4051-4ae9-acd8-655f83ef1807",
+  "seq": 42,
+  "status": {
+   "state": "idle"
+  },
+  "messages": [
+   {
+    "id": "e0835ccb-f4e1-4d93-a8a1-bfc93fce5d2b",
+    "role": "user",
+    "turnId": "9061cebf-64fd-4876-aa4c-480d613dc924",
+    "createdAt": "2026-11-17T14:57:19.383Z",
+    "parts": [
+     {
+      "type": "text",
+      "id": "82b1821d-60d4-4bea-a72e-e33194871a2d",
+      "text": "calls [{\"name\":\"write_file\",\"arguments\":{\"path\":\"a.fluid.js\",\"content\":\"x\"}}]"
+     }
+    ]
+   },
+   {
+    "id": "3a0cf152-2fdb-4e3d-935c-e8402e9bb23d",
+    "role": "assistant",
+    "turnId": "9061cebf-64fd-4876-aa4c-480d613dc924",
+    "createdAt": "2026-11-17T14:57:19.426Z",
+    "parts": [
+     {
+      "type": "tool",
+      "id": "tool-0c48bd20-3a7b-4363-8126-76e7159105a4",
+      "source": "fluidcad",
+      "name": "write_file",
+      "title": "Create a.fluid.js",
+      "kind": "edit",
+      "state": "denied",
+      "input": {
+       "path": "a.fluid.js",
+       "content": "x"
+      },
+      "diff": "--- /dev/null\n+++ b/a.fluid.js\n@@ -0,0 +1,1 @@\n+x\n\\ No newline at end of file\n",
+      "approval": {
+       "id": "8b1ff8d4-2ba5-4d23-8fae-9044bd123dcf",
+       "canAllowSession": true,
+       "decision": "deny"
+      },
+      "error": "Stopped before you answered."
+     },
+     {
+      "type": "notice",
+      "id": "3db4b240-8ad4-4555-9430-823dffd496c7",
+      "level": "info",
+      "text": "Stopped."
+     }
+    ]
+   },
+   {
+    "id": "a1806197-39e6-42db-9f07-6d9f90394348",
+    "role": "user",
+    "turnId": "31eb5dbe-e376-470b-90c6-f56e5624454c",
+    "createdAt": "2026-11-17T14:57:19.447Z",
+    "parts": [
+     {
+      "type": "text",
+      "id": "c25ccc7a-e8b0-4f40-a678-6ed8e21e334b",
+      "text": "calls [{\"name\":\"write_file\",\"arguments\":{\"path\":\"bracket.fluid.js\",\"content\":\"v2\"}}]"
+     }
+    ]
+   },
+   {
+    "id": "dd949b2f-fbb9-4f53-b343-04a11dd00418",
+    "role": "assistant",
+    "turnId": "31eb5dbe-e376-470b-90c6-f56e5624454c",
+    "createdAt": "2026-11-17T14:57:19.449Z",
+    "parts": [
+     {
+      "type": "tool",
+      "id": "tool-dc70c121-ab09-46ef-a1e3-24516cd687ac",
+      "source": "fluidcad",
+      "name": "write_file",
+      "title": "Write bracket.fluid.js",
+      "kind": "edit",
+      "state": "error",
+      "input": {
+       "path": "bracket.fluid.js",
+       "content": "v2"
+      },
+      "diff": "--- a/bracket.fluid.js\n+++ b/bracket.fluid.js\n@@ -1,1 +1,1 @@\n-v1\n\\ No newline at end of file\n+v2\n\\ No newline at end of file\n",
+      "errorCode": "dirty-buffer",
+      "error": "Not written: bracket.fluid.js has unsaved changes in the editor. Save it, then ask again.",
+      "output": {
+       "text": "{\"code\":\"dirty-buffer\",\"message\":\"Refusing to write \\\"/workspace/bracket.fluid.js\\\" — the editor has unsaved changes. Save in the editor, or pass `force: true` to overwrite.\",\"details\":{\"dirtyFiles\":[\"/workspace/bracket.fluid.js\"]}}"
+      }
+     },
+     {
+      "type": "text",
+      "id": "text-b1",
+      "text": "Done."
+     }
+    ]
+   },
+   {
+    "id": "19e83559-dbef-473a-9100-55cd5697dd29",
+    "role": "user",
+    "turnId": "ccef7ac4-04d4-435e-b141-21c454b71884",
+    "createdAt": "2026-11-17T14:57:19.471Z",
+    "parts": [
+     {
+      "type": "text",
+      "id": "452f12ac-42a7-4d9d-94bf-7abdb95ddde7",
+      "text": "calls [{\"name\":\"write_file\",\"arguments\":{\"path\":\"bracket.fluid.js\",\"content\":\"v3\"}}]"
+     }
+    ]
+   },
+   {
+    "id": "316a8498-3499-4761-817b-c96280d4720d",
+    "role": "assistant",
+    "turnId": "ccef7ac4-04d4-435e-b141-21c454b71884",
+    "createdAt": "2026-11-17T14:57:19.473Z",
+    "parts": [
+     {
+      "type": "tool",
+      "id": "tool-225534ea-0e99-4439-9038-3888492975e8",
+      "source": "fluidcad",
+      "name": "write_file",
+      "title": "Write bracket.fluid.js",
+      "kind": "edit",
+      "state": "done",
+      "input": {
+       "path": "bracket.fluid.js",
+       "content": "v3"
+      },
+      "diff": "--- a/bracket.fluid.js\n+++ b/bracket.fluid.js\n@@ -1,1 +1,1 @@\n-v1\n\\ No newline at end of file\n+v3\n\\ No newline at end of file\n",
+      "output": {
+       "text": "{\"path\":\"/workspace/bracket.fluid.js\",\"bytesWritten\":2,\"render\":{\"state\":\"render-failed\",\"error\":\"Server has no /api/render endpoint (upgrade fluidcad).\"}}"
+      }
+     },
+     {
+      "type": "text",
+      "id": "text-b1",
+      "text": "Done."
+     }
+    ]
+   }
+  ],
+  "turns": [
+   {
+    "id": "9061cebf-64fd-4876-aa4c-480d613dc924",
+    "userMessageId": "e0835ccb-f4e1-4d93-a8a1-bfc93fce5d2b",
+    "revertible": false,
+    "endedAt": "2026-11-17T14:57:19.445Z",
+    "endReason": "interrupted"
+   },
+   {
+    "id": "31eb5dbe-e376-470b-90c6-f56e5624454c",
+    "userMessageId": "a1806197-39e6-42db-9f07-6d9f90394348",
+    "revertible": false,
+    "endedAt": "2026-11-17T14:57:19.452Z",
+    "endReason": "done"
+   },
+   {
+    "id": "ccef7ac4-04d4-435e-b141-21c454b71884",
+    "userMessageId": "19e83559-dbef-473a-9100-55cd5697dd29",
+    "revertible": true,
+    "files": [
+     "bracket.fluid.js"
+    ],
+    "endedAt": "2026-11-17T14:57:19.477Z",
+    "endReason": "done"
+   }
+  ],
+  "model": null
+ }
+}

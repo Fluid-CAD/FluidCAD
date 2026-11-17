@@ -1,17 +1,21 @@
 import type { ChatClient, ChatStream } from './chat-client';
-import { reduceChat } from './chat-reducer';
+import { reduceChat, reduceTurns } from './chat-reducer';
 import {
   isBusy,
   type AgentInstall,
   type AgentKind,
   type AgentModel,
+  type ApprovalDecision,
   type ChatEvent,
   type ChatEventEnvelope,
   type ChatMessage,
+  type PermissionMode,
+  type RevertResult,
   type SendMessage,
   type SessionSnapshot,
   type SessionStatus,
   type SessionSummary,
+  type TurnRecord,
 } from './chat-types';
 
 /** The timer functions the state retries with (tests pass fake ones). */
@@ -31,7 +35,9 @@ export type ChatChange =
   /** One event was folded into the current session; `previous` is the transcript before it. */
   | { kind: 'event'; event: ChatEvent; previous: readonly ChatMessage[] }
   /** Sending, the last action's error, the connection. */
-  | { kind: 'activity' };
+  | { kind: 'activity' }
+  /** A revert started or finished (its outcome). */
+  | { kind: 'revert' };
 
 /** Where an agent stands for the panel's empty states (§9.1). */
 export type AgentReadiness =
@@ -42,6 +48,14 @@ export type AgentReadiness =
   | { state: 'too-old'; install: AgentInstall }
   | { state: 'signed-out'; install: AgentInstall }
   | { state: 'ready'; install: AgentInstall };
+
+/** The last revert's outcome, shown under the turn it was asked on. */
+export type RevertOutcome =
+  | { turnId: string; result: RevertResult }
+  | { turnId: string; error: string };
+
+/** What reverting a turn takes back with it (§12.2): the turn and every later revertible one, and their files. */
+export type RevertScope = { turns: TurnRecord[]; files: string[] };
 
 /** What a send carries besides the text. */
 export type SendOptions = Omit<SendMessage, 'text'>;
@@ -79,6 +93,10 @@ export class ChatState {
   error: string | null = null;
   /** Whether the event stream is attached (false while reconnecting after a refusal). */
   connected = false;
+  /** The turn a revert is running for. */
+  reverting: string | null = null;
+  /** The last revert's outcome, until the next send or another chat. */
+  revertOutcome: RevertOutcome | null = null;
 
   private stream: ChatStream | null = null;
   /** Bumped on every attach, so a late snapshot or a stale stream's events are dropped. */
@@ -206,6 +224,9 @@ export class ChatState {
   /** Show a session: its snapshot, then its live events. */
   async openSession(id: string): Promise<boolean> {
     this.error = null;
+    if (this.session?.id !== id) {
+      this.revertOutcome = null;
+    }
     return this.attach(id);
   }
 
@@ -214,6 +235,7 @@ export class ChatState {
     this.detach();
     this.session = null;
     this.error = null;
+    this.revertOutcome = null;
     this.emit({ kind: 'session' });
   }
 
@@ -222,11 +244,15 @@ export class ChatState {
    * Resolves true once the engine took it; its turn then arrives as events.
    */
   async send(text: string, options: SendOptions = {}): Promise<boolean> {
-    if (this.busy || text.trim() === '') {
+    if (this.busy || this.reverting || text.trim() === '') {
       return false;
     }
     this.sending = true;
     this.error = null;
+    if (this.revertOutcome) {
+      this.revertOutcome = null;
+      this.emit({ kind: 'revert' });
+    }
     this.emit({ kind: 'activity' });
     try {
       let id = this.session?.id;
@@ -268,17 +294,104 @@ export class ChatState {
     }
   }
 
-  /** Resume after an engine restart cut the last turn off (`interrupted`). */
-  async continueTurn(): Promise<void> {
+  /** Resume after an engine restart cut the last turn off (`interrupted`), in permission `mode`. */
+  async continueTurn(mode?: PermissionMode): Promise<void> {
     const id = this.session?.id;
     if (!id || this.status.state !== 'interrupted') {
       return;
     }
     this.error = null;
-    const answer = await this.client.continueTurn(id);
+    const answer = await this.client.continueTurn(id, mode);
     if (answer.ok === false) {
       this.error = answer.error;
       this.emit({ kind: 'activity' });
+    }
+  }
+
+  /**
+   * Answer a tool call waiting for approval. Resolves true once the engine
+   * took it; the card then changes through the event that follows. A call
+   * already settled elsewhere (another tab, a stop) is not an error: its
+   * event says how it ended.
+   */
+  async decideApproval(approvalId: string, decision: ApprovalDecision): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.decideApproval(id, approvalId, decision);
+    if (answer.ok === false) {
+      if (answer.status !== 409) {
+        this.error = answer.error;
+        this.emit({ kind: 'activity' });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /** The turn record of `turnId` in the session on screen. */
+  turn(turnId: string): TurnRecord | undefined {
+    return this.session?.turns.find((t) => t.id === turnId);
+  }
+
+  /** Whether "Revert this turn" can run now: the turn has changes, and nothing runs. */
+  canRevert(turnId: string): boolean {
+    return !!this.turn(turnId)?.revertible && !this.busy && this.reverting === null;
+  }
+
+  /** What reverting `turnId` puts back: it and every later revertible turn, and their files in order. */
+  revertScope(turnId: string): RevertScope {
+    const turns = this.session?.turns ?? [];
+    const index = turns.findIndex((t) => t.id === turnId);
+    if (index < 0) {
+      return { turns: [], files: [] };
+    }
+    const scope = turns.slice(index).filter((t) => t.revertible);
+    const files: string[] = [];
+    for (const turn of scope) {
+      for (const file of turn.files ?? []) {
+        if (!files.includes(file)) {
+          files.push(file);
+        }
+      }
+    }
+    return { turns: scope, files };
+  }
+
+  /**
+   * Revert `turnId` and every later turn that changed files (§12.2). The
+   * turns' records follow from the `reverted` events; the answer (what was
+   * put back, what could not be and why) is kept as {@link revertOutcome}.
+   */
+  async revert(turnId: string): Promise<RevertOutcome | null> {
+    const id = this.session?.id;
+    if (!id || !this.canRevert(turnId)) {
+      return null;
+    }
+    this.reverting = turnId;
+    this.revertOutcome = null;
+    this.error = null;
+    this.emit({ kind: 'revert' });
+    let outcome: RevertOutcome;
+    try {
+      const answer = await this.client.revert(id, turnId);
+      outcome = answer.ok === false ? { turnId, error: answer.error } : { turnId, result: answer.value };
+    } finally {
+      this.reverting = null;
+    }
+    if (this.session?.id === id) {
+      this.revertOutcome = outcome;
+    }
+    this.emit({ kind: 'revert' });
+    return outcome;
+  }
+
+  /** Drop the last revert's outcome (the user dismissed it). */
+  clearRevertOutcome(): void {
+    if (this.revertOutcome) {
+      this.revertOutcome = null;
+      this.emit({ kind: 'revert' });
     }
   }
 
@@ -381,6 +494,7 @@ export class ChatState {
     const previous = session.messages;
     session.seq = envelope.seq;
     session.messages = reduceChat(previous, event);
+    session.turns = reduceTurns(session.turns, event);
     if (event.type === 'status') {
       session.status = event.status;
       if (this.error && isBusy(event.status)) {

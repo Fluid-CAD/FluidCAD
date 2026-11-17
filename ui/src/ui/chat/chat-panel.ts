@@ -8,6 +8,7 @@ import { ChatState, type ChatChange, type ChatTimers, type RevertOutcome } from 
 import { ChatTranscript } from './chat-transcript';
 import { isBusy, type AgentKind, type ApprovalDecision, type AgentModel, type Effort, type PermissionMode, type SessionStatus, type TurnRecord } from './chat-types';
 import type { Colorizer } from './code-block';
+import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
 import './chat-panel.css';
 
 /** The agent preferences the panel follows (Settings → Agent, `agent` in the preferences file). */
@@ -63,6 +64,11 @@ export type ChatPanelDeps = {
   /** Ask the user to confirm (Revert this turn), in the page's dialog; absent: the browser's confirm. */
   confirm?(options: ChatConfirmOptions): Promise<boolean>;
   onOpenChange?(open: boolean): void;
+  /**
+   * The scene, for attaching the selected geometry to a message (§11): the
+   * idle selection, renders, the capture. Absent: no references.
+   */
+  scene?: ChatSceneHost;
   /** Timers for reattaching after a refused stream (tests). */
   timers?: ChatTimers;
 };
@@ -96,6 +102,8 @@ export class ChatPanel {
   readonly state: ChatState;
   readonly transcript: ChatTranscript;
   readonly composer: ChatComposer;
+  /** The selected geometry attached to the next message (§11.1); null without a scene. */
+  readonly references: SceneReferences | null;
   private readonly sessionButton: HTMLButtonElement;
   private readonly sessionTitle: HTMLSpanElement;
   private readonly agentSlot: HTMLDivElement;
@@ -202,6 +210,10 @@ export class ChatPanel {
       onSubmit: (text) => this.send(text),
       onStop: () => void this.state.stop(),
     });
+    this.references = deps.scene ? new SceneReferences(deps.scene, this.composer) : null;
+    if (this.references) {
+      this.composer.setAttachments(this.references.el);
+    }
 
     this.el.append(header, toolbar, body, this.statusBar, this.footerSetup, this.composer.el, deps.slot.resizeHandle());
     deps.container.appendChild(this.el);
@@ -273,6 +285,7 @@ export class ChatPanel {
   destroy(): void {
     window.removeEventListener('resize', this.onResize);
     this.unsubscribe();
+    this.references?.destroy();
     this.state.dispose();
     this.transcript.destroy();
     this.leaveSlot();
@@ -327,12 +340,32 @@ export class ChatPanel {
 
   private async send(text: string): Promise<boolean> {
     const settings = this.deps.settings();
+    // The references go with one capture of the model, each in its colour
+    // (§11.2), taken while their picks still hold.
+    const attached = this.references?.forSend() ?? null;
+    let image: { mediaType: 'image/png'; base64: string } | undefined;
+    if (attached && this.deps.scene) {
+      try {
+        image = { mediaType: 'image/png', base64: await blobToBase64(await this.deps.scene.capture(attached.highlight)) };
+      } catch (err) {
+        console.warn('FluidCAD: the references capture failed:', err);
+      }
+      if (!this.references!.isCurrent(attached.generation)) {
+        return false;
+      }
+    }
     this.transcript.scrollToBottom();
-    return this.state.send(text, {
+    const sent = await this.state.send(text, {
       model: this.model,
       mode: this.mode,
       ...(settings.effort ? { effort: settings.effort } : {}),
+      ...(attached ? { references: attached.references } : {}),
+      ...(image ? { image } : {}),
     });
+    if (sent && attached) {
+      this.references!.clearSent();
+    }
+    return sent;
   }
 
   private onChange(change: ChatChange): void {

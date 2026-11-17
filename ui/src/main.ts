@@ -1102,6 +1102,10 @@ const projectPackagesDialog = new ProjectPackagesDialog(container, {
 const chatClient = new HttpChatClient();
 let agentPanel: ChatPanel | null = null;
 let agentPanelLoading: Promise<ChatPanel> | null = null;
+/** Told after every render cleared the idle selection (the Agent panel drops its unsent references). */
+const sceneRenderedListeners = new Set<() => void>();
+/** The last part render was a rollback: the view stops before the last feature. */
+let sceneRolledBack = false;
 /** Whether the engine has an agent runtime (`GET api/agent/agents` answered). */
 let agentAvailable = false;
 
@@ -1382,6 +1386,27 @@ function loadAgentPanel(): Promise<ChatPanel> {
       },
       confirm: (options) => confirmDialog({ ...options, icon: ICON_UNDO }),
       onOpenChange: () => panelRail.sync(),
+      // Attaching the selected geometry to a message (§11).
+      scene: {
+        selection: () => measureController.selection,
+        addSelectionListener: (fn) => measureController.addSelectionListener(() => fn()),
+        addRenderListener: (fn) => {
+          sceneRenderedListeners.add(fn);
+          return () => {
+            sceneRenderedListeners.delete(fn);
+          };
+        },
+        clearSelection: () => measureController.clearSelection(),
+        isRolledBack: () => sceneRolledBack,
+        currentFile: () => currentSceneAbsPath,
+        capture: (highlight) => captureScreenshot(viewer.sceneContext, {
+          width: 1024,
+          height: 768,
+          view: { kind: 'current' },
+          fitTo: 'highlight',
+          highlight,
+        }),
+      },
     });
     return agentPanel;
   }).catch((err) => {
@@ -3634,8 +3659,10 @@ function applySceneRendered(msg: any): void {
       viewer.updateAssemblyView(msg.result, assembly);
       SceneTimings.viewed(msg, performance.now() - viewStart, viewer.getAssemblyController()?.getLastUpdateStats());
       lastPartRender = null;
+      sceneRolledBack = false;
     } else {
       lastPartRender = { result: msg.result, isRollback, rollbackStop: msg.rollbackStop };
+      sceneRolledBack = isRollback;
       const viewStart = performance.now();
       viewer.updateView(msg.result, isRollback, msg.rollbackStop);
       SceneTimings.viewed(msg, performance.now() - viewStart);
@@ -3665,6 +3692,9 @@ function applySceneRendered(msg: any): void {
     timelinePickAbort?.abort();
     timelinePickAbort = null;
     measureController.onSceneRendered();
+    for (const listener of [...sceneRenderedListeners]) {
+      listener();
+    }
     if (msg.absPath) {
       topBar.setFileName(msg.absPath);
       currentSceneAbsPath = msg.absPath;

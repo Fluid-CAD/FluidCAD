@@ -1,0 +1,67 @@
+{
+  "ok": true,
+  "matches": [
+    {
+      "shapeId": "bf335436-460b-41b3-955a-95febfef6469",
+      "kind": "face",
+      "index": 2,
+      "sceneObjectId": "0d051275-9e02-4936-a975-cfc737e3b44b",
+      "sceneObjectName": "extrude",
+      "part": "A",
+      "summary": {
+        "form": "plane",
+        "center": [
+          0,
+          0,
+          5
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "area": 78.54,
+        "diameter": 10
+      }
+    },
+    {
+      "shapeId": "55793874-d807-482c-b176-c0bdb0018a27",
+      "kind": "face",
+      "index": 2,
+      "sceneObjectId": "eee67dd8-48d1-4191-b663-51c34fb3f3bb",
+      "sceneObjectName": "extrude",
+      "part": "B",
+      "summary": {
+        "form": "plane",
+        "center": [
+          30,
+          0,
+          5
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "area": 78.54,
+        "diameter": 10
+      }
+    }
+  ],
+  "count": 2,
+  "scope": {
+    "kind": "root"
+  },
+  "unit": "mm",
+  "synthesized": {
+    "ok": false,
+    "reason": "the picked entities live in different part() scopes \u2014 one statement cannot select across parts; apply the feature per part",
+    "pick": {
+      "shapeId": "55793874-d807-482c-b176-c0bdb0018a27",
+      "sub": {
+        "type": "face",
+        "index": 2
+      }
+    }
+  }
+}

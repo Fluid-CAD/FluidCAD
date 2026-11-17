@@ -1,0 +1,64 @@
+{
+  "ok": true,
+  "matches": [
+    {
+      "shapeId": "4da144b3-d784-444d-92dc-08d833fe187a",
+      "kind": "face",
+      "index": 9,
+      "sceneObjectId": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+      "sceneObjectName": "extrude",
+      "part": "Plate",
+      "summary": {
+        "form": "plane",
+        "center": [
+          0,
+          0,
+          5
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "area": 5798.938
+      }
+    }
+  ],
+  "count": 1,
+  "scope": {
+    "kind": "root"
+  },
+  "unit": "mm",
+  "synthesized": {
+    "ok": true,
+    "expression": "$obj[\"3e786951-9c15-411c-a9bd-318adcc08a5e\"].endFaces()",
+    "source": "e.endFaces()",
+    "sameAsInput": false,
+    "parts": [
+      {
+        "producer": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+        "accessor": "endFaces",
+        "tier": 0
+      }
+    ],
+    "producers": [
+      {
+        "sceneObjectId": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+        "sceneObjectName": "extrude",
+        "featureType": "extrude",
+        "variable": "e",
+        "filePath": "/w/plate.part.js",
+        "line": 37,
+        "column": 3,
+        "bound": false
+      }
+    ],
+    "imports": [],
+    "alternatives": [
+      {
+        "expression": "$obj[\"3e786951-9c15-411c-a9bd-318adcc08a5e\"].endFaces(0)",
+        "source": "e.endFaces(0)"
+      }
+    ]
+  }
+}

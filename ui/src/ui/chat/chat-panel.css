@@ -786,6 +786,98 @@
   flex-shrink: 0;
 }
 
+/* In a sent message: on the bubble's tint. */
+[data-role='chat-panel'] .chat-user-bubble .chat-reference-chip {
+  border-color: color-mix(in oklab, var(--color-base-content) 16%, transparent);
+  background: color-mix(in oklab, var(--color-base-100) 55%, transparent);
+}
+
+/* --- Attaching geometry (above the composer) -------------------------------- */
+
+[data-role='chat-panel'] .chat-composer-attachments {
+  margin-bottom: 6px;
+}
+
+[data-role='chat-panel'] .chat-attach {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-attach-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+[data-role='chat-panel'] .chat-attach-chips .chat-reference-chip {
+  padding: 1px 2px 1px 7px;
+  background: var(--chat-surface);
+}
+
+[data-role='chat-panel'] .chat-reference-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  color: var(--chat-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+[data-role='chat-panel'] .chat-reference-remove:hover {
+  color: var(--color-base-content);
+  background: color-mix(in oklab, var(--color-base-content) 10%, transparent);
+}
+
+[data-role='chat-panel'] .chat-attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 4px 4px 4px 9px;
+  border: 1px dashed color-mix(in oklab, var(--color-base-content) 22%, transparent);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-attach-label {
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-attach-button {
+  margin-left: auto;
+  font-weight: 500;
+}
+
+[data-role='chat-panel'] .chat-attach-hint,
+[data-role='chat-panel'] .chat-attach-reason {
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-attach-row[data-state='refused'] {
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--color-warning) 45%, transparent);
+}
+
+[data-role='chat-panel'] .chat-attach-row[data-state='refused'] .chat-attach-reason {
+  order: 3;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-attach-notice {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-warning);
+}
+
 /* --- Narrow windows ---------------------------------------------------------- */
 
 /* Below 640 px the panel covers the scene (LeftSlot): it also covers the

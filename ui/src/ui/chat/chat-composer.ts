@@ -19,18 +19,26 @@ const MAX_HEIGHT_PX = 200;
  * The textarea carries `data-chat-composer`: the page's shortcuts (Ctrl+B,
  * the bare letters) leave it alone (`editable-target.ts`).
  *
- * **Phase 6 plugs in here:** `attachments` (`data-ref="attachments"`, above
- * the textarea) holds the reference chips and the add-selection row.
+ * `attachments` (`data-ref="attachments"`, above the textarea) holds the
+ * scene references (§11.1: the chips and the add-selection row), which put
+ * their `[n]` tokens in the text through {@link insertToken} and
+ * {@link removeToken}.
  */
 export class ChatComposer {
   readonly el: HTMLDivElement;
   readonly textarea: HTMLTextAreaElement;
-  /** Above the textarea: phase 6's reference chips and add-selection row. */
+  /** Above the textarea: the reference chips and the add-selection row ({@link setAttachments}). */
   readonly attachments: HTMLDivElement;
   private readonly button: HTMLButtonElement;
   private busy = false;
   private enabled = true;
   private submitting = false;
+  /**
+   * Where the caret was when the textarea lost focus: a token added from
+   * the viewport goes there (a blurred textarea's own selection does not
+   * survive every repaint). Null: at the end.
+   */
+  private caret: { start: number; end: number } | null = null;
 
   constructor(private readonly deps: ChatComposerDeps) {
     this.el = document.createElement('div');
@@ -56,6 +64,9 @@ export class ChatComposer {
       this.paint();
     });
     this.textarea.addEventListener('keydown', (event) => this.onKeyDown(event));
+    this.textarea.addEventListener('blur', () => {
+      this.caret = { start: this.textarea.selectionStart, end: this.textarea.selectionEnd };
+    });
 
     this.button = document.createElement('button');
     this.button.type = 'button';
@@ -77,6 +88,7 @@ export class ChatComposer {
   }
 
   set value(text: string) {
+    this.caret = null;
     this.textarea.value = text;
     this.autosize();
     this.paint();
@@ -101,6 +113,51 @@ export class ChatComposer {
 
   focus(): void {
     this.textarea.focus();
+  }
+
+  /** Show `el` above the textarea (the scene references); it hides itself when empty. */
+  setAttachments(el: HTMLElement): void {
+    this.attachments.replaceChildren(el);
+    this.attachments.classList.remove('hidden');
+  }
+
+  /**
+   * Put a reference token (`[1]`) at the caret, a space on each side unless
+   * one is there, and leave the caret after it.
+   */
+  insertToken(token: string): void {
+    const value = this.textarea.value;
+    const focused = document.activeElement === this.textarea;
+    const selection = focused
+      ? { start: this.textarea.selectionStart, end: this.textarea.selectionEnd }
+      : this.caret ?? { start: value.length, end: value.length };
+    const start = Math.min(selection.start, value.length);
+    const end = Math.max(start, Math.min(selection.end, value.length));
+    const before = value.slice(0, start);
+    const after = value.slice(end);
+    const lead = before === '' || /\s$/.test(before) ? '' : ' ';
+    const trail = /^\s/.test(after) ? '' : ' ';
+    const head = `${before}${lead}${token}${trail}`;
+    this.value = `${head}${after}`;
+    this.textarea.setSelectionRange(head.length, head.length);
+    this.caret = { start: head.length, end: head.length };
+  }
+
+  /** Take every occurrence of a reference token out of the text, with the space it leaves doubled. */
+  removeToken(token: string): void {
+    const value = this.textarea.value;
+    if (!value.includes(token)) {
+      return;
+    }
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const next = value
+      .replace(new RegExp(`(^|[ \\t])${escaped}([ \\t]|$)`, 'g'), (_match, pre: string, post: string) => (pre && post ? pre : ''))
+      .split(token)
+      .join('');
+    const caret = Math.min(this.caret?.start ?? this.textarea.selectionStart ?? next.length, next.length);
+    this.value = next;
+    this.textarea.setSelectionRange(caret, caret);
+    this.caret = { start: caret, end: caret };
   }
 
   /** Send what is typed; the box empties once the engine took it. */

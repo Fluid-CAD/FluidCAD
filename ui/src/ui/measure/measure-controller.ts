@@ -78,8 +78,12 @@ export class MeasureController {
   private panel: MeasurePanel;
   private overlay: MeasureOverlay;
   private menu: SelectionContextMenu | null;
-  /** Notified whenever the selection set changes through this controller. */
+  /**
+   * Notified whenever the selection set changes through this controller
+   * (main.ts's own handler); others subscribe with {@link addSelectionListener}.
+   */
   onSelectionChanged: ((selection: SelectedEntity[]) => void) | null = null;
+  private readonly selectionListeners = new Set<(selection: SelectedEntity[]) => void>();
   /** A refusal from the unit chip's dropup (the server said no) to surface. */
   set onNotice(fn: ((message: string) => void) | null) {
     this.statusBar.onNotice = fn;
@@ -147,6 +151,18 @@ export class MeasureController {
 
   get selection(): SelectedEntity[] {
     return this.entities;
+  }
+
+  /**
+   * Also notified whenever the selection set changes (after
+   * {@link onSelectionChanged}); a render clears the selection without
+   * notifying. Returns the unsubscribe.
+   */
+  addSelectionListener(fn: (selection: SelectedEntity[]) => void): () => void {
+    this.selectionListeners.add(fn);
+    return () => {
+      this.selectionListeners.delete(fn);
+    };
   }
 
   /**
@@ -278,6 +294,9 @@ export class MeasureController {
     }
     this.fetchMeasurement();
     this.onSelectionChanged?.(this.entities);
+    for (const listener of [...this.selectionListeners]) {
+      listener(this.entities);
+    }
   }
 
   /**

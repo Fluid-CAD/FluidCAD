@@ -1,0 +1,132 @@
+{
+  "ok": true,
+  "matches": [
+    {
+      "shapeId": "4da144b3-d784-444d-92dc-08d833fe187a",
+      "kind": "edge",
+      "index": 3,
+      "sceneObjectId": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+      "sceneObjectName": "extrude",
+      "part": "Plate",
+      "summary": {
+        "form": "line",
+        "center": [
+          -50,
+          0,
+          5
+        ],
+        "axis": [
+          0,
+          -1,
+          0
+        ],
+        "length": 60
+      }
+    },
+    {
+      "shapeId": "4da144b3-d784-444d-92dc-08d833fe187a",
+      "kind": "edge",
+      "index": 6,
+      "sceneObjectId": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+      "sceneObjectName": "extrude",
+      "part": "Plate",
+      "summary": {
+        "form": "line",
+        "center": [
+          0,
+          30,
+          5
+        ],
+        "axis": [
+          -1,
+          0,
+          0
+        ],
+        "length": 100
+      }
+    },
+    {
+      "shapeId": "4da144b3-d784-444d-92dc-08d833fe187a",
+      "kind": "edge",
+      "index": 9,
+      "sceneObjectId": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+      "sceneObjectName": "extrude",
+      "part": "Plate",
+      "summary": {
+        "form": "line",
+        "center": [
+          50,
+          0,
+          5
+        ],
+        "axis": [
+          0,
+          1,
+          0
+        ],
+        "length": 60
+      }
+    },
+    {
+      "shapeId": "4da144b3-d784-444d-92dc-08d833fe187a",
+      "kind": "edge",
+      "index": 11,
+      "sceneObjectId": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+      "sceneObjectName": "extrude",
+      "part": "Plate",
+      "summary": {
+        "form": "line",
+        "center": [
+          0,
+          -30,
+          5
+        ],
+        "axis": [
+          1,
+          0,
+          0
+        ],
+        "length": 100
+      }
+    }
+  ],
+  "count": 4,
+  "scope": {
+    "kind": "root"
+  },
+  "unit": "mm",
+  "synthesized": {
+    "ok": true,
+    "expression": "$obj[\"3e786951-9c15-411c-a9bd-318adcc08a5e\"].endEdges(edge().line())",
+    "source": "e.endEdges(edge().line())",
+    "sameAsInput": false,
+    "parts": [
+      {
+        "producer": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+        "accessor": "endEdges",
+        "tier": 1
+      }
+    ],
+    "producers": [
+      {
+        "sceneObjectId": "3e786951-9c15-411c-a9bd-318adcc08a5e",
+        "sceneObjectName": "extrude",
+        "featureType": "extrude",
+        "variable": "e",
+        "filePath": "/w/plate.part.js",
+        "line": 37,
+        "column": 3,
+        "bound": false
+      }
+    ],
+    "imports": [
+      "edge"
+    ],
+    "alternatives": [
+      {
+        "expression": "$obj[\"3e786951-9c15-411c-a9bd-318adcc08a5e\"].endEdges(0, 1, 2, 3)",
+        "source": "e.endEdges(0, 1, 2, 3)"
+      }
+    ]
+  }
+}

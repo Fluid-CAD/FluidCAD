@@ -1,11 +1,12 @@
 import type { ChatPart, ReferencesPart } from '../chat-types';
+import { referenceLabel, referenceToken } from '../scene-references';
 import type { PartView } from './part-view';
 
 /**
- * The scene references a user message carries, as chips (§11). Phase 6
- * attaches them from the composer and gives the chips their full look; a
- * transcript that has some already shows each one's colour, number and
- * selector.
+ * The scene references a user message carries (§11), as chips: each one's
+ * colour, its `[n]`, how many faces or edges, and the selector as the
+ * tooltip. The capture they were drawn in is the message's image part,
+ * under them.
  */
 export class ReferencesPartView implements PartView {
   readonly el: HTMLDivElement;
@@ -25,6 +26,8 @@ export class ReferencesPartView implements PartView {
     for (const reference of part.references) {
       const chip = document.createElement('span');
       chip.className = 'chat-reference-chip';
+      chip.dataset.n = String(reference.n);
+      chip.dataset.color = reference.color.name;
       chip.title = reference.selector.source;
       const dot = document.createElement('span');
       dot.className = 'chat-reference-dot';
@@ -33,7 +36,7 @@ export class ReferencesPartView implements PartView {
       }
       const label = document.createElement('span');
       label.className = 'truncate';
-      label.textContent = `${reference.n} · ${reference.count > 1 ? `${reference.count} ${reference.kind}s` : reference.kind}`;
+      label.textContent = `${referenceToken(reference.n)} ${referenceLabel(reference.kind, reference.count)}`;
       chip.append(dot, label);
       this.el.append(chip);
     }

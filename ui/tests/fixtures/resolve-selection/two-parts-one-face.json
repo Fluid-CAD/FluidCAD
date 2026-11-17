@@ -1,0 +1,65 @@
+{
+  "ok": true,
+  "matches": [
+    {
+      "shapeId": "bf335436-460b-41b3-955a-95febfef6469",
+      "kind": "face",
+      "index": 2,
+      "sceneObjectId": "0d051275-9e02-4936-a975-cfc737e3b44b",
+      "sceneObjectName": "extrude",
+      "part": "A",
+      "summary": {
+        "form": "plane",
+        "center": [
+          0,
+          0,
+          5
+        ],
+        "normal": [
+          0,
+          0,
+          1
+        ],
+        "area": 78.54,
+        "diameter": 10
+      }
+    }
+  ],
+  "count": 1,
+  "scope": {
+    "kind": "root"
+  },
+  "unit": "mm",
+  "synthesized": {
+    "ok": true,
+    "expression": "$obj[\"0d051275-9e02-4936-a975-cfc737e3b44b\"].endFaces()",
+    "source": "e.endFaces()",
+    "sameAsInput": false,
+    "parts": [
+      {
+        "producer": "0d051275-9e02-4936-a975-cfc737e3b44b",
+        "accessor": "endFaces",
+        "tier": 0
+      }
+    ],
+    "producers": [
+      {
+        "sceneObjectId": "0d051275-9e02-4936-a975-cfc737e3b44b",
+        "sceneObjectName": "extrude",
+        "featureType": "extrude",
+        "variable": "e",
+        "filePath": "/w/loop.part.js",
+        "line": 6,
+        "column": 3,
+        "bound": false
+      }
+    ],
+    "imports": [],
+    "alternatives": [
+      {
+        "expression": "$obj[\"0d051275-9e02-4936-a975-cfc737e3b44b\"].endFaces(0)",
+        "source": "e.endFaces(0)"
+      }
+    ]
+  }
+}

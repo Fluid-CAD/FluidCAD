@@ -140,7 +140,7 @@ export class CodexBackend implements AgentBackend {
     let candidates: string[];
     if (override) {
       if (!path.isAbsolute(override) || !isExecutableFile(override, this.platform)) {
-        return { ...base, path: override, problem: `The Codex path set in Settings is not an executable file: ${override}` };
+        return { ...base, path: override, problem: `The Codex path in FluidCAD's preferences (agent.codexPath) is not an executable file: ${override}` };
       }
       candidates = [override];
     } else {
@@ -148,7 +148,7 @@ export class CodexBackend implements AgentBackend {
       candidates = [...new Set([...(onPath ? [onPath] : []), ...this.fixedPaths(options.env).filter((p) => isExecutableFile(p, this.platform))])];
     }
     if (candidates.length === 0) {
-      return { ...base, problem: 'Codex was not found. Install it, or set its path in Settings.' };
+      return { ...base, problem: 'Codex was not found on your PATH or in the usual install folders. Install it, then check again.' };
     }
 
     let lastProblem = '';
@@ -158,7 +158,7 @@ export class CodexBackend implements AgentBackend {
       if (resolved.kind === 'npm-without-native') {
         lastProblem =
           `${found} is the npm launcher of Codex, and the program it starts was not found next to it. ` +
-          'Install the standalone Codex (see the Codex install page), or set its path in Settings.';
+          'Install the standalone Codex (see the Codex install page).';
         continue;
       }
       const candidate = resolved.path;

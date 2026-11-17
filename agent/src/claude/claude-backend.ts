@@ -138,7 +138,7 @@ export class ClaudeBackend implements AgentBackend {
     let candidates: string[];
     if (override) {
       if (!path.isAbsolute(override) || !isExecutableFile(override, this.platform)) {
-        return { ...base, path: override, problem: `The Claude Code path set in Settings is not an executable file: ${override}` };
+        return { ...base, path: override, problem: `The Claude Code path in FluidCAD's preferences (agent.claudePath) is not an executable file: ${override}` };
       }
       candidates = [override];
     } else {
@@ -149,7 +149,7 @@ export class ClaudeBackend implements AgentBackend {
       ];
     }
     if (candidates.length === 0) {
-      return { ...base, problem: 'Claude Code was not found. Install it, or set its path in Settings.' };
+      return { ...base, problem: 'Claude Code was not found on your PATH or in the usual install folders. Install it, then check again.' };
     }
 
     let lastProblem = '';

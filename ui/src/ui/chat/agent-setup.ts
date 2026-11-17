@@ -103,7 +103,7 @@ export function agentChipLabel(install: AgentInstall | null, kind: AgentKind): s
 
 /**
  * The panel when the agent cannot run yet (§9.1): not found (with the
- * install page and the path setting), too old (the version found and the
+ * install page and where FluidCAD looks), too old (the version found and the
  * one needed), not signed in (the command to run, a copy button and Check
  * again), or detection itself failing.
  */
@@ -146,17 +146,14 @@ export function renderAgentSetup(readiness: AgentReadiness, deps: AgentSetupDeps
       install.addEventListener('click', () => deps.openLink(info.installUrl));
       el.append(install);
       if (readiness.install.path && readiness.install.problem) {
-        // A path set in Settings that is not the program.
+        // A stored path (`claudePath`, `codexPath`) that is not the program.
         el.append(paragraph(readiness.install.problem, 'text-warning'));
       }
-      const pathHint = paragraph(`Installed somewhere FluidCAD did not look? Set the path to ${info.name} in Settings → Agent.`);
-      el.append(pathHint);
-      const actions = row();
-      if (deps.openSettings) {
-        actions.append(settingsButton(deps));
-      }
-      actions.append(checkAgain(deps));
-      el.append(actions);
+      const where = paragraph(
+        `FluidCAD looks for ${info.name} on your PATH and in the usual install folders. Once it is installed, check again.`,
+      );
+      where.dataset.ref = 'where';
+      el.append(where, checkAgain(deps));
       return el;
     }
     case 'too-old':

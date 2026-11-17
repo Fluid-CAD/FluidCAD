@@ -166,20 +166,23 @@ describe('the Agent panel', () => {
 });
 
 describe('the empty states (§9.1)', () => {
-  it('not found: what it needs, the install page through the host, the path setting, Check again', async () => {
+  it('not found: what it needs, the install page through the host, where FluidCAD looks, Check again', async () => {
     const client = new FakeChatClient();
-    client.agentsValue = [FakeChatClient.install({ path: null, version: null, supported: false, loggedIn: null, authMethod: null, problem: 'Claude Code was not found. Install it, or set its path in Settings.' }), FakeChatClient.codexUnsupported()];
+    client.agentsValue = [FakeChatClient.install({ path: null, version: null, supported: false, loggedIn: null, authMethod: null, problem: 'Claude Code was not found on your PATH or in the usual install folders. Install it, then check again.' }), FakeChatClient.codexUnsupported()];
     const h = mount(client);
     await opened(h);
     const setup = h.$('[data-ref="setup"]')!;
     expect(setup.dataset.state).toBe('not-found');
     expect(setup.textContent).toContain('The Agent needs Claude Code');
-    expect(setup.textContent).toContain('Settings → Agent');
+    expect(h.$('[data-ref="where"]')!.textContent).toBe(
+      'FluidCAD looks for Claude Code on your PATH and in the usual install folders. Once it is installed, check again.',
+    );
+    // The program paths are not set in Settings any more: nothing points there.
+    expect(setup.textContent).not.toContain('Settings');
+    expect(h.$('[data-ref="open-settings"]')).toBeNull();
     expect(h.$('[data-ref="composer"]')!.classList.contains('hidden')).toBe(true);
     h.$<HTMLButtonElement>('[data-ref="install-link"]')!.click();
     expect(h.openExternal).toHaveBeenCalledWith('https://code.claude.com/docs/en/setup');
-    h.$<HTMLButtonElement>('[data-ref="open-settings"]')!.click();
-    expect(h.openSettings).toHaveBeenCalledTimes(1);
 
     // Installed meanwhile: Check again detects afresh and the composer comes.
     client.recheckValue = [FakeChatClient.install()];
@@ -191,9 +194,9 @@ describe('the empty states (§9.1)', () => {
     expect(h.$('[data-ref="composer"]')!.classList.contains('hidden')).toBe(false);
   });
 
-  it('a path set in Settings that is not the program says so', async () => {
+  it('a stored path that is not the program says so', async () => {
     const client = new FakeChatClient();
-    client.agentsValue = [FakeChatClient.install({ path: '/nope/claude', version: null, supported: false, loggedIn: null, problem: 'The Claude Code path set in Settings is not an executable file: /nope/claude' })];
+    client.agentsValue = [FakeChatClient.install({ path: '/nope/claude', version: null, supported: false, loggedIn: null, problem: "The Claude Code path in FluidCAD's preferences (agent.claudePath) is not an executable file: /nope/claude" })];
     const h = mount(client);
     await opened(h);
     expect(h.$('[data-ref="setup"]')!.textContent).toContain('is not an executable file: /nope/claude');

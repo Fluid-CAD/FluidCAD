@@ -785,6 +785,16 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   const measureEntityArg = z.union([measureIndexEntityArg, measureFilterEntityArg]);
 
+  const highlightColorArg = z
+    .string()
+    .regex(/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i)
+    .optional()
+    .describe('A CSS hex colour (#e5484d) to draw this entry in instead of the theme\'s highlight colour; faces fill nearly opaque in it. A filter\'s matches all take it.');
+  const highlightEntityArg = z.union([
+    measureIndexEntityArg.extend({ color: highlightColorArg }),
+    measureFilterEntityArg.extend({ color: highlightColorArg }),
+  ]);
+
   const widthArg = z
     .number()
     .int()
@@ -851,14 +861,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     );
   const screenshotOverlayArgs = {
     highlight: z
-      .array(measureEntityArg)
+      .array(highlightEntityArg)
       .min(1)
       .max(64)
       .optional()
       .describe(
         'Faces/edges to draw highlighted — translucent fill on faces, thick line on edges — visible through whatever occludes them, ' +
         'so a bore or a far-side face shows. Each entry is an index ref { shapeId, kind, index, instanceId? } or a filter { expression, scope? } ' +
-        'as in measure; a filter highlights every entity it matches (ambiguity is fine here), one matching nothing is an error.',
+        'as in measure; a filter highlights every entity it matches (ambiguity is fine here), one matching nothing is an error. ' +
+        'Give entries a `color` to tell several apart in one picture (e.g. red and blue).',
       ),
     hide: idListArg.optional().describe('Shape ids (get_scene_summary `objects[].shapeIds` / `instances[].shapeIds`) or assembly instance ids (`instances[].instanceId`) left out of the render. In an assembly a part\'s shape id reaches every instance of that part; an instance id reaches one instance. Exclusive with focus.'),
     focus: idListArg.optional().describe('Shape ids or instance ids (as for hide) kept as they are while everything else is ghosted in place (faint, silhouettes kept) so the context stays. Exclusive with hide.'),

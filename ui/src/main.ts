@@ -115,6 +115,7 @@ import { PackagesState } from './ui/packages/packages-state';
 import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
 import { PackageConsentDialog } from './ui/packages/package-consent-dialog';
 import { HubPanel } from './ui/hub/hub-panel';
+import { LeftSlot, type LeftSlotOccupant } from './ui/left-slot';
 import { HubTargetMemories } from './ui/hub/hub-install-control';
 import { HubMissingInstall } from './ui/hub/hub-missing-install';
 import { ExternalLinks } from './ui/external-links';
@@ -176,22 +177,16 @@ function startEditorSurface(): void {
       setWorkspaceName: (name) => topBar.setWorkspaceName(name),
       onEditRefused: (message) => showToast(message),
       onOpenParamsFile: (absPath) => globalParamsPanel.showFile(absPath),
+      slot: leftSlot,
+      occupant: editorOccupant,
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
-      initialWidth: editorPreferences.width,
       // Whether the pane opens at startup is a Settings choice, not the last
       // state the pane was left in — so nothing is saved here.
-      onOpenChange: (open) => {
-        // The editor and the Hub panel share one slot (H11 decision 5): the
-        // editor opening, however it was opened, sends the panel away and
-        // keeps the width it just took.
-        if (open) {
-          hubPanel.yieldSlot();
-        }
+      onOpenChange: () => {
         // Ctrl+B, the desktop menu and the restored preference all land here,
         // so the rail's latch follows the pane however it was opened.
         panelRail.sync();
       },
-      onWidthChange: (width) => savePreference('editorWidth', width),
     });
     if (editorSceneFile) {
       editorSurface.setSceneFile(editorSceneFile);
@@ -240,6 +235,25 @@ function toggleEditorPane(): void {
 let editorPaneOpenOnArrival = false;
 let pendingShowBuildTimings = false;
 
+/**
+ * The left slot beside the rail: the code editor and the Hub panel take
+ * turns in it (H11 decision 5), at one shared width — the `editorWidth`
+ * preference, saved when the user drags the slot's edge.
+ */
+const leftSlot = new LeftSlot({ onResize: (width) => savePreference('editorWidth', width) });
+/**
+ * The editor's place in the slot, there before the editor has loaded:
+ * another panel taking the slot closes the pane, or, while it is still
+ * loading, cancels an open that was asked for.
+ */
+const editorOccupant: LeftSlotOccupant = {
+  close: () => {
+    editorPaneOpenOnArrival = false;
+    editorSurface?.setOpen(false);
+  },
+};
+leftSlot.register(editorOccupant);
+
 const loadingOverlay = new LoadingOverlay(container);
 const engineClient = new HttpEngineClient();
 const viewer = new Viewer('fluidcad-viewer', engineClient);
@@ -256,9 +270,9 @@ viewerSettings.subscribe((s) => {
   }
 });
 
-// The editor pane's remembered geometry, read before the surface is loaded so
-// a session that had it open comes back with it open.
-const editorPreferences = { open: false, width: 420 };
+// Whether the editor pane opens at startup, read before the surface is loaded
+// so a session that had it open comes back with it open.
+const editorPreferences = { open: false };
 
 /**
  * Apply a full preference set to the page: at startup, and again after the
@@ -287,7 +301,11 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   }
   measureController.applyPreferences(prefs);
   editorPreferences.open = prefs.editorOpen === true;
-  editorPreferences.width = typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420;
+  // The saved width is the slot's until the editor has loaded; from then on
+  // the width on screen stands, and a reset reaches it on the next load.
+  if (!editorSurface) {
+    leftSlot.setWidth(typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420);
+  }
 }
 
 loadPreferences().then((prefs) => {
@@ -1203,9 +1221,9 @@ packagesState.subscribe(() => {
 });
 
 // The Hub panel (H11): searching, reading and installing packages, from the
-// rail's Hub button. It shares the editor pane's slot and width (decision
-// 5): opening it closes the editor, and the editor opening closes it
-// (`yieldSlot`, from the editor's onOpenChange). Every host has it — VS Code
+// rail's Hub button. It shares the left slot and its width with the editor
+// pane (decision 5): opening either closes the other (`leftSlot.take`).
+// Every host has it — VS Code
 // and Neovim too, where its button sits under the tree's — and links leave
 // through the host (ExternalLinks).
 const hubPanel = new HubPanel({
@@ -1217,19 +1235,7 @@ const hubPanel = new HubPanel({
   targetMemory: HubTargetMemories.project(new ProjectUiStateClient()),
   openExternal: (url) => void ExternalLinks.open(url),
   onPackagesChanged: () => packagesChanged({ fromHubPanel: true }),
-  width: () => editorSurface?.pane.getWidth() ?? editorPreferences.width,
-  onWidthChange: (width) => {
-    editorPreferences.width = width;
-    if (editorSurface) {
-      editorSurface.pane.setWidth(width);
-    } else {
-      savePreference('editorWidth', width);
-    }
-  },
-  onTakeSlot: () => {
-    editorPaneOpenOnArrival = false;
-    editorSurface?.setOpen(false);
-  },
+  slot: leftSlot,
   onOpenChange: () => panelRail.sync(),
 });
 

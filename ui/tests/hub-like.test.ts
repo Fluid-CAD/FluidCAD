@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HubPanel } from '../src/ui/hub/hub-panel';
 import { HubPanelState } from '../src/ui/hub/hub-panel-state';
+import { LeftSlot } from '../src/ui/left-slot';
 import { FakeHubClient } from './fixtures/fake-hub-client';
 import { FakePackagesClient, settle } from './fixtures/fake-packages-client';
 
@@ -70,7 +71,7 @@ async function mount(options: { signedIn?: boolean; liked?: boolean } = {}) {
     projectOpen: () => true,
     openExternal,
     onPackagesChanged: vi.fn(),
-    width: () => 500,
+    slot: new LeftSlot({ width: 500 }),
     timers,
   });
   panels.push(panel);
@@ -116,7 +117,7 @@ describe('Like in the package header', () => {
     document.body.appendChild(container);
     const panel = new HubPanel({
       container, hub, packages: new FakePackagesClient(), installSetting: () => 'library', projectOpen: () => true,
-      openExternal: vi.fn(), onPackagesChanged: vi.fn(), width: () => 500, timers: new ManualTimers(),
+      openExternal: vi.fn(), onPackagesChanged: vi.fn(), slot: new LeftSlot({ width: 500 }), timers: new ManualTimers(),
     });
     panels.push(panel);
     panel.show();

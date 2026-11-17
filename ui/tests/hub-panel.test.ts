@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HubPanel } from '../src/ui/hub/hub-panel';
+import { LeftSlot } from '../src/ui/left-slot';
 import { HubMissingInstall } from '../src/ui/hub/hub-missing-install';
 import { ExternalLinks } from '../src/ui/external-links';
 import { PackageConsentDialog } from '../src/ui/packages/package-consent-dialog';
@@ -56,9 +57,12 @@ function mount(hub = new FakeHubClient()) {
   hub.packages.set('@acme/feature-tests', FakeHubClient.pkg());
   const events: string[] = [];
   const onPackagesChanged = vi.fn();
-  const onWidthChange = vi.fn();
   const openExternal = vi.fn();
   const timers = new ManualTimers();
+  // The slot as the page has it, with the code editor's place in it.
+  const slot = new LeftSlot({ width: 500 });
+  const editor = { close: () => events.push('editor closed') };
+  slot.register(editor);
   const panel = new HubPanel({
     container,
     hub,
@@ -67,9 +71,7 @@ function mount(hub = new FakeHubClient()) {
     projectOpen: () => true,
     openExternal,
     onPackagesChanged,
-    width: () => 500,
-    onWidthChange,
-    onTakeSlot: () => events.push('editor closed'),
+    slot,
     onOpenChange: (open) => events.push(open ? 'hub open' : 'hub closed'),
     timers,
   });
@@ -78,7 +80,7 @@ function mount(hub = new FakeHubClient()) {
   const $ = <T extends Element = HTMLElement>(selector: string) => panel.el.querySelector<T>(selector);
   const account = () => $('[data-ref="account"]')!;
   const strip = () => $('[data-ref="sign-in"]')!;
-  return { hub, panel, container, events, width, onPackagesChanged, onWidthChange, openExternal, timers, $, account, strip };
+  return { hub, panel, container, events, width, slot, editor, onPackagesChanged, openExternal, timers, $, account, strip };
 }
 
 describe('the Hub panel', () => {
@@ -92,12 +94,15 @@ describe('the Hub panel', () => {
     expect(h.panel.isOpen()).toBe(true);
     expect(h.width()).toBe('500px');
     expect(h.panel.el.style.width).toBe('500px');
-    // The editor opening takes the slot back: the panel hides and leaves the width alone.
-    document.documentElement.style.setProperty('--fluidcad-editor-width', '420px');
-    h.panel.yieldSlot();
+    // The editor opening takes the slot back: the panel hides and leaves the width to the editor.
+    const editorEl = document.createElement('div');
+    h.slot.setWidth(420);
+    h.slot.take(h.editor, { el: editorEl, minWidth: 240 });
+    expect(h.events).toEqual(['editor closed', 'hub open', 'hub closed']);
     expect(h.panel.isOpen()).toBe(false);
     expect(h.panel.el.classList.contains('hidden')).toBe(true);
     expect(h.width()).toBe('420px');
+    expect(editorEl.style.width).toBe('420px');
     // Its own close hands the width back to the scene.
     h.panel.show();
     h.panel.close();

@@ -1,5 +1,6 @@
 import { setupMonaco, monaco } from './monaco-setup';
 import { EditorPane } from './editor-pane';
+import type { LeftSlot, LeftSlotOccupant } from '../ui/left-slot';
 import { WorkspaceModels, type ModelEntry } from './models';
 import { loadEngineTypes, loadOcctTypes, packageTypes } from './engine-types';
 import { OcctTypes } from './occt-types';
@@ -43,10 +44,11 @@ export interface EditorSurfaceDeps {
   setTabs(tabs: FileTab[], activePath: string | null, currentModelPath: string | null): void;
   /** Name the workspace in the top bar, once loading it reveals its root. */
   setWorkspaceName?(name: string): void;
+  /** The left slot the pane docks in, and the editor's place in it (see `EditorPaneOptions`). */
+  slot: LeftSlot;
+  occupant: LeftSlotOccupant;
   initialOpen?: boolean;
-  initialWidth?: number;
   onOpenChange?(open: boolean): void;
-  onWidthChange?(width: number): void;
   /** Report a refused edit to the user, through the UI's own toast. */
   onEditRefused?(message: string): void;
   /**
@@ -73,10 +75,10 @@ export class EditorSurface {
   private constructor(private readonly deps: EditorSurfaceDeps) {
     this.pane = new EditorPane({
       container: deps.container,
+      slot: deps.slot,
+      occupant: deps.occupant,
       initialOpen: deps.initialOpen,
-      initialWidth: deps.initialWidth,
       onOpenChange: deps.onOpenChange,
-      onWidthChange: deps.onWidthChange,
     });
     this.quickOpen = new QuickOpen({
       onOpen: (entry) => void this.openFile(entry.absPath),

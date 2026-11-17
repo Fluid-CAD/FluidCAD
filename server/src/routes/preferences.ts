@@ -10,6 +10,7 @@ import {
   SNAP_RADIUS_PX_RANGE,
   TIMELINE_SKETCH_CHILDREN,
   loadPreferences,
+  mergeAgentPreferences,
   parseQuickFindPins,
   parseToolbarPackages,
   resetPreferences,
@@ -187,6 +188,10 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
         const quickFindPins = parseQuickFindPins(body.quickFindPins);
         if (quickFindPins !== undefined) {
           current.quickFindPins = quickFindPins;
+        }
+        // Field by field: a client sends the fields it edited.
+        if (body.agent !== undefined) {
+          current.agent = mergeAgentPreferences(current.agent, body.agent);
         }
         await savePreferences(current);
         return current;

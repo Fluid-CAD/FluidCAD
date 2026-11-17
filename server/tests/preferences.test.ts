@@ -178,3 +178,33 @@ describe.runIf(onLinux)('preferences — the Settings dialog keys', () => {
     expect(await preferredNewProjectUnit()).toBeNull();
   });
 });
+
+describe.runIf(onLinux)('preferences — the agent panel', () => {
+  it('defaults to no agent and asking before edits, and merges valid fields one by one', async () => {
+    expect((await loadPreferences()).agent).toEqual({ defaultAgent: null, permissionMode: 'ask' });
+    await withServer(async (base) => {
+      let prefs = await post(`${base}/preferences`, {
+        agent: { defaultAgent: 'claude', claudePath: ' /opt/claude/bin/claude ', claudeModel: 'sonnet', effort: 'high', claudeIgnoreApiKey: true },
+      });
+      expect(prefs.agent).toEqual({
+        defaultAgent: 'claude',
+        claudePath: '/opt/claude/bin/claude',
+        claudeModel: 'sonnet',
+        effort: 'high',
+        permissionMode: 'ask',
+        claudeIgnoreApiKey: true,
+      });
+      // Invalid values are ignored; the rest of the stored key stays.
+      prefs = await post(`${base}/preferences`, {
+        agent: { defaultAgent: 'gpt', claudeModel: '--evil flag', effort: 'max', permissionMode: 'yolo', claudeIgnoreApiKey: 'yes' },
+      });
+      expect(prefs.agent).toMatchObject({ defaultAgent: 'claude', claudeModel: 'sonnet', effort: 'high', permissionMode: 'ask', claudeIgnoreApiKey: true });
+      // Empty or null clears an optional field.
+      prefs = await post(`${base}/preferences`, { agent: { claudePath: '', claudeModel: null, effort: null, permissionMode: 'auto-edits', claudeIgnoreApiKey: false } });
+      expect(prefs.agent).toEqual({ defaultAgent: 'claude', permissionMode: 'auto-edits', claudeIgnoreApiKey: false });
+      expect((await loadPreferences()).agent).toEqual(prefs.agent);
+      const reset = await post(`${base}/preferences/reset`, {});
+      expect(reset.agent).toEqual({ defaultAgent: null, permissionMode: 'ask' });
+    });
+  });
+});

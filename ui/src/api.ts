@@ -293,6 +293,26 @@ export interface UserPreferences {
   toolbarPackages?: string[];
   /** The tools Quick Find shows before a word is typed, by tool id; null (or absent) means its defaults. */
   quickFindPins?: string[] | null;
+  /** The in-app agent panel (Settings → Agent). */
+  agent?: AgentPreferences;
+}
+
+export interface AgentPreferences {
+  /** The agent a new chat starts with; null until the user picks one. */
+  defaultAgent: 'claude' | 'codex' | null;
+  /** Absolute path to the `claude` binary, overriding detection. */
+  claudePath?: string;
+  /** Absolute path to the `codex` binary, overriding detection. */
+  codexPath?: string;
+  /** Claude Code model (alias or full name); absent means Claude Code's own default. */
+  claudeModel?: string;
+  /** Codex model id; absent means Codex's own default. */
+  codexModel?: string;
+  effort?: 'low' | 'medium' | 'high';
+  /** Ask before every edit (default), or apply workspace edits without asking. */
+  permissionMode: 'ask' | 'auto-edits';
+  /** "Use my Claude subscription even if ANTHROPIC_API_KEY is set": the key is left out of Claude Code's environment. */
+  claudeIgnoreApiKey?: boolean;
 }
 
 /** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */

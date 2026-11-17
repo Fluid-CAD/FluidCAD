@@ -92,6 +92,84 @@ export interface Preferences {
    * new default reaches a user who never touched the pins.
    */
   quickFindPins: string[] | null;
+  /** The in-app agent panel (Settings → Agent). */
+  agent: AgentPreferences;
+}
+
+export const AGENT_KINDS = ['claude', 'codex'] as const;
+export type AgentKindPreference = (typeof AGENT_KINDS)[number];
+export const AGENT_EFFORTS = ['low', 'medium', 'high'] as const;
+export const AGENT_PERMISSION_MODES = ['ask', 'auto-edits'] as const;
+
+export interface AgentPreferences {
+  /** The agent a new chat starts with; null until the user picks one. */
+  defaultAgent: AgentKindPreference | null;
+  /** Absolute path to the `claude` binary, overriding detection. */
+  claudePath?: string;
+  /** Absolute path to the `codex` binary, overriding detection. */
+  codexPath?: string;
+  /** Claude Code model (alias or full name); absent means Claude Code's own default. */
+  claudeModel?: string;
+  /** Codex model id; absent means Codex's own default. */
+  codexModel?: string;
+  effort?: (typeof AGENT_EFFORTS)[number];
+  /** Ask before every edit (default), or apply workspace edits without asking. */
+  permissionMode: (typeof AGENT_PERMISSION_MODES)[number];
+  /**
+   * Run Claude Code on the user's subscription even when ANTHROPIC_API_KEY
+   * is set: the key is left out of its environment. Off by default (the
+   * environment is passed unchanged, and an inherited key wins).
+   */
+  claudeIgnoreApiKey?: boolean;
+}
+
+const MAX_AGENT_PATH_CHARS = 1024;
+const MAX_AGENT_MODEL_CHARS = 200;
+/** A model alias or full model name: no spaces, nothing a shell or a flag parser reads specially. */
+export const AGENT_MODEL_PATTERN = /^[A-Za-z0-9][\w.:@\/\[\]-]*$/;
+
+/**
+ * The agent preferences in `value` merged over `base`: each field is taken
+ * when valid and ignored otherwise; an empty string or null clears an
+ * optional field. Used for the stored file and for a POST alike.
+ */
+export function mergeAgentPreferences(base: AgentPreferences, value: unknown): AgentPreferences {
+  const out: AgentPreferences = { ...base };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return out;
+  }
+  const v = value as Record<string, unknown>;
+  if (v.defaultAgent === null || AGENT_KINDS.includes(v.defaultAgent as AgentKindPreference)) {
+    out.defaultAgent = v.defaultAgent as AgentKindPreference | null;
+  }
+  for (const key of ['claudePath', 'codexPath'] as const) {
+    const raw = v[key];
+    if (raw === null || raw === '') {
+      delete out[key];
+    } else if (typeof raw === 'string' && raw.length <= MAX_AGENT_PATH_CHARS && !raw.includes('\0')) {
+      out[key] = raw.trim();
+    }
+  }
+  for (const key of ['claudeModel', 'codexModel'] as const) {
+    const raw = v[key];
+    if (raw === null || raw === '') {
+      delete out[key];
+    } else if (typeof raw === 'string' && raw.length <= MAX_AGENT_MODEL_CHARS && AGENT_MODEL_PATTERN.test(raw.trim())) {
+      out[key] = raw.trim();
+    }
+  }
+  if (v.effort === null || v.effort === '') {
+    delete out.effort;
+  } else if (AGENT_EFFORTS.includes(v.effort as any)) {
+    out.effort = v.effort as AgentPreferences['effort'];
+  }
+  if (AGENT_PERMISSION_MODES.includes(v.permissionMode as any)) {
+    out.permissionMode = v.permissionMode as AgentPreferences['permissionMode'];
+  }
+  if (typeof v.claudeIgnoreApiKey === 'boolean') {
+    out.claudeIgnoreApiKey = v.claudeIgnoreApiKey;
+  }
+  return out;
 }
 
 export const PACKAGE_INSTALL_TARGETS = ['library', 'project'] as const;
@@ -169,11 +247,19 @@ const DEFAULTS: Preferences = {
   packageInstallTarget: 'library',
   toolbarPackages: [],
   quickFindPins: null,
+  agent: { defaultAgent: null, permissionMode: 'ask' },
 };
 
 /** A fresh copy of the defaults — what "Reset all to defaults" writes. */
 export function defaultPreferences(): Preferences {
-  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing }, materials: {}, toolbarPackages: [], quickFindPins: null };
+  return {
+    ...DEFAULTS,
+    gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing },
+    materials: {},
+    toolbarPackages: [],
+    quickFindPins: null,
+    agent: { ...DEFAULTS.agent },
+  };
 }
 
 function getConfigDir(): string {
@@ -228,6 +314,7 @@ function parsePreferences(data: string): Preferences {
     materials: 'materials' in materials ? materials.materials : {},
     toolbarPackages: parseToolbarPackages(parsed.toolbarPackages) ?? [],
     quickFindPins: parseQuickFindPins(parsed.quickFindPins) ?? null,
+    agent: mergeAgentPreferences({ ...DEFAULTS.agent }, parsed.agent),
   };
 }
 

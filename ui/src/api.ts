@@ -316,7 +316,12 @@ export interface AgentPreferences {
   codexEffort?: string;
   /** Ask before every edit (default), or apply workspace edits without asking. */
   permissionMode: 'ask' | 'auto-edits';
-  /** "Use my Claude subscription even if ANTHROPIC_API_KEY is set": the key is left out of Claude Code's environment. */
+  /**
+   * "Use my Claude subscription even if ANTHROPIC_API_KEY is set": the key is
+   * left out of Claude Code's environment. true or false is the user's choice;
+   * absent means automatic (on when a Claude subscription is signed in).
+   * Send null to go back to automatic.
+   */
   claudeIgnoreApiKey?: boolean;
 }
 

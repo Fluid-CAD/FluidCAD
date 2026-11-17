@@ -36,7 +36,9 @@ Then click **Check again** in the panel. When the sign-in is missing or expired,
 
 ### Claude Code and `ANTHROPIC_API_KEY`
 
-If `ANTHROPIC_API_KEY` is set in the environment FluidCAD was started from, Claude Code uses that key instead of your Claude subscription, and its use is billed to the key. The panel shows which one is in use: a **Subscription** or **API key** chip under the message box. To use your subscription anyway, turn on **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent; FluidCAD then leaves the key out of Claude Code's environment. It is off by default, so a key you set on purpose keeps working.
+If `ANTHROPIC_API_KEY` is set in the environment FluidCAD was started from, Claude Code on its own uses that key instead of your Claude subscription, and its use is billed to the key. FluidCAD checks whether a Claude subscription is signed in (by asking Claude Code with the key left out; it never reads your credentials). If one is, FluidCAD leaves the key out of Claude Code's environment, so the Agent runs on your subscription. If none is, the key stays, since it is then the only way Claude Code can sign in.
+
+The setting **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent shows which applies: on when a subscription is signed in, off otherwise, with a note saying why. Turn it on or off to make your own choice, which then holds whatever is signed in; **Use automatic** goes back to the default. The panel shows what is in use: a **Subscription** or **API key** chip under the message box.
 
 ## What the agent can touch
 
@@ -137,7 +139,7 @@ Settings › Agent holds:
 | Claude Code effort | How hard Claude Code's model thinks before it answers: Low, Medium, High, Extra high, Max, or Claude Code's own default. |
 | Codex effort | The same for Codex: the levels its models list, or the model's own default. A level the chosen model lacks falls back to its default. |
 | Edits | **Ask before edits** or **Apply edits automatically**: the same switch as the mode chip under the message box. |
-| Use my Claude subscription even if ANTHROPIC_API_KEY is set | See [above](#claude-code-and-anthropic_api_key). |
+| Use my Claude subscription even if ANTHROPIC_API_KEY is set | Leaves an inherited `ANTHROPIC_API_KEY` out of Claude Code's environment. Default: on when a Claude subscription is signed in, off when none is; toggling it makes it your choice, **Use automatic** undoes that. See [above](#claude-code-and-anthropic_api_key). |
 | Claude Code program, Codex program | The absolute path to `claude` or `codex`, when FluidCAD does not find it. |
 
 Under them, **What FluidCAD found** lists each program with its version, path and state (Ready, Not signed in, Too old, Not found), and **Check again**.
@@ -149,7 +151,7 @@ Under them, **What FluidCAD found** lists each program with its version, path an
 | The panel says the program was not found | Install it, or set its path in Settings › Agent (**Claude Code program** / **Codex program**), then **Check again**. On macOS an app started from the Dock does not see your shell's `PATH`, so a program installed somewhere unusual needs the path. |
 | The program needs an update | Run `claude update`, or update Codex the way you installed it (`npm install -g @openai/codex` for an npm install), then **Check again**. |
 | Not signed in, or the login expired | For Codex, click **Sign in to Codex** in the panel. Otherwise run `claude auth login` or `codex login` in a terminal, then **Check again**. |
-| The **API key** badge shows when you meant to use your subscription | Turn on **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent. |
+| The **API key** chip shows when you meant to use your subscription | If no Claude subscription is signed in, run `claude auth login` in a terminal, then **Check again**. If one is, you turned the setting off: turn on **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent, or click **Use automatic**. |
 | A usage-limit or credits message | Your plan's limit was reached. The message is the vendor's, with when it resets in your local time when the vendor gives it. Wait for the reset or change your plan with the vendor; FluidCAD cannot lift it. |
 | "FluidCAD's tools did not connect" | The program started but could not reach FluidCAD. Send the message again; if it keeps happening, restart FluidCAD. |
 | The program exited | The error shows the last lines it printed. The next message starts it again and resumes the conversation. |

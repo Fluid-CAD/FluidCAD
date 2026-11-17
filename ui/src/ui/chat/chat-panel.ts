@@ -556,11 +556,7 @@ export class ChatPanel {
       delete this.authBadge.dataset.tone;
     }
     this.authBadge.replaceChildren(chipLabel(auth?.short ?? ''));
-    this.authBadge.title = auth
-      ? auth.apiKey
-        ? `${auth.long} To use your Claude subscription instead, turn on “Use my Claude subscription even if ANTHROPIC_API_KEY is set” in Settings → Agent.`
-        : auth.long
-      : '';
+    this.authBadge.title = auth ? (auth.hint ? `${auth.long} ${auth.hint.text}` : auth.long) : '';
   }
 
   /** The model chip: Default, the agent's models, and any model by name ("Other model…" types it in place). */

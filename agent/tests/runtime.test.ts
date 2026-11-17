@@ -431,6 +431,29 @@ describe('agent sessions API', () => {
     expect((await snapshot(id)).effort).toBe('low');
   });
 
+  it('follows detection when no API-key choice is made, and the choice when there is one', async () => {
+    // Detection sees the key, and the choice (none: automatic).
+    backend.install = { ...INSTALL, apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: true };
+    const detected: any[] = [];
+    const detect = backend.detect.bind(backend);
+    backend.detect = async (options?: any) => {
+      detected.push(options);
+      return detect();
+    };
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'hi' });
+    await idle(id);
+    expect(detected[0].env.ANTHROPIC_API_KEY).toBe('sk-x');
+    expect('ignoreApiKey' in detected[0]).toBe(false);
+    expect(backend.opened[0].env.ANTHROPIC_API_KEY).toBeUndefined();
+
+    // An explicit off keeps the key whatever detection found, and detects again.
+    prefs = { agent: { defaultAgent: null, permissionMode: 'ask', claudeIgnoreApiKey: false } };
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'again' });
+    await idle(id);
+    expect(detected.at(-1).ignoreApiKey).toBe(false);
+  });
+
   it("passes the effort a message names, any of Claude Code's levels, and the agent's own preference otherwise", async () => {
     prefs = { agent: { defaultAgent: null, permissionMode: 'ask', claudeEffort: 'xhigh', effort: 'low' } };
     const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;

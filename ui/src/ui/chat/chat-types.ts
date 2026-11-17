@@ -201,8 +201,14 @@ export type AgentInstall = {
   supported: boolean;
   /** null: could not tell. */
   loggedIn: boolean | null;
-  /** Claude Code: `claude.ai` (subscription), `api_key`, `none`. */
+  /** Claude Code: `claude.ai` (subscription), `api_key`, `none`; with the API-key choice applied. */
   authMethod?: string | null;
+  /** Claude Code: whether the engine's environment has ANTHROPIC_API_KEY. */
+  apiKeyPresent?: boolean;
+  /** Claude Code: whether a Claude subscription is signed in (asked with the key left out); null: could not tell. */
+  subscriptionAvailable?: boolean | null;
+  /** Claude Code: whether ANTHROPIC_API_KEY is left out of its environment (the user's choice, else automatic). */
+  apiKeyIgnored?: boolean;
   /** What to tell the user when it is not ready. */
   problem?: string;
 };

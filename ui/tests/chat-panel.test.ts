@@ -290,6 +290,39 @@ describe('the empty states (§9.1)', () => {
     k.$<HTMLButtonElement>('[data-ref="welcome"] [data-ref="open-settings"]')!.click();
     expect(k.openSettings).toHaveBeenCalled();
   });
+
+  it('ready: follows the API-key choice as applied (automatic or the user’s)', async () => {
+    // A key in the environment, left out because a subscription is signed in.
+    const ignored = new FakeChatClient();
+    ignored.agentsValue = [FakeChatClient.install({ authMethod: 'claude.ai', apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: true })];
+    const h = mount(ignored);
+    await opened(h);
+    const badge = h.$('[data-ref="auth-badge"]')!;
+    expect(badge.textContent).toBe('Subscription');
+    expect(badge.classList.contains('badge-warning')).toBe(false);
+    expect(badge.title).toContain('leaves ANTHROPIC_API_KEY out');
+    expect(h.$('[data-ref="welcome"] [data-ref="auth-hint"]')).toBeNull();
+
+    // The key kept by the user's choice, with a subscription signed in: the setting changes it.
+    const kept = new FakeChatClient();
+    kept.agentsValue = [FakeChatClient.install({ authMethod: 'api_key', apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: false })];
+    const k = mount(kept);
+    await opened(k);
+    expect(k.$('[data-ref="auth-badge"]')!.textContent).toBe('API key');
+    expect(k.$('[data-ref="auth-badge"]')!.classList.contains('badge-warning')).toBe(true);
+    expect(k.$('[data-ref="auth-badge"]')!.title).toContain('in Settings → Agent');
+
+    // No subscription signed in: the key is the only way in, and signing in is what would change it.
+    const only = new FakeChatClient();
+    only.agentsValue = [FakeChatClient.install({ authMethod: 'api_key', apiKeyPresent: true, subscriptionAvailable: false, apiKeyIgnored: false })];
+    const o = mount(only);
+    await opened(o);
+    expect(o.$('[data-ref="auth-badge"]')!.textContent).toBe('API key');
+    const hint = o.$$('[data-ref="welcome"] [data-ref="auth-hint"]')[0];
+    expect(hint.textContent).toContain('No Claude subscription is signed in');
+    expect(hint.textContent).toContain('claude auth login');
+    expect(o.$$('[data-ref="welcome"] [data-ref="open-settings"]')).toHaveLength(0);
+  });
 });
 
 describe('a chat', () => {

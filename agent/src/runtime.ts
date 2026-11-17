@@ -119,12 +119,15 @@ export class AgentRuntime {
       return [];
     }
     const prefs = await this.deps.loadPreferences();
-    return backend.models(await this.install(kind, prefs, false), this.childEnv(kind, prefs));
+    const install = await this.install(kind, prefs, false);
+    return backend.models(install, this.childEnv(kind, prefs, install));
   }
 
   /**
    * The install of `kind`, detected once per path override and API-key
-   * choice: changing either in Settings detects again on the next ask.
+   * choice (on, off or automatic): changing either in Settings detects again
+   * on the next ask. Detection also settles the automatic API-key choice,
+   * so "Check again" looks at the subscription login afresh.
    */
   install(kind: AgentKind, prefs: Preferences, fresh: boolean): Promise<AgentInstall> {
     const backend = this.backends[kind];
@@ -141,13 +144,19 @@ export class AgentRuntime {
       });
     }
     const pathOverride = kind === 'claude' ? prefs.agent?.claudePath : prefs.agent?.codexPath;
-    const key = JSON.stringify({ pathOverride: pathOverride ?? null, ignoreApiKey: this.ignoreApiKey(kind, prefs) });
+    const choice = this.apiKeyChoice(kind, prefs);
+    const key = JSON.stringify({ pathOverride: pathOverride ?? null, ignoreApiKey: choice ?? 'auto' });
     const cached = this.detections.get(kind);
     if (!fresh && cached && cached.key === key) {
       return cached.promise;
     }
     const promise = backend
-      .detect({ ...(pathOverride ? { pathOverride } : {}), env: this.childEnv(kind, prefs) })
+      .detect({
+        ...(pathOverride ? { pathOverride } : {}),
+        // The key stays in: detection resolves whether it is used.
+        env: kind === 'claude' ? claudeChildEnv(this.baseEnv) : { ...this.baseEnv },
+        ...(choice !== undefined ? { ignoreApiKey: choice } : {}),
+      })
       .catch((e): AgentInstall => ({
         kind,
         path: null,
@@ -192,7 +201,7 @@ export class AgentRuntime {
     if (install.loggedIn === true) {
       throw new LoginError('signed-in', `${AGENT_NAMES[kind]} is already signed in.`);
     }
-    const login = await backend.login(install, this.childEnv(kind, prefs));
+    const login = await backend.login(install, this.childEnv(kind, prefs, install));
     const record: LoginRecord = { kind, login, status: { state: 'pending' } };
     this.logins.set(login.id, record);
     this.pruneLogins();
@@ -231,16 +240,24 @@ export class AgentRuntime {
     }
   }
 
-  /** The environment the CLI of `kind` runs with (§19, owner decision on ANTHROPIC_API_KEY). */
-  childEnv(kind: AgentKind, prefs: Preferences): NodeJS.ProcessEnv {
+  /**
+   * The environment the CLI of `kind` runs with (§19, owner decision on
+   * ANTHROPIC_API_KEY): for Claude Code, without the key when the user
+   * chose so, or, with no choice made, when detection found a subscription
+   * signed in (`install.apiKeyIgnored`).
+   */
+  childEnv(kind: AgentKind, prefs: Preferences, install: AgentInstall): NodeJS.ProcessEnv {
     if (kind === 'claude') {
-      return claudeChildEnv(this.baseEnv, { ignoreApiKey: this.ignoreApiKey(kind, prefs) });
+      const ignoreApiKey = this.apiKeyChoice(kind, prefs) ?? install.apiKeyIgnored === true;
+      return claudeChildEnv(this.baseEnv, { ignoreApiKey });
     }
     return { ...this.baseEnv };
   }
 
-  private ignoreApiKey(kind: AgentKind, prefs: Preferences): boolean {
-    return kind === 'claude' && prefs.agent?.claudeIgnoreApiKey === true;
+  /** The user's explicit API-key choice for `kind`; undefined: automatic. */
+  private apiKeyChoice(kind: AgentKind, prefs: Preferences): boolean | undefined {
+    const value = prefs.agent?.claudeIgnoreApiKey;
+    return kind === 'claude' && typeof value === 'boolean' ? value : undefined;
   }
 
   // -------------------------------------------------------------------------
@@ -361,7 +378,7 @@ export class AgentRuntime {
     const effort = defaultEffort(kind, prefs);
     return {
       install,
-      env: this.childEnv(kind, prefs),
+      env: this.childEnv(kind, prefs, install),
       ...(model ? { defaultModel: model } : {}),
       ...(effort ? { defaultEffort: effort } : {}),
     };

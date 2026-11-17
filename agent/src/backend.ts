@@ -10,6 +10,13 @@ export type DetectOptions = {
   pathOverride?: string;
   /** The environment the CLI will run with (PATH for the lookup, the auth variables). */
   env: NodeJS.ProcessEnv;
+  /**
+   * Claude Code: the user's own choice about an inherited ANTHROPIC_API_KEY
+   * (`agent.claudeIgnoreApiKey`): true leaves the key out, false keeps it.
+   * Absent: automatic, the key is left out when a Claude subscription is
+   * signed in. `env` still carries the key; detection resolves the choice.
+   */
+  ignoreApiKey?: boolean;
 };
 
 export interface AgentBackend {
@@ -89,6 +96,20 @@ export type AgentInstall = {
    * are never read into this.
    */
   authMethod?: string | null;
+  /** Claude Code: whether the engine's environment has ANTHROPIC_API_KEY. */
+  apiKeyPresent?: boolean;
+  /**
+   * Claude Code: whether a Claude subscription is signed in, as `claude auth
+   * status` reports it with ANTHROPIC_API_KEY left out of its environment;
+   * null when it could not be told (or detection stopped before asking).
+   */
+  subscriptionAvailable?: boolean | null;
+  /**
+   * Claude Code: whether ANTHROPIC_API_KEY is left out of its environment,
+   * by the user's choice or, when they made none, because a subscription is
+   * signed in. `authMethod` and `loggedIn` describe that environment.
+   */
+  apiKeyIgnored?: boolean;
   /** What to tell the user when it is not ready. */
   problem?: string;
 };

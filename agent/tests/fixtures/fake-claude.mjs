@@ -6,22 +6,37 @@
 // FAKE_CLAUDE_VERSION: what --version reports (default 2.1.326).
 // A user message containing "slow" starts a turn that only an interrupt ends.
 
+import fs from 'node:fs';
 import readline from 'node:readline';
 
 const args = process.argv.slice(2);
 const mode = process.env.FAKE_CLAUDE_MODE ?? 'ok';
+const hasKey = Boolean(process.env.ANTHROPIC_API_KEY);
+
+// FAKE_CLAUDE_LOG: a file each `auth status` and each run appends a line to,
+// saying whether ANTHROPIC_API_KEY was in its environment.
+function log(what) {
+  if (process.env.FAKE_CLAUDE_LOG) {
+    fs.appendFileSync(process.env.FAKE_CLAUDE_LOG, `${what} key=${hasKey ? 'yes' : 'no'}\n`);
+  }
+}
 
 if (args[0] === '--version') {
   console.log(`${process.env.FAKE_CLAUDE_VERSION ?? '2.1.326'} (Claude Code)`);
   process.exit(0);
 }
 if (args[0] === 'auth' && args[1] === 'status') {
-  const loggedIn = process.env.FAKE_CLAUDE_LOGGED_IN !== '0';
-  const authMethod = !loggedIn ? 'none' : process.env.ANTHROPIC_API_KEY ? 'api_key' : 'claude.ai';
+  log('auth-status');
+  // FAKE_CLAUDE_SUBSCRIPTION=0: no Claude subscription login is stored, so
+  // only an API key signs it in. An inherited key wins over the login.
+  const subscription = process.env.FAKE_CLAUDE_SUBSCRIPTION !== '0';
+  const loggedIn = process.env.FAKE_CLAUDE_LOGGED_IN !== '0' && (hasKey || subscription);
+  const authMethod = !loggedIn ? 'none' : hasKey ? 'api_key' : 'claude.ai';
   console.log(JSON.stringify({ loggedIn, authMethod, apiProvider: 'firstParty', email: 'someone@example.com', orgId: 'org-1', orgName: 'Org' }));
   process.exit(loggedIn ? 0 : 1);
 }
 
+log('run');
 const sessionId = args.includes('--resume') ? args[args.indexOf('--resume') + 1] : args[args.indexOf('--session-id') + 1];
 const out = (msg) => process.stdout.write(`${JSON.stringify(msg)}\n`);
 let messageCount = 0;

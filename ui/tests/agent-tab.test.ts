@@ -27,11 +27,11 @@ afterEach(() => {
   agentSettings.update({ ...DEFAULT_AGENT_PREFERENCES });
 });
 
-function mount(codexModels: AgentModel[] | null = null) {
+function mount(codexModels: AgentModel[] | null = null, claude: AgentInstall = CLAUDE) {
   const savePreference = vi.fn();
   const save = vi.fn(async (_value: AgentPreferences) => undefined);
   const onSaved = vi.fn();
-  const agents = vi.fn(async (_fresh: boolean) => [CLAUDE, CODEX]);
+  const agents = vi.fn(async (_fresh: boolean) => [claude, CODEX]);
   const models = vi.fn(async (_kind: string) => codexModels);
   const modal = new SettingsModal(document.body, {
     savePreference,
@@ -127,6 +127,80 @@ describe('Settings → Agent', () => {
     await settle();
     expect(h.save.mock.calls[0][0]).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra', effort: '' });
     expect(agentSettings.current).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra' });
+  });
+
+  describe('the API-key switch', () => {
+    const SUBSCRIBED: AgentInstall = { ...CLAUDE, authMethod: 'claude.ai', apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: true };
+    const NO_SUBSCRIPTION: AgentInstall = { ...CLAUDE, authMethod: 'api_key', apiKeyPresent: true, subscriptionAvailable: false, apiKeyIgnored: false };
+
+    const mountWith = (claude: AgentInstall) => mount(null, claude);
+    const note = (h: ReturnType<typeof mount>) => h.$('[data-ref="ignore-api-key-note"]');
+    const auto = (h: ReturnType<typeof mount>) => h.$<HTMLButtonElement>('[data-ref="ignore-api-key-auto"]');
+
+    it('is on by itself when a subscription is signed in, and says why', async () => {
+      applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask' } } as UserPreferences);
+      const h = mountWith(SUBSCRIBED);
+      h.modal.show('agent');
+      await settle();
+      expect(h.$<HTMLInputElement>('[data-ref="ignore-api-key"]').checked).toBe(true);
+      expect(note(h).dataset.state).toBe('automatic');
+      expect(note(h).textContent).toBe('Automatic: on because a Claude subscription is signed in.');
+      expect(auto(h).classList.contains('hidden')).toBe(true);
+      expect(h.$('[data-ref="found"] [data-agent="claude"]').textContent).toContain('ANTHROPIC_API_KEY is left out');
+    });
+
+    it('is off by itself when no subscription is signed in', async () => {
+      applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask' } } as UserPreferences);
+      const h = mountWith(NO_SUBSCRIPTION);
+      h.modal.show('agent');
+      await settle();
+      expect(h.$<HTMLInputElement>('[data-ref="ignore-api-key"]').checked).toBe(false);
+      expect(note(h).textContent).toBe('Automatic: off because no Claude subscription is signed in.');
+    });
+
+    it('shows an explicit choice over detection, saves a toggle as a choice, and goes back to automatic', async () => {
+      applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask', claudeIgnoreApiKey: false } } as UserPreferences);
+      expect(agentSettings.current.claudeIgnoreApiKey).toBe(false);
+      const h = mountWith(SUBSCRIBED);
+      h.modal.show('agent');
+      await settle();
+      const box = h.$<HTMLInputElement>('[data-ref="ignore-api-key"]');
+      expect(box.checked).toBe(false);
+      expect(note(h).dataset.state).toBe('explicit');
+      expect(note(h).textContent).toBe('Off: your choice.');
+      expect(auto(h).classList.contains('hidden')).toBe(false);
+
+      // "Use automatic": the switch follows detection again, and saves as null (cleared).
+      auto(h).click();
+      expect(box.checked).toBe(true);
+      expect(note(h).textContent).toBe('Automatic: on because a Claude subscription is signed in.');
+      h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
+      await settle();
+      expect(h.save.mock.calls[0][0]).toMatchObject({ claudeIgnoreApiKey: null });
+      expect('claudeIgnoreApiKey' in agentSettings.current).toBe(false);
+
+      // Toggling writes an explicit choice, even the value automatic would give.
+      box.checked = false;
+      box.dispatchEvent(new Event('change'));
+      expect(note(h).textContent).toBe('Off: your choice.');
+      h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
+      await settle();
+      expect(h.save.mock.calls[1][0]).toMatchObject({ claudeIgnoreApiKey: false });
+      expect(agentSettings.current.claudeIgnoreApiKey).toBe(false);
+    });
+
+    it('an untouched automatic switch saves as automatic', async () => {
+      applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask' } } as UserPreferences);
+      const h = mountWith(SUBSCRIBED);
+      h.modal.show('agent');
+      await settle();
+      const model = h.$<HTMLInputElement>('[data-ref="claude-model"]');
+      model.value = 'opus';
+      model.dispatchEvent(new Event('input'));
+      h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
+      await settle();
+      expect(h.save.mock.calls[0][0]).toMatchObject({ claudeModel: 'opus', claudeIgnoreApiKey: null });
+    });
   });
 
   it('Check again detects afresh', async () => {

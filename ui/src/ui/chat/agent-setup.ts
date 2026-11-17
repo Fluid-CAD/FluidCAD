@@ -44,19 +44,48 @@ export type SignInControls = {
   cancel(): void;
 };
 
-/** How Claude Code will authenticate, in the user's words; null when it cannot be told. */
-export function authDescription(install: AgentInstall | null): { short: string; long: string; apiKey: boolean } | null {
+/** The Settings switch that puts the subscription before an inherited key (§19). */
+const IGNORE_API_KEY_SETTING = '“Use my Claude subscription even if ANTHROPIC_API_KEY is set”';
+
+export type AuthDescription = {
+  short: string;
+  long: string;
+  /** Each use is billed to an API key. */
+  apiKey: boolean;
+  /** How to run on the subscription instead; `settings`: the way is Settings → Agent. */
+  hint?: { text: string; settings: boolean };
+};
+
+/**
+ * How Claude Code will authenticate, in the user's words, with the API-key
+ * choice applied (the user's, or automatic: the subscription when one is
+ * signed in); null when it cannot be told.
+ */
+export function authDescription(install: AgentInstall | null): AuthDescription | null {
   if (!install || install.kind !== 'claude') {
     return null;
   }
   switch (install.authMethod) {
     case 'claude.ai':
-      return { short: 'Subscription', long: 'Claude Code runs on your Claude subscription.', apiKey: false };
+      return {
+        short: 'Subscription',
+        long: install.apiKeyIgnored
+          ? 'Claude Code runs on your Claude subscription; FluidCAD leaves ANTHROPIC_API_KEY out of its environment.'
+          : 'Claude Code runs on your Claude subscription.',
+        apiKey: false,
+      };
     case 'api_key':
       return {
         short: 'API key',
         long: 'Claude Code runs on the API key in ANTHROPIC_API_KEY, and its use is billed to that key.',
         apiKey: true,
+        hint:
+          install.subscriptionAvailable === false
+            ? {
+                text: 'No Claude subscription is signed in. To use one instead, run `claude auth login` in a terminal, then check again.',
+                settings: false,
+              }
+            : { text: `To use your Claude subscription instead, turn on ${IGNORE_API_KEY_SETTING} in Settings → Agent.`, settings: true },
       };
     default:
       return null;
@@ -169,11 +198,11 @@ export function renderWelcome(install: AgentInstall | null, deps: AgentSetupDeps
     const line = paragraph(auth.long, auth.apiKey ? 'text-warning' : undefined);
     line.dataset.ref = 'auth';
     el.append(line);
-    if (auth.apiKey) {
-      el.append(
-        paragraph('To use your Claude subscription instead, turn on “Use my Claude subscription even if ANTHROPIC_API_KEY is set” in Settings → Agent.'),
-      );
-      if (deps.openSettings) {
+    if (auth.hint) {
+      const hint = paragraph(auth.hint.text);
+      hint.dataset.ref = 'auth-hint';
+      el.append(hint);
+      if (auth.hint.settings && deps.openSettings) {
         el.append(settingsButton(deps));
       }
     }

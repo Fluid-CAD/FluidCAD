@@ -130,8 +130,10 @@ export interface AgentPreferences {
   permissionMode: (typeof AGENT_PERMISSION_MODES)[number];
   /**
    * Run Claude Code on the user's subscription even when ANTHROPIC_API_KEY
-   * is set: the key is left out of its environment. Off by default (the
-   * environment is passed unchanged, and an inherited key wins).
+   * is set: the key is left out of its environment. true or false is the
+   * user's choice and always holds; absent means automatic (the agent
+   * runtime leaves the key out when a Claude subscription is signed in).
+   * Never filled in by the defaults; null or '' in a POST clears it.
    */
   claudeIgnoreApiKey?: boolean;
 }
@@ -189,7 +191,9 @@ export function mergeAgentPreferences(base: AgentPreferences, value: unknown): A
   if (AGENT_PERMISSION_MODES.includes(v.permissionMode as any)) {
     out.permissionMode = v.permissionMode as AgentPreferences['permissionMode'];
   }
-  if (typeof v.claudeIgnoreApiKey === 'boolean') {
+  if (v.claudeIgnoreApiKey === null || v.claudeIgnoreApiKey === '') {
+    delete out.claudeIgnoreApiKey;
+  } else if (typeof v.claudeIgnoreApiKey === 'boolean') {
     out.claudeIgnoreApiKey = v.claudeIgnoreApiKey;
   }
   return out;

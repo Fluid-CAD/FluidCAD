@@ -58,6 +58,9 @@ export class AgentTab implements SettingsTab {
   private codexEfforts: string[] | null = null;
   private permission!: HTMLSelectElement;
   private ignoreApiKey!: HTMLInputElement;
+  /** Whether the API-key switch is automatic or the user's, and why it stands as it does. */
+  private apiKeyNote!: HTMLSpanElement;
+  private apiKeyAuto!: HTMLButtonElement;
   private found!: HTMLDivElement;
   private installs: AgentInstall[] | null = null;
   private detecting = false;
@@ -143,15 +146,36 @@ export class AgentTab implements SettingsTab {
     );
 
     const ignore = toggleRow(IGNORE_API_KEY_LABEL, (checked) => {
+      // Touching the switch is a choice of its own, kept until "Use automatic".
       this.draft.claudeIgnoreApiKey = checked;
+      this.paintApiKey();
       changed();
     });
     this.ignoreApiKey = ignore.input;
     this.ignoreApiKey.dataset.ref = 'ignore-api-key';
     root.appendChild(ignore.row);
-    const ignoreHint = document.createElement('p');
-    ignoreHint.className = `${FIELD_HINT} -mt-3 mb-4`;
-    ignoreHint.textContent = 'When ANTHROPIC_API_KEY is set, Claude Code uses it (and bills it) over your subscription. On: FluidCAD leaves the key out of Claude Code’s environment.';
+    const ignoreHint = document.createElement('div');
+    ignoreHint.className = `${FIELD_HINT} -mt-3 mb-4 flex flex-col gap-1`;
+    const why = document.createElement('p');
+    why.textContent =
+      'When ANTHROPIC_API_KEY is set, Claude Code uses it (and bills it) over your subscription. ' +
+      'On: FluidCAD leaves the key out of Claude Code’s environment. Unless you change it, it is on when a Claude subscription is signed in.';
+    const state = document.createElement('p');
+    state.className = 'flex flex-wrap items-center gap-x-2';
+    this.apiKeyNote = document.createElement('span');
+    this.apiKeyNote.dataset.ref = 'ignore-api-key-note';
+    this.apiKeyAuto = document.createElement('button');
+    this.apiKeyAuto.type = 'button';
+    this.apiKeyAuto.dataset.ref = 'ignore-api-key-auto';
+    this.apiKeyAuto.className = 'link link-hover text-primary text-[11px]';
+    this.apiKeyAuto.textContent = 'Use automatic';
+    this.apiKeyAuto.addEventListener('click', () => {
+      delete this.draft.claudeIgnoreApiKey;
+      this.paintApiKey();
+      changed();
+    });
+    state.append(this.apiKeyNote, this.apiKeyAuto);
+    ignoreHint.append(why, state);
     root.appendChild(ignoreHint);
 
     this.claudePath = textField((value) => {
@@ -198,7 +222,7 @@ export class AgentTab implements SettingsTab {
     this.claudeEffort.value = this.draft.claudeEffort ?? '';
     this.paintCodexEfforts();
     this.permission.value = this.draft.permissionMode;
-    this.ignoreApiKey.checked = this.draft.claudeIgnoreApiKey === true;
+    this.paintApiKey();
     this.paintValidity();
     // Each open reads detection (cached by the engine until something changes).
     void this.detect(false);
@@ -272,13 +296,29 @@ export class AgentTab implements SettingsTab {
       // Each agent has its own now; the older shared one goes.
       effort: '',
       permissionMode: next.permissionMode,
-      claudeIgnoreApiKey: next.claudeIgnoreApiKey === true,
+      // The user's on or off; null goes back to automatic.
+      claudeIgnoreApiKey: typeof next.claudeIgnoreApiKey === 'boolean' ? next.claudeIgnoreApiKey : null,
     } as unknown as AgentPreferences;
     const saved = this.deps?.save ? this.deps.save(payload) : Promise.resolve(persist('agent', payload));
     void saved.then(() => {
       this.deps?.onSaved?.();
       void this.detect(false);
     });
+  }
+
+  /**
+   * The API-key switch as it acts: the user's choice when they made one;
+   * otherwise automatic, on when detection found a Claude subscription
+   * signed in. The note says which, and "Use automatic" undoes a choice.
+   */
+  private paintApiKey(): void {
+    const choice = this.draft.claudeIgnoreApiKey;
+    const claude = this.installs?.find((i) => i.kind === 'claude') ?? null;
+    const explicit = typeof choice === 'boolean';
+    this.ignoreApiKey.checked = explicit ? choice : claude?.subscriptionAvailable === true;
+    this.apiKeyAuto.classList.toggle('hidden', !explicit);
+    this.apiKeyNote.dataset.state = explicit ? 'explicit' : 'automatic';
+    this.apiKeyNote.textContent = explicit ? `${choice ? 'On' : 'Off'}: your choice.` : automaticNote(claude);
   }
 
   private paintValidity(): void {
@@ -303,6 +343,7 @@ export class AgentTab implements SettingsTab {
       const installs = await this.deps.agents(fresh);
       this.installs = installs;
       this.paintFound(installs, installs ? null : 'This engine has no agent runtime.');
+      this.paintApiKey();
     } finally {
       this.detecting = false;
     }
@@ -348,7 +389,7 @@ function foundRow(install: AgentInstall): HTMLElement {
     lines.push(install.path);
   }
   if (install.kind === 'claude' && install.authMethod === 'claude.ai') {
-    lines.push('Signed in with a Claude subscription.');
+    lines.push(install.apiKeyIgnored ? 'Signed in with a Claude subscription; ANTHROPIC_API_KEY is left out.' : 'Signed in with a Claude subscription.');
   } else if (install.kind === 'claude' && install.authMethod === 'api_key') {
     lines.push('Uses the API key in ANTHROPIC_API_KEY.');
   }
@@ -362,6 +403,17 @@ function foundRow(install: AgentInstall): HTMLElement {
     row.appendChild(p);
   }
   return row;
+}
+
+/** Why the automatic API-key switch stands as it does, from what detection found. */
+function automaticNote(claude: AgentInstall | null): string {
+  if (claude?.subscriptionAvailable === true) {
+    return 'Automatic: on because a Claude subscription is signed in.';
+  }
+  if (claude?.subscriptionAvailable === false) {
+    return 'Automatic: off because no Claude subscription is signed in.';
+  }
+  return 'Automatic: on when a Claude subscription is signed in.';
 }
 
 function verdictOf(install: AgentInstall): { text: string; tone: string } {
@@ -396,6 +448,6 @@ function sameSettings(a: AgentPreferences, b: AgentPreferences): boolean {
     (a.claudeEffort ?? '') === (b.claudeEffort ?? '') &&
     (a.codexEffort ?? '') === (b.codexEffort ?? '') &&
     a.permissionMode === b.permissionMode &&
-    (a.claudeIgnoreApiKey === true) === (b.claudeIgnoreApiKey === true)
+    (a.claudeIgnoreApiKey ?? null) === (b.claudeIgnoreApiKey ?? null)
   );
 }

@@ -58,8 +58,9 @@ export function applyAgentPreferences(prefs: UserPreferences): void {
     if (stored.permissionMode === 'auto-edits') {
       next.permissionMode = 'auto-edits';
     }
-    if (stored.claudeIgnoreApiKey === true) {
-      next.claudeIgnoreApiKey = true;
+    // On, off, or (absent) automatic: an explicit off is not the same as none.
+    if (typeof stored.claudeIgnoreApiKey === 'boolean') {
+      next.claudeIgnoreApiKey = stored.claudeIgnoreApiKey;
     }
   }
   agentSettings.update(next);

@@ -217,4 +217,30 @@ describe.runIf(onLinux)('preferences — the agent panel', () => {
       expect(reset.agent).toEqual({ defaultAgent: null, permissionMode: 'ask' });
     });
   });
+
+  it('keeps the API-key choice unset (automatic) apart from an explicit off, and clears it on null', async () => {
+    // Unset: neither the defaults nor a save of other fields fill it in.
+    expect('claudeIgnoreApiKey' in (await loadPreferences()).agent).toBe(false);
+    await withServer(async (base) => {
+      let prefs = await post(`${base}/preferences`, { agent: { permissionMode: 'auto-edits' } });
+      expect('claudeIgnoreApiKey' in prefs.agent).toBe(false);
+      expect('claudeIgnoreApiKey' in (await loadPreferences()).agent).toBe(false);
+
+      // An explicit off is kept as false, on disk and back.
+      prefs = await post(`${base}/preferences`, { agent: { claudeIgnoreApiKey: false } });
+      expect(prefs.agent.claudeIgnoreApiKey).toBe(false);
+      expect((await loadPreferences()).agent.claudeIgnoreApiKey).toBe(false);
+      // A field it does not name leaves the choice alone.
+      prefs = await post(`${base}/preferences`, { agent: { claudeModel: 'opus' } });
+      expect(prefs.agent.claudeIgnoreApiKey).toBe(false);
+
+      prefs = await post(`${base}/preferences`, { agent: { claudeIgnoreApiKey: true } });
+      expect((await loadPreferences()).agent.claudeIgnoreApiKey).toBe(true);
+
+      // null ("Use automatic") clears it back to unset.
+      prefs = await post(`${base}/preferences`, { agent: { claudeIgnoreApiKey: null } });
+      expect('claudeIgnoreApiKey' in prefs.agent).toBe(false);
+      expect('claudeIgnoreApiKey' in (await loadPreferences()).agent).toBe(false);
+    });
+  });
 });

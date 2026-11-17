@@ -12,7 +12,7 @@ import path from 'node:path';
 import type { AgentBackend, AgentInstall, AgentModel, AgentRun, BackendEvent, DetectOptions, OpenOptions } from '../backend.ts';
 import { AsyncQueue } from '../async-queue.ts';
 import { trackChild } from '../children.ts';
-import { compareVersions, findOnPath, isExecutableFile, parseVersion, runBriefly } from '../locate.ts';
+import { compareVersions, findOnPath, isExecutableFile, parseVersion, runBriefly, type ExecResult } from '../locate.ts';
 import { ClaudeStreamMapper, FLUIDCAD_MCP_SERVER } from './stream-json.ts';
 
 export const CLAUDE_MIN_VERSION = '2.1.259';
@@ -52,8 +52,8 @@ const NESTED_SESSION_VARIABLES = [
 
 /**
  * The environment Claude Code runs with: the engine's own, minus a parent
- * session's markers, and minus ANTHROPIC_API_KEY when the user chose their
- * subscription over an inherited key (`agent.claudeIgnoreApiKey`).
+ * session's markers, and minus ANTHROPIC_API_KEY when the key is ignored
+ * (see {@link effectiveIgnoreApiKey}).
  */
 export function claudeChildEnv(base: NodeJS.ProcessEnv, options: { ignoreApiKey?: boolean } = {}): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...base };
@@ -64,6 +64,22 @@ export function claudeChildEnv(base: NodeJS.ProcessEnv, options: { ignoreApiKey?
     delete env.ANTHROPIC_API_KEY;
   }
   return env;
+}
+
+/** Whether `env` carries an ANTHROPIC_API_KEY Claude Code would use. */
+export function hasApiKey(env: NodeJS.ProcessEnv): boolean {
+  return typeof env.ANTHROPIC_API_KEY === 'string' && env.ANTHROPIC_API_KEY.trim() !== '';
+}
+
+/**
+ * Whether ANTHROPIC_API_KEY is left out of Claude Code's environment (§19,
+ * owner decision): the user's explicit choice (`agent.claudeIgnoreApiKey`)
+ * always wins; without one, the key is left out when a Claude subscription
+ * is signed in, and kept otherwise (without it Claude Code could not sign
+ * in at all).
+ */
+export function effectiveIgnoreApiKey(choice: boolean | undefined, subscriptionAvailable: boolean | null | undefined): boolean {
+  return typeof choice === 'boolean' ? choice : subscriptionAvailable === true;
 }
 
 export type ClaudeBackendOptions = {
@@ -105,6 +121,7 @@ export class ClaudeBackend implements AgentBackend {
   }
 
   async detect(options: DetectOptions): Promise<AgentInstall> {
+    const apiKeyPresent = hasApiKey(options.env);
     const base: AgentInstall = {
       kind: 'claude',
       path: null,
@@ -113,6 +130,9 @@ export class ClaudeBackend implements AgentBackend {
       supported: false,
       loggedIn: null,
       authMethod: null,
+      apiKeyPresent,
+      subscriptionAvailable: null,
+      apiKeyIgnored: apiKeyPresent && effectiveIgnoreApiKey(options.ignoreApiKey, null),
     };
     const override = options.pathOverride?.trim();
     let candidates: string[];
@@ -149,9 +169,22 @@ export class ClaudeBackend implements AgentBackend {
         };
       }
       install.supported = true;
-      const auth = await runBriefly(candidate, ['auth', 'status'], { env: options.env, timeoutMs: 15_000 });
-      // Only these two facts are kept; the status also carries account
-      // fields (email, organization), which are never read.
+      // Only the sign-in state and the auth method are read; the status also
+      // carries account fields (email, organization), which never are.
+      const status = (env: NodeJS.ProcessEnv) => runBriefly(candidate, ['auth', 'status'], { env, timeoutMs: 15_000 });
+      let auth: ExecResult;
+      if (apiKeyPresent) {
+        // An inherited key wins over the subscription login, so the login is
+        // asked about with the key left out; the credentials are not read.
+        const withoutKey = await status(claudeChildEnv(options.env, { ignoreApiKey: true }));
+        install.subscriptionAvailable = subscriptionOf(withoutKey);
+        install.apiKeyIgnored = effectiveIgnoreApiKey(options.ignoreApiKey, install.subscriptionAvailable);
+        auth = install.apiKeyIgnored ? withoutKey : await status(options.env);
+      } else {
+        auth = await status(options.env);
+        install.subscriptionAvailable = subscriptionOf(auth);
+        install.apiKeyIgnored = false;
+      }
       install.authMethod = readAuthMethod(auth.stdout);
       if (auth.code === 0) {
         install.loggedIn = true;
@@ -442,6 +475,19 @@ function readAuthMethod(stdout: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a `claude auth status` run (with no API key in its environment)
+ * found a Claude subscription login: signed in with `authMethod: "claude.ai"`.
+ * null when the run said nothing readable.
+ */
+function subscriptionOf(result: { code: number | null; stdout: string }): boolean | null {
+  const method = readAuthMethod(result.stdout);
+  if (result.code === 0 && method === 'claude.ai') {
+    return true;
+  }
+  return result.code === 0 || result.code === 1 ? false : null;
 }
 
 function firstLine(text: string): string {

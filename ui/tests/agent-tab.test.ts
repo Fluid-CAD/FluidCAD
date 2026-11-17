@@ -3,15 +3,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from '../src/ui/settings/settings-modal';
 import { agentSettings, applyAgentPreferences, DEFAULT_AGENT_PREFERENCES } from '../src/ui/settings/agent-settings';
 import { IGNORE_API_KEY_LABEL } from '../src/ui/settings/agent-tab';
-import type { AgentInstall, AgentModel } from '../src/ui/chat/chat-types';
+import type { AgentInstall } from '../src/ui/chat/chat-types';
 import type { AgentPreferences, UserPreferences } from '../src/api';
 import { settle } from './fixtures/fake-packages-client';
 
 // Settings → Agent (docs/agent-chat-plan.md §9.3, §19): the agent for new
-// chats, the program paths, the models, effort, the permission mode and the
-// subscription-over-API-key choice, saved as the one `agent` preference with
-// cleared fields sent empty (the engine merges field by field); under them,
-// what detection found.
+// chats, the permission mode and the subscription-over-API-key choice, saved
+// in the one `agent` preference (the engine merges field by field, so the
+// model, effort and paths it does not send stay); under them, Detected Agents.
+// The model and effort are picked with the Agent panel's chips.
 
 const CLAUDE: AgentInstall = {
   kind: 'claude', path: '/home/u/.local/bin/claude', version: '2.1.326', minVersion: '2.1.259',
@@ -27,17 +27,16 @@ afterEach(() => {
   agentSettings.update({ ...DEFAULT_AGENT_PREFERENCES });
 });
 
-function mount(codexModels: AgentModel[] | null = null, claude: AgentInstall = CLAUDE) {
+function mount(claude: AgentInstall = CLAUDE) {
   const savePreference = vi.fn();
   const save = vi.fn(async (_value: AgentPreferences) => undefined);
   const onSaved = vi.fn();
   const agents = vi.fn(async (_fresh: boolean) => [claude, CODEX]);
-  const models = vi.fn(async (_kind: string) => codexModels);
   const modal = new SettingsModal(document.body, {
     savePreference,
     resetPreferences: async () => null,
     applyPreferences: () => undefined,
-    agent: { agents, save, onSaved, models },
+    agent: { agents, save, onSaved },
   });
   const overlay = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
   const panel = overlay.querySelector<HTMLElement>('[data-panel="agent"]')!;
@@ -46,14 +45,14 @@ function mount(codexModels: AgentModel[] | null = null, claude: AgentInstall = C
 }
 
 describe('Settings → Agent', () => {
-  it('reads the stored preference, shows what detection found, and saves every field in one key', async () => {
-    applyAgentPreferences({ agent: { defaultAgent: 'claude', claudePath: '/opt/claude', claudeModel: 'opus', permissionMode: 'ask' } } as UserPreferences);
+  it('reads the stored preference, shows Detected Agents, and saves its own fields in one key', async () => {
+    applyAgentPreferences({
+      agent: { defaultAgent: 'claude', claudePath: '/opt/claude', claudeModel: 'opus', claudeEffort: 'max', permissionMode: 'ask' },
+    } as UserPreferences);
     const h = mount();
     h.modal.show('agent');
     await settle();
     expect(h.$<HTMLSelectElement>('[data-ref="default-agent"]').value).toBe('claude');
-    expect(h.$<HTMLInputElement>('[data-ref="claude-path"]').value).toBe('/opt/claude');
-    expect(h.$<HTMLInputElement>('[data-ref="claude-model"]').value).toBe('opus');
     expect(h.$<HTMLSelectElement>('[data-ref="permission-mode"]').value).toBe('ask');
     // The panel's words for the two modes; nothing says the agent only reads.
     expect([...h.$<HTMLSelectElement>('[data-ref="permission-mode"]').options].map((o) => o.textContent)).toEqual([
@@ -62,78 +61,60 @@ describe('Settings → Agent', () => {
     ]);
     expect(h.panel.textContent).not.toMatch(/only reads the project/);
     expect(h.panel.textContent).toContain(IGNORE_API_KEY_LABEL);
+    // No model, effort or program fields: the chips pick the first two.
+    for (const ref of ['claude-model', 'codex-model', 'claude-effort', 'codex-effort', 'claude-path', 'codex-path', 'model-error']) {
+      expect(h.panel.querySelector(`[data-ref="${ref}"]`)).toBeNull();
+    }
+    expect(h.panel.querySelectorAll('input[type="text"], datalist')).toHaveLength(0);
+    expect(h.panel.textContent).not.toMatch(/model|effort|program/i);
 
+    expect(h.panel.textContent).toContain('Detected Agents');
+    expect(h.panel.textContent).not.toContain('What FluidCAD found');
     const found = h.$('[data-ref="found"]');
     expect(found.querySelector('[data-agent="claude"] [data-ref="verdict"]')!.textContent).toBe('Ready');
+    expect(found.querySelector('[data-agent="claude"]')!.textContent).toContain('Version 2.1.326');
+    expect(found.querySelector('[data-agent="claude"]')!.textContent).toContain('/home/u/.local/bin/claude');
     expect(found.querySelector('[data-agent="claude"]')!.textContent).toContain('Uses the API key in ANTHROPIC_API_KEY.');
     expect(found.querySelector('[data-agent="codex"] [data-ref="verdict"]')!.textContent).toBe('Not supported yet');
 
-    // Clear the path, keep the subscription over the key, change the model.
-    const path = h.$<HTMLInputElement>('[data-ref="claude-path"]');
-    path.value = '';
-    path.dispatchEvent(new Event('input'));
+    // Change the agent and keep the subscription over the key.
+    const agent = h.$<HTMLSelectElement>('[data-ref="default-agent"]');
+    agent.value = 'codex';
+    agent.dispatchEvent(new Event('change'));
     const ignore = h.$<HTMLInputElement>('[data-ref="ignore-api-key"]');
     ignore.checked = true;
     ignore.dispatchEvent(new Event('change'));
-    const model = h.$<HTMLInputElement>('[data-ref="claude-model"]');
-    model.value = 'sonnet';
-    model.dispatchEvent(new Event('input'));
     h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
     await settle();
-    expect(h.save).toHaveBeenCalledWith({
-      defaultAgent: 'claude', claudePath: '', codexPath: '', claudeModel: 'sonnet', codexModel: '',
-      claudeEffort: '', codexEffort: '', effort: '', permissionMode: 'ask', claudeIgnoreApiKey: true,
-    });
+    // Only the tab's fields: what it does not send, the engine keeps.
+    expect(h.save).toHaveBeenCalledWith({ defaultAgent: 'codex', permissionMode: 'ask', claudeIgnoreApiKey: true });
     expect(h.onSaved).toHaveBeenCalledTimes(1);
-    expect(agentSettings.current).toMatchObject({ claudeModel: 'sonnet', claudeIgnoreApiKey: true });
-    expect(agentSettings.current.claudePath).toBeUndefined();
+    expect(agentSettings.current).toMatchObject({
+      defaultAgent: 'codex', claudeIgnoreApiKey: true, claudePath: '/opt/claude', claudeModel: 'opus', claudeEffort: 'max',
+    });
   });
 
-  it('flags a model name the engine would refuse and keeps the old one', async () => {
+  it('keeps a model or effort picked on a chip while the tab was open', async () => {
     applyAgentPreferences({ agent: { defaultAgent: null, claudeModel: 'opus', permissionMode: 'ask' } } as UserPreferences);
     const h = mount();
     h.modal.show('agent');
-    const model = h.$<HTMLInputElement>('[data-ref="claude-model"]');
-    model.value = 'not a model';
-    model.dispatchEvent(new Event('input'));
-    expect(h.$('[data-ref="model-error"]').classList.contains('hidden')).toBe(false);
+    await settle();
+    // The panel's chip, meanwhile.
+    agentSettings.update({ ...agentSettings.current, claudeModel: 'sonnet', codexEffort: 'high' });
+    const mode = h.$<HTMLSelectElement>('[data-ref="permission-mode"]');
+    mode.value = 'auto-edits';
+    mode.dispatchEvent(new Event('change'));
     h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
     await settle();
-    expect(h.save.mock.calls[0][0].claudeModel).toBe('opus');
-  });
-
-  it("offers each agent's own effort levels: Claude Code's --effort choices, every level a Codex model lists", async () => {
-    applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask', effort: 'high' } } as UserPreferences);
-    const h = mount([
-      { id: 'default', label: 'Default' },
-      { id: 'gpt-luna', label: 'Luna', isDefault: true, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
-      { id: 'gpt-terra', label: 'Terra', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
-    ]);
-    h.modal.show('agent');
-    await settle();
-    const claude = h.$<HTMLSelectElement>('[data-ref="claude-effort"]');
-    const codex = h.$<HTMLSelectElement>('[data-ref="codex-effort"]');
-    expect([...claude.options].map((o) => o.textContent)).toEqual(['Claude Code’s default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
-    expect([...codex.options].map((o) => o.value)).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
-    // The older shared effort stands in for both until each has its own.
-    expect(claude.value).toBe('high');
-    expect(codex.value).toBe('high');
-
-    claude.value = 'max';
-    claude.dispatchEvent(new Event('change'));
-    codex.value = 'ultra';
-    codex.dispatchEvent(new Event('change'));
-    h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
-    await settle();
-    expect(h.save.mock.calls[0][0]).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra', effort: '' });
-    expect(agentSettings.current).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra' });
+    expect(h.save.mock.calls[0][0]).toEqual({ defaultAgent: null, permissionMode: 'auto-edits', claudeIgnoreApiKey: null });
+    expect(agentSettings.current).toMatchObject({ claudeModel: 'sonnet', codexEffort: 'high', permissionMode: 'auto-edits' });
   });
 
   describe('the API-key switch', () => {
     const SUBSCRIBED: AgentInstall = { ...CLAUDE, authMethod: 'claude.ai', apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: true };
     const NO_SUBSCRIPTION: AgentInstall = { ...CLAUDE, authMethod: 'api_key', apiKeyPresent: true, subscriptionAvailable: false, apiKeyIgnored: false };
 
-    const mountWith = (claude: AgentInstall) => mount(null, claude);
+    const mountWith = (claude: AgentInstall) => mount(claude);
     const note = (h: ReturnType<typeof mount>) => h.$('[data-ref="ignore-api-key-note"]');
     const auto = (h: ReturnType<typeof mount>) => h.$<HTMLButtonElement>('[data-ref="ignore-api-key-auto"]');
 
@@ -194,12 +175,12 @@ describe('Settings → Agent', () => {
       const h = mountWith(SUBSCRIBED);
       h.modal.show('agent');
       await settle();
-      const model = h.$<HTMLInputElement>('[data-ref="claude-model"]');
-      model.value = 'opus';
-      model.dispatchEvent(new Event('input'));
+      const agent = h.$<HTMLSelectElement>('[data-ref="default-agent"]');
+      agent.value = 'claude';
+      agent.dispatchEvent(new Event('change'));
       h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
       await settle();
-      expect(h.save.mock.calls[0][0]).toMatchObject({ claudeModel: 'opus', claudeIgnoreApiKey: null });
+      expect(h.save.mock.calls[0][0]).toMatchObject({ defaultAgent: 'claude', claudeIgnoreApiKey: null });
     });
   });
 

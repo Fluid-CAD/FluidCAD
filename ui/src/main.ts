@@ -1135,15 +1135,11 @@ const settingsModal = new SettingsModal(container, {
       const answer = await chatClient.agents(fresh);
       return answer.ok ? answer.value : null;
     },
-    // Awaited, so the detection that follows reads the new paths and API-key choice.
+    // Awaited, so the detection that follows reads the new API-key choice.
     save: async (value) => {
       await savePreferenceNow('agent', value);
     },
     onSaved: () => agentPanel?.settingsChanged(),
-    models: async (kind) => {
-      const answer = await chatClient.models(kind);
-      return answer.ok ? answer.value : null;
-    },
   },
 });
 

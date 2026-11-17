@@ -182,7 +182,19 @@ export function createEngineProxy(options: EngineProxyOptions): EngineProxy {
         engineResponse.pipe(response);
       },
     );
+    // A page that goes away takes its request on the engine with it: an event
+    // stream the engine holds open would otherwise stay open there for good.
+    // `close` comes after a finished response too, and that one is left be.
+    response.on('close', () => {
+      if (!response.writableFinished) {
+        upstream.destroy();
+      }
+    });
     upstream.on('error', () => {
+      if (response.destroyed) {
+        // Closed by the page going away, above: no one is left to answer.
+        return;
+      }
       if (!response.headersSent) {
         refuse(response, 502, 'The project\'s engine did not answer.');
       } else {

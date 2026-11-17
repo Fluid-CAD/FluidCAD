@@ -3,6 +3,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Camera,
+  Color,
   DoubleSide,
   Material,
   Mesh,
@@ -27,6 +28,11 @@ export type ScreenshotHighlightRef = {
   index: number;
   /** Assembly scenes: the instance group the entity is looked up in. */
   instanceId?: string;
+  /**
+   * A CSS hex colour (`#e5484d`) to draw this entity in, in place of the
+   * theme's highlight colour; faces then fill at {@link ScreenshotHighlightOverlay.COLORED_FACE_OPACITY}.
+   */
+  color?: string;
 };
 
 /** A labelled line between two world points, in document units. */
@@ -91,12 +97,15 @@ export class ScreenshotScopes {
  * the materials differ from the on-screen selection in one respect — depth
  * testing is off and the meshes render last — so a bore or a far-side face
  * shows through whatever occludes it. Faces get a translucent fill in the
- * theme's highlight colour, edges a thick line in it. Built after the
+ * theme's highlight colour, edges a thick line in it — or in the entry's own
+ * `color` when it carries one (the chat's scene references, §11.2). Built after the
  * capture's visibility changes, disposed before they are undone.
  */
 export class ScreenshotHighlightOverlay {
 
   static readonly FACE_OPACITY = 0.55;
+  /** An entry with its own colour: opaque enough that the colour reads true over the body colour. */
+  static readonly COLORED_FACE_OPACITY = 0.85;
   static readonly EDGE_LINE_WIDTH = 4;
   /** After every model object (solids draw at 1-2, select overlays at 999). */
   static readonly RENDER_ORDER = 1000;
@@ -110,10 +119,11 @@ export class ScreenshotHighlightOverlay {
     const overlay = new ScreenshotHighlightOverlay();
     for (const ref of refs) {
       for (const root of ScreenshotScopes.roots(scene, ref.instanceId)) {
+        const color = ScreenshotHighlightOverlay.parseColor(ref.color);
         if (ref.kind === 'face') {
-          overlay.addFace(root, ref.shapeId, ref.index);
+          overlay.addFace(root, ref.shapeId, ref.index, color);
         } else {
-          overlay.addEdge(root, ref.shapeId, ref.index);
+          overlay.addEdge(root, ref.shapeId, ref.index, color);
         }
       }
     }
@@ -131,14 +141,22 @@ export class ScreenshotHighlightOverlay {
     this.owned.length = 0;
   }
 
-  private addFace(root: Object3D, shapeId: string, faceIndex: number): void {
+  /** `#rgb` / `#rrggbb` as a three.js colour; anything else is no colour (the theme's highlight). */
+  static parseColor(value: string | undefined): Color | null {
+    if (typeof value !== 'string' || !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {
+      return null;
+    }
+    return new Color(value);
+  }
+
+  private addFace(root: Object3D, shapeId: string, faceIndex: number, color: Color | null = null): void {
     for (const { mesh, positions } of EntityGeometry.faceTriangles(root, shapeId, faceIndex)) {
       const geometry = new BufferGeometry();
       geometry.setAttribute('position', new BufferAttribute(positions, 3));
       const material = new MeshBasicMaterial({
-        color: themeColors.highlightColor,
+        color: color ?? themeColors.highlightColor,
         transparent: true,
-        opacity: ScreenshotHighlightOverlay.FACE_OPACITY,
+        opacity: color ? ScreenshotHighlightOverlay.COLORED_FACE_OPACITY : ScreenshotHighlightOverlay.FACE_OPACITY,
         depthTest: false,
         depthWrite: false,
         side: DoubleSide,
@@ -150,7 +168,7 @@ export class ScreenshotHighlightOverlay {
     }
   }
 
-  private addEdge(root: Object3D, shapeId: string, edgeIndex: number): void {
+  private addEdge(root: Object3D, shapeId: string, edgeIndex: number, color: Color | null = null): void {
     for (const line of EntityGeometry.edgeLines(root, shapeId, edgeIndex)) {
       const source = line as LineSegments2;
       if (!source.geometry) {
@@ -159,7 +177,7 @@ export class ScreenshotHighlightOverlay {
       // The material the source geometry draws with — a solid edge's band
       // has a centerline column only its face-edge material reads.
       const material = createEdgeLineMaterial(source.geometry, {
-        color: themeColors.highlightColor.getHex(),
+        color: (color ?? themeColors.highlightColor).getHex(),
         linewidth: ScreenshotHighlightOverlay.EDGE_LINE_WIDTH,
         transparent: true,
         depthTest: false,

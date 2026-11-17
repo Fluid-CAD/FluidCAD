@@ -70,13 +70,21 @@ export class MeasureEntityResolver {
    * The every-match form: each filter entity contributes every face/edge it
    * selects (a highlight wants them all), so only an expression that matches
    * nothing — or fails to resolve — is refused. Index entities pass through.
+   * `sources` maps each ref back to the entity it came from.
    */
-  static resolveMany(entities: MeasureEntity[], resolveSelection: Resolver, label = 'entities'): { ok: true; refs: MeasureRef[] } | MeasureEntitiesFailure {
+  static resolveMany(
+    entities: MeasureEntity[],
+    resolveSelection: Resolver,
+    label = 'entities',
+  ): { ok: true; refs: MeasureRef[]; sources: number[] } | MeasureEntitiesFailure {
     const refs: MeasureRef[] = [];
+    // `sources[k]` is the index in `entities` that `refs[k]` came from.
+    const sources: number[] = [];
     for (let i = 0; i < entities.length; i++) {
       const entity = entities[i];
       if (!MeasureEntityResolver.isFilterEntity(entity)) {
         refs.push(entity);
+        sources.push(i);
         continue;
       }
       const matches = MeasureEntityResolver.matchesFor(`${label}[${i}]`, entity, resolveSelection);
@@ -85,9 +93,10 @@ export class MeasureEntityResolver {
       }
       for (const match of matches.matches) {
         refs.push(MeasureEntityResolver.refFor(match, entity));
+        sources.push(i);
       }
     }
-    return { ok: true, refs };
+    return { ok: true, refs, sources };
   }
 
   private static resolveOne(

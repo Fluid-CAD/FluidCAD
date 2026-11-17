@@ -123,6 +123,35 @@ describe('POST /api/screenshot overlays', () => {
     ]);
   });
 
+  it('carries each entry\'s colour to the page, onto every match of a filter', async () => {
+    const res = await post({
+      highlight: [
+        { expression: 'face().parallelTo("yz")', scope: { part: 'base' }, color: '#e5484d' },
+        { shapeId: 'sh-2', kind: 'edge', index: 7, color: '#2F6FF0' },
+        { shapeId: 'sh-2', kind: 'edge', index: 8 },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(lastOptions?.highlight).toEqual([
+      { shapeId: 'sh-1', kind: 'face', index: 0, color: '#e5484d' },
+      { shapeId: 'sh-1', kind: 'face', index: 1, color: '#e5484d' },
+      { shapeId: 'sh-2', kind: 'edge', index: 7, color: '#2F6FF0' },
+      { shapeId: 'sh-2', kind: 'edge', index: 8 },
+    ]);
+    // Index refs alone pass through with their colours as well.
+    const plain = await post({ highlight: [{ shapeId: 'sh-1', kind: 'face', index: 3, color: '#0fb' }] });
+    expect(plain.status).toBe(200);
+    expect(lastOptions?.highlight).toEqual([{ shapeId: 'sh-1', kind: 'face', index: 3, color: '#0fb' }]);
+  });
+
+  it('refuses a highlight colour that is not a CSS hex', async () => {
+    for (const color of ['red', '#12345', 'rgb(1,2,3)', 7]) {
+      const res = await post({ highlight: [{ shapeId: 'sh-1', kind: 'face', index: 3 }, { shapeId: 'sh-1', kind: 'face', index: 4, color }] });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('highlight[1].color');
+    }
+  });
+
   it('refuses a highlight expression that matches nothing with a 404 naming it', async () => {
     const res = await post({ highlight: [{ expression: 'edge().circle(99)', scope: { part: 'base' } }] });
     expect(res.status).toBe(404);

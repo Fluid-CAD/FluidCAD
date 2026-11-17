@@ -737,6 +737,8 @@ export type ScreenshotHighlightRef = {
   kind: 'face' | 'edge';
   index: number;
   instanceId?: string;
+  /** A CSS hex colour to draw this entity in, in place of the theme's highlight colour. */
+  color?: string;
 };
 
 /** A labelled point-to-point line in document units, painted over the capture. */

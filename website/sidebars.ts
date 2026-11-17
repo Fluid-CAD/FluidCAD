@@ -87,6 +87,7 @@ const sidebars: SidebarsConfig = {
     },
     'packages/index',
     'user-interface',
+    'agent',
     'cli',
     {
       type: 'category',

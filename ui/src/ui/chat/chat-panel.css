@@ -896,3 +896,133 @@
     pointer-events: none;
   }
 }
+
+/* --- The chats menu (mounted in the viewer, beside the panel) -------------- */
+
+.chat-sessions-menu {
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-sessions-menu .chat-sessions-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+
+.chat-sessions-menu .chat-session-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  border-radius: 0.25rem;
+}
+
+.chat-sessions-menu .chat-session-row:hover,
+.chat-sessions-menu .chat-session-row:focus-within {
+  background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+}
+
+.chat-sessions-menu .chat-session-open {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.25rem;
+  text-align: left;
+  cursor: pointer;
+  color: color-mix(in oklab, var(--color-base-content) 85%, transparent);
+}
+
+.chat-sessions-menu .chat-session-open:focus-visible {
+  outline: none;
+}
+
+.chat-sessions-menu .chat-session-title {
+  font-size: 13px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-sessions-menu .chat-session-row[data-current='true'] .chat-session-title {
+  font-weight: 500;
+  color: var(--color-base-content);
+}
+
+.chat-sessions-menu .chat-session-meta {
+  font-size: 11px;
+  line-height: 1.3;
+  color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-sessions-menu .chat-session-status-busy {
+  color: var(--color-primary);
+}
+
+.chat-sessions-menu .chat-session-status-warning {
+  color: var(--color-warning);
+}
+
+.chat-sessions-menu .chat-session-status-error {
+  color: var(--color-error);
+}
+
+/* The pencil and the bin show on the row under the pointer or the keyboard. */
+.chat-sessions-menu .chat-session-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding-right: 0.25rem;
+  opacity: 0;
+}
+
+.chat-sessions-menu .chat-session-row:hover .chat-session-actions,
+.chat-sessions-menu .chat-session-row:focus-within .chat-session-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .chat-sessions-menu .chat-session-actions {
+    opacity: 1;
+  }
+}
+
+.chat-sessions-menu .chat-session-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.25rem;
+  color: color-mix(in oklab, var(--color-base-content) 55%, transparent);
+  cursor: pointer;
+}
+
+.chat-sessions-menu .chat-session-action:hover,
+.chat-sessions-menu .chat-session-action:focus-visible {
+  outline: none;
+  color: var(--color-base-content);
+  background: color-mix(in oklab, var(--color-base-content) 10%, transparent);
+}
+
+.chat-sessions-menu .chat-session-delete:hover,
+.chat-sessions-menu .chat-session-delete:focus-visible {
+  color: var(--color-error);
+}
+
+.chat-sessions-menu .chat-session-rename {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.25rem 0.375rem;
+}

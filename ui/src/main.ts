@@ -1384,7 +1384,7 @@ function loadAgentPanel(): Promise<ChatPanel> {
         agentSettings.update({ ...agentSettings.current, permissionMode: mode });
         savePreference('agent', { permissionMode: mode } as UserPreferences['agent']);
       },
-      confirm: (options) => confirmDialog({ ...options, icon: ICON_UNDO }),
+      confirm: ({ kind, ...options }) => confirmDialog({ ...options, icon: kind === 'delete' ? ICON_TRASH : ICON_UNDO }),
       onOpenChange: () => panelRail.sync(),
       // Attaching the selected geometry to a message (§11).
       scene: {

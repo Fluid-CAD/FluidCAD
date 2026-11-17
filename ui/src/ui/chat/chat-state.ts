@@ -28,7 +28,7 @@ export type ChatTimers = {
 export type ChatChange =
   /** Detection or the model lists. */
   | { kind: 'agents' }
-  /** The session list (the menu). */
+  /** The session list (the menu), or the title on screen after a rename. */
   | { kind: 'sessions' }
   /** The current session was replaced: another one, a fresh snapshot, or a new chat. Repaint everything. */
   | { kind: 'session' }
@@ -279,6 +279,59 @@ export class ChatState {
       this.sending = false;
       this.emit({ kind: 'activity' });
     }
+  }
+
+  /**
+   * Rename chat `id` (`PATCH …/sessions/:id`). Resolves to an error to show,
+   * or null once renamed; the menu's row and the title on screen follow at
+   * once (the `title` event the engine sends confirms it).
+   */
+  async renameSession(id: string, title: string): Promise<string | null> {
+    const trimmed = title.trim();
+    if (trimmed === '') {
+      return 'A chat needs a title.';
+    }
+    const answer = await this.client.rename(id, trimmed);
+    if (this.disposed) {
+      return null;
+    }
+    if (answer.ok === false) {
+      return answer.error;
+    }
+    const row = this.sessions.find((s) => s.id === id);
+    if (row) {
+      row.title = trimmed;
+    }
+    if (this.session?.id === id) {
+      this.session.title = trimmed;
+    }
+    this.emit({ kind: 'sessions' });
+    // The engine shortens long titles: read back what it kept.
+    void this.loadSessions();
+    return null;
+  }
+
+  /**
+   * Delete chat `id` (`DELETE …/sessions/:id`): its conversation and files
+   * go; a turn it was running stops. Deleting the chat on screen opens a new
+   * chat. Resolves to an error to show, or null.
+   */
+  async deleteSession(id: string): Promise<string | null> {
+    const answer = await this.client.remove(id);
+    if (this.disposed) {
+      return null;
+    }
+    if (answer.ok === false && answer.status !== 404) {
+      this.error = answer.error;
+      this.emit({ kind: 'activity' });
+      return answer.error;
+    }
+    this.sessions = this.sessions.filter((s) => s.id !== id);
+    if (this.session?.id === id) {
+      this.newChat();
+    }
+    this.emit({ kind: 'sessions' });
+    return null;
   }
 
   /** Stop the running turn; the partial answer stays. */

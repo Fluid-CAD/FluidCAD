@@ -13,7 +13,7 @@ import { settle } from './fixtures/fake-packages-client';
 // a new chat created by its first message; the attach protocol (snapshot,
 // then events after its seq; resync and a new engine refetch); a turn
 // streaming thinking, tool cards and markdown; Stop, Escape, Continue; the
-// session menu and the model picker.
+// chats menu (switch, rename, delete) and the model picker.
 
 const panels: ChatPanel[] = [];
 
@@ -443,28 +443,128 @@ describe('the attach protocol (§7.3)', () => {
 });
 
 describe('the header', () => {
-  it('the session menu lists the chats and switches between them', async () => {
+  it('the chats menu lists the chats newest first, with the agent, the time and the status, and switches', async () => {
+    vi.useFakeTimers({ now: new Date('2026-11-17T10:30:00.000Z'), toFake: ['Date'] });
+    try {
+      const client = new FakeChatClient();
+      client.addSession({ id: 'a', title: 'Alpha', updatedAt: '2026-11-17T09:00:00.000Z', status: { state: 'interrupted', reason: 'The app restarted.' } });
+      client.addSession({ id: 'b', title: 'Beta', updatedAt: '2026-11-17T10:25:00.000Z' });
+      client.addSession({ id: 'c', title: 'Gamma', agent: 'codex', updatedAt: '2026-11-17T08:00:00.000Z', status: { state: 'error', kind: 'rate-limit', message: 'Limit.' } });
+      const h = mount(client);
+      await opened(h);
+      expect(h.$('[data-ref="title"]')!.textContent).toBe('Beta');
+      h.$<HTMLButtonElement>('[data-ref="sessions"]')!.click();
+      await settle();
+      const menu = h.container.querySelector('[data-ref="session-menu"]')!;
+      expect(menu.querySelector('[data-ref="menu-new-chat"]')!.textContent!.trim()).toBe('New chat');
+      const titles = [...menu.querySelectorAll('[data-ref="session-title"]')].map((t) => t.textContent);
+      expect(titles).toEqual(['Beta', 'Alpha', 'Gamma']);
+      const metas = [...menu.querySelectorAll('[data-ref="session-meta"]')].map((t) => t.textContent);
+      expect(metas[0]).toBe('Claude Code · 5 min ago');
+      expect(metas[1]).toBe('Claude Code · 1 h ago · Interrupted');
+      expect(metas[2]).toBe('Codex · 2 h ago · Limit reached');
+      expect(menu.querySelector('[data-current="true"] [data-ref="session-title"]')!.textContent).toBe('Beta');
+
+      const alpha = menu.querySelector<HTMLButtonElement>('[data-session-id="a"] [data-ref="open-session"]')!;
+      alpha.click();
+      await settle();
+      expect(h.container.querySelector('[data-ref="session-menu"]')).toBeNull();
+      expect(h.$('[data-ref="title"]')!.textContent).toBe('Alpha');
+      expect(client.openStreams()).toHaveLength(1);
+      expect(client.openStreams()[0].id).toBe('a');
+
+      h.$<HTMLButtonElement>('[data-ref="new-chat"]')!.click();
+      expect(h.$('[data-ref="title"]')!.textContent).toBe('New chat');
+      expect(client.openStreams()).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('renames a chat in place from the menu: Enter keeps it (PATCH), Escape leaves it', async () => {
     const client = new FakeChatClient();
     client.addSession({ id: 'a', title: 'Alpha', updatedAt: '2026-11-17T09:00:00.000Z' });
     client.addSession({ id: 'b', title: 'Beta', updatedAt: '2026-11-17T10:00:00.000Z' });
     const h = mount(client);
     await opened(h);
-    expect(h.$('[data-ref="title"]')!.textContent).toBe('Beta');
-    h.$<HTMLButtonElement>('[data-ref="sessions"]')!.click();
+    const menu = async () => {
+      h.$<HTMLButtonElement>('[data-ref="sessions"]')!.click();
+      await settle();
+      return h.container.querySelector<HTMLElement>('[data-ref="session-menu"]')!;
+    };
+    let m = await menu();
+    m.querySelector<HTMLButtonElement>('[data-session-id="b"] [data-ref="rename-session"]')!.click();
+    let input = m.querySelector<HTMLInputElement>('[data-ref="rename-input"]')!;
+    expect(input.value).toBe('Beta');
+    input.value = 'Bracket fillets';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
     await settle();
-    const menu = h.container.querySelector('[data-ref="session-menu"]')!;
-    const rows = [...menu.querySelectorAll('[role="menuitem"], button')].map((r) => r.textContent!.trim()).filter(Boolean);
-    expect(rows).toEqual(['New chat', 'Beta', 'Alpha']);
-    const alpha = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"], button')].find((r) => r.textContent!.trim() === 'Alpha')!;
-    alpha.click();
-    await settle();
-    expect(h.$('[data-ref="title"]')!.textContent).toBe('Alpha');
-    expect(client.openStreams()).toHaveLength(1);
-    expect(client.openStreams()[0].id).toBe('a');
+    expect(client.rename).toHaveBeenCalledWith('b', 'Bracket fillets');
+    expect(h.$('[data-ref="title"]')!.textContent).toBe('Bracket fillets');
+    expect(m.querySelector('[data-ref="rename-input"]')).toBeNull();
+    expect(m.querySelector('[data-session-id="b"] [data-ref="session-title"]')!.textContent).toBe('Bracket fillets');
 
-    h.$<HTMLButtonElement>('[data-ref="new-chat"]')!.click();
+    // Another chat, then Escape: nothing is sent.
+    m.querySelector<HTMLButtonElement>('[data-session-id="a"] [data-ref="rename-session"]')!.click();
+    input = m.querySelector<HTMLInputElement>('[data-ref="rename-input"]')!;
+    input.value = 'Never mind';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    expect(client.rename).toHaveBeenCalledTimes(1);
+    expect(m.querySelector('[data-session-id="a"] [data-ref="session-title"]')!.textContent).toBe('Alpha');
+    // The menu stays open after Escape left the field.
+    expect(h.container.querySelector('[data-ref="session-menu"]')).not.toBeNull();
+
+    // A refusal stays in the field.
+    client.rename.mockResolvedValueOnce({ ok: false, status: 400, error: '`title` must be a non-empty string.' });
+    m = h.container.querySelector<HTMLElement>('[data-ref="session-menu"]')!;
+    m.querySelector<HTMLButtonElement>('[data-session-id="a"] [data-ref="rename-session"]')!.click();
+    input = m.querySelector<HTMLInputElement>('[data-ref="rename-input"]')!;
+    input.value = 'Odd';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await settle();
+    expect(m.querySelector('[data-ref="rename-error"]')!.textContent).toMatch(/non-empty/);
+    expect(m.querySelector('[data-ref="rename-input"]')).not.toBeNull();
+  });
+
+  it('deletes a chat after asking; deleting the chat on screen opens a new chat', async () => {
+    const client = new FakeChatClient();
+    client.addSession({ id: 'a', title: 'Alpha', updatedAt: '2026-11-17T09:00:00.000Z' });
+    client.addSession({ id: 'b', title: 'Beta', updatedAt: '2026-11-17T10:00:00.000Z' });
+    const h = mount(client);
+    await opened(h);
+    const openMenu = async () => {
+      h.$<HTMLButtonElement>('[data-ref="sessions"]')!.click();
+      await settle();
+      return h.container.querySelector<HTMLElement>('[data-ref="session-menu"]')!;
+    };
+
+    // Declined: nothing happens.
+    h.confirm.mockResolvedValueOnce(false);
+    (await openMenu()).querySelector<HTMLButtonElement>('[data-session-id="a"] [data-ref="delete-session"]')!.click();
+    await settle();
+    expect(h.confirm).toHaveBeenCalledTimes(1);
+    expect(h.confirm.mock.calls[0][0]).toMatchObject({ title: 'Delete chat', confirmLabel: 'Delete', danger: true, kind: 'delete' });
+    expect(h.confirm.mock.calls[0][0].message).toMatch(/“Alpha”/);
+    expect(client.remove).not.toHaveBeenCalled();
+
+    // Another chat: the one on screen stays.
+    (await openMenu()).querySelector<HTMLButtonElement>('[data-session-id="a"] [data-ref="delete-session"]')!.click();
+    await settle();
+    expect(client.remove).toHaveBeenCalledWith('a');
+    expect(h.$('[data-ref="title"]')!.textContent).toBe('Beta');
+    let m = await openMenu();
+    expect([...m.querySelectorAll('[data-ref="session-title"]')].map((t) => t.textContent)).toEqual(['Beta']);
+
+    // The chat on screen: a new chat takes its place.
+    m.querySelector<HTMLButtonElement>('[data-session-id="b"] [data-ref="delete-session"]')!.click();
+    await settle();
+    expect(client.remove).toHaveBeenCalledWith('b');
+    expect(h.panel.state.session).toBeNull();
     expect(h.$('[data-ref="title"]')!.textContent).toBe('New chat');
     expect(client.openStreams()).toHaveLength(0);
+    m = await openMenu();
+    expect(m.querySelectorAll('[data-ref="session-title"]')).toHaveLength(0);
   });
 
   it('the model picker offers Default and the aliases, and any model by name', async () => {

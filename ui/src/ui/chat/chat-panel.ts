@@ -4,6 +4,7 @@ import { AGENT_INFO, authDescription, renderAgentSetup, renderWelcome, type Agen
 import type { ChatClient } from './chat-client';
 import { ChatComposer } from './chat-composer';
 import { ChatIcons } from './chat-icons';
+import { ChatSessionsMenu } from './chat-sessions-menu';
 import { ChatState, type ChatChange, type ChatTimers, type RevertOutcome } from './chat-state';
 import { ChatTranscript } from './chat-transcript';
 import { isBusy, type AgentKind, type ApprovalDecision, type AgentModel, type Effort, type PermissionMode, type SessionStatus, type TurnRecord } from './chat-types';
@@ -28,6 +29,8 @@ export type ChatConfirmOptions = {
   items?: string[];
   confirmLabel: string;
   danger?: boolean;
+  /** What is asked about, for the dialog's icon (absent: a revert). */
+  kind?: 'revert' | 'delete';
 };
 
 /** The permission modes as the panel names them (§12.1). */
@@ -86,8 +89,8 @@ const OTHER_MODEL = '__other__';
  * it closes whichever holds the slot, at the shared width; below 640 px it
  * covers the scene.
  *
- * The header holds the session menu (the title; switching chats), New chat
- * and Close, and a row with the agent, the model, the permission mode (Ask
+ * The header holds the chats menu (the title: switching, renaming and
+ * deleting chats, {@link ChatSessionsMenu}), New chat and Close, and a row with the agent, the model, the permission mode (Ask
  * before edits / Apply edits automatically, the `agent.permissionMode`
  * preference) and how the agent is paid for (subscription or API key).
  * Under it the transcript ({@link ChatTranscript}) and the composer
@@ -113,6 +116,7 @@ export class ChatPanel {
   private readonly center: HTMLDivElement;
   private readonly statusBar: HTMLDivElement;
   private readonly footerSetup: HTMLDivElement;
+  private readonly sessionsMenu: ChatSessionsMenu;
   private readonly leaveSlot: () => void;
   private readonly unsubscribe: () => void;
   private open = false;
@@ -153,7 +157,17 @@ export class ChatPanel {
       this.sessionTitle,
       ChatIcons.span(ChatIcons.CHEVRON_DOWN, '[&>svg]:size-3.5 text-base-content/50'),
     );
-    this.sessionButton.addEventListener('click', () => void this.showSessionMenu());
+    this.sessionButton.addEventListener('click', () => void this.toggleSessionMenu());
+    this.sessionsMenu = new ChatSessionsMenu({
+      host: deps.container,
+      sessions: () => this.state.sessions,
+      current: () => this.state.session?.id ?? null,
+      agentName: (kind) => AGENT_INFO[kind]?.name ?? kind,
+      onNewChat: () => this.newChat(),
+      onOpen: (id) => void this.state.openSession(id),
+      onRename: (id, title) => this.state.renameSession(id, title),
+      onDelete: (id) => void this.deleteSession(id),
+    });
     const newChat = iconButton(ChatIcons.NEW, 'New chat', 'new-chat');
     newChat.addEventListener('click', () => this.newChat());
     const close = iconButton(ChatIcons.CLOSE, 'Close the Agent panel', 'close');
@@ -283,6 +297,7 @@ export class ChatPanel {
   }
 
   destroy(): void {
+    this.sessionsMenu.close();
     window.removeEventListener('resize', this.onResize);
     this.unsubscribe();
     this.references?.destroy();
@@ -407,6 +422,7 @@ export class ChatPanel {
         return;
       case 'sessions':
         this.paintTitle();
+        this.sessionsMenu.refresh();
         return;
       case 'activity':
         this.paintStatus();
@@ -832,28 +848,39 @@ export class ChatPanel {
     }
   }
 
-  private async showSessionMenu(): Promise<void> {
+  /** The chats menu under the title: open it with the list read again, or close it. */
+  private async toggleSessionMenu(): Promise<void> {
+    if (this.sessionsMenu.isOpen) {
+      this.sessionsMenu.close();
+      return;
+    }
     await this.state.loadSessions();
-    const items: PopupMenuItem[] = [{ icon: ChatIcons.NEW, label: 'New chat', onSelect: () => this.newChat() }];
-    const current = this.state.session?.id;
-    this.state.sessions.slice(0, 30).forEach((session, index) => {
-      items.push({
-        icon: session.id === current ? ChatIcons.CHECK : ChatIcons.SESSION,
-        label: session.title,
-        title: `${AGENT_INFO[session.agent]?.name ?? session.agent} · ${new Date(session.updatedAt).toLocaleString()}`,
-        separated: index === 0,
-        className: session.id === current ? 'font-medium' : undefined,
-        onSelect: () => {
-          if (session.id !== current) {
-            void this.state.openSession(session.id);
-          }
-        },
-      });
-    });
     const rect = this.sessionButton.getBoundingClientRect();
-    const menu = showPopupMenu(this.deps.container, { clientX: rect.left, clientY: rect.bottom + 4 }, items, { focusFirst: true });
-    menu.dataset.ref = 'session-menu';
-    menu.classList.add('max-w-[320px]', 'max-h-[60vh]', 'overflow-y-auto');
+    this.sessionsMenu.show({ left: rect.left, bottom: rect.bottom });
+  }
+
+  /** Ask, then delete a chat; the chat on screen gives way to a new one. */
+  private async deleteSession(id: string): Promise<void> {
+    const row = this.state.sessions.find((s) => s.id === id);
+    const title = row?.title ?? 'this chat';
+    const running = row ? isBusy(row.status) : false;
+    const options: ChatConfirmOptions = {
+      title: 'Delete chat',
+      message:
+        `“${title}” and its conversation are removed from this project.` +
+        `${running ? ' Its running turn stops.' : ''} Changes the agent made to files stay as they are.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      kind: 'delete',
+    };
+    const confirmed = this.deps.confirm ? await this.deps.confirm(options) : window.confirm(options.message);
+    if (!confirmed) {
+      return;
+    }
+    await this.state.deleteSession(id);
+    if (!this.state.session) {
+      this.composer.focus();
+    }
   }
 
   /** The window changed size: cover the scene below 640 px, or stop covering it. */

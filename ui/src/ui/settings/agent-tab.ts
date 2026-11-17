@@ -44,9 +44,6 @@ export class AgentTab implements SettingsTab {
   private defaultAgent!: HTMLSelectElement;
   private permission!: HTMLSelectElement;
   private ignoreApiKey!: HTMLInputElement;
-  /** Whether the API-key switch is automatic or the user's, and why it stands as it does. */
-  private apiKeyNote!: HTMLSpanElement;
-  private apiKeyAuto!: HTMLButtonElement;
   private found!: HTMLDivElement;
   private installs: AgentInstall[] | null = null;
   private detecting = false;
@@ -85,7 +82,7 @@ export class AgentTab implements SettingsTab {
     );
 
     const ignore = toggleRow(IGNORE_API_KEY_LABEL, (checked) => {
-      // Touching the switch is a choice of its own, kept until "Use automatic".
+      // Touching the switch makes it the user's choice; untouched, it follows detection.
       this.draft.claudeIgnoreApiKey = checked;
       this.paintApiKey();
       changed();
@@ -93,28 +90,12 @@ export class AgentTab implements SettingsTab {
     this.ignoreApiKey = ignore.input;
     this.ignoreApiKey.dataset.ref = 'ignore-api-key';
     root.appendChild(ignore.row);
-    const ignoreHint = document.createElement('div');
-    ignoreHint.className = `${FIELD_HINT} -mt-3 mb-4 flex flex-col gap-1`;
-    const why = document.createElement('p');
-    why.textContent =
-      'When ANTHROPIC_API_KEY is set, Claude Code uses it (and bills it) over your subscription. ' +
-      'On: FluidCAD leaves the key out of Claude Code’s environment. Unless you change it, it is on when a Claude subscription is signed in.';
-    const state = document.createElement('p');
-    state.className = 'flex flex-wrap items-center gap-x-2';
-    this.apiKeyNote = document.createElement('span');
-    this.apiKeyNote.dataset.ref = 'ignore-api-key-note';
-    this.apiKeyAuto = document.createElement('button');
-    this.apiKeyAuto.type = 'button';
-    this.apiKeyAuto.dataset.ref = 'ignore-api-key-auto';
-    this.apiKeyAuto.className = 'link link-hover text-primary text-[11px]';
-    this.apiKeyAuto.textContent = 'Use automatic';
-    this.apiKeyAuto.addEventListener('click', () => {
-      delete this.draft.claudeIgnoreApiKey;
-      this.paintApiKey();
-      changed();
-    });
-    state.append(this.apiKeyNote, this.apiKeyAuto);
-    ignoreHint.append(why, state);
+    const ignoreHint = document.createElement('p');
+    ignoreHint.className = `${FIELD_HINT} -mt-3 mb-4`;
+    ignoreHint.dataset.ref = 'ignore-api-key-hint';
+    ignoreHint.textContent =
+      'When ANTHROPIC_API_KEY is set, Claude Code bills that key instead of your subscription. ' +
+      'Turn this on to hide the key from Claude Code. On by default when you are signed in to a Claude subscription.';
     root.appendChild(ignoreHint);
 
     const foundHeader = document.createElement('div');
@@ -181,16 +162,13 @@ export class AgentTab implements SettingsTab {
   /**
    * The API-key switch as it acts: the user's choice when they made one;
    * otherwise automatic, on when detection found a Claude subscription
-   * signed in. The note says which, and "Use automatic" undoes a choice.
+   * signed in.
    */
   private paintApiKey(): void {
     const choice = this.draft.claudeIgnoreApiKey;
     const claude = this.installs?.find((i) => i.kind === 'claude') ?? null;
     const explicit = typeof choice === 'boolean';
     this.ignoreApiKey.checked = explicit ? choice : claude?.subscriptionAvailable === true;
-    this.apiKeyAuto.classList.toggle('hidden', !explicit);
-    this.apiKeyNote.dataset.state = explicit ? 'explicit' : 'automatic';
-    this.apiKeyNote.textContent = explicit ? `${choice ? 'On' : 'Off'}: your choice.` : automaticNote(claude);
   }
 
   private async detect(fresh: boolean): Promise<void> {
@@ -269,17 +247,6 @@ function foundRow(install: AgentInstall): HTMLElement {
     row.appendChild(p);
   }
   return row;
-}
-
-/** Why the automatic API-key switch stands as it does, from what detection found. */
-function automaticNote(claude: AgentInstall | null): string {
-  if (claude?.subscriptionAvailable === true) {
-    return 'Automatic: on because a Claude subscription is signed in.';
-  }
-  if (claude?.subscriptionAvailable === false) {
-    return 'Automatic: off because no Claude subscription is signed in.';
-  }
-  return 'Automatic: on when a Claude subscription is signed in.';
 }
 
 function verdictOf(install: AgentInstall): { text: string; tone: string } {

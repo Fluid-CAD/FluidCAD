@@ -1,6 +1,7 @@
 import type { Material, UserPreferences } from '../../api';
 import { ICON_CLOSE } from '../icons';
 import { AdvancedTab } from './advanced-tab';
+import { AgentTab, type AgentTabDeps } from './agent-tab';
 import { AppearanceTab } from './appearance-tab';
 import { EditorTab } from './editor-tab';
 import { MaterialsTab } from './materials-tab';
@@ -21,6 +22,8 @@ export interface SettingsModalHandlers {
   loadMaterials?(): Promise<Material[] | null>;
   /** The package state the Packages tab lists the library from. Optional. */
   packages?: PackagesTabDeps;
+  /** Detection and saving for the Agent tab. Optional: without it the tab says no agent runtime is reachable. */
+  agent?: AgentTabDeps;
 }
 
 const TAB_BTN = 'flex items-center gap-2 w-full text-left px-3 py-1.5 rounded text-[13px] whitespace-nowrap';
@@ -59,6 +62,7 @@ export class SettingsModal {
       new UnitsTab(),
       new MaterialsTab(handlers.loadMaterials ? () => handlers.loadMaterials!() : null),
       new PackagesTab(handlers.packages ?? null),
+      new AgentTab(handlers.agent ?? null),
       new AdvancedTab(),
     ];
     this.activeId = this.tabs[0].id;

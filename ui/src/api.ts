@@ -7168,6 +7168,18 @@ export function savePreference<K extends keyof UserPreferences>(
   postFireAndForget('api/preferences', { [key]: value });
 }
 
+/**
+ * Persist one preference and resolve once the server holds it: true when it
+ * took it. For a save whose effect the page reads back at once (the agent
+ * paths and API-key choice, which detection reads).
+ */
+export async function savePreferenceNow<K extends keyof UserPreferences>(
+  key: K,
+  value: UserPreferences[K],
+): Promise<boolean> {
+  return (await postJson<UserPreferences>('api/preferences', { [key]: value })) !== null;
+}
+
 /** Put every preference back to its default; resolves to the defaults the server now holds. */
 export async function resetPreferences(): Promise<UserPreferences | null> {
   return postJson<UserPreferences>('api/preferences/reset', {});

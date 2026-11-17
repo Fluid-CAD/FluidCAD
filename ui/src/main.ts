@@ -106,7 +106,7 @@ import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { applyPackagePreferences, packageSettings } from './ui/settings/package-settings';
-import { agentSettings, applyAgentPreferences } from './ui/settings/agent-settings';
+import { agentSettings, applyAgentPreferences, rememberEffort, rememberModel } from './ui/settings/agent-settings';
 import { HttpChatClient } from './ui/chat/chat-client';
 import type { ChatPanel } from './ui/chat/chat-panel';
 import { isChatComposer } from './editable-target';
@@ -1384,6 +1384,9 @@ function loadAgentPanel(): Promise<ChatPanel> {
         agentSettings.update({ ...agentSettings.current, permissionMode: mode });
         savePreference('agent', { permissionMode: mode } as UserPreferences['agent']);
       },
+      // The model and effort chips set each agent's default for new chats.
+      onModelChosen: (kind, model) => savePreference('agent', rememberModel(kind, model) as UserPreferences['agent']),
+      onEffortChosen: (kind, effort) => savePreference('agent', rememberEffort(kind, effort) as UserPreferences['agent']),
       confirm: ({ kind, ...options }) => confirmDialog({ ...options, icon: kind === 'delete' ? ICON_TRASH : ICON_UNDO }),
       onOpenChange: () => panelRail.sync(),
       // Attaching the selected geometry to a message (§11).

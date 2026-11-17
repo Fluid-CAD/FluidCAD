@@ -1,15 +1,17 @@
 import type { AgentPreferences, UserPreferences } from '../../api';
-import { CLAUDE_EFFORTS } from '../chat/chat-types';
+import { CLAUDE_EFFORTS, type AgentKind } from '../chat/chat-types';
 
 /** A Codex reasoning effort word (the engine's `AGENT_EFFORT_PATTERN`). */
 export const EFFORT_WORD = /^[a-z][a-z0-9-]{0,23}$/;
 
 /**
- * Settings → Agent as applied (the `agent` preference, docs/agent-chat-plan.md
- * §9.3 and §19). The engine acts on the paths and the API-key choice
- * (detection, the CLI's environment); the panel reads the rest (the agent a
- * new chat starts with, the models, effort, the permission mode). Listeners
- * hear every update, so an open panel follows a save or a reset.
+ * The `agent` preference as applied (docs/agent-chat-plan.md §9.3 and §19).
+ * The engine acts on the paths and the API-key choice (detection, the CLI's
+ * environment); the panel reads the rest (the agent a new chat starts with,
+ * the models, effort, the permission mode). Settings → Agent edits the agent,
+ * the permission mode and the API-key choice; the panel's chips set the model
+ * and effort ({@link rememberModel}, {@link rememberEffort}). Listeners hear
+ * every update, so an open panel follows a save or a reset.
  */
 export const DEFAULT_AGENT_PREFERENCES: AgentPreferences = { defaultAgent: null, permissionMode: 'ask' };
 
@@ -64,4 +66,42 @@ export function applyAgentPreferences(prefs: UserPreferences): void {
     }
   }
   agentSettings.update(next);
+}
+
+/** The fields of the `agent` preference to send; an empty string clears one (the engine merges field by field). */
+export type AgentPreferencePatch = Partial<Record<'claudeModel' | 'codexModel' | 'claudeEffort' | 'codexEffort' | 'effort', string>>;
+
+/**
+ * The model picked on the Agent panel's chip, kept as `kind`'s default for
+ * new chats (`default`: the program's own). Updates the store and returns
+ * what to persist.
+ */
+export function rememberModel(kind: AgentKind, model: string): AgentPreferencePatch {
+  const key = kind === 'codex' ? 'codexModel' : 'claudeModel';
+  const next: AgentPreferences = { ...agentSettings.current };
+  if (model === 'default' || model === '') {
+    delete next[key];
+  } else {
+    next[key] = model;
+  }
+  agentSettings.update(next);
+  return { [key]: next[key] ?? '' };
+}
+
+/**
+ * The effort picked on the Agent panel's chip, kept as `kind`'s default for
+ * new chats (`''`: the program's own). Updates the store and returns what to
+ * persist: both agents' own efforts, so the older shared `effort` they were
+ * read from can go without changing the other agent's.
+ */
+export function rememberEffort(kind: AgentKind, effort: string): AgentPreferencePatch {
+  const key = kind === 'codex' ? 'codexEffort' : 'claudeEffort';
+  const next: AgentPreferences = { ...agentSettings.current };
+  if (effort === '') {
+    delete next[key];
+  } else {
+    next[key] = effort;
+  }
+  agentSettings.update(next);
+  return { claudeEffort: next.claudeEffort ?? '', codexEffort: next.codexEffort ?? '', effort: '' };
 }

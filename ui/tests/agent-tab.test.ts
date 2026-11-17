@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from '../src/ui/settings/settings-modal';
-import { agentSettings, applyAgentPreferences, DEFAULT_AGENT_PREFERENCES } from '../src/ui/settings/agent-settings';
+import { agentSettings, applyAgentPreferences, DEFAULT_AGENT_PREFERENCES, rememberEffort, rememberModel } from '../src/ui/settings/agent-settings';
 import { IGNORE_API_KEY_LABEL } from '../src/ui/settings/agent-tab';
 import type { AgentInstall } from '../src/ui/chat/chat-types';
 import type { AgentPreferences, UserPreferences } from '../src/api';
@@ -191,5 +191,26 @@ describe('Settings → Agent', () => {
     h.$<HTMLButtonElement>('[data-ref="recheck"]').click();
     await settle();
     expect(h.agents).toHaveBeenLastCalledWith(true);
+  });
+});
+
+describe("the chips' model and effort, kept for new chats", () => {
+  it("a model is the agent's default; Default clears it", () => {
+    applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask', codexModel: 'gpt-luna' } } as UserPreferences);
+    expect(rememberModel('claude', 'sonnet')).toEqual({ claudeModel: 'sonnet' });
+    expect(agentSettings.current).toMatchObject({ claudeModel: 'sonnet', codexModel: 'gpt-luna' });
+    expect(rememberModel('codex', 'default')).toEqual({ codexModel: '' });
+    expect('codexModel' in agentSettings.current).toBe(false);
+    expect(agentSettings.current.claudeModel).toBe('sonnet');
+  });
+
+  it("an effort is the agent's own, and the older shared one it stood in for is written out for the other", () => {
+    // Stored before per-agent efforts: one "high" for both.
+    applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask', effort: 'high' } } as UserPreferences);
+    expect(rememberEffort('claude', 'max')).toEqual({ claudeEffort: 'max', codexEffort: 'high', effort: '' });
+    expect(agentSettings.current).toMatchObject({ claudeEffort: 'max', codexEffort: 'high' });
+    // Default effort clears the agent's own.
+    expect(rememberEffort('codex', '')).toEqual({ claudeEffort: 'max', codexEffort: '', effort: '' });
+    expect('codexEffort' in agentSettings.current).toBe(false);
   });
 });

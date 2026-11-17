@@ -27,12 +27,13 @@ import { resetsText } from './time-format';
 import { usageText } from './usage';
 import './chat-panel.css';
 
-/** The agent preferences the panel follows (Settings → Agent, `agent` in the preferences file). */
+/** The agent preferences the panel follows (`agent` in the preferences file; Settings → Agent and the chips set them). */
 export type ChatPanelSettings = {
   defaultAgent: AgentKind | null;
+  /** Each agent's model for new chats (the last picked on the model chip); absent: the CLI's default. */
   claudeModel?: string;
   codexModel?: string;
-  /** Each agent's effort (Settings → Agent); absent: the CLI's default. */
+  /** Each agent's effort for new chats (the last picked on the effort chip); absent: the CLI's default. */
   claudeEffort?: Effort;
   codexEffort?: Effort;
   /** The older shared effort, read when the agent's own is absent. */
@@ -78,6 +79,10 @@ export type ChatPanelDeps = {
   onAgentChosen?(kind: AgentKind): void;
   /** The user switched the permission mode from its chip: remember it (`agent.permissionMode`, as Settings → Agent). */
   onPermissionModeChosen?(mode: PermissionMode): void;
+  /** The user picked a model on its chip (`default`: the CLI's own): remember it as the agent's default for new chats. */
+  onModelChosen?(kind: AgentKind, model: string): void;
+  /** The user picked an effort on its chip (`''`: the CLI's own): remember it as the agent's default for new chats. */
+  onEffortChosen?(kind: AgentKind, effort: string): void;
   /** Ask the user to confirm (Revert this turn), in the page's dialog; absent: the browser's confirm. */
   confirm?(options: ChatConfirmOptions): Promise<boolean>;
   onOpenChange?(open: boolean): void;
@@ -137,9 +142,9 @@ export class ChatPanel {
   private started = false;
   /** The composer shows and takes messages (the agent is ready, or a turn runs). */
   private composerUsable = false;
-  /** The model picked in the panel, per agent; holds for new chats until the page reloads. */
+  /** The model picked in the panel, per agent; holds over the chat's own until the page reloads (and is remembered for new chats). */
   private readonly modelChoices = new Map<AgentKind, string>();
-  /** The effort picked in the panel, per agent (`DEFAULT_EFFORT`: the default); holds until the page reloads. */
+  /** The effort picked in the panel, per agent (`DEFAULT_EFFORT`: the default); holds until the page reloads (and is remembered for new chats). */
   private readonly effortChoices = new Map<AgentKind, string>();
   private readonly effortSlot: HTMLSpanElement;
   /** The model picker shows a text field for a model by name. */
@@ -283,7 +288,7 @@ export class ChatPanel {
     this.syncReferences();
   }
 
-  /** Settings → Agent was saved: detection may answer differently (a path, the API-key choice). */
+  /** Settings → Agent was saved: detection may answer differently (the API-key choice). */
   settingsChanged(): void {
     const settings = this.deps.settings();
     if (!this.state.session && settings.defaultAgent) {
@@ -314,7 +319,7 @@ export class ChatPanel {
     this.el.remove();
   }
 
-  /** The model a message goes with: the panel's pick, the session's, the setting's, else the CLI's own. */
+  /** The model a message goes with: the panel's pick, the session's, the last one picked for new chats, else the CLI's own. */
   get model(): string {
     const settings = this.deps.settings();
     const preferred = this.state.agent === 'codex' ? settings.codexModel : settings.claudeModel;
@@ -324,7 +329,7 @@ export class ChatPanel {
 
   /**
    * The effort a message goes with (`DEFAULT_EFFORT`: none, the CLI's own):
-   * the panel's pick, the session's, the setting's — whichever is first and
+   * the panel's pick, the session's, the last one picked for new chats — whichever is first and
    * is a level of the agent and model; else the default.
    */
   get effort(): string {
@@ -572,7 +577,7 @@ export class ChatPanel {
         const value = input.value.trim();
         this.typingModel = false;
         if (save && /^[A-Za-z0-9][\w.:@/[\]-]*$/.test(value)) {
-          this.modelChoices.set(this.state.agent, value);
+          this.chooseModel(value);
         }
         this.paintModelPicker();
       };
@@ -612,7 +617,7 @@ export class ChatPanel {
         label: model.label ?? model.id,
         className: model.id === current ? 'font-medium' : undefined,
         onSelect: () => {
-          this.modelChoices.set(this.state.agent, model.id);
+          this.chooseModel(model.id);
           this.paintModelPicker();
         },
       })),
@@ -630,6 +635,12 @@ export class ChatPanel {
     this.modelSlot.append(chip);
     // Codex's levels depend on the model.
     this.paintEffortPicker();
+  }
+
+  /** A model picked on the chip: it goes with the next messages, and new chats of this agent start with it. */
+  private chooseModel(model: string): void {
+    this.modelChoices.set(this.state.agent, model);
+    this.deps.onModelChosen?.(this.state.agent, model);
   }
 
   /** The effort chip: the default, then the levels of the agent and model. */
@@ -650,6 +661,7 @@ export class ChatPanel {
         className: value === current ? 'font-medium' : undefined,
         onSelect: () => {
           this.effortChoices.set(this.state.agent, value);
+          this.deps.onEffortChosen?.(this.state.agent, value);
           this.paintEffortPicker();
         },
       }))));

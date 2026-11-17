@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel, type ChatConfirmOptions, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
-import type { ChatMessage, PermissionMode, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
+import type { AgentKind, ChatMessage, PermissionMode, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
 import { LeftSlot } from '../src/ui/left-slot';
 import { closePopupMenu } from '../src/ui/popup-menu';
 import { isEditableTarget, isChatComposer } from '../src/editable-target';
@@ -63,6 +63,12 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
   const onPermissionModeChosen = vi.fn((mode: PermissionMode) => {
     current.permissionMode = mode;
   });
+  const onModelChosen = vi.fn((kind: AgentKind, model: string) => {
+    current[kind === 'codex' ? 'codexModel' : 'claudeModel'] = model === 'default' ? undefined : model;
+  });
+  const onEffortChosen = vi.fn((kind: AgentKind, effort: string) => {
+    current[kind === 'codex' ? 'codexEffort' : 'claudeEffort'] = effort === '' ? undefined : effort;
+  });
   const panel = new ChatPanel({
     container,
     client,
@@ -73,6 +79,8 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
     openSource,
     confirm,
     onPermissionModeChosen,
+    onModelChosen,
+    onEffortChosen,
     onOpenChange: (open) => events.push(open ? 'agent open' : 'agent closed'),
     timers,
   });
@@ -91,7 +99,7 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
     return event;
   };
   const width = () => document.documentElement.style.getPropertyValue('--fluidcad-editor-width');
-  return { client, panel, container, events, slot, editor, openExternal, openSettings, openSource, confirm, onPermissionModeChosen, timers, settings: current, $, $$, input, sendButton, type, key, width };
+  return { client, panel, container, events, slot, editor, openExternal, openSettings, openSource, confirm, onPermissionModeChosen, onModelChosen, onEffortChosen, timers, settings: current, $, $$, input, sendButton, type, key, width };
 }
 
 /** Open a chip's menu (it opens in the panel's container) and read its rows' labels; the menu closes again. */
@@ -769,6 +777,42 @@ describe('the chips under the message box', () => {
     h.key('Enter');
     await settle();
     expect(h.client.sent[1].message.model).toBe('claude-sonnet-4-5');
+  });
+
+  it("the model and effort picked on the chips are the agent's defaults for new chats, after a reload too", async () => {
+    const h = mount(new FakeChatClient(), { claudeModel: 'haiku', claudeEffort: 'low' });
+    await opened(h);
+    const model = (k = h) => k.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="model-picker"]')!;
+    const effort = (k = h) => k.$<HTMLButtonElement>('[data-ref="effort-picker"]')!;
+    pick(h, model(), 'model-menu', 'Sonnet');
+    expect(h.onModelChosen).toHaveBeenLastCalledWith('claude', 'sonnet');
+    pick(h, effort(), 'effort-menu', 'Max effort');
+    expect(h.onEffortChosen).toHaveBeenLastCalledWith('claude', 'max');
+    pick(h, model(), 'model-menu', 'Other model…');
+    const name = h.$<HTMLInputElement>('[data-ref="model-input"]')!;
+    name.value = 'claude-opus-4-1';
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(h.onModelChosen).toHaveBeenLastCalledWith('claude', 'claude-opus-4-1');
+    // A name the engine would refuse is not kept.
+    pick(h, model(), 'model-menu', 'Other model…');
+    const bad = h.$<HTMLInputElement>('[data-ref="model-input"]')!;
+    bad.value = 'not a model';
+    bad.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(h.onModelChosen).toHaveBeenCalledTimes(2);
+
+    // The page reloads: a new chat starts with what was picked last.
+    const again = mount(new FakeChatClient(), { ...h.settings });
+    await opened(again);
+    expect(model(again).dataset.value).toBe('claude-opus-4-1');
+    expect(effort(again).dataset.value).toBe('max');
+
+    // Default on either chip goes back to the program's own.
+    pick(again, model(again), 'model-menu', 'Default');
+    expect(again.onModelChosen).toHaveBeenLastCalledWith('claude', 'default');
+    pick(again, effort(again), 'effort-menu', 'Default effort');
+    expect(again.onEffortChosen).toHaveBeenLastCalledWith('claude', '');
+    expect(again.settings.claudeModel).toBeUndefined();
+    expect(again.settings.claudeEffort).toBeUndefined();
   });
 
   it('the agent chip is a picker only when more than one agent can run, and a plain chip with one', async () => {

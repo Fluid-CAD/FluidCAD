@@ -74,7 +74,11 @@ export type ChatSceneHost = {
   isRolledBack(): boolean;
   /** The model file on screen, workspace-absolute. */
   currentFile(): string | null;
-  /** One PNG of the current view framed to `highlight`, each entry in its colour (§11.2). */
+  /**
+   * One PNG of the current view framed to `highlight`, each entry in its
+   * colour (§11.2). The idle selection's own highlight is not in it: a
+   * selection made since the last Add is not part of the message.
+   */
   capture(highlight: CaptureHighlight[]): Promise<Blob>;
   /** Defaults to {@link httpSelectionResolver}. */
   resolve?: SelectionResolver;

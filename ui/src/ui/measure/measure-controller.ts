@@ -7,6 +7,7 @@ import type { SelectionContextMenu, SelectionMenuHandlers } from '../../interact
 import { MeasureOverlay } from './measure-overlay';
 import { MeasurePanel } from './measure-panel';
 import { MeasureStatusBar } from './measure-status-bar';
+import { withSelectionHidden } from './selection-hidden';
 import { convertLength, formatAngle, formatArea, formatLength } from '../../units/units';
 import type { LengthUnit } from '../../units/units';
 import { sceneUnit } from '../../units/scene-unit';
@@ -267,6 +268,15 @@ export class MeasureController {
   clearSelection(): void {
     this.menu?.hide();
     this.setSelection([]);
+  }
+
+  /**
+   * Runs `fn` with the selection's highlight and measure overlay off (a
+   * capture that must show only its own highlight), then puts them back;
+   * the selection itself does not change.
+   */
+  withSelectionHidden<T>(fn: () => T): T {
+    return withSelectionHidden(this.viewer, this.entities, fn, this.overlay);
   }
 
   /** Scene re-rendered: shape ids may have changed and the viewer already cleared its highlights. */

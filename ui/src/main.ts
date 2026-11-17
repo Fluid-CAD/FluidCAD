@@ -1403,13 +1403,15 @@ function loadAgentPanel(): Promise<ChatPanel> {
         clearSelection: () => measureController.clearSelection(),
         isRolledBack: () => sceneRolledBack,
         currentFile: () => currentSceneAbsPath,
-        capture: (highlight) => captureScreenshot(viewer.sceneContext, {
+        // A selection made after the last Add (amber) is not part of the
+        // message: left out of the picture, and back on screen right after.
+        capture: (highlight) => measureController.withSelectionHidden(() => captureScreenshot(viewer.sceneContext, {
           width: 1024,
           height: 768,
           view: { kind: 'current' },
           fitTo: 'highlight',
           highlight,
-        }),
+        })),
       },
     });
     return agentPanel;

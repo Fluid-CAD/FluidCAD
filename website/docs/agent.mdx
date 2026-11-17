@@ -78,25 +78,27 @@ Reverting covers project files the agent wrote. It does not undo an export, a pa
 
 ## Pointing at geometry
 
-With the panel open, select faces or edges in the viewport. A row above the message box says what is selected, for example "4 edges selected" or "1 face and 2 edges selected", with **Add**:
+With the panel open, select faces or edges in the viewport. The selection is attached to your next message by itself: a chip above the message box shows it, for example "[1] 4 edges" with its colour. The chip follows the selection while you change it, and goes away when you clear it. The whole selection is one reference, described by the same selector code a feature dialog writes for a pick.
 
-1. Click **Add**. The whole selection becomes one reference: a chip above the box, such as "[1] 4 edges" with its colour, and the token `[1]` typed where the cursor was in your message. The selection in the viewport clears.
-2. Select something else and click **Add** again for `[2]`, and so on. Add things separately when you want to tell them apart: "fillet [1] by 2 mm and chamfer [2] by 1 mm". Each reference takes the lowest free number and its colour; removing a chip (its **×**) removes its token and frees its number and colour.
-3. Send the message. Your message shows the chips, and it carries an image of the current view, framed to the references, with each one drawn in its own colour. For each reference the agent gets the selector code that finds that geometry in the file (the same code a feature dialog writes for a pick), the features it comes from, the imports it needs, and its size and position.
+To point at it in your message, type its number, `[1]`, or click the chip's label to put `[1]` where the cursor was. Nothing is typed for you.
 
-A selection you made after the last **Add** is not part of the message, and it is left out of the image.
+To tell several things apart ("fillet [1] by 2 mm and chamfer [2] by 1 mm"), click the pin on the chip (**Keep this and select more**). The chip stays, the selection in the viewport clears, and the next thing you select becomes `[2]` in the next colour.
 
-A message holds up to eight references; after the eighth, **Add** is off until you remove one. If the model re-renders before you send, the chips and their tokens are dropped with "The model changed — select again.", since the selection no longer matches the model.
+When you send, the kept chips and the selection's chip go with the message. Your message shows them, and it carries an image of the current view, framed to the references, with each one drawn in its own colour. For each reference the agent gets the selector code that finds that geometry in the file, the features it comes from, the imports it needs, and its size and position. The chips and the selection then clear. While the agent is working you can already select for your next message.
 
-When FluidCAD cannot write a selector for a selection, nothing is attached and the row says why. For a selection of several faces or edges it then offers **Add one at a time**: each one that can be described becomes a reference of its own, and a note says how many could not be attached and why.
+The **×** on the selection's chip clears the selection. The **×** on a kept chip removes it and frees its number and colour for the next one; the other chips keep their numbers, and your text is left as you typed it.
 
-A selector describes the model as it was when you sent the message. An edit can change or consume the geometry it names: after a fillet, for example, the faces it rounded off are gone. To point at geometry again after such an edit, select it and add it again.
+A message holds up to eight references, the selection's included; at eight, the selection's chip says so instead of attaching. If the model re-renders before you send, the kept chips are dropped with "The model changed — select again.", since they no longer match the model.
+
+When FluidCAD cannot write a selector for a selection, the chip says why, and the selection is not sent. For a selection of several faces or edges the chip then offers **One at a time**: each one that can be described is kept as a reference of its own, and a note says how many could not be attached and why.
+
+A selector describes the model as it was when you sent the message. An edit can change or consume the geometry it names: after a fillet, for example, the faces it rounded off are gone. To point at geometry again after such an edit, select it again.
 
 References are not available:
 
 - for faces and edges of parts inserted in an assembly: open the part file and select them there,
 - for sketch entities, constraints, dimensions and vertices: a reference is made of faces and edges only,
-- while the timeline is rolled back: **Add** is off until you roll the timeline forward to the last feature.
+- while the timeline is rolled back: the chip asks you to roll the timeline forward to the last feature.
 
 ## Chats
 
@@ -152,5 +154,5 @@ Under them, **What FluidCAD found** lists each program with its version, path an
 | "FluidCAD's tools did not connect" | The program started but could not reach FluidCAD. Send the message again; if it keeps happening, restart FluidCAD. |
 | The program exited | The error shows the last lines it printed. The next message starts it again and resumes the conversation. |
 | A write refused for unsaved changes | Save the file in the editor, then ask again. |
-| A reference does not point where you expect after an edit | A selector describes the model as it was when you sent it. Select the geometry again and add it again. |
+| A reference does not point where you expect after an edit | A selector describes the model as it was when you sent it. Select the geometry again. |
 | No **Agent** button on the rail | The button appears once the project's engine answers for the agent. An engine pinned to an older FluidCAD version does not have it. |

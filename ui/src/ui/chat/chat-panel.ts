@@ -5,6 +5,7 @@ import type { ChatClient } from './chat-client';
 import { ChatComposer } from './chat-composer';
 import { ChatIcons } from './chat-icons';
 import { ChatSessionsMenu } from './chat-sessions-menu';
+import { PERMISSION_MODES } from './permission-modes';
 import { ChatState, type ChatChange, type ChatTimers, type RevertOutcome } from './chat-state';
 import { ChatTranscript } from './chat-transcript';
 import {
@@ -54,16 +55,8 @@ export type ChatConfirmOptions = {
   kind?: 'revert' | 'delete';
 };
 
-/** The permission modes as the panel names them (§12.1). */
-export const PERMISSION_MODES: { mode: PermissionMode; label: string; short: string; description: string }[] = [
-  { mode: 'ask', label: 'Ask before edits', short: 'Ask', description: 'The agent asks before it changes a file.' },
-  {
-    mode: 'auto-edits',
-    label: 'Apply edits automatically',
-    short: 'Auto-apply',
-    description: 'The agent changes project files without asking. It still asks before anything outside the project.',
-  },
-];
+/** The permission modes as the panel names them (§12.1); Settings → Agent uses the same words. */
+export { PERMISSION_MODES } from './permission-modes';
 
 export type ChatPanelDeps = {
   /** `#fluidcad-viewer`, the positioning context every overlay shares. */

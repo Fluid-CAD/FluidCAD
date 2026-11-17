@@ -55,6 +55,12 @@ describe('Settings → Agent', () => {
     expect(h.$<HTMLInputElement>('[data-ref="claude-path"]').value).toBe('/opt/claude');
     expect(h.$<HTMLInputElement>('[data-ref="claude-model"]').value).toBe('opus');
     expect(h.$<HTMLSelectElement>('[data-ref="permission-mode"]').value).toBe('ask');
+    // The panel's words for the two modes; nothing says the agent only reads.
+    expect([...h.$<HTMLSelectElement>('[data-ref="permission-mode"]').options].map((o) => o.textContent)).toEqual([
+      'Ask before edits',
+      'Apply edits automatically',
+    ]);
+    expect(h.panel.textContent).not.toMatch(/only reads the project/);
     expect(h.panel.textContent).toContain(IGNORE_API_KEY_LABEL);
 
     const found = h.$('[data-ref="found"]');

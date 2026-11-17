@@ -1,5 +1,6 @@
 import type { AgentPreferences } from '../../api';
 import { CLAUDE_EFFORTS, COMMON_EFFORTS, effortLabel, type AgentInstall, type AgentModel } from '../chat/chat-types';
+import { PERMISSION_MODES } from '../chat/permission-modes';
 import { agentSettings, EFFORT_WORD } from './agent-settings';
 import {
   FIELD_HINT,
@@ -126,16 +127,20 @@ export class AgentTab implements SettingsTab {
     });
     root.appendChild(field('Codex effort', this.codexEffort, 'Each Codex model offers its own levels; a level the chosen model lacks falls back to its default.'));
 
-    this.permission = select([
-      ['ask', 'Ask before every change'],
-      ['auto-edits', 'Change project files without asking'],
-    ]);
+    this.permission = select(PERMISSION_MODES.map((m): [string, string] => [m.mode, m.label]));
     this.permission.dataset.ref = 'permission-mode';
     this.permission.addEventListener('change', () => {
       this.draft.permissionMode = this.permission.value === 'auto-edits' ? 'auto-edits' : 'ask';
       changed();
     });
-    root.appendChild(field('Changes to the project', this.permission, 'This version only reads the project; the choice applies once the agent can edit.'));
+    root.appendChild(
+      field(
+        'Edits',
+        this.permission,
+        'The same switch as in the Agent panel’s header. Ask before edits shows each change for you to allow; ' +
+          'Apply edits automatically changes project files without asking, and still asks before anything outside the project.',
+      ),
+    );
 
     const ignore = toggleRow(IGNORE_API_KEY_LABEL, (checked) => {
       this.draft.claudeIgnoreApiKey = checked;

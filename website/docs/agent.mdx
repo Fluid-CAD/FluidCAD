@@ -36,7 +36,7 @@ Then click **Check again** in the panel. When the sign-in is missing or expired,
 
 ### Claude Code and `ANTHROPIC_API_KEY`
 
-If `ANTHROPIC_API_KEY` is set in the environment FluidCAD was started from, Claude Code uses that key instead of your Claude subscription, and its use is billed to the key. The panel shows which one is in use: a **Subscription** or **API key** badge in the panel header. To use your subscription anyway, turn on **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent; FluidCAD then leaves the key out of Claude Code's environment. It is off by default, so a key you set on purpose keeps working.
+If `ANTHROPIC_API_KEY` is set in the environment FluidCAD was started from, Claude Code uses that key instead of your Claude subscription, and its use is billed to the key. The panel shows which one is in use: a **Subscription** or **API key** chip under the message box. To use your subscription anyway, turn on **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent; FluidCAD then leaves the key out of Claude Code's environment. It is off by default, so a key you set on purpose keeps working.
 
 ## What the agent can touch
 
@@ -62,7 +62,7 @@ By default the agent asks before every change. A change shows as a card in the t
 | **Allow for this session** | Runs this call, and later calls of the same tool in this chat without asking. |
 | **Deny** | Does not run it. The agent is told you declined. |
 
-The mode button in the panel header switches between **Ask before edits** and **Apply edits automatically**. In the second mode changes to the project run without asking; their cards still show what was done. Exporting, packing and importing a STEP file reach outside the project, so they always ask, in either mode, and never offer **Allow for this session**. The mode is saved with your settings.
+The mode chip under the message box switches between **Ask before edits** and **Apply edits automatically**. In the second mode changes to the project run without asking; their cards still show what was done. Exporting, packing and importing a STEP file reach outside the project, so they always ask, in either mode, and never offer **Allow for this session**. The mode is saved with your settings.
 
 A card left unanswered for an hour times out, and the call is not run. **Stop** (or Escape in the message box) ends the turn and declines anything still waiting.
 
@@ -109,7 +109,7 @@ Point at a row to rename or delete it:
 - The pencil renames the chat in place: type the new title and press Enter, or Escape to keep the old one. A new chat takes its title from your first message until you rename it.
 - The bin deletes the chat after you confirm: its conversation, images and the copies kept for reverting are removed, and a turn it was running stops. Files the agent changed stay as they are. Deleting the chat that is open starts a new chat.
 
-A chat stays with the agent it was started with. The model and the effort can be changed from the header between messages:
+A chat stays with the agent it was started with; with more than one agent ready, a new chat's agent chip picks it. The model and the effort can be changed between messages from their chips under the message box:
 
 - **Model**: **Default** uses the program's own default, and **Other model…** takes any model name the program accepts.
 - **Effort**: how hard the model thinks before it answers. **Default effort** leaves it to the program. Claude Code offers Low, Medium, High, Extra high and Max. Codex offers the levels the chosen model lists (for example up to Max, or Ultra on some models); switching to a model without the chosen level goes back to its default. Higher effort takes longer and uses more of your plan.
@@ -136,7 +136,7 @@ Settings › Agent holds:
 | Claude Code model, Codex model | The model a new chat starts with. Empty: the program's own default. For Claude Code an alias (`opus`, `sonnet`, `haiku`, `fable`) or a full model name. |
 | Claude Code effort | How hard Claude Code's model thinks before it answers: Low, Medium, High, Extra high, Max, or Claude Code's own default. |
 | Codex effort | The same for Codex: the levels its models list, or the model's own default. A level the chosen model lacks falls back to its default. |
-| Edits | **Ask before edits** or **Apply edits automatically**: the same switch as the mode button in the panel header. |
+| Edits | **Ask before edits** or **Apply edits automatically**: the same switch as the mode chip under the message box. |
 | Use my Claude subscription even if ANTHROPIC_API_KEY is set | See [above](#claude-code-and-anthropic_api_key). |
 | Claude Code program, Codex program | The absolute path to `claude` or `codex`, when FluidCAD does not find it. |
 

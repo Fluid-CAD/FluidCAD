@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AgentHostDeps } from '../../server/dist/agent-host.js';
 import type { Preferences } from '../../server/dist/preferences.js';
-import type { AgentBackend, AgentInstall, AgentModel } from './backend.ts';
+import type { AgentBackend, AgentInstall, AgentModel, BackendLogin } from './backend.ts';
 import { ClaudeBackend, claudeChildEnv } from './claude/claude-backend.ts';
 import { CodexBackend } from './codex/codex-backend.ts';
 import { composeInstructions } from './instructions.ts';
@@ -41,6 +41,23 @@ function onProcessExit(): void {
 
 type Detection = { key: string; promise: Promise<AgentInstall> };
 
+/** A sign-in from the app, as the page polls it. Nothing about the account is kept. */
+export type LoginStatus = { state: 'pending' | 'done' | 'failed'; error?: string };
+
+type LoginRecord = { kind: AgentKind; login: BackendLogin; status: LoginStatus };
+
+/** Finished sign-ins kept for a late poll. */
+const MAX_FINISHED_LOGINS = 8;
+
+/** Why a sign-in cannot start: `unsupported` (the agent signs in in a terminal only), `not-installed`, `signed-in`. */
+export class LoginError extends Error {
+  readonly kind: 'unsupported' | 'not-installed' | 'signed-in';
+  constructor(kind: 'unsupported' | 'not-installed' | 'signed-in', message: string) {
+    super(message);
+    this.kind = kind;
+  }
+}
+
 export class AgentRuntime {
   readonly epoch = randomUUID();
   readonly endpoints = new McpEndpoints();
@@ -55,6 +72,7 @@ export class AgentRuntime {
   private readonly detections = new Map<AgentKind, Detection>();
   private loaded = false;
   private readonly instructionsText = new Map<AgentKind, string>();
+  private readonly logins = new Map<string, LoginRecord>();
 
   constructor(deps: AgentHostDeps, options: AgentRuntimeOptions = {}) {
     this.deps = deps;
@@ -144,6 +162,75 @@ export class AgentRuntime {
     return promise;
   }
 
+  // -------------------------------------------------------------------------
+  // Signing in from the app (§5.2: Codex's `account/login/start`)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Starts signing in to `kind` in the user's browser: the page to open, and
+   * an id to ask about. Refused when the agent signs in in a terminal only,
+   * is not installed, or is already signed in (a sign-in would replace the
+   * account). A sign-in already waiting is answered again, so a second tab
+   * does not start another. Once it succeeds, detection runs afresh on the
+   * next ask.
+   */
+  async startLogin(kind: AgentKind): Promise<{ id: string; url: string }> {
+    const backend = this.backends[kind];
+    if (!backend?.login) {
+      throw new LoginError('unsupported', `${AGENT_NAMES[kind] ?? kind} is signed in from a terminal.`);
+    }
+    for (const [id, record] of this.logins) {
+      if (record.kind === kind && record.status.state === 'pending') {
+        return { id, url: record.login.url };
+      }
+    }
+    const prefs = await this.deps.loadPreferences();
+    const install = await this.install(kind, prefs, true);
+    if (!install.path || !install.supported) {
+      throw new LoginError('not-installed', install.problem ?? `${AGENT_NAMES[kind]} was not found.`);
+    }
+    if (install.loggedIn === true) {
+      throw new LoginError('signed-in', `${AGENT_NAMES[kind]} is already signed in.`);
+    }
+    const login = await backend.login(install, this.childEnv(kind, prefs));
+    const record: LoginRecord = { kind, login, status: { state: 'pending' } };
+    this.logins.set(login.id, record);
+    this.pruneLogins();
+    void login.done.then((outcome) => {
+      record.status = outcome.success ? { state: 'done' } : { state: 'failed', ...(outcome.error ? { error: outcome.error } : {}) };
+      if (outcome.success) {
+        // Signed in now: the next ask detects again.
+        this.detections.delete(kind);
+      }
+    });
+    return { id: login.id, url: login.url };
+  }
+
+  /** How sign-in `id` of `kind` stands; null for one this engine does not know. */
+  loginStatus(kind: AgentKind, id: string): LoginStatus | null {
+    const record = this.logins.get(id);
+    return record && record.kind === kind ? { ...record.status } : null;
+  }
+
+  /** Stops sign-in `id` (the user gave up); false when there is no such sign-in. */
+  async cancelLogin(kind: AgentKind, id: string): Promise<boolean> {
+    const record = this.logins.get(id);
+    if (!record || record.kind !== kind) {
+      return false;
+    }
+    if (record.status.state === 'pending') {
+      await record.login.cancel();
+    }
+    return true;
+  }
+
+  private pruneLogins(): void {
+    const finished = [...this.logins].filter(([, r]) => r.status.state !== 'pending');
+    for (const [id] of finished.slice(0, Math.max(0, finished.length - MAX_FINISHED_LOGINS))) {
+      this.logins.delete(id);
+    }
+  }
+
   /** The environment the CLI of `kind` runs with (§19, owner decision on ANTHROPIC_API_KEY). */
   childEnv(kind: AgentKind, prefs: Preferences): NodeJS.ProcessEnv {
     if (kind === 'claude') {
@@ -216,6 +303,9 @@ export class AgentRuntime {
   /** Ends every session's CLI (engine shutdown, tests). */
   async shutdown(): Promise<void> {
     liveRuntimes.delete(this);
+    await Promise.all(
+      [...this.logins.values()].filter((r) => r.status.state === 'pending').map((r) => r.login.cancel().catch(() => {})),
+    );
     await Promise.all([...this.sessions.values()].map((s) => s.dispose()));
     this.sessions.clear();
     await Promise.all(Object.values(this.backends).map((b) => b?.dispose?.().catch((e) => console.error('[agent] closing a backend failed:', e))));

@@ -4,6 +4,7 @@ import type {
   AgentModel,
   ApprovalDecision,
   ChatEventEnvelope,
+  LoginStatus,
   PermissionMode,
   RevertResult,
   SendMessage,
@@ -37,6 +38,14 @@ export interface ChatClient {
   /** What detection found for each CLI; `fresh` detects again (`POST agents/recheck`). */
   agents(fresh?: boolean): Promise<ChatAnswer<AgentInstall[]>>;
   models(kind: AgentKind): Promise<ChatAnswer<AgentModel[]>>;
+  /**
+   * Start signing in to `kind` in the user's browser (Codex only): the page
+   * to open. 409 when it is already signed in or not installed, 404 when the
+   * agent signs in from a terminal only.
+   */
+  startLogin(kind: AgentKind): Promise<ChatAnswer<{ loginId: string; url: string }>>;
+  loginStatus(kind: AgentKind, loginId: string): Promise<ChatAnswer<LoginStatus>>;
+  cancelLogin(kind: AgentKind, loginId: string): Promise<ChatAnswer<null>>;
   sessions(): Promise<ChatAnswer<SessionSummary[]>>;
   createSession(agent: AgentKind): Promise<ChatAnswer<{ id: string }>>;
   snapshot(id: string): Promise<ChatAnswer<SessionSnapshot>>;
@@ -84,6 +93,18 @@ export class HttpChatClient implements ChatClient {
   async models(kind: AgentKind): Promise<ChatAnswer<AgentModel[]>> {
     const answer = await this.request<{ models: AgentModel[] }>('GET', `${BASE}/agents/${encodeURIComponent(kind)}/models`);
     return answer.ok === false ? answer : { ok: true, value: answer.value.models };
+  }
+
+  startLogin(kind: AgentKind): Promise<ChatAnswer<{ loginId: string; url: string }>> {
+    return this.request('POST', `${BASE}/agents/${encodeURIComponent(kind)}/login`, {});
+  }
+
+  loginStatus(kind: AgentKind, loginId: string): Promise<ChatAnswer<LoginStatus>> {
+    return this.request('GET', `${BASE}/agents/${encodeURIComponent(kind)}/login/${encodeURIComponent(loginId)}`);
+  }
+
+  cancelLogin(kind: AgentKind, loginId: string): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${BASE}/agents/${encodeURIComponent(kind)}/login/${encodeURIComponent(loginId)}/cancel`, {});
   }
 
   async sessions(): Promise<ChatAnswer<SessionSummary[]>> {

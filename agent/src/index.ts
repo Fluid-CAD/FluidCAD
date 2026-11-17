@@ -11,7 +11,7 @@ export function createAgentRouter(deps: AgentHostDeps): Router {
   return createRuntimeRouter(new AgentRuntime(deps));
 }
 
-export { AgentRuntime, AGENT_KINDS, AGENT_NAMES, UnsupportedAgentError, type AgentRuntimeOptions } from './runtime.ts';
+export { AgentRuntime, AGENT_KINDS, AGENT_NAMES, LoginError, UnsupportedAgentError, type AgentRuntimeOptions, type LoginStatus } from './runtime.ts';
 export { createRuntimeRouter, parseSendMessage, streamEvents, HEARTBEAT_MS } from './router.ts';
 export { AgentSession, SessionBusyError, RevertError, DEFAULT_IDLE_MS, type SessionDeps, type TurnSetup, type RevertResult } from './session.ts';
 export { SessionStore, type SessionRecord, type Checkpoint } from './session-store.ts';

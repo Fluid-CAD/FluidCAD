@@ -1,23 +1,26 @@
 import { ChatIcons } from './chat-icons';
-import type { AgentReadiness } from './chat-state';
+import type { AgentReadiness, SignIn } from './chat-state';
 import type { AgentInstall, AgentKind } from './chat-types';
 
 /**
  * What each CLI is called and how it is installed, updated and signed in
  * (§9.1). The names are plain text naming what runs (§4.2): no logos.
  */
-export const AGENT_INFO: Record<AgentKind, { name: string; installUrl: string; login: string; update: string }> = {
+export const AGENT_INFO: Record<AgentKind, { name: string; installUrl: string; login: string; update: string; signInFromApp: boolean }> = {
   claude: {
     name: 'Claude Code',
     installUrl: 'https://code.claude.com/docs/en/setup',
     login: 'claude auth login',
     update: 'claude update',
+    signInFromApp: false,
   },
   codex: {
     name: 'Codex',
     installUrl: 'https://github.com/openai/codex',
     login: 'codex login',
     update: 'npm install -g @openai/codex',
+    // Codex's app server runs the ChatGPT sign-in (§5.2, account/login/start).
+    signInFromApp: true,
   },
 };
 
@@ -27,6 +30,18 @@ export type AgentSetupDeps = {
   openSettings?(): void;
   /** Detect again ("Check again"). */
   recheck(): Promise<void>;
+  /** Signing in from the app, for an agent that offers it (Codex); absent: the terminal command only. */
+  signIn?: SignInControls;
+};
+
+export type SignInControls = {
+  /** The sign-in in progress or the last one that failed, if any. */
+  current: SignIn | null;
+  /** Start it, and open the page it answers in the browser. */
+  start(): void;
+  /** Open the sign-in page again (the browser blocked or lost it). */
+  reopen(): void;
+  cancel(): void;
 };
 
 /** How Claude Code will authenticate, in the user's words; null when it cannot be told. */
@@ -115,8 +130,17 @@ export function renderAgentSetup(readiness: AgentReadiness, deps: AgentSetupDeps
       );
       return el;
     case 'signed-out':
+      el.append(heading(`Sign in to ${info.name}`));
+      if (info.signInFromApp && deps.signIn) {
+        el.append(...signInFromApp(info.name, deps.signIn));
+        el.append(
+          paragraph('Or run this in a terminal, then check again:'),
+          command(info.login),
+          checkAgain(deps),
+        );
+        return el;
+      }
       el.append(
-        heading(`Sign in to ${info.name}`),
         paragraph(`${info.name} is installed but not signed in. Run this in a terminal, sign in with your own account, then check again:`),
         command(info.login),
         checkAgain(deps),
@@ -155,6 +179,60 @@ export function renderWelcome(install: AgentInstall | null, deps: AgentSetupDeps
     }
   }
   return el;
+}
+
+/**
+ * Sign in without a terminal (Codex): the ChatGPT sign-in page opens in the
+ * browser; the panel waits for it and then detects again. Nothing about the
+ * account is shown.
+ */
+function signInFromApp(name: string, controls: SignInControls): HTMLElement[] {
+  const current = controls.current;
+  if (current && (current.state === 'starting' || current.state === 'waiting')) {
+    const waiting = document.createElement('div');
+    waiting.className = 'flex items-center gap-2 text-hub-sm text-base-content/80';
+    waiting.dataset.ref = 'sign-in-waiting';
+    const spinner = document.createElement('span');
+    spinner.className = 'loading loading-spinner loading-xs';
+    waiting.append(
+      spinner,
+      document.createTextNode(current.state === 'starting' ? 'Opening the sign-in page…' : 'Finish signing in in your browser. This updates by itself.'),
+    );
+    const actions = row();
+    if (current.state === 'waiting') {
+      const reopen = document.createElement('button');
+      reopen.type = 'button';
+      reopen.dataset.ref = 'sign-in-reopen';
+      reopen.className = 'btn btn-sm btn-ghost border border-base-content/15 gap-1.5';
+      reopen.append(document.createTextNode('Open the page again'), ChatIcons.span(ChatIcons.EXTERNAL, '[&>svg]:size-3.5'));
+      reopen.addEventListener('click', () => controls.reopen());
+      actions.append(reopen);
+    }
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.dataset.ref = 'sign-in-cancel';
+    cancel.className = 'btn btn-sm btn-ghost';
+    cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', () => controls.cancel());
+    actions.append(cancel);
+    return [waiting, actions];
+  }
+  const out: HTMLElement[] = [
+    paragraph(`${name} is installed but not signed in. Sign in with your ChatGPT account in the browser; FluidCAD never sees the account.`),
+  ];
+  if (current?.state === 'failed') {
+    const failed = paragraph(`Signing in did not finish: ${current.error ?? 'no reason given.'}`, 'text-warning');
+    failed.dataset.ref = 'sign-in-error';
+    out.push(failed);
+  }
+  const start = document.createElement('button');
+  start.type = 'button';
+  start.dataset.ref = 'sign-in';
+  start.className = 'btn btn-sm btn-primary gap-1.5 self-start';
+  start.append(ChatIcons.span(ChatIcons.SIGN_IN, '[&>svg]:size-3.5'), document.createTextNode(`Sign in to ${name}`));
+  start.addEventListener('click', () => controls.start());
+  out.push(start);
+  return out;
 }
 
 function heading(text: string): HTMLElement {

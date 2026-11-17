@@ -877,10 +877,22 @@ export class ChatPanel {
     const readiness = this.state.readiness();
     const ready = readiness.state === 'ready';
     const empty = (this.state.session?.messages.length ?? 0) === 0;
+    const kind = this.state.agent;
+    const signIn = this.state.signIn?.kind === kind ? this.state.signIn : null;
     const setupDeps: AgentSetupDeps = {
       openLink: (url) => this.deps.openExternal(url),
       ...(this.deps.openSettings ? { openSettings: () => this.deps.openSettings!() } : {}),
       recheck: () => this.state.loadAgents(true),
+      signIn: {
+        current: signIn,
+        start: () => void this.signIn(kind),
+        reopen: () => {
+          if (signIn?.url) {
+            this.deps.openExternal(signIn.url);
+          }
+        },
+        cancel: () => void this.state.cancelSignIn(),
+      },
     };
 
     this.center.replaceChildren();
@@ -900,6 +912,14 @@ export class ChatPanel {
     const composerShown = ready || readiness.state === 'loading' || isBusy(this.state.status);
     this.composer.el.classList.toggle('hidden', !composerShown);
     this.composer.setEnabled(ready || isBusy(this.state.status));
+  }
+
+  /** Sign in to `kind` from the app: the sign-in page opens in the browser, the panel waits for it. */
+  private async signIn(kind: AgentKind): Promise<void> {
+    const url = await this.state.startSignIn(kind);
+    if (url) {
+      this.deps.openExternal(url);
+    }
   }
 
   /** The status line above the composer, the activity line, Stop. */

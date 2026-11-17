@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Router, type Request, type Response } from 'express';
 import type { AgentRuntime } from './runtime.ts';
-import { UnsupportedAgentError } from './runtime.ts';
+import { LoginError, UnsupportedAgentError } from './runtime.ts';
 import { RevertError, SessionBusyError, type AgentSession } from './session.ts';
 import { SessionStore } from './session-store.ts';
 import { CLAUDE_EFFORTS, isEffortFor, type AgentKind, type ApprovalDecision, type ChatEventEnvelope, type PermissionMode, type SceneReference, type SendMessage } from './types.ts';
@@ -51,6 +51,53 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
       return;
     }
     res.json({ models: await runtime.models(kind) });
+  });
+
+  // --- Signing in from the app (§5.2) ---------------------------------------
+  //
+  // The page opens `url` in the user's browser (ExternalLinks) and polls
+  // the status; the account itself never passes through here.
+
+  router.post('/agents/:kind/login', async (req, res) => {
+    const kind = agentKindOf(req, res);
+    if (!kind) {
+      return;
+    }
+    try {
+      const login = await runtime.startLogin(kind);
+      res.json({ loginId: login.id, url: login.url });
+    } catch (e) {
+      if (e instanceof LoginError) {
+        res.status(e.kind === 'unsupported' ? 404 : 409).json({ error: e.message, reason: e.kind });
+        return;
+      }
+      res.status(502).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  router.get('/agents/:kind/login/:loginId', (req, res) => {
+    const kind = agentKindOf(req, res);
+    if (!kind) {
+      return;
+    }
+    const status = runtime.loginStatus(kind, String(req.params.loginId));
+    if (!status) {
+      res.status(404).json({ error: 'No such sign-in.' });
+      return;
+    }
+    res.json(status);
+  });
+
+  router.post('/agents/:kind/login/:loginId/cancel', async (req, res) => {
+    const kind = agentKindOf(req, res);
+    if (!kind) {
+      return;
+    }
+    if (!(await runtime.cancelLogin(kind, String(req.params.loginId)))) {
+      res.status(404).json({ error: 'No such sign-in.' });
+      return;
+    }
+    res.status(204).end();
   });
 
   // --- Sessions -------------------------------------------------------------
@@ -257,6 +304,15 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
   });
 
   return router;
+}
+
+function agentKindOf(req: Request, res: Response): AgentKind | null {
+  const kind = String(req.params.kind ?? '');
+  if (kind !== 'claude' && kind !== 'codex') {
+    res.status(404).json({ error: `Unknown agent: ${kind}` });
+    return null;
+  }
+  return kind;
 }
 
 function findSession(runtime: AgentRuntime, req: Request, res: Response): AgentSession | null {

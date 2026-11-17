@@ -218,6 +218,9 @@ export type AgentModel = {
   defaultEffort?: string;
 };
 
+/** A sign-in from the app (`GET api/agent/agents/:kind/login/:id`); nothing about the account. */
+export type LoginStatus = { state: 'pending' | 'done' | 'failed'; error?: string };
+
 /** Whether a status means a turn is in flight. */
 export function isBusy(status: SessionStatus): boolean {
   return status.state === 'starting' || status.state === 'running' || status.state === 'awaiting-approval';

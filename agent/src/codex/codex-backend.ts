@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AgentBackend, AgentInstall, AgentModel, AgentRun, BackendEvent, DetectOptions, OpenOptions } from '../backend.ts';
+import type { AgentBackend, AgentInstall, AgentModel, AgentRun, BackendEvent, BackendLogin, DetectOptions, OpenOptions } from '../backend.ts';
 import { AsyncQueue } from '../async-queue.ts';
 import { compareVersions, findOnPath, isExecutableFile, parseVersion, runBriefly } from '../locate.ts';
 import { CodexAppServer, type ThreadListener } from './app-server.ts';
@@ -39,6 +39,8 @@ const MCP_STARTUP_TIMEOUT_MS = 20_000;
 const MCP_POLL_MS = 2_000;
 const MCP_FAILED_STATES = new Set(['failed', 'cancelled', 'authenticationRequired', 'disabled']);
 const MAX_MODEL_PAGES = 5;
+/** How long a sign-in may wait for the user in the browser before it is stopped. */
+export const CODEX_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 
 export type CodexBackendOptions = {
   /** FluidCAD's version, sent as `clientInfo.version`. */
@@ -57,6 +59,8 @@ export type CodexBackendOptions = {
   mcpStartupTimeoutMs?: number;
   /** How long an interrupted turn may take to end before the run ends it itself (tests). */
   interruptGraceMs?: number;
+  /** How long a sign-in waits for the user (tests). */
+  loginTimeoutMs?: number;
 };
 
 type ServerSlot = {
@@ -78,6 +82,7 @@ export class CodexBackend implements AgentBackend {
   private readonly lingerMs: number;
   private readonly mcpStartupTimeoutMs: number;
   private readonly interruptGraceMs: number;
+  private readonly loginTimeoutMs: number;
   private slot: ServerSlot | null = null;
   /** How many app servers this backend started (tests). */
   serversStarted = 0;
@@ -92,6 +97,7 @@ export class CodexBackend implements AgentBackend {
     this.lingerMs = options.lingerMs ?? CODEX_LINGER_MS;
     this.mcpStartupTimeoutMs = options.mcpStartupTimeoutMs ?? MCP_STARTUP_TIMEOUT_MS;
     this.interruptGraceMs = options.interruptGraceMs ?? INTERRUPT_GRACE_MS;
+    this.loginTimeoutMs = options.loginTimeoutMs ?? CODEX_LOGIN_TIMEOUT_MS;
   }
 
   // -------------------------------------------------------------------------
@@ -285,6 +291,100 @@ export class CodexBackend implements AgentBackend {
       }
       throw e;
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Sign-in (§5.2: `account/login/start`)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Starts the ChatGPT sign-in of the app server: Codex answers with the page
+   * to open in the user's browser, listens on its own loopback callback, and
+   * reports `account/login/completed`. The server stays up until then (or
+   * {@link loginTimeoutMs}). Nothing about the account is read: the caller
+   * detects again once it succeeded.
+   */
+  async login(install: AgentInstall, env: NodeJS.ProcessEnv = process.env): Promise<BackendLogin> {
+    if (!install.path || !install.supported) {
+      throw new Error('Codex was not found.');
+    }
+    const server = await this.acquire(install.path, env);
+    let released = false;
+    const release = () => {
+      if (!released) {
+        released = true;
+        this.release(server);
+      }
+    };
+    let settle!: (outcome: { success: boolean; error?: string }) => void;
+    const done = new Promise<{ success: boolean; error?: string }>((resolve) => {
+      settle = resolve;
+    });
+    let loginId: string | null = null;
+    // Listening before the request: the completion may come right after its answer.
+    const early: { loginId: string | null; success: boolean; error?: string }[] = [];
+    const unsubscribe = server.onAccountNotification((message) => {
+      if (message.method !== 'account/login/completed') {
+        return;
+      }
+      const p = message.params ?? {};
+      const outcome = {
+        loginId: typeof p.loginId === 'string' ? p.loginId : null,
+        success: p.success === true,
+        ...(typeof p.error === 'string' && p.error !== '' ? { error: p.error } : {}),
+      };
+      if (loginId === null) {
+        early.push(outcome);
+      } else if (outcome.loginId === null || outcome.loginId === loginId) {
+        finish(outcome);
+      }
+    });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (outcome: { success: boolean; error?: string }) => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      unsubscribe();
+      release();
+      settle(outcome.success ? { success: true } : { success: false, ...(outcome.error ? { error: outcome.error } : {}) });
+    };
+
+    let result: any;
+    try {
+      result = await server.rpc.request('account/login/start', { type: 'chatgpt' }, REQUEST_TIMEOUT_MS);
+    } catch (e) {
+      unsubscribe();
+      release();
+      throw new Error(`Codex could not start signing in: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const url = typeof result?.authUrl === 'string' ? result.authUrl : '';
+    if (result?.type !== 'chatgpt' || typeof result.loginId !== 'string' || !isHttpsUrl(url)) {
+      unsubscribe();
+      release();
+      throw new Error('Codex did not answer with a page to sign in on.');
+    }
+    loginId = result.loginId as string;
+    const id = loginId;
+    const cancel = async () => {
+      if (released) {
+        return;
+      }
+      await server.rpc.request('account/login/cancel', { loginId: id }, REQUEST_TIMEOUT_MS).catch(() => {});
+      // Codex reports the cancelled login as not completed; end it here if it does not.
+      finish({ success: false, error: 'Signing in was cancelled.' });
+    };
+    timer = setTimeout(() => {
+      timer = null;
+      void server.rpc.request('account/login/cancel', { loginId: id }, REQUEST_TIMEOUT_MS).catch(() => {});
+      finish({ success: false, error: 'Signing in took too long and was stopped.' });
+    }, this.loginTimeoutMs);
+    timer.unref?.();
+    const first = early.find((o) => o.loginId === null || o.loginId === id);
+    if (first) {
+      finish(first);
+    }
+    return { id, url, done, cancel };
   }
 
   async dispose(): Promise<void> {
@@ -787,6 +887,14 @@ function hasNodeShebang(file: string): boolean {
     } finally {
       fs.closeSync(fd);
     }
+  } catch {
+    return false;
+  }
+}
+
+function isHttpsUrl(text: string): boolean {
+  try {
+    return new URL(text).protocol === 'https:';
   } catch {
     return false;
   }

@@ -178,3 +178,84 @@ describe.runIf(posix)('a Codex session', () => {
     expect(fs.readFileSync(path.join(workspace, 'a.fluid.js'), 'utf8')).toBe('v2');
   });
 });
+
+describe.runIf(posix)('signing in to Codex from the app', () => {
+  let loginServer: http.Server;
+  let loginBase: string;
+  let loginRuntime: AgentRuntime;
+  let signedIn: string;
+  /** The environment the runtime hands Codex (read at each spawn). */
+  let loginEnv: NodeJS.ProcessEnv;
+
+  beforeEach(async () => {
+    signedIn = path.join(tmp, 'signed-in');
+    const app = express();
+    app.use(express.json());
+    loginServer = http.createServer(app);
+    await new Promise<void>((resolve) => loginServer.listen(0, '127.0.0.1', () => resolve()));
+    const port = (loginServer.address() as AddressInfo).port;
+    loginBase = `http://127.0.0.1:${port}/api/agent`;
+    loginEnv = { ...process.env, PATH: path.join(tmp, 'bin'), FAKE_CODEX_LOG: log, FAKE_CODEX_LOGIN_FILE: signedIn };
+    loginRuntime = new AgentRuntime(
+      {
+        workspacePath: workspace,
+        port,
+        version: '0.0.0',
+        startedAt: new Date(0).toISOString(),
+        currentFile: () => null,
+        renderState: () => ({ state: 'none' }),
+        unit: () => 'mm',
+        loadPreferences: async () => ({ agent: { defaultAgent: 'codex', permissionMode: 'ask' } }) as any,
+      },
+      {
+        backends: { codex: new CodexBackend({ clientVersion: '0.0.0', cwd: workspace, fixedPaths: [], lingerMs: 50 }) },
+        env: loginEnv,
+      },
+    );
+    app.use('/api/agent', createRuntimeRouter(loginRuntime, { heartbeatMs: 50 }));
+  });
+
+  afterEach(async () => {
+    await loginRuntime.shutdown();
+    loginServer.closeAllConnections();
+    await new Promise<void>((resolve) => loginServer.close(() => resolve()));
+  });
+
+  it('answers the page to open, then reports the sign-in done, and detection sees it', async () => {
+    const before = (await json('GET', `${loginBase}/agents`)).body.agents.find((a: AgentInstall) => a.kind === 'codex');
+    expect(before.loggedIn).toBe(false);
+
+    const started = await json('POST', `${loginBase}/agents/codex/login`);
+    expect(started.status).toBe(200);
+    expect(started.body).toEqual({ loginId: expect.stringMatching(/^login-/), url: 'https://auth.example.invalid/oauth/authorize?state=fake' });
+    const status = await until(() => json('GET', `${loginBase}/agents/codex/login/${started.body.loginId}`), (r) => r.body.state !== 'pending');
+    expect(status.body).toEqual({ state: 'done' });
+
+    // Detected afresh: signed in now. Nothing about the account was asked for.
+    const after = (await json('GET', `${loginBase}/agents`)).body.agents.find((a: AgentInstall) => a.kind === 'codex');
+    expect(after.loggedIn).toBe(true);
+    expect(logged().filter((l) => l.dir === 'in' && l.msg.method === 'account/read')).toEqual([]);
+
+    // Signed in: no second sign-in that would replace the account.
+    const again = await json('POST', `${loginBase}/agents/codex/login`);
+    expect(again.status).toBe(409);
+    expect(again.body.reason).toBe('signed-in');
+  });
+
+  it('cancels a sign-in left waiting; unknown agents and sign-ins are 404', async () => {
+    loginEnv.FAKE_CODEX_LOGIN = 'wait';
+    const started = await json('POST', `${loginBase}/agents/codex/login`);
+    expect(started.status).toBe(200);
+    // A second tab asking gets the same sign-in.
+    expect((await json('POST', `${loginBase}/agents/codex/login`)).body.loginId).toBe(started.body.loginId);
+    await new Promise((r) => setTimeout(r, 100));
+    expect((await json('GET', `${loginBase}/agents/codex/login/${started.body.loginId}`)).body).toEqual({ state: 'pending' });
+    expect((await json('POST', `${loginBase}/agents/codex/login/${started.body.loginId}/cancel`)).status).toBe(204);
+    const status = await until(() => json('GET', `${loginBase}/agents/codex/login/${started.body.loginId}`), (r) => r.body.state !== 'pending');
+    expect(status.body.state).toBe('failed');
+    expect(fs.existsSync(signedIn)).toBe(false);
+    expect((await json('GET', `${loginBase}/agents/codex/login/nope`)).status).toBe(404);
+    expect((await json('POST', `${loginBase}/agents/claude/login`)).status).toBe(404);
+    expect((await json('POST', `${loginBase}/agents/other/login`)).status).toBe(404);
+  });
+});

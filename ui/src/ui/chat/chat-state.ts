@@ -49,6 +49,13 @@ export type AgentReadiness =
   | { state: 'signed-out'; install: AgentInstall }
   | { state: 'ready'; install: AgentInstall };
 
+/**
+ * Signing in from the app (Codex): `starting` until the engine answers
+ * with the page, `waiting` while the user signs in in the browser, `failed`
+ * with why. Gone once it succeeded (detection then says signed in).
+ */
+export type SignIn = { kind: AgentKind; state: 'starting' | 'waiting' | 'failed'; loginId?: string; url?: string; error?: string };
+
 /** The last revert's outcome, shown under the turn it was asked on. */
 export type RevertOutcome =
   | { turnId: string; result: RevertResult }
@@ -62,6 +69,8 @@ export type SendOptions = Omit<SendMessage, 'text'>;
 
 /** How long after a refused stream the session is read again. */
 const RETRY_MS = 2000;
+/** How often a sign-in in the browser is asked about. */
+export const SIGN_IN_POLL_MS = 2000;
 
 /**
  * The chat panel's store (docs/agent-chat-plan.md §10.3): what detection
@@ -97,6 +106,9 @@ export class ChatState {
   reverting: string | null = null;
   /** The last revert's outcome, until the next send or another chat. */
   revertOutcome: RevertOutcome | null = null;
+  /** A sign-in from the app in progress, or the last one that failed. */
+  signIn: SignIn | null = null;
+  private signInPoll: unknown = null;
 
   private stream: ChatStream | null = null;
   /** Bumped on every attach, so a late snapshot or a stale stream's events are dropped. */
@@ -197,6 +209,99 @@ export class ChatState {
     this.models.set(kind, answer.value);
     this.emit({ kind: 'agents' });
     return answer.value;
+  }
+
+  /**
+   * Start signing in to `kind` in the browser (§5.2). Resolves to the page
+   * to open, or null (the reason is in {@link signIn}); then asks how it
+   * goes every {@link SIGN_IN_POLL_MS} until it ends, and detects again
+   * once it succeeded.
+   */
+  async startSignIn(kind: AgentKind): Promise<string | null> {
+    if (this.signIn && this.signIn.kind === kind && this.signIn.state !== 'failed') {
+      return this.signIn.url ?? null;
+    }
+    this.stopSignInPoll();
+    this.signIn = { kind, state: 'starting' };
+    this.emit({ kind: 'agents' });
+    const answer = await this.client.startLogin(kind);
+    if (this.disposed || this.signIn?.kind !== kind) {
+      return null;
+    }
+    if (answer.ok === false) {
+      if (answer.status === 409) {
+        // Signed in meanwhile (or uninstalled): detection says which.
+        this.signIn = null;
+        await this.loadAgents(true);
+        return null;
+      }
+      this.signIn = { kind, state: 'failed', error: answer.error };
+      this.emit({ kind: 'agents' });
+      return null;
+    }
+    this.signIn = { kind, state: 'waiting', loginId: answer.value.loginId, url: answer.value.url };
+    this.emit({ kind: 'agents' });
+    this.scheduleSignInPoll();
+    return answer.value.url;
+  }
+
+  /** Stop waiting for the sign-in in the browser. */
+  async cancelSignIn(): Promise<void> {
+    const signIn = this.signIn;
+    this.stopSignInPoll();
+    this.signIn = null;
+    this.emit({ kind: 'agents' });
+    if (signIn?.loginId && signIn.state === 'waiting') {
+      await this.client.cancelLogin(signIn.kind, signIn.loginId);
+    }
+  }
+
+  private scheduleSignInPoll(): void {
+    this.signInPoll = this.timers.set(() => {
+      this.signInPoll = null;
+      void this.pollSignIn();
+    }, SIGN_IN_POLL_MS);
+  }
+
+  private stopSignInPoll(): void {
+    if (this.signInPoll !== null) {
+      this.timers.clear(this.signInPoll);
+      this.signInPoll = null;
+    }
+  }
+
+  private async pollSignIn(): Promise<void> {
+    const signIn = this.signIn;
+    if (this.disposed || !signIn || signIn.state !== 'waiting' || !signIn.loginId) {
+      return;
+    }
+    const answer = await this.client.loginStatus(signIn.kind, signIn.loginId);
+    if (this.disposed || this.signIn !== signIn) {
+      return;
+    }
+    if (answer.ok === false) {
+      if (answer.status === 404) {
+        this.signIn = { ...signIn, state: 'failed', error: 'FluidCAD lost track of the sign-in (it restarted). Sign in again.' };
+        this.emit({ kind: 'agents' });
+      } else {
+        // The engine did not answer this time: ask again.
+        this.scheduleSignInPoll();
+      }
+      return;
+    }
+    switch (answer.value.state) {
+      case 'pending':
+        this.scheduleSignInPoll();
+        return;
+      case 'done':
+        this.signIn = null;
+        await this.loadAgents(true);
+        return;
+      case 'failed':
+        this.signIn = { ...signIn, state: 'failed', error: answer.value.error ?? 'Signing in did not finish.' };
+        this.emit({ kind: 'agents' });
+        return;
+    }
   }
 
   setDraftAgent(kind: AgentKind): void {
@@ -458,6 +563,7 @@ export class ChatState {
 
   dispose(): void {
     this.disposed = true;
+    this.stopSignInPoll();
     this.detach();
     this.listeners.clear();
   }

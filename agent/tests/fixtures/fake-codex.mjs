@@ -14,6 +14,9 @@
 // FAKE_CODEX_LEAK       a user server mcpServerStatus/list reports as connected anyway
 // FAKE_CODEX_USER_SERVERS  JSON object for config.mcp_servers
 // FAKE_CODEX_RESUME_FAIL   1: thread/resume of an unknown thread fails
+// FAKE_CODEX_LOGIN      how account/login/start goes: succeed (default, soon after), fail, wait (until cancelled)
+// FAKE_CODEX_LOGIN_FILE  `login status` says signed in while this file exists (beats FAKE_CODEX_LOGGED_IN);
+//                       a login that succeeds creates it
 //
 // The first word of a turn's text picks what the turn does: hello (default),
 // tool <name> <json args>, hang-on <name> <json args> (calls the tool and then
@@ -30,7 +33,8 @@ if (args[0] === '--version') {
   process.exit(0);
 }
 if (args[0] === 'login' && args[1] === 'status') {
-  if (process.env.FAKE_CODEX_LOGGED_IN === '0') {
+  const loginFile = process.env.FAKE_CODEX_LOGIN_FILE;
+  if (loginFile ? !fs.existsSync(loginFile) : process.env.FAKE_CODEX_LOGGED_IN === '0') {
     console.error('Not logged in');
     process.exit(1);
   }
@@ -290,6 +294,31 @@ async function onRequest(msg) {
       turns.set(turnId, { done: false, onInterrupt: null });
       reply({ turn: { id: turnId, items: [], itemsView: 'notLoaded', status: 'inProgress', error: null } });
       void runTurn(thread, turnId, params.input ?? []).catch((e) => log('turn-error', { message: String(e) }));
+      return;
+    }
+    case 'account/login/start': {
+      if (params.type !== 'chatgpt') {
+        return fail(-32600, `unsupported login type ${params.type}`);
+      }
+      const loginId = `login-${process.pid}`;
+      reply({ type: 'chatgpt', loginId, authUrl: 'https://auth.example.invalid/oauth/authorize?state=fake' });
+      const how = process.env.FAKE_CODEX_LOGIN ?? 'succeed';
+      if (how === 'succeed') {
+        setTimeout(() => {
+          if (process.env.FAKE_CODEX_LOGIN_FILE) {
+            fs.writeFileSync(process.env.FAKE_CODEX_LOGIN_FILE, 'signed in');
+          }
+          notify('account/login/completed', { loginId, success: true, error: null, onboardingEntrypoint: null });
+          notify('account/updated', { authMode: 'chatgpt', planType: 'plus' });
+        }, 30);
+      } else if (how === 'fail') {
+        setTimeout(() => notify('account/login/completed', { loginId, success: false, error: 'Login server error: denied', onboardingEntrypoint: null }), 30);
+      }
+      return;
+    }
+    case 'account/login/cancel': {
+      reply({ status: 'canceled' });
+      notify('account/login/completed', { loginId: params.loginId, success: false, error: 'Login server error: Login was not completed', onboardingEntrypoint: null });
       return;
     }
     case 'turn/interrupt': {

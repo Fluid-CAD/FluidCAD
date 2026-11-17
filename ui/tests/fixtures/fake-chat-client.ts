@@ -8,6 +8,7 @@ import type {
   ApprovalDecision,
   ChatEvent,
   ChatPart,
+  LoginStatus,
   PermissionMode,
   RevertResult,
   SendMessage,
@@ -180,6 +181,21 @@ export class FakeChatClient implements ChatClient {
   });
 
   models = vi.fn(async (_kind: AgentKind): Promise<ChatAnswer<AgentModel[]>> => ({ ok: true, value: structuredClone(this.modelsValue) }));
+
+  /** How the sign-in started from the app stands (`loginStatus` answers it). */
+  loginState: LoginStatus = { state: 'pending' };
+
+  startLogin = vi.fn(async (_kind: AgentKind): Promise<ChatAnswer<{ loginId: string; url: string }>> => ({
+    ok: true,
+    value: { loginId: 'login-1', url: 'https://auth.example.invalid/oauth/authorize?state=x' },
+  }));
+
+  loginStatus = vi.fn(async (_kind: AgentKind, _loginId: string): Promise<ChatAnswer<LoginStatus>> => ({ ok: true, value: { ...this.loginState } }));
+
+  cancelLogin = vi.fn(async (_kind: AgentKind, _loginId: string): Promise<ChatAnswer<null>> => {
+    this.loginState = { state: 'failed', error: 'Signing in was cancelled.' };
+    return { ok: true, value: null };
+  });
 
   sessions = vi.fn(async (): Promise<ChatAnswer<SessionSummary[]>> => {
     const rows = [...this.snapshots.values()]

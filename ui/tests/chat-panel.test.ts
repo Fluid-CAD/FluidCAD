@@ -190,6 +190,61 @@ describe('the empty states (§9.1)', () => {
     h.$<HTMLButtonElement>('[data-ref="check-again"]')!.click();
     await settle();
     expect(h.$('[data-ref="welcome"]')).not.toBeNull();
+    // Claude Code signs in from a terminal only.
+    expect(client.startLogin).not.toHaveBeenCalled();
+  });
+
+  it('Codex not signed in: Sign in opens the ChatGPT page in the browser, waits, then detects again', async () => {
+    const client = new FakeChatClient();
+    const codexOut = FakeChatClient.install({ kind: 'codex', loggedIn: false, authMethod: null, problem: 'Codex is not signed in.' });
+    client.agentsValue = [codexOut];
+    const h = mount(client, { defaultAgent: 'codex' });
+    await opened(h);
+    const setup = h.$('[data-ref="setup"]')!;
+    expect(setup.dataset.state).toBe('signed-out');
+    // The terminal command stays as the fallback.
+    expect(h.$('[data-ref="command"] code')!.textContent).toBe('codex login');
+    h.$<HTMLButtonElement>('[data-ref="sign-in"]')!.click();
+    await settle();
+    expect(client.startLogin).toHaveBeenCalledWith('codex');
+    expect(h.openExternal).toHaveBeenCalledWith('https://auth.example.invalid/oauth/authorize?state=x');
+    expect(h.$('[data-ref="sign-in-waiting"]')!.textContent).toMatch(/Finish signing in in your browser/);
+    // Not done yet: still waiting; the page can be opened again.
+    await h.timers.fire();
+    expect(client.loginStatus).toHaveBeenCalledWith('codex', 'login-1');
+    h.$<HTMLButtonElement>('[data-ref="sign-in-reopen"]')!.click();
+    expect(h.openExternal).toHaveBeenCalledTimes(2);
+    // Done: detection runs again and the composer is there.
+    client.loginState = { state: 'done' };
+    client.recheckValue = [FakeChatClient.install({ kind: 'codex', authMethod: null })];
+    await h.timers.fire();
+    await settle();
+    expect(client.agents).toHaveBeenLastCalledWith(true);
+    expect(h.$('[data-ref="welcome"]')).not.toBeNull();
+    expect(h.panel.state.signIn).toBeNull();
+    // Nothing about the account is on the page.
+    expect(h.panel.el.textContent).not.toMatch(/@/);
+  });
+
+  it('a Codex sign-in that fails says why and can be tried again; Cancel stops one in progress', async () => {
+    const client = new FakeChatClient();
+    client.agentsValue = [FakeChatClient.install({ kind: 'codex', loggedIn: false, authMethod: null })];
+    const h = mount(client, { defaultAgent: 'codex' });
+    await opened(h);
+    h.$<HTMLButtonElement>('[data-ref="sign-in"]')!.click();
+    await settle();
+    h.$<HTMLButtonElement>('[data-ref="sign-in-cancel"]')!.click();
+    await settle();
+    expect(client.cancelLogin).toHaveBeenCalledWith('codex', 'login-1');
+    expect(h.$('[data-ref="sign-in"]')).not.toBeNull();
+
+    client.loginState = { state: 'failed', error: 'Login server error: denied' };
+    h.$<HTMLButtonElement>('[data-ref="sign-in"]')!.click();
+    await settle();
+    await h.timers.fire();
+    await settle();
+    expect(h.$('[data-ref="sign-in-error"]')!.textContent).toBe('Signing in did not finish: Login server error: denied');
+    expect(h.$('[data-ref="sign-in"]')).not.toBeNull();
   });
 
   it('ready: says Claude Code runs on the subscription, or on the API key with the setting that changes it', async () => {

@@ -22,6 +22,24 @@ export interface AgentBackend {
   open(options: OpenOptions): Promise<AgentRun>;
   /** Ends whatever the backend keeps running beyond its runs (Codex's shared app server). */
   dispose?(): Promise<void>;
+  /**
+   * Starts signing the user in from the app (Codex: the ChatGPT login of its
+   * app server, §5.2). Absent: the user signs in in a terminal.
+   */
+  login?(install: AgentInstall, env: NodeJS.ProcessEnv): Promise<BackendLogin>;
+}
+
+/**
+ * A sign-in in progress: the page the user signs in on (opened in their
+ * browser), and how it ends. Nothing about the account is kept or shown.
+ */
+export interface BackendLogin {
+  readonly id: string;
+  /** An https URL to open in the user's browser. */
+  readonly url: string;
+  /** Settles once the user finished, or the login failed, timed out or was cancelled. */
+  readonly done: Promise<{ success: boolean; error?: string }>;
+  cancel(): Promise<void>;
 }
 
 export type AgentModel = {

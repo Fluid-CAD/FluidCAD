@@ -44,6 +44,7 @@ export class CodexAppServer {
   private exitedValue = false;
   private readonly exitPromise: Promise<void>;
   private readonly exitListeners: (() => void)[] = [];
+  private readonly accountListeners = new Set<(message: JsonRpcNotification) => void>();
 
   private constructor(child: ChildProcess, path: string) {
     this.child = child;
@@ -118,6 +119,17 @@ export class CodexAppServer {
     this.exitListeners.push(listener);
   }
 
+  /**
+   * Hears the notifications that name no thread (account, login, rate
+   * limits) until the returned function is called.
+   */
+  onAccountNotification(listener: (message: JsonRpcNotification) => void): () => void {
+    this.accountListeners.add(listener);
+    return () => {
+      this.accountListeners.delete(listener);
+    };
+  }
+
   /** Routes a thread's notifications to `listener`, starting with those that came before it attached. */
   attach(threadId: string, listener: ThreadListener): void {
     this.threads.set(threadId, listener);
@@ -163,6 +175,9 @@ export class CodexAppServer {
       // Account-wide (rate limits, login, config warnings): every thread may use it.
       for (const listener of [...this.threads.values()]) {
         listener.onNotification(message);
+      }
+      for (const listener of [...this.accountListeners]) {
+        listener(message);
       }
       return;
     }
@@ -215,6 +230,11 @@ export class CodexAppServer {
     for (const listener of listeners) {
       listener.onServerExit(message);
     }
+    // A login in flight ends with the server.
+    for (const listener of [...this.accountListeners]) {
+      listener({ method: 'account/login/completed', params: { loginId: null, success: false, error: message } });
+    }
+    this.accountListeners.clear();
     for (const listener of this.exitListeners.splice(0)) {
       listener();
     }

@@ -377,4 +377,35 @@ describe.runIf(posix)('CodexRun against a fake app server', () => {
     expect(sent('model/list')[0].params).toEqual({ includeHidden: false });
     expect(await b.models({ ...install, supported: false })).toEqual([]);
   });
+
+  it('signs in through account/login/start: the page to open, then the completion', async () => {
+    const login = await b.login(install, { ...process.env, FAKE_CODEX_LOG: log });
+    expect(login.url).toBe('https://auth.example.invalid/oauth/authorize?state=fake');
+    expect(login.id).toMatch(/^login-/);
+    expect(sent('account/login/start')[0].params).toEqual({ type: 'chatgpt' });
+    expect(await login.done).toEqual({ success: true });
+    // Nothing about the account is asked for.
+    expect(sent('account/read')).toEqual([]);
+  });
+
+  it('a failed sign-in says why; a cancelled one asks Codex to stop listening', async () => {
+    const failed = await b.login(install, { ...process.env, FAKE_CODEX_LOG: log, FAKE_CODEX_LOGIN: 'fail' });
+    expect(await failed.done).toEqual({ success: false, error: 'Login server error: denied' });
+
+    const waiting = await b.login(install, { ...process.env, FAKE_CODEX_LOG: log, FAKE_CODEX_LOGIN: 'wait' });
+    await waiting.cancel();
+    expect((await waiting.done).success).toBe(false);
+    expect(sent('account/login/cancel').map((m) => m.params)).toEqual([{ loginId: waiting.id }]);
+  });
+
+  it('a sign-in nobody finishes stops by itself', async () => {
+    const quick = new CodexBackend({ homeDir: tmp, fixedPaths: [], cwd: tmp, lingerMs: 50, loginTimeoutMs: 100 });
+    try {
+      const login = await quick.login(install, { ...process.env, FAKE_CODEX_LOG: log, FAKE_CODEX_LOGIN: 'wait' });
+      expect(await login.done).toEqual({ success: false, error: expect.stringContaining('too long') });
+      await until(() => sent('account/login/cancel').length === 1);
+    } finally {
+      await quick.dispose();
+    }
+  });
 });

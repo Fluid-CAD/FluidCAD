@@ -107,6 +107,26 @@ describe('markdown renderer safety', () => {
     expect(root.querySelector('[data-ref="code-block"] code')!.textContent).toBe('let x: number = 1;');
   });
 
+  it('keeps text in brackets that is not a link as written: the agent names a reference [1]', () => {
+    const text = '[1] is the top face and [2] the rim; see [the docs](https://example.com/d). Dead: [x](javascript:1).';
+    const root = render(text);
+    expect(root.textContent).toBe('[1] is the top face and [2] the rim; see the docs. Dead: x.');
+    const anchors = [...root.querySelectorAll('a')];
+    expect(anchors.map((a) => a.getAttribute('href'))).toEqual([null, null, 'https://example.com/d', null]);
+    // Streamed character by character: the same text, and the "[" shows while it streams.
+    const streamed = document.createElement('div');
+    const stream = createMarkdownStream(streamed, { openLink, colorizer: () => null });
+    for (const char of '[1] is') {
+      stream.write(char);
+    }
+    expect(streamed.textContent!.startsWith('[1')).toBe(true);
+    for (const char of text.slice('[1] is'.length)) {
+      stream.write(char);
+    }
+    stream.end();
+    expect(streamed.innerHTML).toBe(root.innerHTML);
+  });
+
   it('leaves only spans, line breaks and Monaco token classes of the colouriser’s HTML', () => {
     const fragment = sanitizeColorized(
       '<span class="mtk1 evil"><span class="mtk5 mtki">const</span></span><br/><img src=x onerror="alert(1)"><script>bad()</script>'

@@ -96,6 +96,12 @@ type Frame = {
   node: HTMLElement;
   code?: CodeBlock;
   image?: { holder: HTMLElement; alt: string };
+  /**
+   * A `[text]` that may not be a link: its `[` shows until a `(url)`
+   * follows (then it goes), and a `]` is added if none does — `[1]`, the
+   * way the agent names a scene reference, stays as written.
+   */
+  bracket?: Text | null;
 };
 
 class DomRenderer {
@@ -151,7 +157,11 @@ class DomRenderer {
       case smd.EQUATION_INLINE:
         frame.node = append(parent, 'code');
         break;
-      case smd.LINK:
+      case smd.LINK: {
+        frame.bracket = parent.appendChild(document.createTextNode('['));
+        frame.node = append(parent, 'a');
+        break;
+      }
       case smd.RAW_URL: {
         // An anchor without an href until a safe one arrives: plain text otherwise.
         frame.node = append(parent, 'a');
@@ -226,6 +236,10 @@ class DomRenderer {
     }
     const frame = this.stack.pop()!;
     frame.code?.finish();
+    if (frame.bracket) {
+      // No `(url)` came: it was text in brackets.
+      frame.node.after(document.createTextNode(']'));
+    }
     if (frame.image) {
       // No usable source arrived: the alt text stands, marked as an image.
       if (!frame.image.holder.querySelector('img')) {
@@ -264,6 +278,9 @@ class DomRenderer {
         if (!(anchor instanceof HTMLAnchorElement)) {
           return;
         }
+        // A link after all: its brackets are markup.
+        frame.bracket?.remove();
+        frame.bracket = null;
         const url = value.trim();
         if (!isAllowedLink(url)) {
           anchor.classList.add('chat-md-dead-link');

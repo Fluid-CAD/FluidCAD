@@ -111,7 +111,7 @@ Point at a row to rename or delete it:
 - The pencil renames the chat in place: type the new title and press Enter, or Escape to keep the old one. A new chat takes its title from your first message until you rename it.
 - The bin deletes the chat after you confirm: its conversation, images and the copies kept for reverting are removed, and a turn it was running stops. Files the agent changed stay as they are. Deleting the chat that is open starts a new chat.
 
-A chat stays with the agent it was started with; with more than one agent ready, a new chat's agent chip picks it. The model and the effort can be changed between messages from their chips under the message box:
+A chat stays with the agent it was started with; with more than one agent ready, a new chat's agent chip picks it. The model and the effort can be changed between messages from their chips under the message box. The last model and effort you picked for an agent are remembered, and its new chats start with them:
 
 - **Model**: **Default** uses the program's own default, and **Other model…** takes any model name the program accepts.
 - **Effort**: how hard the model thinks before it answers. **Default effort** leaves it to the program. Claude Code offers Low, Medium, High, Extra high and Max. Codex offers the levels the chosen model lists (for example up to Max, or Ultra on some models); switching to a model without the chosen level goes back to its default. Higher effort takes longer and uses more of your plan.
@@ -135,20 +135,18 @@ Settings › Agent holds:
 | Setting | What it does |
 |---------|--------------|
 | Agent for new chats | Claude Code, Codex, or the first one ready. |
-| Claude Code model, Codex model | The model a new chat starts with. Empty: the program's own default. For Claude Code an alias (`opus`, `sonnet`, `haiku`, `fable`) or a full model name. |
-| Claude Code effort | How hard Claude Code's model thinks before it answers: Low, Medium, High, Extra high, Max, or Claude Code's own default. |
-| Codex effort | The same for Codex: the levels its models list, or the model's own default. A level the chosen model lacks falls back to its default. |
 | Edits | **Ask before edits** or **Apply edits automatically**: the same switch as the mode chip under the message box. |
 | Use my Claude subscription even if ANTHROPIC_API_KEY is set | Leaves an inherited `ANTHROPIC_API_KEY` out of Claude Code's environment. Default: on when a Claude subscription is signed in, off when none is; toggling it makes it your choice, **Use automatic** undoes that. See [above](#claude-code-and-anthropic_api_key). |
-| Claude Code program, Codex program | The absolute path to `claude` or `codex`, when FluidCAD does not find it. |
 
-Under them, **What FluidCAD found** lists each program with its version, path and state (Ready, Not signed in, Too old, Not found), and **Check again**.
+Under them, **Detected Agents** lists each program with its version, path and state (Ready, Not signed in, Too old, Not found), and **Check again**.
+
+The model and the effort are not in Settings: pick them with the chips under the message box (see [Chats](#chats)).
 
 ## Troubleshooting
 
 | What you see | What to do |
 |--------------|------------|
-| The panel says the program was not found | Install it, or set its path in Settings › Agent (**Claude Code program** / **Codex program**), then **Check again**. On macOS an app started from the Dock does not see your shell's `PATH`, so a program installed somewhere unusual needs the path. |
+| The panel says the program was not found | Install it, then **Check again**. FluidCAD looks on your `PATH` and in the usual install folders (see [What you need](#what-you-need)). On macOS an app started from the Dock does not see your shell's `PATH`, so install the program in one of those folders. |
 | The program needs an update | Run `claude update`, or update Codex the way you installed it (`npm install -g @openai/codex` for an npm install), then **Check again**. |
 | Not signed in, or the login expired | For Codex, click **Sign in to Codex** in the panel. Otherwise run `claude auth login` or `codex login` in a terminal, then **Check again**. |
 | The agent chip says **Claude (API)** when you meant to use your subscription | If no Claude subscription is signed in, run `claude auth login` in a terminal, then **Check again**. If one is, you turned the setting off: turn on **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent, or click **Use automatic**. |

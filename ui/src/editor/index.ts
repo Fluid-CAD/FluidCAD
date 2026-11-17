@@ -735,9 +735,17 @@ export class EditorSurface {
     this.breakpoints.refresh(event.absPath);
   }
 
-  /** Re-announce after a reconnect — the server forgets hosts on disconnect. */
+  /**
+   * Re-announce after a reconnect — the server forgets hosts on disconnect,
+   * and the unsaved files a connection reported go with it, so say them
+   * again.
+   */
   onSocketOpen(): void {
     this.deps.send({ type: 'editor-hello', editor: 'monaco', capabilities: { undoRedo: true } });
+    const dirty = this.models.dirtyPaths();
+    if (dirty.length > 0) {
+      this.deps.send({ type: 'editor-dirty-state', dirtyFiles: dirty });
+    }
   }
 
   private installEditorCommands(): void {

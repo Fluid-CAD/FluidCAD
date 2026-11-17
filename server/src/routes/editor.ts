@@ -10,33 +10,63 @@ export type DirtyFileEntry = {
   lastModifiedMs: number;
 };
 
+/** The source of a dirty-state report that names none: the IPC editor host. */
+export const IPC_DIRTY_SOURCE = 'ipc';
+
 /**
- * Holds the set of files the editor currently considers dirty (unsaved
+ * Holds the set of files the editors currently consider dirty (unsaved
  * changes). The MCP source-editing tools query this before writing so a
  * remote agent never silently clobbers a user's in-flight changes.
  *
- * The set is volatile by design — it gets replaced wholesale on every
- * `editor-dirty-state` IPC and resets when the server restarts. Editors
- * resend their state on startup.
+ * Each editor reports its own set (`source`: the IPC host, or one page's
+ * WebSocket connection), replaced wholesale on every `editor-dirty-state`
+ * it sends; the dirty files are their union. A page that goes away takes
+ * its set with it ({@link forget}): its unsaved buffers went with the tab,
+ * and must not keep refusing writes until the engine restarts. Volatile by
+ * design: it resets when the server restarts, and editors resend their
+ * state on startup.
  */
 export class DirtyBufferState {
-  private files = new Map<string, number>();
+  private readonly sources = new Map<string, Map<string, number>>();
 
-  setDirtyFiles(paths: string[]): void {
+  setDirtyFiles(paths: string[], source: string = IPC_DIRTY_SOURCE): void {
     const next = new Map<string, number>();
     for (const p of paths) {
       const normalized = normalizePath(p);
       next.set(normalized, this.readMtime(normalized));
     }
-    this.files = next;
+    if (next.size === 0) {
+      this.sources.delete(source);
+    } else {
+      this.sources.set(source, next);
+    }
+  }
+
+  /** Drop what `source` reported (its editor is gone); true when it had dirty files. */
+  forget(source: string): boolean {
+    return this.sources.delete(source);
   }
 
   list(): DirtyFileEntry[] {
-    return Array.from(this.files, ([path, lastModifiedMs]) => ({ path, lastModifiedMs }));
+    const out = new Map<string, number>();
+    for (const files of this.sources.values()) {
+      for (const [path, lastModifiedMs] of files) {
+        if (!out.has(path)) {
+          out.set(path, lastModifiedMs);
+        }
+      }
+    }
+    return Array.from(out, ([path, lastModifiedMs]) => ({ path, lastModifiedMs }));
   }
 
   isDirty(absPath: string): boolean {
-    return this.files.has(normalizePath(absPath));
+    const normalized = normalizePath(absPath);
+    for (const files of this.sources.values()) {
+      if (files.has(normalized)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private readMtime(absPath: string): number {

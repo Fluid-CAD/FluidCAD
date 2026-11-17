@@ -68,4 +68,17 @@ describe('editor dirty-buffer route', () => {
     expect(state.isDirty('/tmp/case/file.fluid.js')).toBe(true);
     expect(state.isDirty('/tmp/case/other.fluid.js')).toBe(false);
   });
+
+  it('keeps each editor’s set apart: wholesale per source, the union listed, one forgotten alone', () => {
+    state.setDirtyFiles(['/tmp/a.fluid.js'], 'ui:1');
+    state.setDirtyFiles(['/tmp/b.fluid.js', '/tmp/a.fluid.js'], 'ui:2');
+    state.setDirtyFiles(['/tmp/c.fluid.js']);
+    expect(state.list().map((e) => e.path).sort()).toEqual(['/tmp/a.fluid.js', '/tmp/b.fluid.js', '/tmp/c.fluid.js']);
+    state.setDirtyFiles(['/tmp/b.fluid.js'], 'ui:2');
+    expect(state.isDirty('/tmp/a.fluid.js')).toBe(true);
+    expect(state.forget('ui:1')).toBe(true);
+    expect(state.isDirty('/tmp/a.fluid.js')).toBe(false);
+    expect(state.list().map((e) => e.path).sort()).toEqual(['/tmp/b.fluid.js', '/tmp/c.fluid.js']);
+    expect(state.forget('ui:1')).toBe(false);
+  });
 });

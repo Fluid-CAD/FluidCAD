@@ -25,6 +25,8 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     '`workspace` argument, and list_workspaces returns this project only.',
     'Read and change the project only with the `fluidcad_app` tools. Shell commands and direct file edits are',
     OWN_TOOLS[kind],
+    'To learn what the model is and how it is built, use the scene tools first (get_scene_summary, measure,',
+    'resolve_selection, screenshot) rather than reading the source files; read a file when you are about to change it.',
     '',
     'Changes may wait for the user\'s approval. When a tool reports that the user declined, or that FluidCAD did',
     'not run it, do not retry it: say what you wanted to do and ask the user how to proceed.',
@@ -36,8 +38,14 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     '  none is open), how its last render went (`rendered`, `build-error`, `compile-error`, `none`) and the',
     '  project\'s length unit.',
     '- `<scene_references>`, when the user attached geometry from the viewport: `[n]` in their text refers to',
-    '  `<ref n="…">` and to the geometry drawn in that colour in the attached image. Each ref\'s `selector` is the',
-    '  code to write for that geometry.',
+    '  `<ref n="…">` and to the geometry drawn in that colour in the attached image. A ref\'s `selector` is the',
+    '  code to write for that geometry: copy it exactly, arguments and filters included (a shorter form selects',
+    '  other geometry). When the line naming its feature says "not bound", add',
+    '  `const <variable> = ` to that statement first; add the ref\'s `imports` to the file\'s imports.',
+    '  To inspect or measure a ref, pass its selector to resolve_selection or measure with the variable replaced',
+    '  by `$obj["<id>"]` (the feature\'s id from get_scene_summary), as those tools document.',
+    '  A selector describes the model as it was when the message was sent: after an edit that changes the',
+    '  features it names, resolve it again before relying on it.',
     '- `<reverted_changes>`, when the user reverted changes you made in an earlier turn: those files are back to',
     '  what they were before that turn, whatever your history shows. Read them again before editing them.',
   ].join('\n');
@@ -58,11 +66,136 @@ export type WorkspaceState = {
 };
 
 /**
- * The `<scene_references>` block for a message's references (§11.3).
- * Phase 6 writes it; until then references are kept in the transcript only.
+ * The `<scene_references>` block for a message's references (§11.3): per
+ * reference its number, colour, kind and count, the selector to write, the
+ * imports it needs, the features it names (and whether their statement has
+ * a variable yet), the verified alternatives and the geometry. Null without
+ * references. `image`: the capture is attached to the message.
  */
-export function formatSceneReferences(_references: SceneReference[]): string | null {
-  return null;
+export function formatSceneReferences(references: SceneReference[], options: { image?: boolean } = {}): string | null {
+  if (references.length === 0) {
+    return null;
+  }
+  const sorted = [...references].sort((a, b) => a.n - b.n);
+  const file = sorted[0].file;
+  const unit = sorted[0].unit;
+  const head = [
+    ...(file ? [`file="${escapeAttr(file)}"`] : []),
+    `unit="${escapeAttr(unit)}"`,
+    ...(options.image ? ['image="attached"'] : []),
+  ];
+  const lines = [`<scene_references ${head.join(' ')}>`];
+  for (const ref of sorted) {
+    const attrs = [
+      `n="${Number(ref.n)}"`,
+      `color="${escapeAttr(String(ref.color?.name ?? ''))}"`,
+      `kind="${escapeAttr(String(ref.kind))}"`,
+      `count="${Number(ref.count)}"`,
+      ...(ref.file && ref.file !== file ? [`file="${escapeAttr(ref.file)}"`] : []),
+      ...(ref.unit !== unit ? [`unit="${escapeAttr(ref.unit)}"`] : []),
+    ];
+    lines.push(`  <ref ${attrs.join(' ')}>`);
+    // The page builds references; one line per field keeps the block's shape whatever it sent.
+    lines.push(`    selector: ${oneLine(ref.selector.source)}`);
+    const imports = ref.selector.imports ?? [];
+    if (imports.length > 0) {
+      lines.push(`    imports: ${imports.map(oneLine).join(', ')}`);
+    }
+    for (const producer of ref.selector.producers ?? []) {
+      lines.push(`    ${oneLine(producerLine(producer))}`);
+    }
+    const alternatives = ref.selector.alternatives ?? [];
+    if (alternatives.length > 0) {
+      lines.push(`    alternatives: ${alternatives.map(oneLine).join(' | ')}`);
+    }
+    const geometry = Array.isArray(ref.geometry) ? oneLine(describeGeometry(ref.geometry as GeometrySummary[])) : '';
+    if (geometry) {
+      lines.push(`    geometry: ${geometry}`);
+    }
+    lines.push('  </ref>');
+  }
+  lines.push('</scene_references>');
+  return lines.join('\n');
+}
+
+type Producer = SceneReference['selector']['producers'][number];
+
+function oneLine(value: unknown): string {
+  return String(value).replace(/[\r\n]+/g, ' ').replace(/<\/?scene_references\b[^>]*>?/gi, '');
+}
+
+function producerLine(p: Producer): string {
+  const where = `${p.feature} (${p.featureType})${p.line !== null ? `, line ${p.line}` : ''}`;
+  return p.bound
+    ? `${p.variable}: \`const ${p.variable} = …\` — ${where}`
+    : `${p.variable}: ${where} — not bound: add \`const ${p.variable} = \` to that statement first`;
+}
+
+/** `EntitySummary` (lib/oc/measure/entity-summary.ts), as a reference carries it. */
+type GeometrySummary = {
+  form: string;
+  center?: number[];
+  normal?: number[];
+  axis?: number[];
+  area?: number;
+  length?: number;
+  diameter?: number;
+};
+
+/** Measures listed per group before the rest is elided. */
+const MAX_GEOMETRY_VALUES = 12;
+
+/**
+ * One entity in full ("plane, area 1000, center [20, 12.5, 30], normal
+ * [0, 0, 1]"); several grouped by form with their sizes ("4 lines, length
+ * 40 / 40 / 25 / 25").
+ */
+export function describeGeometry(summaries: GeometrySummary[]): string {
+  const valid = summaries.filter((s) => s && typeof s.form === 'string');
+  if (valid.length === 0) {
+    return '';
+  }
+  if (valid.length === 1) {
+    const s = valid[0];
+    return [
+      s.form,
+      ...(s.area !== undefined ? [`area ${s.area}`] : []),
+      ...(s.length !== undefined ? [`length ${s.length}`] : []),
+      ...(s.diameter !== undefined ? [`diameter ${s.diameter}`] : []),
+      ...(s.center ? [`center ${vec(s.center)}`] : []),
+      ...(s.normal ? [`normal ${vec(s.normal)}`] : []),
+      ...(s.axis ? [`axis ${vec(s.axis)}`] : []),
+    ].join(', ');
+  }
+  const groups = new Map<string, GeometrySummary[]>();
+  for (const s of valid) {
+    groups.set(s.form, [...(groups.get(s.form) ?? []), s]);
+  }
+  return [...groups].map(([form, group]) => {
+    const parts = [`${group.length} ${plural(form, group.length)}`];
+    for (const key of ['area', 'length', 'diameter'] as const) {
+      const values = group.map((s) => s[key]).filter((v): v is number => typeof v === 'number');
+      if (values.length > 0) {
+        const shown = values.slice(0, MAX_GEOMETRY_VALUES).join(' / ');
+        parts.push(`${key} ${shown}${values.length > MAX_GEOMETRY_VALUES ? ' / …' : ''}`);
+      }
+    }
+    return parts.join(', ');
+  }).join('; ');
+}
+
+function plural(form: string, count: number): string {
+  if (count === 1) {
+    return form;
+  }
+  if (form === 'torus') {
+    return 'tori';
+  }
+  return form.endsWith('s') ? `${form}es` : `${form}s`;
+}
+
+function vec(v: number[]): string {
+  return `[${v.join(', ')}]`;
 }
 
 /**
@@ -84,12 +217,14 @@ export function revertedChangesNote(files: string[]): string {
 export function buildCliText(input: {
   text: string;
   references?: SceneReference[];
+  /** The references capture goes with the message. */
+  imageAttached?: boolean;
   workspace: WorkspaceState;
   /** Files reverted since the CLI was last told (§12.2). */
   revertedFiles?: string[];
 }): string {
   const blocks = [input.text.trim()];
-  const references = input.references && input.references.length > 0 ? formatSceneReferences(input.references) : null;
+  const references = input.references && input.references.length > 0 ? formatSceneReferences(input.references, { image: input.imageAttached }) : null;
   const tail: string[] = [];
   if (input.revertedFiles && input.revertedFiles.length > 0) {
     tail.push(revertedChangesNote(input.revertedFiles));

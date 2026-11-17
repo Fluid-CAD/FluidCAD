@@ -253,15 +253,16 @@ export class AgentSession {
     this.turn = { turnId, mode: input.mode ?? 'ask', assistantMessageId: null, parts: new Set(), stopping: false };
 
     this.emit({ type: 'message-start', message: { id: userMessageId, role: 'user', turnId, createdAt } });
+    // The words, the reference chips, then the capture they are drawn in.
     const parts: ChatPart[] = [{ type: 'text', id: randomUUID(), text: input.text }];
+    if (input.references && input.references.length > 0) {
+      parts.push({ type: 'references', id: randomUUID(), references: input.references });
+    }
     let imagePath: string | undefined;
     if (input.image) {
       const file = `${randomUUID()}.png`;
       imagePath = this.deps.store.writeFile(this.record.id, file, Buffer.from(input.image.base64, 'base64'));
       parts.push({ type: 'image', id: randomUUID(), file });
-    }
-    if (input.references && input.references.length > 0) {
-      parts.push({ type: 'references', id: randomUUID(), references: input.references });
     }
     for (const part of parts) {
       this.emit({ type: 'part-start', messageId: userMessageId, part });
@@ -283,6 +284,7 @@ export class AgentSession {
     const cliText = buildCliText({
       text: input.text,
       references: input.references,
+      imageAttached: imagePath !== undefined,
       workspace: this.deps.workspaceState(),
       revertedFiles,
     });

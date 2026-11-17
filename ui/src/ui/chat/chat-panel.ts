@@ -642,6 +642,10 @@ export class ChatPanel {
   /** The effort picker: the default, then the levels of the agent and model. */
   private paintEffortPicker(): void {
     this.effortSlot.replaceChildren();
+    const separator = document.createElement('span');
+    separator.className = 'text-base-content/30 px-0.5';
+    separator.textContent = '·';
+    this.effortSlot.append(separator);
     const select = document.createElement('select');
     select.dataset.ref = 'effort-picker';
     select.className = 'select select-ghost select-xs w-auto';

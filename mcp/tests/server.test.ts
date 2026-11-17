@@ -6,7 +6,7 @@ import http from 'http';
 import net from 'net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { buildServer } from '../src/server.ts';
+import { buildServer, TOOL_CLASSES } from '../src/server.ts';
 import { registryFilePath } from '../src/discovery.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
@@ -404,6 +404,27 @@ describe('tool gate', () => {
     } finally {
       await client.close();
       await server.close();
+    }
+  });
+});
+
+describe('tool annotations', () => {
+  const DESTRUCTIVE = ['write_file', 'edit_range', 'export', 'pack'];
+  const MUTATING = ['recompute', 'select_configuration', 'rollback_to', 'add_breakpoint', 'clear_breakpoints', 'import_step'];
+
+  it('annotates every tool as read-only or mutating, and classifies every tool', async () => {
+    const tools = await listToolSchemas(buildServer({ pinnedWorkspace: entry() }));
+    expect(tools).toHaveLength(37);
+    expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(TOOL_CLASSES).sort());
+    for (const tool of tools) {
+      const annotations = tool.annotations ?? {};
+      if (DESTRUCTIVE.includes(tool.name)) {
+        expect(annotations, tool.name).toEqual({ readOnlyHint: false, destructiveHint: true });
+      } else if (MUTATING.includes(tool.name)) {
+        expect(annotations, tool.name).toEqual({ readOnlyHint: false, destructiveHint: false });
+      } else {
+        expect(annotations, tool.name).toEqual({ readOnlyHint: true });
+      }
     }
   });
 });

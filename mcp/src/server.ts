@@ -63,8 +63,10 @@ import { listSkills, readSkill } from './tools/skills.ts';
 import { registerDocResources, registerSkillResources } from './resources.ts';
 import type { RegistryEntry, ToolResult } from './types.ts';
 import { gateToolHandler, type McpToolGate } from './tool-gate.ts';
+import { toolAnnotations } from './tool-classes.ts';
 
 export type { McpToolCall, McpToolGate, McpToolGateDecision } from './tool-gate.ts';
+export { TOOL_CLASSES, isReadOnlyClass, type McpToolClass } from './tool-classes.ts';
 
 export const SERVER_NAME = 'FluidCAD';
 export const SERVER_VERSION = readPackageVersion();
@@ -213,9 +215,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
   );
 
-  // Every tool is registered through this, so the gate cannot miss one.
+  // Every tool is registered through this, so none misses its annotations
+  // (tool-classes.ts) or the gate.
   const registerTool: McpServer['registerTool'] = (name, config, cb) =>
-    server.registerTool(name, config, options.toolGate ? gateToolHandler(options.toolGate, name, cb) : cb);
+    server.registerTool(
+      name,
+      { ...config, annotations: toolAnnotations(name) },
+      options.toolGate ? gateToolHandler(options.toolGate, name, cb) : cb,
+    );
 
   registerTool(
     'list_workspaces',

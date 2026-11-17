@@ -30,6 +30,7 @@ import iconAlertTriangle from '@tabler/icons/outline/alert-triangle.svg?raw';
 import iconAdjustments from '@tabler/icons/outline/adjustments.svg?raw';
 import iconAdjustmentsHorizontal from '@tabler/icons/outline/adjustments-horizontal.svg?raw';
 import iconSettings from '@tabler/icons/outline/settings.svg?raw';
+import iconSparkles from '@tabler/icons/outline/sparkles.svg?raw';
 import iconVideo from '@tabler/icons/outline/video.svg?raw';
 import iconRulerMeasure from '@tabler/icons/outline/ruler-measure.svg?raw';
 import iconArc3d from 'iconoir/icons/regular/arc-3d.svg?raw';
@@ -94,6 +95,8 @@ export const ICON_ADJUSTMENTS = iconAdjustments;
 /** The panel rail's project Parameters button: horizontal sliders, the shape of the column it opens. */
 export const ICON_SLIDERS = iconAdjustmentsHorizontal;
 export const ICON_SETTINGS = iconSettings;
+/** The rail's Agent button (docs/agent-chat-plan.md §10.1). */
+export const ICON_AGENT = iconSparkles;
 export const ICON_VIDEO = iconVideo;
 export const ICON_RULER = iconRulerMeasure;
 export const ICON_LINE = iconLinear;

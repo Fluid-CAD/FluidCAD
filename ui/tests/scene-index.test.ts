@@ -203,6 +203,11 @@ describe('no id/parentId scans over scene lists', () => {
     'ui/hub/hub-package-view.ts',
     // The generated definitions the assembly bar's Custom dropdown lists, by definition id.
     'interactive/generated/generated-menu.ts',
+    // The Agent panel's messages, parts, sessions and models, not scene objects.
+    'ui/chat/chat-panel.ts',
+    'ui/chat/chat-reducer.ts',
+    'ui/chat/chat-state.ts',
+    'ui/chat/chat-transcript.ts',
   ]);
 
   function tsFiles(dir: string): string[] {

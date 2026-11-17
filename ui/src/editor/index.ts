@@ -59,6 +59,18 @@ export interface EditorSurfaceDeps {
   onOpenParamsFile?(absPath: string): void;
 }
 
+/** Fence languages {@link EditorSurface.colorize} knows, to the Monaco language that tokenizes them. */
+const COLORIZE_LANGUAGES: Record<string, string> = {
+  js: 'javascript',
+  javascript: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  ts: 'typescript',
+  typescript: 'typescript',
+  tsx: 'typescript',
+};
+
 export class EditorSurface {
   readonly pane: EditorPane;
   readonly models = new WorkspaceModels();
@@ -613,6 +625,21 @@ export class EditorSurface {
     if (reveal) {
       editor.focus();
     }
+  }
+
+  /**
+   * `code` coloured the way the editor colours it (Monaco's
+   * `editor.colorize`, in the editor's theme): token spans as an HTML
+   * string, for the Agent panel's code blocks, which allowlist it before it
+   * reaches the page. Null for a language this editor has no tokenizer for
+   * (it ships JavaScript and TypeScript only).
+   */
+  async colorize(code: string, language: string): Promise<string | null> {
+    const id = COLORIZE_LANGUAGES[language.toLowerCase()];
+    if (!id) {
+      return null;
+    }
+    return monaco.editor.colorize(code, id, { tabSize: 2 });
   }
 
   private async showFile(absPath: string): Promise<void> {

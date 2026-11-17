@@ -106,6 +106,10 @@ import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { applyPackagePreferences, packageSettings } from './ui/settings/package-settings';
+import { agentSettings, applyAgentPreferences } from './ui/settings/agent-settings';
+import { HttpChatClient } from './ui/chat/chat-client';
+import type { ChatPanel } from './ui/chat/chat-panel';
+import { isChatComposer } from './editable-target';
 import { HttpHubClient, HttpPackagesClient, HttpPublishClient, ProjectUiStateClient, recompute, fetchMeshes } from './api';
 import { MeshCache, meshCache } from './scene/mesh-cache';
 import { SceneMeshes } from './scene/scene-meshes';
@@ -214,6 +218,10 @@ setTimeout(startEditorSurface, 3000);
 if (editorSurfaceEnabled) {
   window.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
+      // Typing to the agent never moves the panels under it.
+      if (isChatComposer(e.target)) {
+        return;
+      }
       e.preventDefault();
       toggleEditorPane();
     }
@@ -292,6 +300,7 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   applyEnginePreferences(prefs);
   applyGlobalMaterialsPreferences(prefs);
   applyPackagePreferences(prefs);
+  applyAgentPreferences(prefs);
   featureCatalog.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
   generatedMenu.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
   quickFindPins.set(prefs.quickFindPins ?? null);
@@ -1088,6 +1097,14 @@ const projectPackagesDialog = new ProjectPackagesDialog(container, {
   onInstallMissing: (pin) => void missingPackageInstall.run(pin),
 });
 
+// The agent API's client (docs/agent-chat-plan.md §7): the Agent panel's, the
+// Settings → Agent tab's, and the probe that shows the rail's Agent button.
+const chatClient = new HttpChatClient();
+let agentPanel: ChatPanel | null = null;
+let agentPanelLoading: Promise<ChatPanel> | null = null;
+/** Whether the engine has an agent runtime (`GET api/agent/agents` answered). */
+let agentAvailable = false;
+
 // The global Settings dialog — part of the page in every host; only a
 // viewport-only host (`?editor=0`, an embed) leaves the gear off the bar.
 const settingsModal = new SettingsModal(container, {
@@ -1301,6 +1318,66 @@ const panelRail = new PanelRail(container, {
   isGlobalParamsOpen: () => globalParamsPanel.isOpen,
   onToggleHub: () => hubPanel.toggle(),
   isHubOpen: () => hubPanel.isOpen(),
+  onToggleAgent: () => toggleAgentPanel(),
+  isAgentOpen: () => agentPanel?.isOpen() === true,
+  isAgentAvailable: () => agentAvailable,
+});
+
+// The Agent panel (docs/agent-chat-plan.md §10): a chat with the user's own
+// Claude Code, in the left slot with the editor and the Hub. Its code (and
+// streaming-markdown) is fetched on the first open; the rail button shows
+// once the engine answers for an agent runtime, whether or not a CLI is
+// installed — the panel explains what is missing.
+function toggleAgentPanel(): void {
+  if (agentPanel) {
+    agentPanel.toggle();
+    panelRail.sync();
+    return;
+  }
+  void loadAgentPanel().then((panel) => {
+    panel.show();
+    panelRail.sync();
+  }).catch((err) => {
+    console.warn('FluidCAD: the Agent panel could not be loaded:', err);
+    showToast('The Agent panel could not be loaded.');
+  });
+}
+
+function loadAgentPanel(): Promise<ChatPanel> {
+  agentPanelLoading ??= import('./ui/chat/chat-panel').then(({ ChatPanel }) => {
+    agentPanel = new ChatPanel({
+      container,
+      client: chatClient,
+      slot: leftSlot,
+      settings: () => agentSettings.current,
+      openExternal: (url) => void ExternalLinks.open(url),
+      openSettings: () => settingsModal.show('agent'),
+      openSource: editorSurfaceEnabled
+        ? (filePath, line, column) => withEditorSurface((surface) => {
+            // The render reports 1-based columns; the editor counts from 0.
+            void surface.gotoSource({ filePath, line, column: Math.max(0, column - 1) });
+          })
+        : undefined,
+      colorizer: () => (editorSurface ? (code, language) => editorSurface!.colorize(code, language) : null),
+      onAgentChosen: (kind) => {
+        const next = { ...agentSettings.current, defaultAgent: kind };
+        agentSettings.update(next);
+        savePreference('agent', { defaultAgent: kind } as UserPreferences['agent']);
+      },
+      onOpenChange: () => panelRail.sync(),
+    });
+    return agentPanel;
+  }).catch((err) => {
+    // A failed fetch (the engine restarting) is tried again on the next click.
+    agentPanelLoading = null;
+    throw err;
+  });
+  return agentPanelLoading;
+}
+
+void chatClient.agents().then((answer) => {
+  agentAvailable = answer.ok;
+  panelRail.sync();
 });
 
 const navbar = new Navbar(container);

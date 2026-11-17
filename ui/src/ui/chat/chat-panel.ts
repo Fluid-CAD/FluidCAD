@@ -1,6 +1,6 @@
 import type { LeftSlot } from '../left-slot';
 import { showPopupMenu, type PopupMenuItem } from '../popup-menu';
-import { AGENT_INFO, authDescription, renderAgentSetup, renderWelcome, type AgentSetupDeps } from './agent-setup';
+import { AGENT_INFO, agentChipLabel, authDescription, renderAgentSetup, renderWelcome, type AgentSetupDeps } from './agent-setup';
 import type { ChatClient } from './chat-client';
 import { ChatComposer } from './chat-composer';
 import { ChatIcons } from './chat-icons';
@@ -127,7 +127,6 @@ export class ChatPanel {
   private readonly agentSlot: HTMLSpanElement;
   private readonly modelSlot: HTMLSpanElement;
   private readonly modeButton: HTMLButtonElement;
-  private readonly authBadge: HTMLSpanElement;
   private readonly center: HTMLDivElement;
   private readonly statusBar: HTMLDivElement;
   private readonly footerSetup: HTMLDivElement;
@@ -202,9 +201,6 @@ export class ChatPanel {
     this.effortSlot = chipSlot('effort');
     this.modeButton = chipButton('mode');
     this.modeButton.addEventListener('click', () => this.showModeMenu());
-    this.authBadge = document.createElement('span');
-    this.authBadge.dataset.ref = 'auth-badge';
-    this.authBadge.className = 'chat-chip hidden';
 
     // Body: the transcript, or the welcome / setup when there is nothing yet.
     const body = document.createElement('div');
@@ -232,7 +228,7 @@ export class ChatPanel {
       onSubmit: (text) => this.send(text),
       onStop: () => void this.state.stop(),
     });
-    this.composer.controls.append(this.agentSlot, this.modelSlot, this.effortSlot, this.modeButton, this.authBadge);
+    this.composer.controls.append(this.agentSlot, this.modelSlot, this.effortSlot, this.modeButton);
     this.references = deps.scene ? new SceneReferences(deps.scene, this.composer) : null;
     if (this.references) {
       this.composer.setAttachments(this.references.el);
@@ -517,46 +513,46 @@ export class ChatPanel {
    */
   private paintToolbar(): void {
     const kind = this.state.agent;
-    const info = AGENT_INFO[kind];
     this.agentSlot.replaceChildren();
     const ready = this.state.offeredAgents.filter((a) => ChatState.readinessOf(a).state === 'ready');
+    const install = this.state.install(kind);
+    const text = agentChipLabel(install, kind);
+    const auth = authDescription(install);
+    let chip: HTMLElement | null = null;
     if (!this.state.session && ready.length > 1) {
-      const chip = chipButton('agent-picker');
-      fillChip(chip, info.name);
-      chip.title = 'Agent for this chat';
-      chip.setAttribute('aria-label', `Agent: ${info.name}`);
-      chip.addEventListener('click', () => this.showChipMenu(chip, 'agent-menu', ready.map((install) => ({
-        icon: install.kind === kind ? ChatIcons.CHECK : '',
-        label: AGENT_INFO[install.kind].name,
-        className: install.kind === kind ? 'font-medium' : undefined,
+      const picker = chipButton('agent-picker');
+      fillChip(picker, text);
+      picker.setAttribute('aria-label', `Agent: ${text}`);
+      picker.addEventListener('click', () => this.showChipMenu(picker, 'agent-menu', ready.map((other) => ({
+        icon: other.kind === kind ? ChatIcons.CHECK : '',
+        label: agentChipLabel(other, other.kind),
+        className: other.kind === kind ? 'font-medium' : undefined,
         onSelect: () => {
-          this.state.setDraftAgent(install.kind);
-          this.deps.onAgentChosen?.(install.kind);
-          void this.state.loadModels(install.kind);
+          this.state.setDraftAgent(other.kind);
+          this.deps.onAgentChosen?.(other.kind);
+          void this.state.loadModels(other.kind);
           this.paintToolbar();
         },
       }))));
-      this.agentSlot.append(chip);
-    } else if (ready.length > 1) {
+      chip = picker;
+    } else if (ready.length > 1 || auth) {
+      // One agent needs no picker, but how Claude is paid for is still worth showing.
       const name = document.createElement('span');
       name.dataset.ref = 'agent-name';
       name.className = 'chat-chip';
-      name.title = `This chat runs on ${info.name}`;
-      name.append(chipLabel(info.name));
-      this.agentSlot.append(name);
+      name.append(chipLabel(text));
+      chip = name;
+    }
+    if (chip) {
+      if (auth?.apiKey) {
+        chip.dataset.tone = 'warning';
+      }
+      const runs = `This chat runs on ${AGENT_INFO[kind].name}.`;
+      chip.title = auth ? `${auth.long}${auth.hint ? ` ${auth.hint.text}` : ''}` : runs;
+      this.agentSlot.append(chip);
     }
     this.paintModelPicker();
     this.paintMode();
-
-    const auth = authDescription(this.state.install(kind));
-    this.authBadge.classList.toggle('hidden', !auth);
-    if (auth?.apiKey) {
-      this.authBadge.dataset.tone = 'warning';
-    } else {
-      delete this.authBadge.dataset.tone;
-    }
-    this.authBadge.replaceChildren(chipLabel(auth?.short ?? ''));
-    this.authBadge.title = auth ? (auth.hint ? `${auth.long} ${auth.hint.text}` : auth.long) : '';
   }
 
   /** The model chip: Default, the agent's models, and any model by name ("Other model…" types it in place). */

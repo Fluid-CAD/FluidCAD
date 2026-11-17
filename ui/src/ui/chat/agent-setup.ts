@@ -5,10 +5,12 @@ import type { AgentInstall, AgentKind } from './chat-types';
 /**
  * What each CLI is called and how it is installed, updated and signed in
  * (§9.1). The names are plain text naming what runs (§4.2): no logos.
+ * `label` is the short name on the agent chip and in its menu.
  */
-export const AGENT_INFO: Record<AgentKind, { name: string; installUrl: string; login: string; update: string; signInFromApp: boolean }> = {
+export const AGENT_INFO: Record<AgentKind, { name: string; label: string; installUrl: string; login: string; update: string; signInFromApp: boolean }> = {
   claude: {
     name: 'Claude Code',
+    label: 'Claude',
     installUrl: 'https://code.claude.com/docs/en/setup',
     login: 'claude auth login',
     update: 'claude update',
@@ -16,6 +18,7 @@ export const AGENT_INFO: Record<AgentKind, { name: string; installUrl: string; l
   },
   codex: {
     name: 'Codex',
+    label: 'Codex',
     installUrl: 'https://github.com/openai/codex',
     login: 'codex login',
     update: 'npm install -g @openai/codex',
@@ -76,7 +79,7 @@ export function authDescription(install: AgentInstall | null): AuthDescription |
       };
     case 'api_key':
       return {
-        short: 'API key',
+        short: 'API',
         long: 'Claude Code runs on the API key in ANTHROPIC_API_KEY, and its use is billed to that key.',
         apiKey: true,
         hint:
@@ -90,6 +93,12 @@ export function authDescription(install: AgentInstall | null): AuthDescription |
     default:
       return null;
   }
+}
+
+/** The agent chip's text: "Claude (Subscription)", "Claude (API)", "Codex". */
+export function agentChipLabel(install: AgentInstall | null, kind: AgentKind): string {
+  const auth = authDescription(install);
+  return auth ? `${AGENT_INFO[kind].label} (${auth.short})` : AGENT_INFO[kind].label;
 }
 
 /**

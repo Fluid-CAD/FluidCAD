@@ -39,8 +39,8 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
 /**
  * When a plan limit resets, relative and in local time: "resets in 3 h, at
  * 17:00", "resets in 25 min, at 16:40", "resets tomorrow at 09:00", "resets
- * on Fri at 09:00". Null for a time that is not a date; "resets any moment
- * now" once it has passed.
+ * in 3 days, on Fri at 09:00". Null for a time that is not a date; "resets
+ * any moment now" once it has passed.
  */
 export function resetsText(iso: string, now: Date = new Date()): string | null {
   const date = new Date(iso);
@@ -59,10 +59,8 @@ export function resetsText(iso: string, now: Date = new Date()): string | null {
   if (days === 1) {
     return `resets tomorrow at ${at}`;
   }
-  if (days < 7) {
-    return `resets on ${date.toLocaleDateString([], { weekday: 'short' })} at ${at}`;
-  }
-  return `resets on ${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${at}`;
+  const day = days < 7 ? date.toLocaleDateString([], { weekday: 'short' }) : date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  return `resets in ${days} days, on ${day} at ${at}`;
 }
 
 /** "25 min", "3 h", "3 h 20 min" (rounded up to the minute: never "0 min"). */

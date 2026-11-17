@@ -37,7 +37,11 @@ describe('resetsText', () => {
     expect(resetsText(tomorrow, now)).toBe(`resets tomorrow at ${at(tomorrow)}`);
     const friday = new Date(2026, 10, 20, 9, 0);
     expect(resetsText(friday.toISOString(), now)).toBe(
-      `resets on ${friday.toLocaleDateString([], { weekday: 'short' })} at ${at(friday.toISOString())}`,
+      `resets in 3 days, on ${friday.toLocaleDateString([], { weekday: 'short' })} at ${at(friday.toISOString())}`,
+    );
+    const later = new Date(2026, 10, 30, 9, 0);
+    expect(resetsText(later.toISOString(), now)).toBe(
+      `resets in 13 days, on ${later.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${at(later.toISOString())}`,
     );
     expect(resetsText(new Date(2026, 10, 17, 13, 0).toISOString(), now)).toBe('resets any moment now');
     expect(resetsText('2026-99', now)).toBeNull();

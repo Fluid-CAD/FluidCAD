@@ -427,6 +427,21 @@ describe('agent sessions API', () => {
     await idle(id);
     expect(backend.opened[0].env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(backend.opened[0]).toMatchObject({ model: 'opus', effort: 'low' });
+    // The session remembers the effort it ran with.
+    expect((await snapshot(id)).effort).toBe('low');
+  });
+
+  it("passes the effort a message names, any of Claude Code's levels, and the agent's own preference otherwise", async () => {
+    prefs = { agent: { defaultAgent: null, permissionMode: 'ask', claudeEffort: 'xhigh', effort: 'low' } };
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'one' });
+    await idle(id);
+    expect(backend.opened[0]).toMatchObject({ effort: 'xhigh' });
+    expect((await json('POST', `${base}/sessions/${id}/messages`, { text: 'two', effort: 'max' })).status).toBe(202);
+    await idle(id);
+    expect(backend.opened[1]).toMatchObject({ effort: 'max' });
+    expect((await snapshot(id)).effort).toBe('max');
+    expect((await json('POST', `${base}/sessions/${id}/messages`, { text: 'three', effort: 'ultra' })).status).toBe(400);
   });
 
   it('validates messages, renames and deletes sessions, and serves session files', async () => {

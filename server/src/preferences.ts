@@ -98,7 +98,15 @@ export interface Preferences {
 
 export const AGENT_KINDS = ['claude', 'codex'] as const;
 export type AgentKindPreference = (typeof AGENT_KINDS)[number];
+/** The efforts the older single `effort` field took; both agents accept them. */
 export const AGENT_EFFORTS = ['low', 'medium', 'high'] as const;
+/** Claude Code's `--effort` choices (`claude --help`, 2.1.326). */
+export const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+/**
+ * A Codex reasoning effort: Codex types it as a string, and each model lists
+ * its own (`model/list` → `supportedReasoningEfforts`: low … max, ultra).
+ */
+export const AGENT_EFFORT_PATTERN = /^[a-z][a-z0-9-]{0,23}$/;
 export const AGENT_PERMISSION_MODES = ['ask', 'auto-edits'] as const;
 
 export interface AgentPreferences {
@@ -112,7 +120,12 @@ export interface AgentPreferences {
   claudeModel?: string;
   /** Codex model id; absent means Codex's own default. */
   codexModel?: string;
+  /** Before per-agent efforts: one effort for both. Read when the agent's own is absent. */
   effort?: (typeof AGENT_EFFORTS)[number];
+  /** Claude Code's `--effort`; absent means Claude Code's own default. */
+  claudeEffort?: (typeof CLAUDE_EFFORTS)[number];
+  /** Codex's reasoning effort; absent means the model's default. */
+  codexEffort?: string;
   /** Ask before every edit (default), or apply workspace edits without asking. */
   permissionMode: (typeof AGENT_PERMISSION_MODES)[number];
   /**
@@ -162,6 +175,16 @@ export function mergeAgentPreferences(base: AgentPreferences, value: unknown): A
     delete out.effort;
   } else if (AGENT_EFFORTS.includes(v.effort as any)) {
     out.effort = v.effort as AgentPreferences['effort'];
+  }
+  if (v.claudeEffort === null || v.claudeEffort === '') {
+    delete out.claudeEffort;
+  } else if (CLAUDE_EFFORTS.includes(v.claudeEffort as any)) {
+    out.claudeEffort = v.claudeEffort as AgentPreferences['claudeEffort'];
+  }
+  if (v.codexEffort === null || v.codexEffort === '') {
+    delete out.codexEffort;
+  } else if (typeof v.codexEffort === 'string' && AGENT_EFFORT_PATTERN.test(v.codexEffort)) {
+    out.codexEffort = v.codexEffort;
   }
   if (AGENT_PERMISSION_MODES.includes(v.permissionMode as any)) {
     out.permissionMode = v.permissionMode as AgentPreferences['permissionMode'];

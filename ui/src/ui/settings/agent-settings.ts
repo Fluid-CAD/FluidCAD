@@ -1,4 +1,8 @@
 import type { AgentPreferences, UserPreferences } from '../../api';
+import { CLAUDE_EFFORTS } from '../chat/chat-types';
+
+/** A Codex reasoning effort word (the engine's `AGENT_EFFORT_PATTERN`). */
+export const EFFORT_WORD = /^[a-z][a-z0-9-]{0,23}$/;
 
 /**
  * Settings → Agent as applied (the `agent` preference, docs/agent-chat-plan.md
@@ -41,8 +45,15 @@ export function applyAgentPreferences(prefs: UserPreferences): void {
         next[key] = stored[key];
       }
     }
-    if (stored.effort === 'low' || stored.effort === 'medium' || stored.effort === 'high') {
-      next.effort = stored.effort;
+    // Each agent's own effort; the older shared one stands in for both.
+    const legacy = stored.effort === 'low' || stored.effort === 'medium' || stored.effort === 'high' ? stored.effort : undefined;
+    const claudeEffort = typeof stored.claudeEffort === 'string' && CLAUDE_EFFORTS.includes(stored.claudeEffort) ? stored.claudeEffort : legacy;
+    const codexEffort = typeof stored.codexEffort === 'string' && EFFORT_WORD.test(stored.codexEffort) ? stored.codexEffort : legacy;
+    if (claudeEffort) {
+      next.claudeEffort = claudeEffort;
+    }
+    if (codexEffort) {
+      next.codexEffort = codexEffort;
     }
     if (stored.permissionMode === 'auto-edits') {
       next.permissionMode = 'auto-edits';

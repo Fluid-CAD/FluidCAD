@@ -131,7 +131,7 @@ describe.runIf(posix)('a Codex session', () => {
     const start = logged().find((l) => l.dir === 'in' && l.msg.method === 'thread/start')!.msg;
     expect(start.params.developerInstructions).toContain("read files with `fluidcad_app`'s");
     expect(start.params.developerInstructions).not.toContain('Read, Glob and Grep');
-    expect(runtime.store.read(id)?.agent).toEqual({ kind: 'codex', ref: expect.stringMatching(/^thread-/), model: 'gpt-test-luna' });
+    expect(runtime.store.read(id)?.agent).toEqual({ kind: 'codex', ref: expect.stringMatching(/^thread-/), model: 'gpt-test-luna', effort: 'low' });
     await json('POST', `${base}/sessions/${id}/messages`, { text: 'hello again', model: 'gpt-test-astra' });
     await idle(id);
     const resume = logged().find((l) => l.dir === 'in' && l.msg.method === 'thread/resume')!.msg;

@@ -308,7 +308,12 @@ export interface AgentPreferences {
   claudeModel?: string;
   /** Codex model id; absent means Codex's own default. */
   codexModel?: string;
+  /** Before per-agent efforts: one effort for both, read when the agent's own is absent. */
   effort?: 'low' | 'medium' | 'high';
+  /** Claude Code's `--effort` (low, medium, high, xhigh, max); absent means its own default. */
+  claudeEffort?: string;
+  /** Codex's reasoning effort (each model lists its own); absent means the model's default. */
+  codexEffort?: string;
   /** Ask before every edit (default), or apply workspace edits without asking. */
   permissionMode: 'ask' | 'auto-edits';
   /** "Use my Claude subscription even if ANTHROPIC_API_KEY is set": the key is left out of Claude Code's environment. */

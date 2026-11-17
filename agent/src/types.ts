@@ -7,7 +7,26 @@ export type AgentKind = 'claude' | 'codex';
 
 export type PermissionMode = 'ask' | 'auto-edits';
 
-export type Effort = 'low' | 'medium' | 'high';
+/**
+ * How hard the model thinks: one of the agent's own levels. Claude Code
+ * takes {@link CLAUDE_EFFORTS}; Codex types it as a string and each model
+ * lists its own (`AgentModel.efforts`).
+ */
+export type Effort = string;
+
+/** Claude Code's `--effort` choices (`claude --help`, 2.1.326). */
+export const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/** A Codex reasoning effort word (`low` … `max`, `ultra`, as `model/list` names them). */
+export const EFFORT_PATTERN = /^[a-z][a-z0-9-]{0,23}$/;
+
+/** Whether `effort` is a level agent `kind` takes. */
+export function isEffortFor(kind: AgentKind, effort: unknown): effort is string {
+  if (typeof effort !== 'string') {
+    return false;
+  }
+  return kind === 'claude' ? (CLAUDE_EFFORTS as readonly string[]).includes(effort) : EFFORT_PATTERN.test(effort);
+}
 
 /**
  * One reference to scene geometry, attached to a user message (§11). Built
@@ -146,6 +165,8 @@ export type SessionSnapshot = {
   turns: TurnRecord[];
   /** The model the session last ran with; null for the CLI's default. */
   model: string | null;
+  /** The effort the session last ran with; null for the CLI's default. */
+  effort: string | null;
 };
 
 export type SessionSummary = {

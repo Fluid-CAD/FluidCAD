@@ -203,6 +203,16 @@ describe.runIf(onLinux)('preferences — the agent panel', () => {
       prefs = await post(`${base}/preferences`, { agent: { claudePath: '', claudeModel: null, effort: null, permissionMode: 'auto-edits', claudeIgnoreApiKey: false } });
       expect(prefs.agent).toEqual({ defaultAgent: 'claude', permissionMode: 'auto-edits', claudeIgnoreApiKey: false });
       expect((await loadPreferences()).agent).toEqual(prefs.agent);
+
+      // Each agent's own effort: Claude Code's `--effort` choices, and any
+      // reasoning effort word for Codex (each model lists its own).
+      prefs = await post(`${base}/preferences`, { agent: { claudeEffort: 'max', codexEffort: 'ultra' } });
+      expect(prefs.agent).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra' });
+      prefs = await post(`${base}/preferences`, { agent: { claudeEffort: 'ultra', codexEffort: '--model x' } });
+      expect(prefs.agent).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra' });
+      prefs = await post(`${base}/preferences`, { agent: { claudeEffort: 'xhigh', codexEffort: '' } });
+      expect(prefs.agent.claudeEffort).toBe('xhigh');
+      expect(prefs.agent.codexEffort).toBeUndefined();
       const reset = await post(`${base}/preferences/reset`, {});
       expect(reset.agent).toEqual({ defaultAgent: null, permissionMode: 'ask' });
     });

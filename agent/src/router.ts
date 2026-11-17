@@ -9,7 +9,7 @@ import type { AgentRuntime } from './runtime.ts';
 import { UnsupportedAgentError } from './runtime.ts';
 import { RevertError, SessionBusyError, type AgentSession } from './session.ts';
 import { SessionStore } from './session-store.ts';
-import type { AgentKind, ApprovalDecision, ChatEventEnvelope, PermissionMode, SceneReference, SendMessage } from './types.ts';
+import { CLAUDE_EFFORTS, isEffortFor, type AgentKind, type ApprovalDecision, type ChatEventEnvelope, type PermissionMode, type SceneReference, type SendMessage } from './types.ts';
 
 /** A comment line this often keeps proxies and the browser from timing the stream out. */
 export const HEARTBEAT_MS = 15_000;
@@ -112,7 +112,7 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
     if (!session) {
       return;
     }
-    const parsed = parseSendMessage(req.body);
+    const parsed = parseSendMessage(req.body, session.record.agent.kind);
     if ('error' in parsed) {
       res.status(400).json({ error: parsed.error });
       return;
@@ -312,8 +312,8 @@ export function streamEvents(session: AgentSession, req: Request, res: Response,
   });
 }
 
-/** Validates the body of `POST …/messages`. */
-export function parseSendMessage(body: any): { message: SendMessage } | { error: string } {
+/** Validates the body of `POST …/messages` to a session of agent `kind`. */
+export function parseSendMessage(body: any, kind: AgentKind = 'claude'): { message: SendMessage } | { error: string } {
   if (!body || typeof body !== 'object') {
     return { error: 'Expected a JSON body.' };
   }
@@ -348,9 +348,13 @@ export function parseSendMessage(body: any): { message: SendMessage } | { error:
     }
     message.model = body.model;
   }
-  if (body.effort !== undefined && body.effort !== null) {
-    if (!['low', 'medium', 'high'].includes(body.effort)) {
-      return { error: '`effort` must be low, medium or high.' };
+  if (body.effort !== undefined && body.effort !== null && body.effort !== '') {
+    if (!isEffortFor(kind, body.effort)) {
+      return {
+        error: kind === 'claude'
+          ? `\`effort\` must be one of ${CLAUDE_EFFORTS.join(', ')}.`
+          : '`effort` must be a reasoning effort the model lists (low, medium, high, …).',
+      };
     }
     message.effort = body.effort;
   }

@@ -12,7 +12,7 @@ import { McpEndpoints, SharedMcpIndexes } from './mcp-endpoint.ts';
 import { AgentSession, type SessionDeps, type TurnSetup } from './session.ts';
 import { SessionStore } from './session-store.ts';
 import type { ToolGateOptions } from './tool-gate.ts';
-import type { AgentKind, SessionSummary } from './types.ts';
+import { isEffortFor, type AgentKind, type SessionSummary } from './types.ts';
 
 export const AGENT_KINDS: AgentKind[] = ['claude', 'codex'];
 
@@ -268,13 +268,27 @@ export class AgentRuntime {
       install = await this.install(kind, prefs, true);
     }
     const model = kind === 'claude' ? prefs.agent?.claudeModel : prefs.agent?.codexModel;
+    const effort = defaultEffort(kind, prefs);
     return {
       install,
       env: this.childEnv(kind, prefs),
       ...(model ? { defaultModel: model } : {}),
-      ...(prefs.agent?.effort ? { defaultEffort: prefs.agent.effort } : {}),
+      ...(effort ? { defaultEffort: effort } : {}),
     };
   }
+}
+
+/**
+ * The effort a turn of `kind` runs with when the message names none: the
+ * agent's own preference, else the older shared `effort` (low, medium or
+ * high, which both agents take).
+ */
+export function defaultEffort(kind: AgentKind, prefs: Preferences): string | undefined {
+  const own = kind === 'claude' ? prefs.agent?.claudeEffort : prefs.agent?.codexEffort;
+  if (isEffortFor(kind, own)) {
+    return own;
+  }
+  return isEffortFor(kind, prefs.agent?.effort) ? prefs.agent!.effort : undefined;
 }
 
 export class UnsupportedAgentError extends Error {

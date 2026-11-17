@@ -1,6 +1,6 @@
 import type { AgentPreferences } from '../../api';
-import type { AgentInstall } from '../chat/chat-types';
-import { agentSettings } from './agent-settings';
+import { CLAUDE_EFFORTS, COMMON_EFFORTS, effortLabel, type AgentInstall, type AgentModel } from '../chat/chat-types';
+import { agentSettings, EFFORT_WORD } from './agent-settings';
 import {
   FIELD_HINT,
   FIELD_LABEL,
@@ -24,6 +24,8 @@ export type AgentTabDeps = {
   save?(value: AgentPreferences): Promise<void>;
   /** The preference is saved: an open Agent panel reads detection again. */
   onSaved?(): void;
+  /** The models an agent offers (Codex lists each model's efforts); null when they cannot be read. */
+  models?(kind: AgentInstall['kind']): Promise<AgentModel[] | null>;
 };
 
 const NAMES: Record<AgentInstall['kind'], string> = { claude: 'Claude Code', codex: 'Codex' };
@@ -49,7 +51,10 @@ export class AgentTab implements SettingsTab {
   private claudeModel!: HTMLInputElement;
   private codexModel!: HTMLInputElement;
   private modelHint!: HTMLParagraphElement;
-  private effort!: HTMLSelectElement;
+  private claudeEffort!: HTMLSelectElement;
+  private codexEffort!: HTMLSelectElement;
+  /** Every effort a Codex model lists, once read. */
+  private codexEfforts: string[] | null = null;
   private permission!: HTMLSelectElement;
   private ignoreApiKey!: HTMLInputElement;
   private found!: HTMLDivElement;
@@ -105,19 +110,21 @@ export class AgentTab implements SettingsTab {
     this.codexModel.dataset.ref = 'codex-model';
     root.appendChild(field('Codex model', this.codexModel, 'Empty: Codex’s own default.'));
 
-    this.effort = select([
-      ['', 'The agent’s default'],
-      ['low', 'Low'],
-      ['medium', 'Medium'],
-      ['high', 'High'],
-    ]);
-    this.effort.dataset.ref = 'effort';
-    this.effort.addEventListener('change', () => {
-      const value = this.effort.value;
-      this.draft.effort = value === 'low' || value === 'medium' || value === 'high' ? value : undefined;
+    this.claudeEffort = select([['', 'Claude Code’s default'], ...CLAUDE_EFFORTS.map((e): [string, string] => [e, effortLabel(e)])]);
+    this.claudeEffort.dataset.ref = 'claude-effort';
+    this.claudeEffort.addEventListener('change', () => {
+      this.draft.claudeEffort = this.claudeEffort.value || undefined;
       changed();
     });
-    root.appendChild(field('Effort', this.effort, 'How hard the model thinks before it answers.'));
+    root.appendChild(field('Claude Code effort', this.claudeEffort, 'How hard the model thinks before it answers. Max is for the hardest questions, and uses your plan fastest.'));
+
+    this.codexEffort = select([]);
+    this.codexEffort.dataset.ref = 'codex-effort';
+    this.codexEffort.addEventListener('change', () => {
+      this.draft.codexEffort = this.codexEffort.value || undefined;
+      changed();
+    });
+    root.appendChild(field('Codex effort', this.codexEffort, 'Each Codex model offers its own levels; a level the chosen model lacks falls back to its default.'));
 
     this.permission = select([
       ['ask', 'Ask before every change'],
@@ -183,12 +190,51 @@ export class AgentTab implements SettingsTab {
     this.codexPath.value = this.draft.codexPath ?? '';
     this.claudeModel.value = this.draft.claudeModel ?? '';
     this.codexModel.value = this.draft.codexModel ?? '';
-    this.effort.value = this.draft.effort ?? '';
+    this.claudeEffort.value = this.draft.claudeEffort ?? '';
+    this.paintCodexEfforts();
     this.permission.value = this.draft.permissionMode;
     this.ignoreApiKey.checked = this.draft.claudeIgnoreApiKey === true;
     this.paintValidity();
     // Each open reads detection (cached by the engine until something changes).
     void this.detect(false);
+    void this.loadCodexEfforts();
+  }
+
+  /** The Codex effort picker: the default, then every level a Codex model lists (low, medium, high until they are read). */
+  private paintCodexEfforts(): void {
+    const levels = [...(this.codexEfforts ?? COMMON_EFFORTS)];
+    const stored = this.draft.codexEffort;
+    if (stored && !levels.includes(stored)) {
+      levels.push(stored);
+    }
+    this.codexEffort.replaceChildren();
+    for (const [value, label] of [['', 'The model’s default'], ...levels.map((e): [string, string] => [e, effortLabel(e)])]) {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      this.codexEffort.appendChild(option);
+    }
+    this.codexEffort.value = stored ?? '';
+  }
+
+  private async loadCodexEfforts(): Promise<void> {
+    if (this.codexEfforts || !this.deps?.models) {
+      return;
+    }
+    const models = await this.deps.models('codex');
+    const levels: string[] = [];
+    for (const model of models ?? []) {
+      for (const effort of model.efforts ?? []) {
+        if (EFFORT_WORD.test(effort) && !levels.includes(effort)) {
+          levels.push(effort);
+        }
+      }
+    }
+    if (levels.length === 0) {
+      return;
+    }
+    this.codexEfforts = levels;
+    this.paintCodexEfforts();
   }
 
   isDirty(): boolean {
@@ -216,7 +262,10 @@ export class AgentTab implements SettingsTab {
       codexPath: next.codexPath ?? '',
       claudeModel: next.claudeModel ?? '',
       codexModel: next.codexModel ?? '',
-      effort: next.effort ?? '',
+      claudeEffort: next.claudeEffort ?? '',
+      codexEffort: next.codexEffort ?? '',
+      // Each agent has its own now; the older shared one goes.
+      effort: '',
       permissionMode: next.permissionMode,
       claudeIgnoreApiKey: next.claudeIgnoreApiKey === true,
     } as unknown as AgentPreferences;
@@ -339,7 +388,8 @@ function sameSettings(a: AgentPreferences, b: AgentPreferences): boolean {
     (a.codexPath ?? '') === (b.codexPath ?? '') &&
     (a.claudeModel ?? '') === (b.claudeModel ?? '') &&
     (a.codexModel ?? '') === (b.codexModel ?? '') &&
-    (a.effort ?? '') === (b.effort ?? '') &&
+    (a.claudeEffort ?? '') === (b.claudeEffort ?? '') &&
+    (a.codexEffort ?? '') === (b.codexEffort ?? '') &&
     a.permissionMode === b.permissionMode &&
     (a.claudeIgnoreApiKey === true) === (b.claudeIgnoreApiKey === true)
   );

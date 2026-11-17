@@ -7,7 +7,19 @@ import { ChatIcons } from './chat-icons';
 import { ChatSessionsMenu } from './chat-sessions-menu';
 import { ChatState, type ChatChange, type ChatTimers, type RevertOutcome } from './chat-state';
 import { ChatTranscript } from './chat-transcript';
-import { isBusy, type AgentKind, type ApprovalDecision, type AgentModel, type Effort, type PermissionMode, type SessionStatus, type TurnRecord } from './chat-types';
+import {
+  CLAUDE_EFFORTS,
+  COMMON_EFFORTS,
+  effortLabel,
+  isBusy,
+  type AgentKind,
+  type AgentModel,
+  type ApprovalDecision,
+  type Effort,
+  type PermissionMode,
+  type SessionStatus,
+  type TurnRecord,
+} from './chat-types';
 import type { Colorizer } from './code-block';
 import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
 import { resetsText } from './time-format';
@@ -19,9 +31,16 @@ export type ChatPanelSettings = {
   defaultAgent: AgentKind | null;
   claudeModel?: string;
   codexModel?: string;
+  /** Each agent's effort (Settings → Agent); absent: the CLI's default. */
+  claudeEffort?: Effort;
+  codexEffort?: Effort;
+  /** The older shared effort, read when the agent's own is absent. */
   effort?: Effort;
   permissionMode: PermissionMode;
 };
+
+/** The effort picker's row for "no effort flag": the agent's (or model's) own default. */
+const DEFAULT_EFFORT = '';
 
 /** A confirm in the page's own dialog chrome (main.ts's `confirmDialog`). */
 export type ChatConfirmOptions = {
@@ -123,8 +142,11 @@ export class ChatPanel {
   private readonly unsubscribe: () => void;
   private open = false;
   private started = false;
-  /** A model the user picked in the panel; holds for new chats until the page reloads. */
-  private modelChoice: string | null = null;
+  /** The model picked in the panel, per agent; holds for new chats until the page reloads. */
+  private readonly modelChoices = new Map<AgentKind, string>();
+  /** The effort picked in the panel, per agent (`DEFAULT_EFFORT`: the default); holds until the page reloads. */
+  private readonly effortChoices = new Map<AgentKind, string>();
+  private readonly effortSlot: HTMLDivElement;
   /** The model picker shows a text field for a model by name. */
   private typingModel = false;
   /** The mode switched in the header, until Settings → Agent is saved again. */
@@ -186,6 +208,9 @@ export class ChatPanel {
     this.modelSlot = document.createElement('div');
     this.modelSlot.dataset.ref = 'model';
     this.modelSlot.className = 'flex items-center min-w-0';
+    this.effortSlot = document.createElement('div');
+    this.effortSlot.dataset.ref = 'effort';
+    this.effortSlot.className = 'flex items-center min-w-0';
     this.modeButton = document.createElement('button');
     this.modeButton.type = 'button';
     this.modeButton.dataset.ref = 'mode';
@@ -198,7 +223,7 @@ export class ChatPanel {
     this.authBadge = document.createElement('span');
     this.authBadge.dataset.ref = 'auth-badge';
     this.authBadge.className = 'ml-auto badge badge-sm badge-ghost shrink-0 hidden';
-    toolbar.append(this.agentSlot, this.modelSlot, modeSeparator, this.modeButton, this.authBadge);
+    toolbar.append(this.agentSlot, this.modelSlot, this.effortSlot, modeSeparator, this.modeButton, this.authBadge);
 
     // Body: the transcript, or the welcome / setup when there is nothing yet.
     const body = document.createElement('div');
@@ -313,7 +338,49 @@ export class ChatPanel {
   get model(): string {
     const settings = this.deps.settings();
     const preferred = this.state.agent === 'codex' ? settings.codexModel : settings.claudeModel;
-    return this.modelChoice ?? this.state.session?.model ?? preferred ?? 'default';
+    const session = this.state.session;
+    return this.modelChoices.get(this.state.agent) ?? session?.model ?? preferred ?? 'default';
+  }
+
+  /**
+   * The effort a message goes with (`DEFAULT_EFFORT`: none, the CLI's own):
+   * the panel's pick, the session's, the setting's — whichever is first and
+   * is a level of the agent and model; else the default.
+   */
+  get effort(): string {
+    const settings = this.deps.settings();
+    const kind = this.state.agent;
+    const levels = this.effortLevels();
+    const candidates = [
+      this.effortChoices.get(kind),
+      this.state.session?.effort ?? undefined,
+      (kind === 'codex' ? settings.codexEffort : settings.claudeEffort) ?? settings.effort,
+    ];
+    for (const candidate of candidates) {
+      if (candidate === DEFAULT_EFFORT) {
+        return DEFAULT_EFFORT;
+      }
+      if (candidate !== undefined && levels.includes(candidate)) {
+        return candidate;
+      }
+    }
+    return DEFAULT_EFFORT;
+  }
+
+  /**
+   * The levels the agent and model take: Claude Code's `--effort` choices;
+   * for Codex, those the model lists (the default model's for "Default"),
+   * else the three every model takes.
+   */
+  effortLevels(): readonly string[] {
+    const kind = this.state.agent;
+    if (kind === 'claude') {
+      return CLAUDE_EFFORTS;
+    }
+    const models = this.state.models.get(kind) ?? [];
+    const id = this.model;
+    const model = id === 'default' ? models.find((m) => m.isDefault) : models.find((m) => m.id === id);
+    return model?.efforts && model.efforts.length > 0 ? model.efforts : COMMON_EFFORTS;
   }
 
   /** The permission mode messages go with: the header's switch, else Settings → Agent. */
@@ -372,10 +439,11 @@ export class ChatPanel {
       }
     }
     this.transcript.scrollToBottom();
+    const effort = this.effort;
     const sent = await this.state.send(text, {
       model: this.model,
       mode: this.mode,
-      ...(settings.effort ? { effort: settings.effort } : {}),
+      ...(effort !== DEFAULT_EFFORT ? { effort } : {}),
       ...(attached ? { references: attached.references } : {}),
       ...(image ? { image } : {}),
     });
@@ -521,7 +589,7 @@ export class ChatPanel {
         const value = input.value.trim();
         this.typingModel = false;
         if (save && /^[A-Za-z0-9][\w.:@/[\]-]*$/.test(value)) {
-          this.modelChoice = value;
+          this.modelChoices.set(this.state.agent, value);
         }
         this.paintModelPicker();
       };
@@ -569,11 +637,40 @@ export class ChatPanel {
       if (select.value === OTHER_MODEL) {
         this.typingModel = true;
       } else {
-        this.modelChoice = select.value;
+        this.modelChoices.set(this.state.agent, select.value);
       }
       this.paintModelPicker();
     });
     this.modelSlot.append(select);
+    // Codex's levels depend on the model.
+    this.paintEffortPicker();
+  }
+
+  /** The effort picker: the default, then the levels of the agent and model. */
+  private paintEffortPicker(): void {
+    this.effortSlot.replaceChildren();
+    const select = document.createElement('select');
+    select.dataset.ref = 'effort-picker';
+    select.className = 'select select-ghost select-xs w-auto';
+    select.setAttribute('aria-label', 'Effort');
+    const current = this.effort;
+    const add = (value: string, label: string) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = label;
+      select.append(option);
+    };
+    add(DEFAULT_EFFORT, 'Default effort');
+    for (const level of this.effortLevels()) {
+      add(level, `${effortLabel(level)} effort`);
+    }
+    select.value = current;
+    select.title = `Effort: how hard the model thinks before it answers${current === DEFAULT_EFFORT ? ` (${AGENT_INFO[this.state.agent].name}'s own default)` : ''}.`;
+    select.addEventListener('change', () => {
+      this.effortChoices.set(this.state.agent, select.value);
+      this.paintEffortPicker();
+    });
+    this.effortSlot.append(select);
   }
 
   /** The permission-mode switch: the mode's icon and short name; the full name as its tooltip. */

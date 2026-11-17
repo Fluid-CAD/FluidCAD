@@ -211,6 +211,7 @@ export class AgentSession {
       messages: this.record.messages,
       turns: this.record.turns,
       model: this.record.agent.model,
+      effort: this.record.agent.effort ?? null,
     });
   }
 
@@ -445,6 +446,11 @@ export class AgentSession {
     this.run = run;
     this.runKey = { model, effort };
     this.record.agent.model = model;
+    if (effort) {
+      this.record.agent.effort = effort;
+    } else {
+      delete this.record.agent.effort;
+    }
     this.consuming = this.consume(run);
   }
 

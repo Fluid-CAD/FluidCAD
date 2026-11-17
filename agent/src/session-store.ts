@@ -30,6 +30,8 @@ export type SessionRecord = {
     ref: string | null;
     /** The model last used; null for the CLI's default. */
     model: string | null;
+    /** The effort last used; absent for the CLI's default. */
+    effort?: string;
   };
   messages: ChatMessage[];
   turns: TurnRecord[];
@@ -230,6 +232,7 @@ function parseRecord(raw: any, id: string): SessionRecord | null {
       kind,
       ref: typeof raw.agent.ref === 'string' ? raw.agent.ref : null,
       model: typeof raw.agent.model === 'string' ? raw.agent.model : null,
+      ...(typeof raw.agent.effort === 'string' ? { effort: raw.agent.effort } : {}),
     },
     messages: Array.isArray(raw.messages) ? raw.messages : [],
     turns: Array.isArray(raw.turns) ? raw.turns : [],

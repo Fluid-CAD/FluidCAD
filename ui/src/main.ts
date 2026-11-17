@@ -1140,6 +1140,10 @@ const settingsModal = new SettingsModal(container, {
       await savePreferenceNow('agent', value);
     },
     onSaved: () => agentPanel?.settingsChanged(),
+    models: async (kind) => {
+      const answer = await chatClient.models(kind);
+      return answer.ok ? answer.value : null;
+    },
   },
 });
 

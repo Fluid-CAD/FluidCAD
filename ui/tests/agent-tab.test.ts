@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from '../src/ui/settings/settings-modal';
 import { agentSettings, applyAgentPreferences, DEFAULT_AGENT_PREFERENCES } from '../src/ui/settings/agent-settings';
 import { IGNORE_API_KEY_LABEL } from '../src/ui/settings/agent-tab';
-import type { AgentInstall } from '../src/ui/chat/chat-types';
+import type { AgentInstall, AgentModel } from '../src/ui/chat/chat-types';
 import type { AgentPreferences, UserPreferences } from '../src/api';
 import { settle } from './fixtures/fake-packages-client';
 
@@ -27,16 +27,17 @@ afterEach(() => {
   agentSettings.update({ ...DEFAULT_AGENT_PREFERENCES });
 });
 
-function mount() {
+function mount(codexModels: AgentModel[] | null = null) {
   const savePreference = vi.fn();
   const save = vi.fn(async (_value: AgentPreferences) => undefined);
   const onSaved = vi.fn();
   const agents = vi.fn(async (_fresh: boolean) => [CLAUDE, CODEX]);
+  const models = vi.fn(async (_kind: string) => codexModels);
   const modal = new SettingsModal(document.body, {
     savePreference,
     resetPreferences: async () => null,
     applyPreferences: () => undefined,
-    agent: { agents, save, onSaved },
+    agent: { agents, save, onSaved, models },
   });
   const overlay = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
   const panel = overlay.querySelector<HTMLElement>('[data-panel="agent"]')!;
@@ -75,7 +76,7 @@ describe('Settings → Agent', () => {
     await settle();
     expect(h.save).toHaveBeenCalledWith({
       defaultAgent: 'claude', claudePath: '', codexPath: '', claudeModel: 'sonnet', codexModel: '',
-      effort: '', permissionMode: 'ask', claudeIgnoreApiKey: true,
+      claudeEffort: '', codexEffort: '', effort: '', permissionMode: 'ask', claudeIgnoreApiKey: true,
     });
     expect(h.onSaved).toHaveBeenCalledTimes(1);
     expect(agentSettings.current).toMatchObject({ claudeModel: 'sonnet', claudeIgnoreApiKey: true });
@@ -93,6 +94,33 @@ describe('Settings → Agent', () => {
     h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
     await settle();
     expect(h.save.mock.calls[0][0].claudeModel).toBe('opus');
+  });
+
+  it("offers each agent's own effort levels: Claude Code's --effort choices, every level a Codex model lists", async () => {
+    applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask', effort: 'high' } } as UserPreferences);
+    const h = mount([
+      { id: 'default', label: 'Default' },
+      { id: 'gpt-luna', label: 'Luna', isDefault: true, efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+      { id: 'gpt-terra', label: 'Terra', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] },
+    ]);
+    h.modal.show('agent');
+    await settle();
+    const claude = h.$<HTMLSelectElement>('[data-ref="claude-effort"]');
+    const codex = h.$<HTMLSelectElement>('[data-ref="codex-effort"]');
+    expect([...claude.options].map((o) => o.textContent)).toEqual(['Claude Code’s default', 'Low', 'Medium', 'High', 'Extra high', 'Max']);
+    expect([...codex.options].map((o) => o.value)).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    // The older shared effort stands in for both until each has its own.
+    expect(claude.value).toBe('high');
+    expect(codex.value).toBe('high');
+
+    claude.value = 'max';
+    claude.dispatchEvent(new Event('change'));
+    codex.value = 'ultra';
+    codex.dispatchEvent(new Event('change'));
+    h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
+    await settle();
+    expect(h.save.mock.calls[0][0]).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra', effort: '' });
+    expect(agentSettings.current).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra' });
   });
 
   it('Check again detects afresh', async () => {

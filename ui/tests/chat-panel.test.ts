@@ -663,6 +663,56 @@ describe('the header', () => {
     expect(h.$('[data-ref="agent-picker"]')).toBeNull();
     expect(h.$('[data-ref="agent-name"]')!.textContent).toBe('Claude Code');
   });
+
+  it("the effort picker offers Claude Code's levels, low to max, and sends the one picked", async () => {
+    const h = mount(new FakeChatClient(), { claudeEffort: 'xhigh' });
+    await opened(h);
+    const picker = () => h.$<HTMLSelectElement>('[data-ref="effort-picker"]')!;
+    expect([...picker().options].map((o) => o.textContent)).toEqual([
+      'Default effort', 'Low effort', 'Medium effort', 'High effort', 'Extra high effort', 'Max effort',
+    ]);
+    expect(picker().value).toBe('xhigh');
+    picker().value = 'max';
+    picker().dispatchEvent(new Event('change'));
+    h.type('think hard');
+    h.key('Enter');
+    await settle();
+    expect(h.client.sent[0].message.effort).toBe('max');
+    h.client.emit(h.client.sent[0].id, { type: 'status', status: { state: 'idle' } });
+
+    // "Default effort" sends none: the CLI's own.
+    picker().value = '';
+    picker().dispatchEvent(new Event('change'));
+    h.type('quick');
+    h.key('Enter');
+    await settle();
+    expect(h.client.sent[1].message).not.toHaveProperty('effort');
+  });
+
+  it("for Codex it offers the levels of the model picked, and drops a level the model lacks", async () => {
+    const client = new FakeChatClient();
+    client.agentsValue = [FakeChatClient.install({ kind: 'codex', authMethod: null })];
+    client.modelsValue = [
+      { id: 'default', label: 'Default' },
+      { id: 'gpt-luna', label: 'Luna', isDefault: true, efforts: ['low', 'medium', 'high', 'xhigh', 'max'], defaultEffort: 'medium' },
+      { id: 'gpt-terra', label: 'Terra', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], defaultEffort: 'medium' },
+    ];
+    const h = mount(client, { defaultAgent: 'codex', codexEffort: 'ultra' });
+    await opened(h);
+    const levels = () => [...h.$<HTMLSelectElement>('[data-ref="effort-picker"]')!.options].map((o) => o.value);
+    // Default is Luna, which has no "ultra": the default holds.
+    expect(levels()).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max']);
+    expect(h.$<HTMLSelectElement>('[data-ref="effort-picker"]')!.value).toBe('');
+    const model = h.$<HTMLSelectElement>('[data-ref="model-picker"]')!;
+    model.value = 'gpt-terra';
+    model.dispatchEvent(new Event('change'));
+    expect(levels()).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+    expect(h.$<HTMLSelectElement>('[data-ref="effort-picker"]')!.value).toBe('ultra');
+    h.type('go');
+    h.key('Enter');
+    await settle();
+    expect(client.sent[0].message).toMatchObject({ model: 'gpt-terra', effort: 'ultra' });
+  });
 });
 
 describe('the composer and the page’s shortcuts', () => {

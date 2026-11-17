@@ -7,7 +7,26 @@ export type AgentKind = 'claude' | 'codex';
 
 export type PermissionMode = 'ask' | 'auto-edits';
 
-export type Effort = 'low' | 'medium' | 'high';
+/**
+ * How hard the model thinks: one of the agent's own levels. Claude Code
+ * takes {@link CLAUDE_EFFORTS}; each Codex model lists its own
+ * (`AgentModel.efforts`).
+ */
+export type Effort = string;
+
+/** Claude Code's `--effort` choices (`claude --help`, 2.1.326). */
+export const CLAUDE_EFFORTS: readonly string[] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** The levels every agent takes: what is offered when a model lists none. */
+export const COMMON_EFFORTS: readonly string[] = ['low', 'medium', 'high'];
+
+/** An effort as the pickers name it: "Low", "Extra high", "Max". */
+export function effortLabel(effort: string): string {
+  if (effort === 'xhigh') {
+    return 'Extra high';
+  }
+  return effort.charAt(0).toUpperCase() + effort.slice(1);
+}
 
 /** One reference to scene geometry, attached to a user message (§11, phase 6). */
 export type SceneReference = {
@@ -133,6 +152,8 @@ export type SessionSnapshot = {
   turns: TurnRecord[];
   /** The model the session last ran with; null for the CLI's default. */
   model: string | null;
+  /** The effort the session last ran with; null (or absent, from an older engine) for the CLI's default. */
+  effort?: string | null;
 };
 
 export type SessionSummary = {
@@ -190,6 +211,11 @@ export type AgentModel = {
   /** What goes to the CLI; `default` means no model flag. */
   id: string;
   label?: string;
+  /** Codex: the model Codex uses when none is chosen. */
+  isDefault?: boolean;
+  /** Codex: the reasoning efforts the model accepts, and the one it uses by default. */
+  efforts?: string[];
+  defaultEffort?: string;
 };
 
 /** Whether a status means a turn is in flight. */

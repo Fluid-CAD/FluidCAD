@@ -823,16 +823,34 @@
 }
 
 [data-role='chat-panel'] .chat-attach-chips .chat-reference-chip {
+  gap: 4px;
+  min-height: 22px;
   padding: 1px 2px 1px 7px;
   background: var(--chat-surface);
+}
+
+/* The chip's "[n] 4 edges": a click puts [n] in the message. */
+[data-role='chat-panel'] .chat-attach-chips .chat-reference-label {
+  min-width: 0;
+  padding: 0 1px;
+  border-radius: 4px;
+}
+
+[data-role='chat-panel'] .chat-attach-chips button.chat-reference-label {
+  cursor: text;
+}
+
+[data-role='chat-panel'] .chat-attach-chips button.chat-reference-label:hover {
+  background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
 }
 
 [data-role='chat-panel'] .chat-reference-remove {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   color: var(--chat-faint);
   font-size: 13px;
@@ -840,48 +858,88 @@
   cursor: pointer;
 }
 
-[data-role='chat-panel'] .chat-reference-remove:hover {
+[data-role='chat-panel'] .chat-reference-remove > svg {
+  width: 13px;
+  height: 13px;
+}
+
+[data-role='chat-panel'] .chat-reference-remove:hover:not(:disabled) {
   color: var(--color-base-content);
   background: color-mix(in oklab, var(--color-base-content) 10%, transparent);
 }
 
-[data-role='chat-panel'] .chat-attach-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  padding: 4px 4px 4px 9px;
-  border: 1px dashed color-mix(in oklab, var(--color-base-content) 22%, transparent);
-  border-radius: 8px;
-  font-size: 12px;
+[data-role='chat-panel'] .chat-reference-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The live chip follows the selection: a dashed outline in its colour. */
+[data-role='chat-panel'] .chat-attach-chips .chat-reference-live {
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--chat-reference-color, var(--color-base-content)) 60%, transparent);
+}
+
+[data-role='chat-panel'] .chat-reference-live[data-state='pending'] .chat-reference-label {
   color: var(--chat-muted);
 }
 
-[data-role='chat-panel'] .chat-attach-label {
-  color: var(--color-base-content);
+[data-role='chat-panel'] .chat-reference-live[data-state='pending'] .chat-reference-dot {
+  animation: chat-reference-pending 1s ease-in-out infinite alternate;
 }
 
-[data-role='chat-panel'] .chat-attach-button {
-  margin-left: auto;
+@keyframes chat-reference-pending {
+  from { opacity: 1; }
+  to { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='chat-panel'] .chat-reference-live[data-state='pending'] .chat-reference-dot {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+/* Not attached: the reason, cut to the chip (the tooltip has it whole). */
+[data-role='chat-panel'] .chat-reference-live[data-state='refused'] {
+  border-color: color-mix(in oklab, var(--color-warning) 60%, transparent);
+}
+
+[data-role='chat-panel'] .chat-reference-live[data-state='refused'] .chat-reference-dot,
+[data-role='chat-panel'] .chat-reference-live[data-state='hint'] .chat-reference-dot {
+  background: transparent;
+  border: 1.5px solid var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-reference-live[data-state='refused'] .chat-reference-dot {
+  border-color: var(--color-warning);
+}
+
+[data-role='chat-panel'] .chat-reference-live[data-state='refused'] .chat-reference-label,
+[data-role='chat-panel'] .chat-reference-live[data-state='hint'] .chat-reference-label {
+  flex-shrink: 0;
+}
+
+[data-role='chat-panel'] .chat-reference-reason {
+  min-width: 0;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-reference-action {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--color-primary);
   font-weight: 500;
+  cursor: pointer;
 }
 
-[data-role='chat-panel'] .chat-attach-hint,
-[data-role='chat-panel'] .chat-attach-reason {
-  flex-basis: 100%;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--chat-faint);
+[data-role='chat-panel'] .chat-reference-action:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
 }
 
-[data-role='chat-panel'] .chat-attach-row[data-state='refused'] {
-  border-style: solid;
-  border-color: color-mix(in oklab, var(--color-warning) 45%, transparent);
-}
-
-[data-role='chat-panel'] .chat-attach-row[data-state='refused'] .chat-attach-reason {
-  order: 3;
-  color: var(--chat-muted);
+[data-role='chat-panel'] .chat-reference-action:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 [data-role='chat-panel'] .chat-attach-notice {

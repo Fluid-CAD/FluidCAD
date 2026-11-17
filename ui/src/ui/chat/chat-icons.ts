@@ -30,6 +30,7 @@ import iconFilePencil from '@tabler/icons/outline/file-pencil.svg?raw';
 import iconPencil from '@tabler/icons/outline/pencil.svg?raw';
 import iconTrash from '@tabler/icons/outline/trash.svg?raw';
 import iconLogin from '@tabler/icons/outline/login-2.svg?raw';
+import iconPin from '@tabler/icons/outline/pin.svg?raw';
 
 export const ChatIcons = {
   SEND: iconArrowUp,
@@ -63,6 +64,8 @@ export const ChatIcons = {
   RENAME: iconPencil,
   DELETE: iconTrash,
   SIGN_IN: iconLogin,
+  /** Keep the live reference chip. */
+  PIN: iconPin,
 
   /** `svg` in a span sized by `className`. */
   span(svg: string, className = '[&>svg]:size-4'): HTMLSpanElement {

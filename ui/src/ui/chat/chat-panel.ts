@@ -135,6 +135,8 @@ export class ChatPanel {
   private readonly unsubscribe: () => void;
   private open = false;
   private started = false;
+  /** The composer shows and takes messages (the agent is ready, or a turn runs). */
+  private composerUsable = false;
   /** The model picked in the panel, per agent; holds for new chats until the page reloads. */
   private readonly modelChoices = new Map<AgentKind, string>();
   /** The effort picked in the panel, per agent (`DEFAULT_EFFORT`: the default); holds until the page reloads. */
@@ -276,6 +278,7 @@ export class ChatPanel {
       this.open = true;
       this.el.classList.remove('hidden');
       this.deps.onOpenChange?.(true);
+      this.syncReferences();
     }
     if (!this.started) {
       this.started = true;
@@ -294,6 +297,7 @@ export class ChatPanel {
     this.el.classList.add('hidden');
     this.deps.slot.release(this);
     this.deps.onOpenChange?.(false);
+    this.syncReferences();
   }
 
   /** Settings → Agent was saved: detection may answer differently (a path, the API-key choice). */
@@ -417,8 +421,10 @@ export class ChatPanel {
 
   private async send(text: string): Promise<boolean> {
     const settings = this.deps.settings();
-    // The references go with one capture of the model, each in its colour
-    // (§11.2), taken while their picks still hold.
+    // The message carries what the chips show: a selection still resolving
+    // is waited for. The references go with one capture of the model, each
+    // in its colour (§11.2), taken while their picks still hold.
+    await this.references?.settle();
     const attached = this.references?.forSend() ?? null;
     let image: { mediaType: 'image/png'; base64: string } | undefined;
     if (attached && this.deps.scene) {
@@ -908,7 +914,14 @@ export class ChatPanel {
     // The composer stays while detection loads (disabled), and while a turn runs.
     const composerShown = ready || readiness.state === 'loading' || isBusy(this.state.status);
     this.composer.el.classList.toggle('hidden', !composerShown);
-    this.composer.setEnabled(ready || isBusy(this.state.status));
+    this.composerUsable = composerShown && (ready || isBusy(this.state.status));
+    this.composer.setEnabled(this.composerUsable);
+    this.syncReferences();
+  }
+
+  /** The selection attaches only while the panel is open and its composer usable (§11.1). */
+  private syncReferences(): void {
+    this.references?.setActive(this.open && this.composerUsable);
   }
 
   /** Sign in to `kind` from the app: the sign-in page opens in the browser, the panel waits for it. */

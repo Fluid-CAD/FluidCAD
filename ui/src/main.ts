@@ -1403,8 +1403,9 @@ function loadAgentPanel(): Promise<ChatPanel> {
         clearSelection: () => measureController.clearSelection(),
         isRolledBack: () => sceneRolledBack,
         currentFile: () => currentSceneAbsPath,
-        // A selection made after the last Add (amber) is not part of the
-        // message: left out of the picture, and back on screen right after.
+        // The idle selection's amber is left out of the picture (back on
+        // screen right after): when it goes with the message, `highlight`
+        // draws it in its reference's colour instead.
         capture: (highlight) => measureController.withSelectionHidden(() => captureScreenshot(viewer.sceneContext, {
           width: 1024,
           height: 768,

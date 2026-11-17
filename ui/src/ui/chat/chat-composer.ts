@@ -20,23 +20,22 @@ const MAX_HEIGHT_PX = 200;
  * the bare letters) leave it alone (`editable-target.ts`).
  *
  * `attachments` (`data-ref="attachments"`, above the textarea) holds the
- * scene references (§11.1: the chips and the add-selection row), which put
- * their `[n]` tokens in the text through {@link insertToken} and
- * {@link removeToken}.
+ * scene references (§11.1: the selection's live chip and the kept ones),
+ * whose labels put their `[n]` in the text through {@link insertToken}.
  */
 export class ChatComposer {
   readonly el: HTMLDivElement;
   readonly textarea: HTMLTextAreaElement;
-  /** Above the textarea: the reference chips and the add-selection row ({@link setAttachments}). */
+  /** Above the textarea: the reference chips ({@link setAttachments}). */
   readonly attachments: HTMLDivElement;
   private readonly button: HTMLButtonElement;
   private busy = false;
   private enabled = true;
   private submitting = false;
   /**
-   * Where the caret was when the textarea lost focus: a token added from
-   * the viewport goes there (a blurred textarea's own selection does not
-   * survive every repaint). Null: at the end.
+   * Where the caret was when the textarea lost focus: a token put in from
+   * a chip goes there (a blurred textarea's own selection does not survive
+   * every repaint). Null: at the end.
    */
   private caret: { start: number; end: number } | null = null;
 
@@ -123,7 +122,7 @@ export class ChatComposer {
 
   /**
    * Put a reference token (`[1]`) at the caret, a space on each side unless
-   * one is there, and leave the caret after it.
+   * one is there, and leave the caret after it (a chip's label was clicked).
    */
   insertToken(token: string): void {
     const value = this.textarea.value;
@@ -141,23 +140,6 @@ export class ChatComposer {
     this.value = `${head}${after}`;
     this.textarea.setSelectionRange(head.length, head.length);
     this.caret = { start: head.length, end: head.length };
-  }
-
-  /** Take every occurrence of a reference token out of the text, with the space it leaves doubled. */
-  removeToken(token: string): void {
-    const value = this.textarea.value;
-    if (!value.includes(token)) {
-      return;
-    }
-    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const next = value
-      .replace(new RegExp(`(^|[ \\t])${escaped}([ \\t]|$)`, 'g'), (_match, pre: string, post: string) => (pre && post ? pre : ''))
-      .split(token)
-      .join('');
-    const caret = Math.min(this.caret?.start ?? this.textarea.selectionStart ?? next.length, next.length);
-    this.value = next;
-    this.textarea.setSelectionRange(caret, caret);
-    this.caret = { start: caret, end: caret };
   }
 
   /** Send what is typed; the box empties once the engine took it. */

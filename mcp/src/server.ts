@@ -62,6 +62,9 @@ import { registerSkillsExtension, skillsExtensionCapability } from './skills-ext
 import { listSkills, readSkill } from './tools/skills.ts';
 import { registerDocResources, registerSkillResources } from './resources.ts';
 import type { RegistryEntry, ToolResult } from './types.ts';
+import { gateToolHandler, type McpToolGate } from './tool-gate.ts';
+
+export type { McpToolCall, McpToolGate, McpToolGateDecision } from './tool-gate.ts';
 
 export const SERVER_NAME = 'FluidCAD';
 export const SERVER_VERSION = readPackageVersion();
@@ -94,6 +97,11 @@ export type BuildServerOptions = {
    * `workspace` argument, and list_workspaces returns this one entry.
    */
   pinnedWorkspace?: RegistryEntry;
+  /**
+   * Called around every tool call: `before` may hold or deny it, `after`
+   * sees its result. Unset, tools run as called.
+   */
+  toolGate?: McpToolGate;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
@@ -205,7 +213,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     },
   );
 
-  server.registerTool(
+  // Every tool is registered through this, so the gate cannot miss one.
+  const registerTool: McpServer['registerTool'] = (name, config, cb) =>
+    server.registerTool(name, config, options.toolGate ? gateToolHandler(options.toolGate, name, cb) : cb);
+
+  registerTool(
     'list_workspaces',
     {
       title: 'List running FluidCAD workspaces',
@@ -223,7 +235,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   const docsIndex = options.docsIndex ?? loadDocsIndex();
 
-  server.registerTool(
+  registerTool(
     'list_docs',
     {
       title: 'List FluidCAD docs',
@@ -239,7 +251,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ tag }) => toMcp(listDocs(docsIndex, { tag })),
   );
 
-  server.registerTool(
+  registerTool(
     'read_doc',
     {
       title: 'Read a FluidCAD doc by id',
@@ -252,7 +264,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ id }) => toMcp(readDoc(docsIndex, { id })),
   );
 
-  server.registerTool(
+  registerTool(
     'search_docs',
     {
       title: 'Keyword search across FluidCAD docs',
@@ -271,7 +283,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ query, limit }) => toMcp(searchDocs(docsIndex, { query, limit })),
   );
 
-  server.registerTool(
+  registerTool(
     'get_api_signature',
     {
       title: 'Get the signature block for an API symbol',
@@ -284,7 +296,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ name }) => toMcp(getApiSignature(docsIndex, { name })),
   );
 
-  server.registerTool(
+  registerTool(
     'get_type_definition',
     {
       title: 'Get the definition of a documented type',
@@ -304,7 +316,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
 
   const skillsIndex = options.skillsIndex ?? loadSkillsIndex();
 
-  server.registerTool(
+  registerTool(
     'list_skills',
     {
       title: 'List the FluidCAD workflow skills',
@@ -315,7 +327,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async () => toMcp(listSkills(skillsIndex)),
   );
 
-  server.registerTool(
+  registerTool(
     'read_skill',
     {
       title: 'Read a FluidCAD workflow skill',
@@ -381,7 +393,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     .length(3)
     .describe('World-space [x, y, z] vector.');
 
-  server.registerTool(
+  registerTool(
     'get_scene_summary',
     {
       title: 'Get the feature tree for a workspace',
@@ -417,7 +429,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace }) => toMcp(await getSceneSummary(target(workspace))),
   );
 
-  server.registerTool(
+  registerTool(
     'list_shapes',
     {
       title: 'List all shapes in the current scene',
@@ -428,7 +440,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace }) => toMcp(await listShapes(target(workspace))),
   );
 
-  server.registerTool(
+  registerTool(
     'get_compile_error',
     {
       title: 'Get the last cached compile error',
@@ -439,7 +451,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace }) => toMcp(await getCompileError(target(workspace))),
   );
 
-  server.registerTool(
+  registerTool(
     'list_global_params',
     {
       title: 'List the project parameters (*.params.js exports)',
@@ -450,7 +462,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace }) => toMcp(await listGlobalParams(target(workspace))),
   );
 
-  server.registerTool(
+  registerTool(
     'get_shape_properties',
     {
       title: 'Get geometric properties of a shape or a part',
@@ -466,7 +478,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       toMcp(await getShapeProperties({ ...target(workspace), shapeId, partId })),
   );
 
-  server.registerTool(
+  registerTool(
     'get_face_properties',
     {
       title: 'Get geometric properties of a face',
@@ -482,7 +494,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       toMcp(await getFaceProperties({ ...target(workspace), shapeId, faceIndex })),
   );
 
-  server.registerTool(
+  registerTool(
     'get_edge_properties',
     {
       title: 'Get geometric properties of an edge',
@@ -530,7 +542,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     index: z.number().int().nonnegative().describe('Topological face/edge/vertex index in that shape; vertex indices follow the rendered vertices payload.'),
   });
 
-  server.registerTool(
+  registerTool(
     'resolve_selection',
     {
       title: 'Resolve a selection and synthesize the selector to write for it',
@@ -588,7 +600,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       toMcp(await resolveSelection({ ...target(workspace), expression, picks, scope: scope as any, before })),
   );
 
-  server.registerTool(
+  registerTool(
     'validate',
     {
       title: 'Check the rendered geometry is sound (closed, oriented, valid topology)',
@@ -634,7 +646,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     quaternion: z.object({ x: z.number(), y: z.number(), z: z.number(), w: z.number() }),
   });
 
-  server.registerTool(
+  registerTool(
     'interfere',
     {
       title: 'Check whether any two bodies occupy the same space',
@@ -855,7 +867,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       'Ask for it when the numbers alone leave doubt about which geometry was measured; add `section` when the measured geometry is internal.',
     );
 
-  server.registerTool(
+  registerTool(
     'measure',
     {
       title: 'Measure distances and angles between faces/edges',
@@ -887,7 +899,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     .optional()
     .describe('A configurations() row name (get_scene_summary().configurations.names), or "Default" for the param() literals. Omit for the row on screen.');
 
-  server.registerTool(
+  registerTool(
     'screenshot',
     {
       title: 'Capture a PNG of the current scene from a stateless view',
@@ -917,7 +929,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async (args) => toMcp(await screenshot({ ...args, ...target(args.workspace) } as any)),
   );
 
-  server.registerTool(
+  registerTool(
     'screenshot_multi',
     {
       title: 'Capture a labelled grid of several views in one PNG',
@@ -948,7 +960,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async (args) => toMcp(await screenshotMulti({ ...args, ...target(args.workspace) } as any)),
   );
 
-  server.registerTool(
+  registerTool(
     'screenshot_shape',
     {
       title: 'Capture a framed iso view of a single shape',
@@ -972,7 +984,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async (args) => toMcp(await screenshotShape({ ...args, ...target(args.workspace) } as any)),
   );
 
-  server.registerTool(
+  registerTool(
     'get_camera_state',
     {
       title: 'Get the user\'s current camera position and target',
@@ -989,7 +1001,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     .optional()
     .describe('Hard upper bound in milliseconds (default 10000).');
 
-  server.registerTool(
+  registerTool(
     'wait_for_idle',
     {
       title: 'Wait until renders have settled',
@@ -1009,7 +1021,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       toMcp(await waitForIdle({ ...target(workspace), timeoutMs, stableMs })),
   );
 
-  server.registerTool(
+  registerTool(
     'hit_test',
     {
       title: 'Ray-test a shape',
@@ -1069,7 +1081,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     })
     .describe('Source position (LSP-style, 0-based line and 0-based UTF-16 column).');
 
-  server.registerTool(
+  registerTool(
     'list_fluid_files',
     {
       title: 'List every FluidCAD file in the workspace',
@@ -1080,7 +1092,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace }) => toMcp(await listFluidFiles(target(workspace))),
   );
 
-  server.registerTool(
+  registerTool(
     'read_file',
     {
       title: 'Read a UTF-8 file from the workspace',
@@ -1091,7 +1103,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, path }) => toMcp(await readFile({ ...target(workspace), path })),
   );
 
-  server.registerTool(
+  registerTool(
     'write_file',
     {
       title: 'Replace a file inside the workspace (atomic)',
@@ -1109,7 +1121,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       toMcp(await writeFile({ ...target(workspace), path, content, force, includeChanges })),
   );
 
-  server.registerTool(
+  registerTool(
     'edit_range',
     {
       title: 'Replace a [start, end) range inside a workspace file (atomic)',
@@ -1133,7 +1145,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   // Engine control — recompute, rollback, breakpoints, import/export.
   // -------------------------------------------------------------------------
 
-  server.registerTool(
+  registerTool(
     'recompute',
     {
       title: 'Force a full recompute of the current file',
@@ -1148,7 +1160,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, includeChanges, configuration }) => toMcp(await recompute({ ...target(workspace), includeChanges, configuration })),
   );
 
-  server.registerTool(
+  registerTool(
     'select_configuration',
     {
       title: 'Show a configurations() row of the open model',
@@ -1162,7 +1174,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, name }) => toMcp(await selectConfiguration({ ...target(workspace), name })),
   );
 
-  server.registerTool(
+  registerTool(
     'rollback_to',
     {
       title: 'Temporarily roll back the rendered scene to a feature index',
@@ -1180,7 +1192,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, index }) => toMcp(await rollbackTo({ ...target(workspace), index })),
   );
 
-  server.registerTool(
+  registerTool(
     'add_breakpoint',
     {
       title: 'Set a breakpoint on a source line',
@@ -1198,7 +1210,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, file, line }) => toMcp(await addBreakpoint({ ...target(workspace), file, line })),
   );
 
-  server.registerTool(
+  registerTool(
     'clear_breakpoints',
     {
       title: 'Remove every breakpoint in the workspace',
@@ -1208,7 +1220,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace }) => toMcp(await clearBreakpoints(target(workspace))),
   );
 
-  server.registerTool(
+  registerTool(
     'import_step',
     {
       title: 'Import a STEP file into the workspace',
@@ -1225,7 +1237,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, path }) => toMcp(await importStep({ ...target(workspace), path })),
   );
 
-  server.registerTool(
+  registerTool(
     'export',
     {
       title: 'Export shapes or the whole assembly to STEP or STL',
@@ -1278,7 +1290,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       ),
   );
 
-  server.registerTool(
+  registerTool(
     'pack',
     {
       title: 'Pack the workspace\'s package into a .fluidpkg archive, to look at what would be published',

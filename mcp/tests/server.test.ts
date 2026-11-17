@@ -305,3 +305,105 @@ async function listToolSchemas(server: ReturnType<typeof buildServer>) {
     await server.close();
   }
 }
+
+describe('tool gate', () => {
+  it('holds a call until before() resolves, then after() sees the result', async () => {
+    let release!: (decision: { allow: true }) => void;
+    const seen: { before: any[]; after: any[] } = { before: [], after: [] };
+    const server = buildServer({
+      toolGate: {
+        before(call) {
+          seen.before.push(call);
+          return new Promise((resolve) => {
+            release = resolve;
+          });
+        },
+        after(call, result) {
+          seen.after.push({ call, result });
+        },
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      let settled = false;
+      const pending = client.callTool({ name: 'read_skill', arguments: { name: 'fluidcad' } }).then((r) => {
+        settled = true;
+        return r;
+      });
+      await vi.waitFor(() => expect(seen.before).toHaveLength(1));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(settled).toBe(false);
+      expect(seen.before[0]).toEqual({ name: 'read_skill', input: { name: 'fluidcad' } });
+
+      release({ allow: true });
+      const result = await pending;
+      expect(result.isError).not.toBe(true);
+      expect(seen.after).toHaveLength(1);
+      expect(seen.after[0].call).toEqual({ name: 'read_skill', input: { name: 'fluidcad' } });
+      expect(seen.after[0].result).toEqual(result);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('denies a call with a tool error carrying the message, without running it', async () => {
+    const after = vi.fn();
+    const server = buildServer({
+      toolGate: {
+        before: async () => ({ allow: false, message: 'The user declined this action.' }),
+        after,
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const result = await client.callTool({ name: 'list_docs', arguments: {} });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe('The user declined this action.');
+      expect(after).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('passes an abort signal that fires when the client cancels the call', async () => {
+    let aborted = false;
+    const server = buildServer({
+      toolGate: {
+        before: (_call, signal) =>
+          new Promise((resolve) => {
+            signal.addEventListener('abort', () => {
+              aborted = true;
+              resolve({ allow: false, message: 'cancelled' });
+            });
+          }),
+        after: () => {},
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const controller = new AbortController();
+      const pending = client.callTool({ name: 'list_docs', arguments: {} }, undefined, { signal: controller.signal });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      controller.abort('user cancelled');
+      await expect(pending).rejects.toThrow();
+      await vi.waitFor(() => expect(aborted).toBe(true));
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('leaves calls ungated when no gate is given', async () => {
+    const server = buildServer();
+    const client = await connectClient(server);
+    try {
+      const result = await client.callTool({ name: 'list_docs', arguments: {} });
+      expect(result.isError).not.toBe(true);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});

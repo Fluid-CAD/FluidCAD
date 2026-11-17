@@ -76,7 +76,7 @@ export type ChatPanelDeps = {
   colorizer?(): Colorizer | null;
   /** The user picked the agent for new chats: remember it (§9.1, "the last one used"). */
   onAgentChosen?(kind: AgentKind): void;
-  /** The user switched the permission mode in the header: remember it (`agent.permissionMode`, as Settings → Agent). */
+  /** The user switched the permission mode from its chip: remember it (`agent.permissionMode`, as Settings → Agent). */
   onPermissionModeChosen?(mode: PermissionMode): void;
   /** Ask the user to confirm (Revert this turn), in the page's dialog; absent: the browser's confirm. */
   confirm?(options: ChatConfirmOptions): Promise<boolean>;
@@ -104,11 +104,12 @@ const OTHER_MODEL = '__other__';
  * covers the scene.
  *
  * The header holds the chats menu (the title: switching, renaming and
- * deleting chats, {@link ChatSessionsMenu}), New chat and Close, and a row with the agent, the model, the permission mode (Ask
- * before edits / Apply edits automatically, the `agent.permissionMode`
- * preference) and how the agent is paid for (subscription or API key).
- * Under it the transcript ({@link ChatTranscript}) and the composer
- * ({@link ChatComposer}). The session's status drives what shows: Stop while
+ * deleting chats, {@link ChatSessionsMenu}), New chat and Close. Under it
+ * the transcript ({@link ChatTranscript}) and the composer
+ * ({@link ChatComposer}), whose chips under the text pick the agent, the
+ * model, the effort and the permission mode (Ask before edits / Apply edits
+ * automatically, the `agent.permissionMode` preference), and say how the
+ * agent is paid for (subscription or API key). The session's status drives what shows: Stop while
  * a turn runs, the approval cards while it waits, Continue after the engine
  * restarted mid-turn, the errors. Under each user message, Revert this turn
  * while the turn has changes to put back (§12.2). Until the agent can run,
@@ -123,8 +124,8 @@ export class ChatPanel {
   readonly references: SceneReferences | null;
   private readonly sessionButton: HTMLButtonElement;
   private readonly sessionTitle: HTMLSpanElement;
-  private readonly agentSlot: HTMLDivElement;
-  private readonly modelSlot: HTMLDivElement;
+  private readonly agentSlot: HTMLSpanElement;
+  private readonly modelSlot: HTMLSpanElement;
   private readonly modeButton: HTMLButtonElement;
   private readonly authBadge: HTMLSpanElement;
   private readonly center: HTMLDivElement;
@@ -141,10 +142,10 @@ export class ChatPanel {
   private readonly modelChoices = new Map<AgentKind, string>();
   /** The effort picked in the panel, per agent (`DEFAULT_EFFORT`: the default); holds until the page reloads. */
   private readonly effortChoices = new Map<AgentKind, string>();
-  private readonly effortSlot: HTMLDivElement;
+  private readonly effortSlot: HTMLSpanElement;
   /** The model picker shows a text field for a model by name. */
   private typingModel = false;
-  /** The mode switched in the header, until Settings → Agent is saved again. */
+  /** The mode switched from its chip, until Settings → Agent is saved again. */
   private modeChoice: PermissionMode | null = null;
 
   constructor(private readonly deps: ChatPanelDeps) {
@@ -194,31 +195,16 @@ export class ChatPanel {
     close.addEventListener('click', () => this.close());
     header.append(this.sessionButton, newChat, close);
 
-    // The agent row: which agent, which model, how it is paid for.
-    const toolbar = document.createElement('div');
-    toolbar.className = 'flex items-center gap-1.5 h-9 shrink-0 px-3 border-b border-base-content/10 text-hub-xs text-base-content/70';
-    this.agentSlot = document.createElement('div');
-    this.agentSlot.dataset.ref = 'agent';
-    this.agentSlot.className = 'flex items-center min-w-0';
-    this.modelSlot = document.createElement('div');
-    this.modelSlot.dataset.ref = 'model';
-    this.modelSlot.className = 'flex items-center min-w-0';
-    this.effortSlot = document.createElement('div');
-    this.effortSlot.dataset.ref = 'effort';
-    this.effortSlot.className = 'flex items-center min-w-0';
-    this.modeButton = document.createElement('button');
-    this.modeButton.type = 'button';
-    this.modeButton.dataset.ref = 'mode';
-    this.modeButton.className = 'btn btn-ghost btn-xs gap-1 px-1.5 font-normal text-hub-xs text-base-content/75 shrink-0';
-    this.modeButton.setAttribute('aria-haspopup', 'menu');
+    // The chips under the message box: which agent, which model and effort,
+    // the edit mode, how the agent is paid for.
+    this.agentSlot = chipSlot('agent');
+    this.modelSlot = chipSlot('model');
+    this.effortSlot = chipSlot('effort');
+    this.modeButton = chipButton('mode');
     this.modeButton.addEventListener('click', () => this.showModeMenu());
-    const modeSeparator = document.createElement('span');
-    modeSeparator.className = 'text-base-content/30 -mx-0.5';
-    modeSeparator.textContent = '·';
     this.authBadge = document.createElement('span');
     this.authBadge.dataset.ref = 'auth-badge';
-    this.authBadge.className = 'ml-auto badge badge-sm badge-ghost shrink-0 hidden';
-    toolbar.append(this.agentSlot, this.modelSlot, this.effortSlot, modeSeparator, this.modeButton, this.authBadge);
+    this.authBadge.className = 'chat-chip hidden';
 
     // Body: the transcript, or the welcome / setup when there is nothing yet.
     const body = document.createElement('div');
@@ -246,12 +232,13 @@ export class ChatPanel {
       onSubmit: (text) => this.send(text),
       onStop: () => void this.state.stop(),
     });
+    this.composer.controls.append(this.agentSlot, this.modelSlot, this.effortSlot, this.modeButton, this.authBadge);
     this.references = deps.scene ? new SceneReferences(deps.scene, this.composer) : null;
     if (this.references) {
       this.composer.setAttachments(this.references.el);
     }
 
-    this.el.append(header, toolbar, body, this.statusBar, this.footerSetup, this.composer.el, deps.slot.resizeHandle());
+    this.el.append(header, body, this.statusBar, this.footerSetup, this.composer.el, deps.slot.resizeHandle());
     deps.container.appendChild(this.el);
 
     this.unsubscribe = this.state.subscribe((change) => this.onChange(change));
@@ -380,12 +367,12 @@ export class ChatPanel {
     return model?.efforts && model.efforts.length > 0 ? model.efforts : COMMON_EFFORTS;
   }
 
-  /** The permission mode messages go with: the header's switch, else Settings → Agent. */
+  /** The permission mode messages go with: its chip's pick, else Settings → Agent. */
   get mode(): PermissionMode {
     return this.modeChoice ?? this.deps.settings().permissionMode;
   }
 
-  /** Switch the permission mode (the header's menu); it holds for the next messages and is remembered. */
+  /** Switch the permission mode (its chip's menu); it holds for the next messages and is remembered. */
   setMode(mode: PermissionMode): void {
     this.modeChoice = mode;
     this.deps.onPermissionModeChosen?.(mode);
@@ -522,37 +509,40 @@ export class ChatPanel {
     this.sessionTitle.textContent = this.state.session?.title ?? 'New chat';
   }
 
-  /** The agent row: a picker when more than one agent can run, else its name; the model; the auth badge. */
+  /**
+   * The chips under the message box: the agent (a picker when a new chat can
+   * take more than one that is ready, its name in a chat when there is a
+   * choice at all, else nothing: one agent needs no saying), the model, the
+   * effort, the edit mode, how it is paid for.
+   */
   private paintToolbar(): void {
     const kind = this.state.agent;
     const info = AGENT_INFO[kind];
     this.agentSlot.replaceChildren();
     const ready = this.state.offeredAgents.filter((a) => ChatState.readinessOf(a).state === 'ready');
     if (!this.state.session && ready.length > 1) {
-      const select = document.createElement('select');
-      select.dataset.ref = 'agent-picker';
-      select.className = 'select select-ghost select-xs w-auto font-medium';
-      select.setAttribute('aria-label', 'Agent');
-      for (const install of ready) {
-        const option = document.createElement('option');
-        option.value = install.kind;
-        option.textContent = AGENT_INFO[install.kind].name;
-        select.append(option);
-      }
-      select.value = kind;
-      select.addEventListener('change', () => {
-        const picked = select.value as AgentKind;
-        this.state.setDraftAgent(picked);
-        this.deps.onAgentChosen?.(picked);
-        void this.state.loadModels(picked);
-        this.paintToolbar();
-      });
-      this.agentSlot.append(select);
-    } else {
+      const chip = chipButton('agent-picker');
+      fillChip(chip, info.name);
+      chip.title = 'Agent for this chat';
+      chip.setAttribute('aria-label', `Agent: ${info.name}`);
+      chip.addEventListener('click', () => this.showChipMenu(chip, 'agent-menu', ready.map((install) => ({
+        icon: install.kind === kind ? ChatIcons.CHECK : '',
+        label: AGENT_INFO[install.kind].name,
+        className: install.kind === kind ? 'font-medium' : undefined,
+        onSelect: () => {
+          this.state.setDraftAgent(install.kind);
+          this.deps.onAgentChosen?.(install.kind);
+          void this.state.loadModels(install.kind);
+          this.paintToolbar();
+        },
+      }))));
+      this.agentSlot.append(chip);
+    } else if (ready.length > 1) {
       const name = document.createElement('span');
       name.dataset.ref = 'agent-name';
-      name.className = 'font-medium text-base-content/80 truncate';
-      name.textContent = info.name;
+      name.className = 'chat-chip';
+      name.title = `This chat runs on ${info.name}`;
+      name.append(chipLabel(info.name));
       this.agentSlot.append(name);
     }
     this.paintModelPicker();
@@ -560,8 +550,12 @@ export class ChatPanel {
 
     const auth = authDescription(this.state.install(kind));
     this.authBadge.classList.toggle('hidden', !auth);
-    this.authBadge.classList.toggle('badge-warning', auth?.apiKey === true);
-    this.authBadge.textContent = auth?.short ?? '';
+    if (auth?.apiKey) {
+      this.authBadge.dataset.tone = 'warning';
+    } else {
+      delete this.authBadge.dataset.tone;
+    }
+    this.authBadge.replaceChildren(chipLabel(auth?.short ?? ''));
     this.authBadge.title = auth
       ? auth.apiKey
         ? `${auth.long} To use your Claude subscription instead, turn on “Use my Claude subscription even if ANTHROPIC_API_KEY is set” in Settings → Agent.`
@@ -569,19 +563,17 @@ export class ChatPanel {
       : '';
   }
 
+  /** The model chip: Default, the agent's models, and any model by name ("Other model…" types it in place). */
   private paintModelPicker(): void {
     this.modelSlot.replaceChildren();
-    const separator = document.createElement('span');
-    separator.className = 'text-base-content/30 px-0.5';
-    separator.textContent = '·';
-    this.modelSlot.append(separator);
     const current = this.model;
     if (this.typingModel) {
       const input = document.createElement('input');
       input.type = 'text';
       input.dataset.ref = 'model-input';
-      input.className = 'input input-xs w-36 font-mono';
+      input.className = 'chat-chip-input';
       input.placeholder = 'Model name';
+      input.setAttribute('aria-label', 'Model name');
       input.value = current === 'default' ? '' : current;
       input.spellcheck = false;
       const commit = (save: boolean) => {
@@ -611,96 +603,95 @@ export class ChatPanel {
       queueMicrotask(() => input.focus());
       return;
     }
-    const select = document.createElement('select');
-    select.dataset.ref = 'model-picker';
-    select.className = 'select select-ghost select-xs w-auto';
-    select.setAttribute('aria-label', 'Model');
-    select.title = 'Model';
     const models: AgentModel[] = this.state.models.get(this.state.agent) ?? [{ id: 'default', label: 'Default' }];
     const options = [...models];
     if (!options.some((m) => m.id === current)) {
       options.push({ id: current, label: current });
     }
-    for (const model of options) {
-      const option = document.createElement('option');
-      option.value = model.id;
-      option.textContent = model.label ?? model.id;
-      select.append(option);
-    }
-    const other = document.createElement('option');
-    other.value = OTHER_MODEL;
-    other.textContent = 'Other model…';
-    select.append(other);
-    select.value = current;
-    select.addEventListener('change', () => {
-      if (select.value === OTHER_MODEL) {
-        this.typingModel = true;
-      } else {
-        this.modelChoices.set(this.state.agent, select.value);
-      }
-      this.paintModelPicker();
-    });
-    this.modelSlot.append(select);
+    const label = options.find((m) => m.id === current)?.label ?? current;
+    const chip = chipButton('model-picker');
+    chip.dataset.value = current;
+    fillChip(chip, label);
+    chip.title = current === 'default' ? `Model: ${AGENT_INFO[this.state.agent].name}'s own default` : `Model: ${current}`;
+    chip.setAttribute('aria-label', `Model: ${label}`);
+    chip.addEventListener('click', () => this.showChipMenu(chip, 'model-menu', [
+      ...options.map((model): PopupMenuItem => ({
+        icon: model.id === current ? ChatIcons.CHECK : '',
+        label: model.label ?? model.id,
+        className: model.id === current ? 'font-medium' : undefined,
+        onSelect: () => {
+          this.modelChoices.set(this.state.agent, model.id);
+          this.paintModelPicker();
+        },
+      })),
+      {
+        icon: '',
+        label: 'Other model…',
+        separated: true,
+        title: 'Any model name the program accepts',
+        onSelect: () => {
+          this.typingModel = true;
+          this.paintModelPicker();
+        },
+      },
+    ]));
+    this.modelSlot.append(chip);
     // Codex's levels depend on the model.
     this.paintEffortPicker();
   }
 
-  /** The effort picker: the default, then the levels of the agent and model. */
+  /** The effort chip: the default, then the levels of the agent and model. */
   private paintEffortPicker(): void {
     this.effortSlot.replaceChildren();
-    const separator = document.createElement('span');
-    separator.className = 'text-base-content/30 px-0.5';
-    separator.textContent = '·';
-    this.effortSlot.append(separator);
-    const select = document.createElement('select');
-    select.dataset.ref = 'effort-picker';
-    select.className = 'select select-ghost select-xs w-auto';
-    select.setAttribute('aria-label', 'Effort');
     const current = this.effort;
-    const add = (value: string, label: string) => {
-      const option = document.createElement('option');
-      option.value = value;
-      option.textContent = label;
-      select.append(option);
-    };
-    add(DEFAULT_EFFORT, 'Default effort');
-    for (const level of this.effortLevels()) {
-      add(level, `${effortLabel(level)} effort`);
-    }
-    select.value = current;
-    select.title = `Effort: how hard the model thinks before it answers${current === DEFAULT_EFFORT ? ` (${AGENT_INFO[this.state.agent].name}'s own default)` : ''}.`;
-    select.addEventListener('change', () => {
-      this.effortChoices.set(this.state.agent, select.value);
-      this.paintEffortPicker();
-    });
-    this.effortSlot.append(select);
+    const label = (value: string) => (value === DEFAULT_EFFORT ? 'Default effort' : `${effortLabel(value)} effort`);
+    const chip = chipButton('effort-picker');
+    chip.dataset.value = current;
+    // The default needs no "Default": the chip just says what it sets.
+    fillChip(chip, current === DEFAULT_EFFORT ? 'Effort' : label(current));
+    chip.title = `Effort: how hard the model thinks before it answers${current === DEFAULT_EFFORT ? ` (${AGENT_INFO[this.state.agent].name}'s own default)` : ''}.`;
+    chip.setAttribute('aria-label', `Effort: ${label(current)}`);
+    chip.addEventListener('click', () => this.showChipMenu(chip, 'effort-menu',
+      [DEFAULT_EFFORT, ...this.effortLevels()].map((value) => ({
+        icon: value === current ? ChatIcons.CHECK : '',
+        label: label(value),
+        className: value === current ? 'font-medium' : undefined,
+        onSelect: () => {
+          this.effortChoices.set(this.state.agent, value);
+          this.paintEffortPicker();
+        },
+      }))));
+    this.effortSlot.append(chip);
   }
 
-  /** The permission-mode switch: the mode's icon and short name; the full name as its tooltip. */
+  /** The permission-mode chip: the mode's icon and short name; the full name as its tooltip. */
   private paintMode(): void {
     const current = PERMISSION_MODES.find((m) => m.mode === this.mode) ?? PERMISSION_MODES[0];
     this.modeButton.dataset.mode = current.mode;
     this.modeButton.title = `${current.label}. ${current.description}`;
     this.modeButton.setAttribute('aria-label', `Permission mode: ${current.label}`);
-    this.modeButton.replaceChildren(
-      ChatIcons.span(current.mode === 'ask' ? ChatIcons.ASK : ChatIcons.AUTO, `[&>svg]:size-3.5 ${current.mode === 'ask' ? '' : 'text-warning'}`),
-      document.createTextNode(current.short),
-      ChatIcons.span(ChatIcons.CHEVRON_DOWN, '[&>svg]:size-3 text-base-content/50'),
-    );
+    fillChip(this.modeButton, current.short, {
+      svg: current.mode === 'ask' ? ChatIcons.ASK : ChatIcons.AUTO,
+      className: current.mode === 'ask' ? '' : 'text-warning',
+    });
   }
 
   private showModeMenu(): void {
     const current = this.mode;
-    const items: PopupMenuItem[] = PERMISSION_MODES.map((m) => ({
+    this.showChipMenu(this.modeButton, 'mode-menu', PERMISSION_MODES.map((m) => ({
       icon: m.mode === current ? ChatIcons.CHECK : m.mode === 'ask' ? ChatIcons.ASK : ChatIcons.AUTO,
       label: m.label,
       title: m.description,
       className: m.mode === current ? 'font-medium' : undefined,
       onSelect: () => this.setMode(m.mode),
-    }));
-    const rect = this.modeButton.getBoundingClientRect();
-    const menu = showPopupMenu(this.deps.container, { clientX: rect.left, clientY: rect.bottom + 4 }, items, { focusFirst: true });
-    menu.dataset.ref = 'mode-menu';
+    })));
+  }
+
+  /** A chip's menu, opening upwards from it (the chips sit at the panel's bottom). */
+  private showChipMenu(chip: HTMLElement, ref: string, items: PopupMenuItem[]): void {
+    const rect = chip.getBoundingClientRect();
+    const menu = showPopupMenu(this.deps.container, { clientX: rect.left, clientY: rect.top - 4 }, items, { focusFirst: true, placement: 'above' });
+    menu.dataset.ref = ref;
   }
 
   /**
@@ -1077,3 +1068,46 @@ function statusRow(level: 'warning' | 'error', text: string): HTMLDivElement {
   return row;
 }
 
+/** A slot in the chip row that a paint fills (laid out as if its chip were in the row itself). */
+function chipSlot(ref: string): HTMLSpanElement {
+  const slot = document.createElement('span');
+  slot.dataset.ref = ref;
+  slot.className = 'contents';
+  return slot;
+}
+
+/** A chip under the message box that opens a menu. */
+function chipButton(ref: string): HTMLButtonElement {
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.dataset.ref = ref;
+  chip.className = 'chat-chip';
+  chip.setAttribute('aria-haspopup', 'menu');
+  return chip;
+}
+
+function chipLabel(text: string): HTMLSpanElement {
+  const label = document.createElement('span');
+  label.className = 'chat-chip-label';
+  label.textContent = text;
+  return label;
+}
+
+/** A menu chip's content: an icon, the label (cut short when narrow), a chevron. */
+function fillChip(chip: HTMLElement, text: string, icon?: { svg: string; className: string }): void {
+  const parts: HTMLElement[] = [];
+  if (icon) {
+    const el = document.createElement('span');
+    el.className = `chat-chip-icon ${icon.className}`;
+    el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = icon.svg;
+    parts.push(el);
+  }
+  parts.push(chipLabel(text));
+  const chevron = document.createElement('span');
+  chevron.className = 'chat-chip-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+  chevron.innerHTML = ChatIcons.CHEVRON_DOWN;
+  parts.push(chevron);
+  chip.replaceChildren(...parts);
+}

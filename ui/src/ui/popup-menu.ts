@@ -30,6 +30,11 @@ export type PopupMenuOptions = {
   align?: 'start' | 'end';
   /** Put keyboard focus on the first row, for a menu opened from a button. */
   focusFirst?: boolean;
+  /**
+   * `above`: the menu's bottom edge sits at the position (a dropup, for a
+   * button near the window's bottom such as the Agent panel's composer chips).
+   */
+  placement?: 'below' | 'above';
 };
 
 /** Keep the menu clear of the viewport's edges by at least this much. */
@@ -78,6 +83,11 @@ export function showPopupMenu(
     // Right edge on the position, but never past the window's left edge.
     left = Math.max(EDGE_MARGIN - hostRect.left, left - menu.getBoundingClientRect().width);
     menu.style.left = `${left}px`;
+  }
+
+  if (options.placement === 'above') {
+    const height = menu.getBoundingClientRect().height;
+    menu.style.top = `${Math.max(EDGE_MARGIN - hostRect.top, position.clientY - hostRect.top - height)}px`;
   }
 
   // Pull the menu back inside the window if the click was near an edge.

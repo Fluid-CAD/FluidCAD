@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel, type ChatConfirmOptions, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
 import type { ChatMessage, PermissionMode, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
 import { LeftSlot } from '../src/ui/left-slot';
+import { closePopupMenu } from '../src/ui/popup-menu';
 import { isEditableTarget, isChatComposer } from '../src/editable-target';
 import { FakeChatClient } from './fixtures/fake-chat-client';
 import { settle } from './fixtures/fake-packages-client';
@@ -93,6 +94,29 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
   return { client, panel, container, events, slot, editor, openExternal, openSettings, openSource, confirm, onPermissionModeChosen, timers, settings: current, $, $$, input, sendButton, type, key, width };
 }
 
+/** Open a chip's menu (it opens in the panel's container) and read its rows' labels; the menu closes again. */
+function menuRows(h: ReturnType<typeof mount>, chip: HTMLElement, ref: string): string[] {
+  chip.click();
+  const menu = h.container.querySelector(`[data-ref="${ref}"]`)!;
+  const rows = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((r) => r.textContent!.trim());
+  closePopupMenu();
+  return rows;
+}
+
+/** A chip's label, without its icons. */
+function label(chip: HTMLElement): string {
+  return chip.querySelector('.chat-chip-label')!.textContent!;
+}
+
+/** Pick the row labelled `label` in a chip's menu. */
+function pick(h: ReturnType<typeof mount>, chip: HTMLElement, ref: string, label: string): void {
+  chip.click();
+  const menu = h.container.querySelector(`[data-ref="${ref}"]`)!;
+  const row = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((r) => r.textContent!.trim() === label);
+  expect(row, `${label} in ${ref}`).toBeDefined();
+  row!.click();
+}
+
 /** Open the panel and let the first reads land. */
 async function opened(h: ReturnType<typeof mount>): Promise<void> {
   h.panel.show();
@@ -125,7 +149,9 @@ describe('the Agent panel', () => {
     const h = mount();
     await opened(h);
     expect(h.panel.el.getAttribute('aria-label')).toBe('Agent');
-    expect(h.$('[data-ref="agent-name"]')!.textContent).toBe('Claude Code');
+    expect(h.$('[data-ref="welcome"]')!.textContent).toContain('Claude Code');
+    // One agent installed: no agent chip, it would only repeat the welcome.
+    expect(h.$('[data-ref="agent-name"]')).toBeNull();
     expect(h.$$('img')).toHaveLength(0);
   });
 });
@@ -558,7 +584,7 @@ describe('the attach protocol (§7.3)', () => {
   });
 });
 
-describe('the header', () => {
+describe('the chips under the message box', () => {
   it('the chats menu lists the chats newest first, with the agent, the time and the status, and switches', async () => {
     vi.useFakeTimers({ now: new Date('2026-11-17T10:30:00.000Z'), toFake: ['Date'] });
     try {
@@ -683,14 +709,15 @@ describe('the header', () => {
     expect(m.querySelectorAll('[data-ref="session-title"]')).toHaveLength(0);
   });
 
-  it('the model picker offers Default and the aliases, and any model by name', async () => {
+  it('the model chip offers Default and the aliases, and any model by name', async () => {
     const h = mount(new FakeChatClient(), { claudeModel: 'haiku' });
     await opened(h);
-    const picker = () => h.$<HTMLSelectElement>('[data-ref="model-picker"]')!;
-    expect([...picker().options].map((o) => o.textContent)).toEqual(['Default', 'Opus', 'Sonnet', 'Haiku', 'Fable', 'Other model…']);
-    expect(picker().value).toBe('haiku');
-    picker().value = 'sonnet';
-    picker().dispatchEvent(new Event('change'));
+    const chip = () => h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="model-picker"]')!;
+    expect(label(chip())).toBe('Haiku');
+    expect(chip().dataset.value).toBe('haiku');
+    expect(menuRows(h, chip(), 'model-menu')).toEqual(['Default', 'Opus', 'Sonnet', 'Haiku', 'Fable', 'Other model…']);
+    pick(h, chip(), 'model-menu', 'Sonnet');
+    expect(label(chip())).toBe('Sonnet');
     h.type('one');
     h.key('Enter');
     await settle();
@@ -698,37 +725,73 @@ describe('the header', () => {
     const id = h.client.sent[0].id;
     h.client.emit(id, { type: 'status', status: { state: 'idle' } });
 
-    picker().value = '__other__';
-    picker().dispatchEvent(new Event('change'));
+    pick(h, chip(), 'model-menu', 'Other model…');
     const name = h.$<HTMLInputElement>('[data-ref="model-input"]')!;
     name.value = 'claude-sonnet-4-5';
     name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    expect(picker().value).toBe('claude-sonnet-4-5');
+    expect(chip().dataset.value).toBe('claude-sonnet-4-5');
     h.type('two');
     h.key('Enter');
     await settle();
     expect(h.client.sent[1].message.model).toBe('claude-sonnet-4-5');
   });
 
-  it('the agent row is a picker only when more than one agent can run', async () => {
-    const client = new FakeChatClient();
-    client.agentsValue = [FakeChatClient.install(), FakeChatClient.codexUnsupported()];
-    const h = mount(client);
+  it('the agent chip is a picker only when more than one agent can run, and absent with one', async () => {
+    const one = new FakeChatClient();
+    one.agentsValue = [FakeChatClient.install(), FakeChatClient.codexUnsupported()];
+    const h = mount(one);
     await opened(h);
     expect(h.$('[data-ref="agent-picker"]')).toBeNull();
-    expect(h.$('[data-ref="agent-name"]')!.textContent).toBe('Claude Code');
+    expect(h.$('[data-ref="agent-name"]')).toBeNull();
+
+    const two = new FakeChatClient();
+    two.agentsValue = [FakeChatClient.install(), FakeChatClient.install({ kind: 'codex', authMethod: null })];
+    const k = mount(two);
+    await opened(k);
+    const chip = () => k.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="agent-picker"]')!;
+    expect(label(chip())).toBe('Claude Code');
+    expect(menuRows(k, chip(), 'agent-menu')).toEqual(['Claude Code', 'Codex']);
+    pick(k, chip(), 'agent-menu', 'Codex');
+    expect(label(chip())).toBe('Codex');
+    expect(k.panel.state.agent).toBe('codex');
+    // In a chat the agent is fixed: its name, without a menu.
+    k.type('hello');
+    k.key('Enter');
+    await settle();
+    expect(k.$('[data-ref="agent-picker"]')).toBeNull();
+    expect(label(k.$('[data-ref="composer-controls"] [data-ref="agent-name"]')!)).toBe('Codex');
   });
 
-  it("the effort picker offers Claude Code's levels, low to max, and sends the one picked", async () => {
+  it('puts the settings under the message box as chips, none in the header, Send at the bottom right', async () => {
+    const h = mount();
+    await opened(h);
+    const controls = h.$('[data-ref="composer"] [data-ref="composer-controls"]')!;
+    expect([...controls.querySelectorAll<HTMLElement>('.chat-chip:not(.hidden)')].map((c) => c.dataset.ref)).toEqual([
+      'model-picker', 'effort-picker', 'mode', 'auth-badge',
+    ]);
+    // The chips row and Send share the footer under the textarea.
+    const footer = controls.parentElement!;
+    expect(footer.previousElementSibling).toBe(h.input());
+    expect(footer.lastElementChild).toBe(h.$('[data-ref="send"]'));
+    expect(h.input().rows).toBe(2);
+    // Every chip with a menu has a chevron icon, not a ▾ glyph.
+    for (const chip of controls.querySelectorAll<HTMLElement>('button.chat-chip')) {
+      expect(chip.querySelector('.chat-chip-chevron svg')).not.toBeNull();
+      expect(chip.textContent).not.toContain('▾');
+    }
+    expect(h.panel.el.querySelectorAll('select')).toHaveLength(0);
+  });
+
+  it("the effort chip offers Claude Code's levels, low to max, and sends the one picked", async () => {
     const h = mount(new FakeChatClient(), { claudeEffort: 'xhigh' });
     await opened(h);
-    const picker = () => h.$<HTMLSelectElement>('[data-ref="effort-picker"]')!;
-    expect([...picker().options].map((o) => o.textContent)).toEqual([
+    const chip = () => h.$<HTMLButtonElement>('[data-ref="effort-picker"]')!;
+    expect(menuRows(h, chip(), 'effort-menu')).toEqual([
       'Default effort', 'Low effort', 'Medium effort', 'High effort', 'Extra high effort', 'Max effort',
     ]);
-    expect(picker().value).toBe('xhigh');
-    picker().value = 'max';
-    picker().dispatchEvent(new Event('change'));
+    expect(chip().dataset.value).toBe('xhigh');
+    expect(label(chip())).toBe('Extra high effort');
+    pick(h, chip(), 'effort-menu', 'Max effort');
     h.type('think hard');
     h.key('Enter');
     await settle();
@@ -736,8 +799,8 @@ describe('the header', () => {
     h.client.emit(h.client.sent[0].id, { type: 'status', status: { state: 'idle' } });
 
     // "Default effort" sends none: the CLI's own.
-    picker().value = '';
-    picker().dispatchEvent(new Event('change'));
+    pick(h, chip(), 'effort-menu', 'Default effort');
+    expect(label(chip())).toBe('Effort');
     h.type('quick');
     h.key('Enter');
     await settle();
@@ -754,15 +817,14 @@ describe('the header', () => {
     ];
     const h = mount(client, { defaultAgent: 'codex', codexEffort: 'ultra' });
     await opened(h);
-    const levels = () => [...h.$<HTMLSelectElement>('[data-ref="effort-picker"]')!.options].map((o) => o.value);
+    const effort = () => h.$<HTMLButtonElement>('[data-ref="effort-picker"]')!;
+    const levels = () => menuRows(h, effort(), 'effort-menu');
     // Default is Luna, which has no "ultra": the default holds.
-    expect(levels()).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max']);
-    expect(h.$<HTMLSelectElement>('[data-ref="effort-picker"]')!.value).toBe('');
-    const model = h.$<HTMLSelectElement>('[data-ref="model-picker"]')!;
-    model.value = 'gpt-terra';
-    model.dispatchEvent(new Event('change'));
-    expect(levels()).toEqual(['', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
-    expect(h.$<HTMLSelectElement>('[data-ref="effort-picker"]')!.value).toBe('ultra');
+    expect(levels()).toEqual(['Default effort', 'Low effort', 'Medium effort', 'High effort', 'Extra high effort', 'Max effort']);
+    expect(effort().dataset.value).toBe('');
+    pick(h, h.$<HTMLButtonElement>('[data-ref="model-picker"]')!, 'model-menu', 'Terra');
+    expect(levels()).toEqual(['Default effort', 'Low effort', 'Medium effort', 'High effort', 'Extra high effort', 'Max effort', 'Ultra effort']);
+    expect(effort().dataset.value).toBe('ultra');
     h.type('go');
     h.key('Enter');
     await settle();
@@ -944,7 +1006,7 @@ describe('approval on tool cards (§12.1)', () => {
   });
 });
 
-describe('the permission mode in the header', () => {
+describe('the permission mode chip', () => {
   it('starts from Settings, switches from its menu, is remembered, and goes with the next message and Continue', async () => {
     const h = mount(new FakeChatClient(), { permissionMode: 'ask' });
     await opened(h);

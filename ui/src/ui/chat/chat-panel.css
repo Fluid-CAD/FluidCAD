@@ -139,21 +139,22 @@
 
 [data-role='chat-panel'] .chat-composer-box {
   display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 6px 6px 6px 10px;
+  flex-direction: column;
   border: 1px solid color-mix(in oklab, var(--color-base-content) 18%, transparent);
   border-radius: var(--radius-box);
   background: var(--color-base-100);
   transition: border-color 120ms;
+  cursor: text;
 }
 
 [data-role='chat-panel'] .chat-composer-box:focus-within {
   border-color: color-mix(in oklab, var(--color-primary) 70%, transparent);
 }
 
+/* Two lines to start (rows=2), taller as the text grows. */
 [data-role='chat-panel'] .chat-composer-input {
-  flex: 1 1 auto;
+  display: block;
+  width: 100%;
   min-width: 0;
   resize: none;
   border: 0;
@@ -163,9 +164,8 @@
   font: inherit;
   font-size: 13px;
   line-height: 1.45;
-  padding: 4px 0;
+  padding: 9px 11px 4px;
   max-height: 200px;
-  overflow-y: hidden;
 }
 
 [data-role='chat-panel'] .chat-composer-input::placeholder {
@@ -176,9 +176,116 @@
   cursor: not-allowed;
 }
 
+/* Under the text: the chips on the left, Send at the bottom right. */
+[data-role='chat-panel'] .chat-composer-footer {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 2px 6px 6px 8px;
+}
+
+[data-role='chat-panel'] .chat-composer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-bottom: 3px;
+}
+
 [data-role='chat-panel'] .chat-composer-button {
   flex-shrink: 0;
   border-radius: calc(var(--radius-box) - 2px);
+}
+
+/* The settings chips: a label and a chevron; a click opens their menu above. */
+[data-role='chat-panel'] .chat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--chat-muted);
+  font-size: 11.5px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+}
+
+[data-role='chat-panel'] button.chat-chip {
+  cursor: pointer;
+  transition: background-color 120ms, color 120ms;
+}
+
+[data-role='chat-panel'] button.chat-chip:hover,
+[data-role='chat-panel'] button.chat-chip[aria-expanded='true'] {
+  background: color-mix(in oklab, var(--color-base-content) 7%, transparent);
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+[data-role='chat-panel'] .chat-chip-icon,
+[data-role='chat-panel'] .chat-chip-chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+[data-role='chat-panel'] .chat-chip-icon > svg {
+  width: 13px;
+  height: 13px;
+}
+
+[data-role='chat-panel'] .chat-chip-icon {
+  margin-left: -2px;
+  margin-right: 1px;
+}
+
+[data-role='chat-panel'] .chat-chip-chevron {
+  margin-left: 1px;
+  opacity: 0.55;
+}
+
+[data-role='chat-panel'] .chat-chip-chevron > svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Static facts (the agent in a chat, how it is paid for): no border, quieter. */
+[data-role='chat-panel'] span.chat-chip {
+  border-color: transparent;
+  padding: 0 3px;
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-chip[data-tone='warning'] {
+  border-color: color-mix(in oklab, var(--color-warning) 55%, transparent);
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-chip-input {
+  height: 24px;
+  width: 9rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 8px;
+  border: 1px solid color-mix(in oklab, var(--color-primary) 70%, transparent);
+  border-radius: 999px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  outline: none;
 }
 
 /* --- Messages -------------------------------------------------------------- */

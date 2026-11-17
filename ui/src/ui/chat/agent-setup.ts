@@ -161,7 +161,7 @@ export function renderWelcome(install: AgentInstall | null, deps: AgentSetupDeps
   el.append(
     paragraph(
       `${install ? AGENT_INFO[install.kind].name : 'The agent'} works on the project through FluidCAD's tools: the scene, the code, measurements, screenshots. ` +
-        'It shows each change and waits for you to allow it, unless you switch to “Apply edits automatically” above; a turn’s changes can be reverted.',
+        'It shows each change and waits for you to allow it, unless you switch to “Apply edits automatically” below; a turn’s changes can be reverted.',
     ),
   );
   const auth = authDescription(install);

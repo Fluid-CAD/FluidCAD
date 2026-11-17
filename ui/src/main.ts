@@ -1383,7 +1383,7 @@ function loadAgentPanel(): Promise<ChatPanel> {
         agentSettings.update(next);
         savePreference('agent', { defaultAgent: kind } as UserPreferences['agent']);
       },
-      // The header's switch is the same preference as Settings → Agent's.
+      // The panel's mode chip is the same preference as Settings → Agent's.
       onPermissionModeChosen: (mode) => {
         agentSettings.update({ ...agentSettings.current, permissionMode: mode });
         savePreference('agent', { permissionMode: mode } as UserPreferences['agent']);

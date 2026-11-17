@@ -11,8 +11,10 @@ export type ChatComposerDeps = {
 const MAX_HEIGHT_PX = 200;
 
 /**
- * Where the user writes (§10.3): an autosizing textarea and the Send
- * button, which becomes Stop while a turn runs. Enter sends, Shift+Enter
+ * Where the user writes (§10.3): an autosizing textarea, two lines to start,
+ * and under it a row with the chat's settings chips ({@link controls}: the
+ * model, the effort, the edit mode) and the Send button, which becomes Stop
+ * while a turn runs. Enter sends, Shift+Enter
  * adds a line, Escape stops the turn. Typing goes on while a turn runs, for
  * the next message; Enter waits until it ends.
  *
@@ -28,6 +30,8 @@ export class ChatComposer {
   readonly textarea: HTMLTextAreaElement;
   /** Above the textarea: the reference chips ({@link setAttachments}). */
   readonly attachments: HTMLDivElement;
+  /** Under the textarea, left of Send: the chips the panel puts there (model, effort, edit mode). */
+  readonly controls: HTMLDivElement;
   private readonly button: HTMLButtonElement;
   private busy = false;
   private enabled = true;
@@ -51,7 +55,7 @@ export class ChatComposer {
     const box = document.createElement('div');
     box.className = 'chat-composer-box';
     this.textarea = document.createElement('textarea');
-    this.textarea.rows = 1;
+    this.textarea.rows = 2;
     this.textarea.dataset.chatComposer = '';
     this.textarea.dataset.ref = 'input';
     this.textarea.className = 'chat-composer-input';
@@ -77,7 +81,20 @@ export class ChatComposer {
         void this.submit();
       }
     });
-    box.append(this.textarea, this.button);
+    this.controls = document.createElement('div');
+    this.controls.className = 'chat-composer-controls';
+    this.controls.dataset.ref = 'composer-controls';
+    const footer = document.createElement('div');
+    footer.className = 'chat-composer-footer';
+    footer.append(this.controls, this.button);
+    box.append(this.textarea, footer);
+    // A click on the box's padding (not on a chip or the button) types.
+    box.addEventListener('mousedown', (event) => {
+      if (event.target === box || event.target === footer || event.target === this.controls) {
+        event.preventDefault();
+        this.textarea.focus();
+      }
+    });
     this.el.append(this.attachments, box);
     this.paint();
   }

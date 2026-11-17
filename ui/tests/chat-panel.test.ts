@@ -299,7 +299,7 @@ describe('the empty states (§9.1)', () => {
     await opened(h);
     const badge = h.$('[data-ref="auth-badge"]')!;
     expect(badge.textContent).toBe('Subscription');
-    expect(badge.classList.contains('badge-warning')).toBe(false);
+    expect(badge.dataset.tone).toBeUndefined();
     expect(badge.title).toContain('leaves ANTHROPIC_API_KEY out');
     expect(h.$('[data-ref="welcome"] [data-ref="auth-hint"]')).toBeNull();
 
@@ -309,7 +309,7 @@ describe('the empty states (§9.1)', () => {
     const k = mount(kept);
     await opened(k);
     expect(k.$('[data-ref="auth-badge"]')!.textContent).toBe('API key');
-    expect(k.$('[data-ref="auth-badge"]')!.classList.contains('badge-warning')).toBe(true);
+    expect((k.$('[data-ref="auth-badge"]') as HTMLElement).dataset.tone).toBe('warning');
     expect(k.$('[data-ref="auth-badge"]')!.title).toContain('in Settings → Agent');
 
     // No subscription signed in: the key is the only way in, and signing in is what would change it.

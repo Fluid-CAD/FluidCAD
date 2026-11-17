@@ -10,6 +10,7 @@ import { buildServer, TOOL_CLASSES, type RegistryEntry } from '../../mcp/dist/se
 import {
   CANCELLED_MESSAGE,
   DECLINED_MESSAGE,
+  FORCE_REFUSED_MESSAGE,
   NO_TURN_MESSAGE,
   STOPPED_MESSAGE,
   TIMED_OUT_MESSAGE,
@@ -508,5 +509,44 @@ describe('ToolGate: checkpoints and refusals', () => {
     expect(part.output?.text).toBe(textOf(result));
     // The file was not changed: nothing to revert.
     expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+  });
+
+  it('refuses `force` on write_file and edit_range from the agent, even in auto-edits, and writes nothing', async () => {
+    fs.writeFileSync(file('bracket.fluid.js'), 'v1\n');
+    dirtyFiles = [file('bracket.fluid.js')];
+    const host = new FakeHost();
+    host.turn = { turnId: 't1', mode: 'auto-edits' };
+    const client = await connect(new ToolGate(host));
+
+    const forcedWrite = await client.callTool({ name: 'write_file', arguments: { path: 'bracket.fluid.js', content: 'v2\n', force: true } });
+    expect(forcedWrite.isError).toBe(true);
+    expect(textOf(forcedWrite)).toBe(FORCE_REFUSED_MESSAGE);
+    expect(textOf(forcedWrite)).toContain('ask the user to save the file');
+
+    const forcedEdit = await client.callTool({
+      name: 'edit_range',
+      arguments: { path: 'bracket.fluid.js', start: { line: 0, column: 0 }, end: { line: 0, column: 2 }, newText: 'v3', force: true },
+    });
+    expect(textOf(forcedEdit)).toBe(FORCE_REFUSED_MESSAGE);
+
+    // Saved or not, the user's file is untouched and nothing was checkpointed.
+    dirtyFiles = [];
+    const savedButForced = await client.callTool({ name: 'write_file', arguments: { path: 'bracket.fluid.js', content: 'v4\n', force: true } });
+    expect(textOf(savedButForced)).toBe(FORCE_REFUSED_MESSAGE);
+    expect(read('bracket.fluid.js')).toBe('v1\n');
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+
+    // Each attempt is a card the user sees.
+    expect(host.tools().map((p) => [p.name, p.state])).toEqual([
+      ['write_file', 'denied'],
+      ['edit_range', 'denied'],
+      ['write_file', 'denied'],
+    ]);
+    expect(host.tools()[0].error).toContain('force');
+
+    // `force: false` is an ordinary write.
+    const plain = await client.callTool({ name: 'write_file', arguments: { path: 'bracket.fluid.js', content: 'v5\n', force: false } });
+    expect(plain.isError).not.toBe(true);
+    expect(read('bracket.fluid.js')).toBe('v5\n');
   });
 });

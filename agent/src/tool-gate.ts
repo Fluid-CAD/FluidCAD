@@ -43,6 +43,13 @@ export const STOPPED_MESSAGE = 'The user stopped the turn, so this action was no
 export const TIMED_OUT_MESSAGE =
   'Approval timed out: the user did not answer within an hour, so this action was not run. Do not retry it; ask the user.';
 export const CANCELLED_MESSAGE = 'The call was cancelled.';
+/**
+ * What the model is told when it passes `force: true` to a write. `force`
+ * overrides the dirty-buffer refusal, which protects the user's unsaved
+ * editor changes: only the user may do that.
+ */
+export const FORCE_REFUSED_MESSAGE =
+  'force is not available here; ask the user to save the file. Nothing was written. Call the tool again without `force` once they have.';
 
 /** The tools whose effect is a change to one workspace file: previewed as a diff, checkpointed before they run. */
 const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_range']);
@@ -190,6 +197,27 @@ export class ToolGate implements McpToolGate {
       // A call after a cancel, or from a CLI the session no longer drives:
       // nothing runs outside a turn the user started.
       return { allow: false, message: NO_TURN_MESSAGE };
+    }
+    if (FILE_EDIT_TOOLS.has(call.name) && isForced(call.input)) {
+      // The instructions forbid it; this enforces it. The card shows the attempt.
+      const messageId = this.host.assistantMessageId();
+      this.host.emit({
+        type: 'part-start',
+        messageId,
+        part: {
+          type: 'tool',
+          id: `tool-${randomUUID()}`,
+          source: 'fluidcad',
+          name: call.name,
+          title: toolTitle(call.name, call.input, this.host.workspacePath),
+          kind: toolKind(call.name),
+          state: 'denied',
+          input: call.input ?? {},
+          error: 'Refused: the agent may not overwrite unsaved editor changes (`force`).',
+        },
+      });
+      this.host.persist();
+      return { allow: false, message: FORCE_REFUSED_MESSAGE };
     }
     let preview: SourceEditPreview | null = null;
     if (FILE_EDIT_TOOLS.has(call.name)) {
@@ -434,6 +462,11 @@ function outcomeMessage(outcome: Exclude<ApprovalOutcome, 'allow' | 'allow-sessi
     case 'aborted':
       return CANCELLED_MESSAGE;
   }
+}
+
+/** Whether a write's input asks to override the dirty-buffer refusal (any truthy `force`). */
+function isForced(input: unknown): boolean {
+  return !!input && typeof input === 'object' && !!(input as Record<string, unknown>).force;
 }
 
 /** The file as it is now: what a revert puts back (§12.2). */

@@ -26,6 +26,7 @@ export {
   unifiedDiff,
   APPROVAL_TIMEOUT_MS,
   DECLINED_MESSAGE,
+  FORCE_REFUSED_MESSAGE,
   type ToolGateHost,
   type ToolGateOptions,
   type GateTimers,

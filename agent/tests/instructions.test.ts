@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCliText, composeInstructions, describeGeometry, formatSceneReferences, IN_APP_PREAMBLE, inAppPreamble, workspaceStateTag } from '../src/instructions.ts';
+import { buildCliText, composeInstructions, describeGeometry, formatSceneReferences, IN_APP_PREAMBLE, inAppPreamble, interruptedTurnNote, workspaceStateTag } from '../src/instructions.ts';
 import type { SceneReference } from '../src/types.ts';
 import { SERVER_INSTRUCTIONS } from '../../mcp/dist/server.js';
 
@@ -143,5 +143,30 @@ describe('instructions', () => {
       expect(preamble).toContain('get_scene_summary');
       expect(preamble).toContain('rather than reading the source files');
     }
+  });
+});
+
+describe('the note about a turn the app cut off (§12.3)', () => {
+  it('quotes the request, shortened, and lists the latest calls with how each ended', () => {
+    const calls = Array.from({ length: 30 }, (_, i) => ({ name: `tool_${i}`, outcome: 'done' }));
+    calls.push({ name: 'edit_range', target: 'plate.part.js', outcome: 'result unknown (the app restarted while it ran)' } as any);
+    const note = interruptedTurnNote({ request: `${'x'.repeat(700)}\nsecond line`, calls });
+    const lines = note.split('\n');
+    expect(lines[0]).toBe('<interrupted_turn>');
+    expect(lines[2]).toMatch(/^> x{599}…$/);
+    expect(note).not.toContain('second line');
+    expect(note).toContain('(the last 25; 6 earlier ones left out)');
+    expect(note).not.toContain('- tool_5 —');
+    expect(note).toContain('- tool_6 — done');
+    expect(note).toContain('- edit_range plate.part.js — result unknown (the app restarted while it ran)');
+    expect(lines.at(-1)).toBe('</interrupted_turn>');
+  });
+
+  it('says when no call had started, and goes before the workspace state', () => {
+    const note = interruptedTurnNote({ request: 'hi', calls: [] });
+    expect(note).toContain('No tool call of that turn had started.');
+    const text = buildCliText({ text: 'Continue.', workspace: { file: null, render: 'none', unit: 'mm' }, interruptedTurn: note });
+    expect(text.indexOf('<interrupted_turn>')).toBeGreaterThan(text.indexOf('Continue.'));
+    expect(text.indexOf('<interrupted_turn>')).toBeLessThan(text.indexOf('<workspace_state'));
   });
 });

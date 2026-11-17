@@ -48,6 +48,8 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     '  features it names, resolve it again before relying on it.',
     '- `<reverted_changes>`, when the user reverted changes you made in an earlier turn: those files are back to',
     '  what they were before that turn, whatever your history shows. Read them again before editing them.',
+    '- `<interrupted_turn>`, when the app restarted while you were working: what you had been asked and how each of',
+    '  your tool calls in that turn ended. Check the files and the model, then carry on from where you were.',
   ].join('\n');
 }
 
@@ -213,6 +215,48 @@ export function revertedChangesNote(files: string[]): string {
   );
 }
 
+/** One tool call of an interrupted turn, as the continue note lists it. */
+export type InterruptedToolCall = {
+  name: string;
+  /** What it worked on (a workspace-relative path), when it says. */
+  target?: string;
+  /** How it ended: "done", "result unknown (…)", "failed: …", "declined by the user", … */
+  outcome: string;
+};
+
+/** The longest the user's request is quoted in the continue note. */
+const MAX_REQUEST_CHARS = 600;
+/** The most tool calls the continue note lists (the latest ones). */
+const MAX_LISTED_CALLS = 25;
+
+/**
+ * What the CLI is told, with {@link CONTINUE_TEXT}, about the turn an
+ * engine restart cut off (§12.3): what the user had asked (shortened), and
+ * each tool call of that turn with how it ended, so the agent can check the
+ * model and carry on rather than start over or lose track.
+ */
+export function interruptedTurnNote(input: { request: string | null; calls: InterruptedToolCall[] }): string {
+  const lines = ['<interrupted_turn>'];
+  const request = input.request?.trim();
+  if (request) {
+    const quoted = request.length > MAX_REQUEST_CHARS ? `${request.slice(0, MAX_REQUEST_CHARS - 1).trimEnd()}…` : request;
+    lines.push('The user had asked:', ...quoted.split('\n').map((l) => `> ${l}`));
+  }
+  if (input.calls.length === 0) {
+    lines.push('No tool call of that turn had started.');
+  } else {
+    const shown = input.calls.slice(-MAX_LISTED_CALLS);
+    const skipped = input.calls.length - shown.length;
+    lines.push(`Your tool calls in that turn, in order, and how each ended${skipped > 0 ? ` (the last ${shown.length}; ${skipped} earlier ones left out)` : ''}:`);
+    for (const call of shown) {
+      lines.push(`- ${oneLine(call.name)}${call.target ? ` ${oneLine(call.target)}` : ''} — ${oneLine(call.outcome)}`);
+    }
+    lines.push('A call whose result is unknown may or may not have changed the files: read them and look at the model before you redo it.');
+  }
+  lines.push('</interrupted_turn>');
+  return lines.join('\n');
+}
+
 /** The text the CLI gets for a user message (§7.2). */
 export function buildCliText(input: {
   text: string;
@@ -222,10 +266,15 @@ export function buildCliText(input: {
   workspace: WorkspaceState;
   /** Files reverted since the CLI was last told (§12.2). */
   revertedFiles?: string[];
+  /** The note about a turn an engine restart cut off ({@link interruptedTurnNote}), when continuing it. */
+  interruptedTurn?: string;
 }): string {
   const blocks = [input.text.trim()];
   const references = input.references && input.references.length > 0 ? formatSceneReferences(input.references, { image: input.imageAttached }) : null;
   const tail: string[] = [];
+  if (input.interruptedTurn) {
+    tail.push(input.interruptedTurn);
+  }
   if (input.revertedFiles && input.revertedFiles.length > 0) {
     tail.push(revertedChangesNote(input.revertedFiles));
   }

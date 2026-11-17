@@ -13,7 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { AgentBackend, AgentInstall, AgentRun, BackendEvent, TurnError } from './backend.ts';
 import { EventLog } from './event-log.ts';
-import { buildCliText, CONTINUE_TEXT, type WorkspaceState } from './instructions.ts';
+import { buildCliText, CONTINUE_TEXT, interruptedTurnNote, type InterruptedToolCall, type WorkspaceState } from './instructions.ts';
 import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-endpoint.ts';
 import { SessionStore, type Checkpoint, type SessionRecord } from './session-store.ts';
 import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from './tool-gate.ts';
@@ -236,7 +236,7 @@ export class AgentSession {
    * Accepts a user message and starts its turn; the turn runs on after this
    * returns. Throws SessionBusyError while a turn is running.
    */
-  send(input: SendMessage): { turnId: string } {
+  send(input: SendMessage, extra: { interruptedTurn?: string } = {}): { turnId: string } {
     if (this.disposed) {
       throw new Error('The session was deleted.');
     }
@@ -289,14 +289,66 @@ export class AgentSession {
       imageAttached: imagePath !== undefined,
       workspace: this.deps.workspaceState(),
       revertedFiles,
+      ...(extra.interruptedTurn ? { interruptedTurn: extra.interruptedTurn } : {}),
     });
     void this.startTurn(turnId, { cliText, imagePath, model: input.model, effort: input.effort, revertedFiles });
     return { turnId };
   }
 
-  /** Resume after an engine restart cut a turn off (§12.3). */
+  /**
+   * Resume after an engine restart cut a turn off (§12.3). The transcript
+   * shows {@link CONTINUE_TEXT}; the CLI also gets what the cut-off turn was
+   * doing ({@link interruptedTurnNote}): the request and how each tool call
+   * ended.
+   */
   continueAfterRestart(mode: PermissionMode = 'ask'): { turnId: string } {
-    return this.send({ text: CONTINUE_TEXT, mode });
+    const note = this.interruptedTurnSummary();
+    return this.send({ text: CONTINUE_TEXT, mode }, note ? { interruptedTurn: note } : {});
+  }
+
+  /** The continue note for the last turn, when an engine restart cut it off. */
+  private interruptedTurnSummary(): string | null {
+    const turns = this.record.turns;
+    const last = turns[turns.length - 1];
+    if (!last || last.endReason !== 'interrupted') {
+      return null;
+    }
+    // A turn that was itself a Continue: quote the request it was carrying on.
+    let request: string | null = null;
+    for (let i = turns.length - 1; i >= 0 && request === null; i--) {
+      const text = this.userText(turns[i].userMessageId);
+      if (text !== null && text !== CONTINUE_TEXT) {
+        request = text;
+      }
+    }
+    const calls: InterruptedToolCall[] = [];
+    for (const message of this.record.messages) {
+      if (message.turnId !== last.id || message.role !== 'assistant') {
+        continue;
+      }
+      for (const part of message.parts) {
+        if (part.type === 'tool') {
+          calls.push({ name: part.name, ...this.toolTarget(part), outcome: toolOutcome(part) });
+        }
+      }
+    }
+    return interruptedTurnNote({ request, calls });
+  }
+
+  private userText(messageId: string): string | null {
+    const message = findMessage(this.record.messages, messageId);
+    const text = message?.parts.find((p) => p.type === 'text');
+    return text && text.type === 'text' ? text.text : null;
+  }
+
+  /** What a tool call worked on, workspace-relative: its `path` (or `file_path`), when it has one. */
+  private toolTarget(part: ToolPart): { target?: string } {
+    const input = (part.input && typeof part.input === 'object' ? part.input : {}) as Record<string, unknown>;
+    const raw = typeof input.path === 'string' ? input.path : typeof input.file_path === 'string' ? input.file_path : null;
+    if (!raw) {
+      return {};
+    }
+    return { target: path.isAbsolute(raw) ? relativeTo(this.deps.workspacePath, raw) : raw };
   }
 
   /**
@@ -901,6 +953,27 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
 
 function agentName(kind: AgentKind): string {
   return kind === 'codex' ? 'Codex' : 'Claude Code';
+}
+
+/** How a tool call of a cut-off turn ended, for the continue note. */
+function toolOutcome(part: ToolPart): string {
+  switch (part.state) {
+    case 'done':
+      return 'done';
+    case 'denied':
+      return 'declined by the user';
+    case 'running':
+    case 'awaiting-approval':
+      return 'result unknown (the app restarted while it ran)';
+    case 'error':
+      if (part.approval && !part.approval.decision) {
+        return 'not run: it was waiting for the user\'s approval when the app restarted';
+      }
+      if (part.error === RESTART_TOOL_ERROR) {
+        return 'result unknown (the app restarted while it ran)';
+      }
+      return `failed: ${(part.error ?? 'no reason given').split('\n')[0].slice(0, 160)}`;
+  }
 }
 
 function samePath(a: string, b: string): boolean {

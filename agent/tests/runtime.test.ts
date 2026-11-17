@@ -532,7 +532,7 @@ describe('restart recovery', () => {
       updatedAt: '2026-11-17T10:00:00.000Z',
       agent: { kind: 'claude', ref: 'cli-ref', model: null },
       messages: [
-        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'go' }] },
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'Add 2 mm fillets to the top edges of the plate' }] },
         {
           id: 'a',
           role: 'assistant',
@@ -540,7 +540,9 @@ describe('restart recovery', () => {
           createdAt: '',
           parts: [
             { type: 'tool', id: 'x', source: 'fluidcad', name: 'get_scene_summary', title: 't', kind: 'read', state: 'done', input: {} },
-            { type: 'tool', id: 'y', source: 'fluidcad', name: 'write_file', title: 't', kind: 'edit', state: 'running', input: {} },
+            { type: 'tool', id: 'w', source: 'fluidcad', name: 'write_file', title: 't', kind: 'edit', state: 'done', input: { path: path.join(workspace, 'notes.part.js') } },
+            { type: 'tool', id: 'v', source: 'fluidcad', name: 'measure', title: 't', kind: 'read', state: 'error', input: {}, error: 'No such shape.\nmore detail' },
+            { type: 'tool', id: 'y', source: 'fluidcad', name: 'write_file', title: 't', kind: 'edit', state: 'running', input: { path: path.join(workspace, 'plate.part.js') } },
             {
               type: 'tool',
               id: 'z',
@@ -562,9 +564,9 @@ describe('restart recovery', () => {
     const snap = await snapshot(id);
     expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
     const parts = snap.messages[1].parts as ToolPart[];
-    expect(parts.map((p) => p.state)).toEqual(['done', 'error', 'error']);
-    expect(parts[1].error).toBe('The app restarted while this was running; its effect is unknown.');
-    expect(parts[2].error).toBe('The app restarted while this was running; its effect is unknown.');
+    expect(parts.map((p) => p.state)).toEqual(['done', 'done', 'error', 'error', 'error']);
+    expect(parts[3].error).toBe('The app restarted while this was running; its effect is unknown.');
+    expect(parts[4].error).toBe('The app restarted while this was running; its effect is unknown.');
     // The approval no one answered is settled: answering it now is a conflict.
     expect((await json('POST', `${base}/sessions/${id}/approvals/ap-1`, { decision: 'allow' })).status).toBe(409);
     expect(snap.turns[0].endReason).toBe('interrupted');
@@ -576,7 +578,26 @@ describe('restart recovery', () => {
     const done = await idle(id);
     expect(done.status).toEqual({ state: 'idle' });
     expect(backend.opened[0].resume).toBe('cli-ref');
-    expect(backend.runs[0].sent[0]).toContain('The app restarted while you were working.');
+    const sent = backend.runs[0].sent[0];
+    expect(sent).toContain('The app restarted while you were working.');
+    // What the cut-off turn was doing: the request, and each call with how it ended.
+    expect(sent).toContain(
+      [
+        '<interrupted_turn>',
+        'The user had asked:',
+        '> Add 2 mm fillets to the top edges of the plate',
+        'Your tool calls in that turn, in order, and how each ended:',
+        '- get_scene_summary — done',
+        '- write_file notes.part.js — done',
+        '- measure — failed: No such shape.',
+        '- write_file plate.part.js — result unknown (the app restarted while it ran)',
+        "- edit_range — not run: it was waiting for the user's approval when the app restarted",
+      ].join('\n'),
+    );
+    expect(sent.indexOf('<interrupted_turn>')).toBeLessThan(sent.indexOf('<workspace_state'));
+    // The transcript shows the short message only.
+    const user = done.messages.filter((m) => m.role === 'user').at(-1)!;
+    expect(user.parts).toEqual([{ type: 'text', id: expect.any(String), text: expect.stringMatching(/^The app restarted while you were working\./) }]);
     expect(store.read(id)?.interrupted).toBeUndefined();
     expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(409);
   });

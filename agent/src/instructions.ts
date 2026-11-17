@@ -1,0 +1,83 @@
+// What the CLI is told (docs/agent-chat-plan.md §7.2, §8.3).
+//
+// The system prompt is the in-app preamble followed by the MCP server's own
+// instructions in full: clients truncate long handshake instructions, so
+// they are not left to the handshake. Per-turn facts go in the user message
+// (`buildCliText`), never in the system prompt.
+
+import { SERVER_INSTRUCTIONS } from '../../mcp/dist/server.js';
+import type { AgentRenderState } from '../../server/dist/agent-host.js';
+import type { SceneReference } from './types.ts';
+
+export const IN_APP_PREAMBLE = [
+  'You are running inside the FluidCAD app, next to the user, on their open project.',
+  'They see the 3D viewport and the feature tree as you work; do not describe what a screenshot would show them.',
+  '',
+  'Your FluidCAD tools are the `fluidcad_app` MCP server. Its workspace is fixed to this project: there is no',
+  '`workspace` argument, and list_workspaces returns this project only.',
+  'Read and change the project only with the `fluidcad_app` tools. Shell commands and direct file edits are',
+  'not available; your own Read, Glob and Grep tools may read files inside the project.',
+  '',
+  'Changes may wait for the user\'s approval. When a tool reports that the user declined, or that FluidCAD did',
+  'not run it, do not retry it: say what you wanted to do and ask the user how to proceed.',
+  'A `dirty-buffer` refusal means the user has unsaved changes in that file: ask them to save it. Never pass',
+  '`force`.',
+  '',
+  'Each user message ends with facts about the app at the moment it was sent:',
+  '- `<workspace_state file="…" render="…" unit="…"/>`: the model file on screen (absolute path; absent when',
+  '  none is open), how its last render went (`rendered`, `build-error`, `compile-error`, `none`) and the',
+  '  project\'s length unit.',
+  '- `<scene_references>`, when the user attached geometry from the viewport: `[n]` in their text refers to',
+  '  `<ref n="…">` and to the geometry drawn in that colour in the attached image. Each ref\'s `selector` is the',
+  '  code to write for that geometry.',
+].join('\n');
+
+/** The full system prompt for a chat session's CLI. */
+export function composeInstructions(): string {
+  return `${IN_APP_PREAMBLE}\n\n---\n\n${SERVER_INSTRUCTIONS}`;
+}
+
+export type WorkspaceState = {
+  file: string | null;
+  render: AgentRenderState['state'];
+  unit: string;
+};
+
+/**
+ * The `<scene_references>` block for a message's references (§11.3).
+ * Phase 6 writes it; until then references are kept in the transcript only.
+ */
+export function formatSceneReferences(_references: SceneReference[]): string | null {
+  return null;
+}
+
+/** The text the CLI gets for a user message (§7.2). */
+export function buildCliText(input: { text: string; references?: SceneReference[]; workspace: WorkspaceState }): string {
+  const blocks = [input.text.trim()];
+  const references = input.references && input.references.length > 0 ? formatSceneReferences(input.references) : null;
+  const tail: string[] = [];
+  if (references) {
+    tail.push(references);
+  }
+  tail.push(workspaceStateTag(input.workspace));
+  blocks.push(tail.join('\n'));
+  return blocks.join('\n\n');
+}
+
+export function workspaceStateTag(state: WorkspaceState): string {
+  const attrs = [
+    ...(state.file ? [`file="${escapeAttr(state.file)}"`] : []),
+    `render="${escapeAttr(state.render)}"`,
+    `unit="${escapeAttr(state.unit)}"`,
+  ];
+  return `<workspace_state ${attrs.join(' ')}/>`;
+}
+
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** What the CLI is told when the user continues after an engine restart (§12.3). */
+export const CONTINUE_TEXT =
+  'The app restarted while you were working. Your last tool call may or may not have completed. ' +
+  'Check the current state of the model before continuing.';

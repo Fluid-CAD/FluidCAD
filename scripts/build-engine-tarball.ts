@@ -95,20 +95,18 @@ const PRUNE_FILE_SUFFIXES = ['.d.ts', '.d.mts', '.d.cts', '.js.map', '.mjs.map',
 const PRUNE_DIR_NAMES = new Set(['test', 'tests', '__tests__', 'docs', 'example', 'examples', '.github']);
 
 /**
- * The MCP server is excluded from the engine (P0-3, option 2): it is launched
- * by an agent host as its own `npx fluidcad mcp` process and reads the global
- * instance registry, so the desktop app never needs it in-process. `bin/
- * commands/mcp.js` imports the entry lazily, so every other CLI command still
- * works.
+ * Nothing is cut from the engine any more. The MCP server used to be (it ran
+ * only as its own `npx fluidcad mcp` process), but the in-app agent
+ * (`agent/`) serves it from inside the engine, so `mcp/`, `zod` and
+ * `@modelcontextprotocol/sdk` ship with it.
  *
- * The dependencies go with it — and they are dropped from the *packed
- * package.json*, before `npm install` runs, rather than deleted afterwards.
- * Deleting them afterwards leaves their transitive closure behind (`hono`,
- * `ajv`, `zod-to-json-schema`, …) and, worse, leaves `zod-to-json-schema`
- * pointing at a `zod` that is no longer there.
+ * Should something be cut again: drop its dependencies from the *packed
+ * package.json*, before `npm install` runs, rather than deleting them
+ * afterwards. Deleting them afterwards leaves their transitive closure
+ * behind and can leave a dependent pointing at a package that is gone.
  */
-const EXCLUDED_DEPENDENCIES = ['zod', '@modelcontextprotocol/sdk'];
-const EXCLUDED_ENGINE_DIRS = ['mcp'];
+const EXCLUDED_DEPENDENCIES: string[] = [];
+const EXCLUDED_ENGINE_DIRS: string[] = [];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -206,15 +204,23 @@ export function engineArtifactStem(version: string, targetKey: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * `npm pack` the checkout, then repack it without the MCP server. Everything
- * the engine ships is decided by `package.json#files`, so packing (rather than
- * copying by hand) keeps the tarball and the published npm package the same
- * artifact by construction — the engine is that package minus MCP, not a fork.
+ * `npm pack` the checkout, then repack it without the excluded directories and
+ * dependencies (none today). Everything the engine ships is decided by
+ * `package.json#files`, so packing (rather than copying by hand) keeps the
+ * tarball and the published npm package the same artifact by construction —
+ * the engine is that package, not a fork.
  */
 function packRepo(outDir: string, version: string): string {
   // `ui/dist-start` is the desktop start screen: the shell serves it from the
   // engine it ships with, and falls back to a bare page when it is missing.
-  const required = ['lib/dist/index.js', 'server/dist/index.js', 'ui/dist/index.html', 'ui/dist-start/start.html'];
+  const required = [
+    'lib/dist/index.js',
+    'server/dist/index.js',
+    'ui/dist/index.html',
+    'ui/dist-start/start.html',
+    'mcp/dist/server.js',
+    'agent/dist/index.js',
+  ];
   const missing = required.filter((rel) => !fs.existsSync(path.join(REPO_ROOT, rel)));
   if (missing.length > 0) {
     throw new Error(
@@ -250,7 +256,7 @@ function packRepo(outDir: string, version: string): string {
   npm(['pack', '--ignore-scripts', '--pack-destination', engineDir, extracted], outDir);
   const engineTgz = path.join(engineDir, `fluidcad-${version}.tgz`);
   if (!fs.existsSync(engineTgz)) {
-    throw new Error(`Repacking the MCP-less engine did not produce ${engineTgz}`);
+    throw new Error(`Repacking the engine did not produce ${engineTgz}`);
   }
   return engineTgz;
 }
@@ -422,6 +428,21 @@ function createTarball(stagingDir: string, outFile: string): void {
   execFileSync('tar', args, { cwd: stagingDir, stdio: 'inherit' });
 }
 
+/**
+ * Import `agent/dist/index.js` from the pruned tree, which also loads the MCP
+ * server and its dependencies: a dependency the prune removed, or one missing
+ * from `dependencies`, fails here rather than in the desktop app. Only for the
+ * host's own target, whose optional binaries are the ones installed.
+ */
+function smokeImportAgent(nodeModules: string): void {
+  const entry = path.join(nodeModules, 'fluidcad', 'agent', 'dist', 'index.js');
+  const script =
+    "const { pathToFileURL } = await import('node:url');" +
+    'const mod = await import(pathToFileURL(process.argv[1]).href);' +
+    "if (typeof mod.createAgentRouter !== 'function') { throw new Error('agent/dist/index.js does not export createAgentRouter'); }";
+  execFileSync(process.execPath, ['--input-type=module', '-e', script, entry], { stdio: 'inherit' });
+}
+
 export type BuildResult = {
   manifest: EngineManifest;
   tarballPath: string;
@@ -451,6 +472,11 @@ export function buildEngineTarball(options: {
     `  pruned ${prune.removedPackages.length} packages: ` +
       `${formatBytes(prune.bytesBefore)} → ${formatBytes(prune.bytesAfter)}`,
   );
+
+  if (engineTarget.platform === process.platform && engineTarget.arch === process.arch) {
+    console.log('  smoke-importing the agent runtime…');
+    smokeImportAgent(nodeModules);
+  }
 
   const tarballPath = path.join(outDir, `${stem}.tar.gz`);
   console.log('  packing…');

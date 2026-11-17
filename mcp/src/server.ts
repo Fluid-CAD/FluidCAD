@@ -66,6 +66,11 @@ import { gateToolHandler, type McpToolGate } from './tool-gate.ts';
 import { toolAnnotations } from './tool-classes.ts';
 
 export type { McpToolCall, McpToolGate, McpToolGateDecision } from './tool-gate.ts';
+export type { RegistryEntry } from './types.ts';
+// A host that builds many servers (one per agent chat session) loads the
+// indexes once and passes them to every `buildServer`.
+export { loadDocsIndex, type DocsIndex } from './docs-index.ts';
+export { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
 export { TOOL_CLASSES, isReadOnlyClass, type McpToolClass } from './tool-classes.ts';
 export {
   createMcpHttpHandler,

@@ -377,7 +377,25 @@ app.use('/api', createUnitRouter({
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createPublishRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION, engine: fluidCadServer }));
 app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH, releases: new HubReleases({ engineVersion: PACKAGE_VERSION }) }));
-app.use('/api', createHubRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION }));
+app.use('/api', createHubRouter({
+  workspacePath: WORKSPACE_PATH,
+  engineVersion: PACKAGE_VERSION,
+  // An agent installed or pinned a package (`POST /api/hub/install`). The
+  // page didn't do it, so it is told what it tells itself after its own
+  // install: the toolbar's catalog, the Packages dialog and the editors'
+  // package types follow. A pin written to fluidcad.json reaches the
+  // watcher as well; this also covers an install that left the pin alone
+  // (a missing package downloaded) and a project the watcher doesn't cover.
+  onInstalled: () => {
+    if (!WORKSPACE_PATH) {
+      return;
+    }
+    const config = `${normalizePath(WORKSPACE_PATH)}/${PROJECT_CONFIG_FILENAME}`;
+    featureCatalog.noteFileChange(config);
+    fluidCadServer.refreshEditorTypes();
+    broadcastToUI({ type: 'features-changed', absPath: config });
+  },
+}));
 app.use('/api', createHostActionsRouter({ send: sendToHost, hasHost: () => hosts.effectiveCapabilities() !== null }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));

@@ -1,9 +1,11 @@
 import { Router, type Request, type Response } from 'express';
 import { loadPreferences } from '../preferences.ts';
 import { PackageArchiveError } from '../packages/package-archive.ts';
+import { PackageInstallError } from '../packages/package-installer.ts';
+import { PackagePinError } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
 import { HubAppLogin } from '../hub/hub-app-login.ts';
-import { HubBridge, HubBridgeError, type HubProxiedFile } from '../hub/hub-bridge.ts';
+import { HubBridge, HubBridgeError, type HubBridgeInstall, type HubProxiedFile } from '../hub/hub-bridge.ts';
 import { HubClient } from '../hub/hub-client.ts';
 import { HubConfigError } from '../hub/hub-config.ts';
 import type { HubFileCache } from '../hub/hub-file-cache.ts';
@@ -30,6 +32,12 @@ export type HubRouterOptions = {
   loginTimeoutMs?: number;
   /** Tests: the sign-in the routes drive, to stop one left waiting. */
   onLogin?: (login: HubAppLogin) => void;
+  /**
+   * After `POST /api/hub/install` installed or pinned something: the page
+   * didn't do it, so the engine tells it (the catalogs, the Packages dialog
+   * and the editor's package types follow).
+   */
+  onInstalled?: (installed: HubBridgeInstall) => void;
 };
 
 /**
@@ -66,6 +74,17 @@ export type HubRouterOptions = {
  *   and inspect; answers the `PackageInspection` the consent dialog shows
  *   (plus `notes` and `source`), whose token `POST /api/packages/install`
  *   takes. `target` defaults to the "New packages go to" setting.
+ * - `POST /api/hub/install { name, version?, target?, upgrade? }` (a JSON
+ *   body): the whole install in one call, for an agent through the MCP
+ *   tool `install_package` (docs/agent-hub-plan.md): `fluidcad install
+ *   <name>[@version]`'s rule (`HubPackageInstall`). It uses an installed
+ *   copy or downloads and verifies, installs into `target` (default: the
+ *   "New packages go to" setting) and pins into the open project. Answers
+ *   `{ name, version, source, status, target, directory, integrity, pin,
+ *   upgradedFrom, notes, manifest }`. A pin that would change is 409
+ *   `version-change` unless `upgrade` is true and the version is newer; the
+ *   same version installed with other contents is 409 `conflict` (there is
+ *   no replace here); a name without its publisher is 400 `no-publisher`.
  * - `POST /api/hub/login` (a JSON body, `{}`), `GET /api/hub/login`,
  *   `DELETE /api/hub/login`: signing in from the app (`HubAppLogin`). The
  *   POST answers `{ login, resumed }` with the page to open in the browser
@@ -201,6 +220,36 @@ export function createHubRouter(options: HubRouterOptions): Router {
     }
   });
 
+  router.post('/hub/install', async (req, res) => {
+    // A JSON body: a page on another site can't install a package without CORS letting it.
+    if (!req.is('application/json')) {
+      res.status(415).json({ error: 'Send a JSON body ({ name }).', code: 'bad-request' });
+      return;
+    }
+    const { name, version, target, upgrade } = req.body ?? {};
+    const badVersion = version !== undefined && version !== null && typeof version !== 'string';
+    const badTarget = target !== undefined && target !== null && !PackageRoots.isTarget(target);
+    const badUpgrade = upgrade !== undefined && typeof upgrade !== 'boolean';
+    if (typeof name !== 'string' || badVersion || badTarget || badUpgrade) {
+      res.status(400).json({ error: 'Expected { name: "@scope/name", version?: "1.2.0", target?: "library" | "project", upgrade?: boolean }.', code: 'bad-request' });
+      return;
+    }
+    const abort = HubRoutes.abortOnClose(res);
+    try {
+      const chosen: PackageTarget = target ?? (await HubRoutes.preferredTarget(project));
+      const installed = await bridge.install({ name, version: version ?? null, target: chosen, upgrade: upgrade === true }, { signal: abort.signal });
+      try {
+        options.onInstalled?.(installed);
+      } catch (err) {
+        console.error('[hub] onInstalled failed:', err);
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json(installed);
+    } catch (err) {
+      HubRefusal.send(res, err, bridge);
+    }
+  });
+
   router.post('/hub/login', async (req, res) => {
     // A JSON body: a page on another site can't start a sign-in without CORS letting it.
     if (!req.is('application/json')) {
@@ -301,7 +350,10 @@ class HubRoutes {
  * - the hub's refusal → its status and code;
  * - the installer's own → the status its code calls for;
  * - the bridge's own → its status;
- * - a downloaded archive that can't be installed → 422.
+ * - a downloaded archive that can't be installed → 422;
+ * - `POST /api/hub/install`'s install and pin refusals, as the package
+ *   routes answer them → 409 for what conflicts with what is there (other
+ *   contents installed, a pin that would change), 400 otherwise.
  */
 class HubRefusal {
   /** The installer's own codes, by the status they answer. */
@@ -352,6 +404,14 @@ class HubRefusal {
     }
     if (err instanceof PackageArchiveError) {
       return { status: 422, body: HubRefusal.body(err.message, err.code) };
+    }
+    if (err instanceof PackageInstallError) {
+      const status = err.code === 'conflict' || err.code === 'not-a-package-folder' ? 409 : err.code === 'unknown-token' ? 404 : 400;
+      return { status, body: HubRefusal.body(err.message, err.code) };
+    }
+    if (err instanceof PackagePinError) {
+      const status = err.code === 'version-change' || err.code === 'integrity-mismatch' ? 409 : 400;
+      return { status, body: HubRefusal.body(err.message, err.code) };
     }
     if (err instanceof HubConfigError) {
       return { status: 500, body: HubRefusal.body(err.message, 'hub-config') };

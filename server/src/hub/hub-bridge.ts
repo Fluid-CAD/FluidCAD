@@ -9,6 +9,7 @@ import { HubConfig } from './hub-config.ts';
 import { HubCredentials } from './hub-credentials.ts';
 import { HubFileCache, type HubCachedFile } from './hub-file-cache.ts';
 import { HubInstaller } from './hub-installer.ts';
+import { HubPackageInstall, type HubPackageInstallOutcome } from './hub-package-install.ts';
 import { HubLocalState, type HubLocalMarks } from './hub-local-state.ts';
 import { HubMetaPaths } from './hub-meta-paths.ts';
 import { HubProxyPaths } from './hub-proxy-paths.ts';
@@ -41,6 +42,8 @@ import { HubTransport, type HubClientKind } from './hub-transport.ts';
  *   (`HubInstaller.resolve` then `fetch`), answered as the `PackageInspection`
  *   the consent dialog shows and whose token `POST /api/packages/install`
  *   takes.
+ * - {@link install}: the whole install in one call (`HubPackageInstall`),
+ *   for an agent: `POST /api/hub/install`.
  * - {@link socialState}, {@link setLiked}: the signed-in account's own state
  *   on a package and its like (H13), for the Hub panel's Like.
  *
@@ -127,6 +130,10 @@ export type HubBridgeVersion = {
   isLatest: boolean;
   /** The archive's root `README.md` on the file proxy, or null when it has none. */
   readmeUrl: string | null;
+  /** The archive's doc pages (`docs/**.md`), by the path {@link HubBridge.file} takes. */
+  docs: string[];
+  /** Every file of the archive, sorted, with its size. */
+  files: { path: string; size: number }[];
   /** Null only while the version is still uploading. */
   manifest: { features: HubBridgeVersionFeature[]; parts: HubBridgeVersionPart[] } | null;
   local: HubLocalMarks;
@@ -152,6 +159,19 @@ export type HubInspectRequest = {
   /** The root the download is inspected under, and where the dialog proposes to install it. */
   target: PackageTarget;
 };
+
+/** `POST /api/hub/install`'s body, with the target already chosen. */
+export type HubInstallRequest = {
+  name: string;
+  /** Null: the version the project pins, else the latest this engine runs. */
+  version: string | null;
+  target: PackageTarget;
+  /** Let the project's pin move up to the version installed. */
+  upgrade?: boolean;
+};
+
+/** `POST /api/hub/install`: what an install in one call did. */
+export type HubBridgeInstall = HubPackageInstallOutcome;
 
 /**
  * `POST /api/hub/inspect`: the `PackageInspection` the consent dialog shows
@@ -181,6 +201,8 @@ export class HubBridge {
   /** The largest file or screenshot the bridge passes on. */
   static readonly MAX_FILE_BYTES = 64 * 1024 * 1024;
   private static readonly MEDIA_ID = /^[A-Za-z0-9-]{1,64}$/;
+  /** A doc page a package ships: markdown under `docs/`. */
+  private static readonly DOC_PAGE = /^docs\/.+\.md$/i;
   /** What acts as the account refused for want of one: no credentials, or a token the hub refused. */
   static readonly SIGNED_OUT = 'signed-out';
   /** A CLI sign-in made before the scope the request needs: a new sign-in grants it. */
@@ -290,6 +312,8 @@ export class HubBridge {
       publishedAt: detail.publishedAt,
       isLatest: detail.isLatest,
       readmeUrl: readme ? HubMetaPaths.fileUrl(name, detail.version, readme.path) : null,
+      docs: detail.entries.filter((entry) => HubBridge.DOC_PAGE.test(entry.path)).map((entry) => entry.path),
+      files: detail.entries.map((entry) => ({ path: entry.path, size: entry.size })),
       manifest: detail.manifest
         ? {
           features: detail.manifest.features.map((feature) => ({
@@ -344,14 +368,7 @@ export class HubBridge {
     if (request.target === 'project' && !this.project) {
       throw new HubBridgeError(400, 'no-project', 'There is no open project to install into.');
     }
-    const config = this.config();
-    const installer = new HubInstaller({
-      config,
-      token: HubCredentials.read(config.origin, this.options.env)?.token ?? null,
-      engineVersion: this.engineVersion,
-      sdkVersion: this.sdkVersion,
-      transport: this.transport,
-    });
+    const installer = this.installer(this.config());
     const resolved = await installer.resolve({ name: request.name, version: request.version });
     const fetched = await installer.fetch(resolved, {
       root: PackageRoots.rootFor(request.target, this.project),
@@ -364,6 +381,29 @@ export class HubBridge {
       notes: resolved.notes,
       source: { hub: resolved.hub, status: resolved.status, access: resolved.access },
     };
+  }
+
+  /**
+   * Installs `name` (at `version`, else the one the project pins, else the
+   * latest this engine runs) and pins it into the open project, in one call
+   * (`HubPackageInstall`): an installed copy is used without a download,
+   * anything else is downloaded and verified first. A name without its
+   * publisher is `no-publisher`; the project pinning another version is the
+   * pin's own `version-change` unless `upgrade`.
+   */
+  async install(request: HubInstallRequest, options: { signal?: AbortSignal } = {}): Promise<HubBridgeInstall> {
+    if (PackageName.isBare(request.name)) {
+      throw HubInstaller.noPublisherRefusal(request.name);
+    }
+    HubBridge.checkName(request.name);
+    if (request.version !== null && !Semver.isValid(request.version)) {
+      throw new HubBridgeError(400, 'bad-request', `${JSON.stringify(request.version)} is not a version, as in ${request.name}@1.2.0.`);
+    }
+    if (request.target === 'project' && !this.project) {
+      throw new HubBridgeError(400, 'no-project', 'There is no open project to install into.');
+    }
+    const install = new HubPackageInstall({ installer: this.installer(this.config()), project: this.project });
+    return install.run({ ...request, signal: options.signal });
   }
 
   /** The signed-in account's own state on `name`: whether it likes it, its lists, its Helpful marks. */
@@ -483,6 +523,17 @@ export class HubBridge {
   /** The hub's 403 for a sign-in made before a scope it now grants (`details.signInAgain`). */
   private static asksToSignInAgain(details: unknown): boolean {
     return typeof details === 'object' && details !== null && (details as { signInAgain?: unknown }).signInAgain === true;
+  }
+
+  /** An installer for `config`: this engine, the signed-in token (an owner installs their open version), the bridge's transport. */
+  private installer(config: HubConfig): HubInstaller {
+    return new HubInstaller({
+      config,
+      token: HubCredentials.read(config.origin, this.options.env)?.token ?? null,
+      engineVersion: this.engineVersion,
+      sdkVersion: this.sdkVersion,
+      transport: this.transport,
+    });
   }
 
   /** A client for `config`, sending the signed-in token. */

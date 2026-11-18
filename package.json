@@ -20,6 +20,9 @@
     "stl"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "bin": {
     "fluidcad": "./bin/fluidcad.js"
   },
@@ -88,7 +91,13 @@
     "release": "git tag -a \"v$npm_package_version\" -m \"chore: release v$npm_package_version\" && git push --follow-tags"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.106",
+    "@ai-sdk/mcp": "^2.0.101",
+    "@ai-sdk/openai": "^4.0.121",
+    "@ai-sdk/openai-compatible": "^3.0.93",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openrouter/ai-sdk-provider": "^3.1.0",
+    "ai": "^7.0.176",
     "chokidar": "^5.0.0",
     "color-name": "^2.1.0",
     "commander": "^14.0.3",

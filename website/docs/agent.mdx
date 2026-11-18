@@ -5,7 +5,7 @@ title: "Agent"
 
 # Agent
 
-The **Agent** button, last on the left rail, opens a chat beside the model. You ask a question or describe a change, and an AI agent answers by working on the open project: it reads the code and the scene, measures, takes screenshots and edits the model files. The agent is Claude Code or Codex, installed on your computer and signed in with your own account. FluidCAD runs it; it does not include it, and it never sees your sign-in.
+The **Agent** button, last on the left rail, opens a chat beside the model. You ask a question or describe a change, and an AI agent answers by working on the open project: it reads the code and the scene, measures, takes screenshots and edits the model files. The agent is Claude Code or Codex, installed on your computer and signed in with your own account. FluidCAD runs it; it does not include it, and it never sees your sign-in. Without either, the agent can also run on your own API key or on a local model (see [On an API key or a local model](#on-an-api-key-or-a-local-model)).
 
 The panel shares the left slot with the code editor and the Hub panel: opening one closes the others.
 
@@ -18,7 +18,7 @@ One of these, installed on the computer that runs FluidCAD:
 | Claude Code | 2.1.259 or later | [Claude Code setup](https://code.claude.com/docs/en/setup) |
 | Codex | 0.162.0 or later | [Codex on GitHub](https://github.com/openai/codex) |
 
-FluidCAD looks for the program on your `PATH` and in the usual install folders (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `~/.npm-global/bin`, and on Windows the npm and per-user program folders). When it finds neither, the panel says so, links to the install pages, and offers **Check again**. With both installed, a new chat offers a choice between them.
+FluidCAD looks for the program on your `PATH` and in the usual install folders (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `~/.npm-global/bin`, and on Windows the npm and per-user program folders). When it finds neither, the panel says so, links to the install pages, offers **Add an API key** for the other way to run it, and offers **Check again**. With both installed, a new chat offers a choice between them.
 
 ## Signing in
 
@@ -39,6 +39,21 @@ Then click **Check again** in the panel. When the sign-in is missing or expired,
 If `ANTHROPIC_API_KEY` is set in the environment FluidCAD was started from, Claude Code on its own uses that key instead of your Claude subscription, and its use is billed to the key. FluidCAD checks whether a Claude subscription is signed in (by asking Claude Code with the key left out; it never reads your credentials). If one is, FluidCAD leaves the key out of Claude Code's environment, so the Agent runs on your subscription. If none is, the key stays, since it is then the only way Claude Code can sign in.
 
 The switch **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent shows which applies: it is on by default when a Claude subscription is signed in, off otherwise. Turning it on or off makes that your choice, whatever is signed in later. The panel shows what is in use on the agent chip under the message box: **Claude (Subscription)** or **Claude (API)**.
+
+## On an API key or a local model
+
+Without Claude Code or Codex, the agent can run on a model provider you have an API key for (Anthropic, OpenAI or OpenRouter), or on a model running on your own computer, served by Ollama, LM Studio or any OpenAI-compatible server. FluidCAD then runs the agent itself, with the same tools, approvals and reverting as above.
+
+**API keys.** In Settings › Agent, under **API keys**, paste the key next to the provider and click **Save**. The key is stored on this computer, in `agent-credentials.json` in FluidCAD's home folder (`~/.fluidcad`), readable only by your user. The page never shows it again; it only says whether a key is saved. **Remove** deletes it.
+
+- A key in the environment FluidCAD was started from wins: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. The row then says **Set by** the variable and offers no field.
+- A key saved here is used by this agent only. It is never given to Claude Code or Codex, and the switch about `ANTHROPIC_API_KEY` above does not change it.
+
+**Local models.** Under **Local models**, click **Add Ollama**, **Add LM Studio** or **Add other server**, check the base URL (Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`), and click **Save**. A server may also take a key, a context window (what you set the server to, in tokens; FluidCAD warns when it is too small for the agent), and **Send images**, off by default: turn it on for a model that reads images.
+
+In the panel, each provider that is ready is an entry of the agent chip's menu, after Claude Code and Codex: **Anthropic API**, **OpenAI API**, **OpenRouter**, then your local models by name. A chat stays on the provider it was started with. Its model chip lists that provider's models, and **Other model…** takes any model name it accepts. The effort chip shows when the model offers levels. A new chat starts on the provider and model you used last.
+
+Each message is billed to your key by the provider, like any other use of it; the line under each answer shows the cost when the provider reports it. A local model costs nothing.
 
 ## What the agent can touch
 
@@ -122,7 +137,7 @@ If FluidCAD stopped while the agent was working, the chat reopens with a notice 
 
 ## Usage
 
-Every message is run by your own Claude Code or Codex, on your own account. It counts against your Claude or ChatGPT plan, or is billed to your API key, exactly as if you had used the program directly. FluidCAD does not meter or charge for it.
+Every message is run by your own Claude Code or Codex, on your own account, or on your own API key or local model. It counts against your Claude or ChatGPT plan, or is billed to your API key, exactly as if you had used the program or the key directly. FluidCAD does not meter or charge for it.
 
 Under each answer a small line shows what the turn used, as the program reported it: tokens in (including the context it re-read) and tokens out, for example "23k in · 512 out". Point at it for the exact counts. When Claude Code runs on an API key, the line adds the cost Claude Code reports; on a subscription that figure is only what the tokens would cost at API prices, so it appears in the tooltip, not on the line.
 
@@ -134,11 +149,13 @@ Settings › Agent holds:
 
 | Setting | What it does |
 |---------|--------------|
-| Agent for new chats | Claude Code, Codex, or the first one ready. |
+| Agent for new chats | Claude Code, Codex, an API key or local model (the provider used last), or the first one ready. |
 | Edits | **Ask before edits** or **Apply edits automatically**: the same switch as the mode chip under the message box. |
 | Use my Claude subscription even if ANTHROPIC_API_KEY is set | Leaves an inherited `ANTHROPIC_API_KEY` out of Claude Code's environment. On by default when a Claude subscription is signed in, off when none is; turning it on or off makes that your choice. See [above](#claude-code-and-anthropic_api_key). |
+| API keys | A key for Anthropic, OpenAI and OpenRouter, each saved by its own **Save**. See [On an API key or a local model](#on-an-api-key-or-a-local-model). |
+| Local models | Your Ollama, LM Studio or other OpenAI-compatible servers. |
 
-Under them, **Detected Agents** lists each program with its version, path and state (Ready, Not signed in, Too old, Not found), and **Check again**.
+Under them, **Detected Agents** lists each program with its version, path and state (Ready, Not signed in, Too old, Not found), and each API provider and local model with whether it is ready, and **Check again**.
 
 The model and the effort are not in Settings: pick them with the chips under the message box (see [Chats](#chats)).
 
@@ -149,6 +166,7 @@ The model and the effort are not in Settings: pick them with the chips under the
 | The panel says the program was not found | Install it, then **Check again**. FluidCAD looks on your `PATH` and in the usual install folders (see [What you need](#what-you-need)). On macOS an app started from the Dock does not see your shell's `PATH`, so install the program in one of those folders. |
 | The program needs an update | Run `claude update`, or update Codex the way you installed it (`npm install -g @openai/codex` for an npm install), then **Check again**. |
 | Not signed in, or the login expired | For Codex, click **Sign in to Codex** in the panel. Otherwise run `claude auth login` or `codex login` in a terminal, then **Check again**. |
+| An API key was refused, or a provider is not ready | Check or replace the key in Settings › Agent › **API keys**. For a local model, make sure its server is running at the base URL shown there. |
 | The agent chip says **Claude (API)** when you meant to use your subscription | If no Claude subscription is signed in, run `claude auth login` in a terminal, then **Check again**. If one is, you turned the setting off: turn on **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Settings › Agent. |
 | A usage-limit or credits message | Your plan's limit was reached. The message is the vendor's, with when it resets in your local time when the vendor gives it. Wait for the reset or change your plan with the vendor; FluidCAD cannot lift it. |
 | "FluidCAD's tools did not connect" | The program started but could not reach FluidCAD. Send the message again; if it keeps happening, restart FluidCAD. |

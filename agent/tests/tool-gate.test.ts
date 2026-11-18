@@ -187,6 +187,9 @@ describe('ToolGate classification', () => {
     expect(toolKind('write_file')).toBe('edit');
     expect(toolKind('rollback_to')).toBe('edit');
     expect(toolKind('export')).toBe('outside');
+    expect(toolKind('search_hub')).toBe('read');
+    expect(toolKind('read_package_file')).toBe('read');
+    expect(toolKind('install_package')).toBe('outside');
     expect(toolKind('not_a_tool')).toBe('other');
   });
 
@@ -196,6 +199,7 @@ describe('ToolGate classification', () => {
       'read-scene': [false, false, false],
       'read-view': [false, false, false],
       'read-source': [false, false, false],
+      'read-hub': [false, false, false],
       'edit-files': [true, false, true],
       'edit-session': [true, false, true],
       'outside-workspace': [true, true, false],

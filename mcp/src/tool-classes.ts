@@ -15,6 +15,8 @@ export type McpToolClass =
   | 'read-view'
   /** Reads workspace files. */
   | 'read-source'
+  /** Reads the FluidCAD hub through the engine: packages, their docs and files. Changes nothing. */
+  | 'read-hub'
   /** Writes workspace files. */
   | 'edit-files'
   /** Changes the session's render or view state; files are untouched. */
@@ -53,6 +55,11 @@ export const TOOL_CLASSES: Readonly<Record<string, McpToolClass>> = {
 
   list_fluid_files: 'read-source',
   read_file: 'read-source',
+  list_packages: 'read-source',
+
+  search_hub: 'read-hub',
+  get_hub_package: 'read-hub',
+  read_package_file: 'read-hub',
 
   write_file: 'edit-files',
   edit_range: 'edit-files',
@@ -66,6 +73,9 @@ export const TOOL_CLASSES: Readonly<Record<string, McpToolClass>> = {
   import_step: 'outside-workspace',
   export: 'outside-workspace',
   pack: 'outside-workspace',
+  // Downloads a publisher's code into the user's library (or the project)
+  // and pins it: it then runs in the engine with the user's permissions.
+  install_package: 'outside-workspace',
 };
 
 /** Tools that overwrite files: workspace sources, or an export / pack target. */

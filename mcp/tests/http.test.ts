@@ -52,7 +52,7 @@ describe('MCP over streamable HTTP', () => {
       expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
 
       const { tools } = await client.listTools();
-      expect(tools).toHaveLength(37);
+      expect(tools).toHaveLength(42);
       expect(tools.find((t) => t.name === 'write_file')?.annotations).toEqual({
         readOnlyHint: false,
         destructiveHint: true,
@@ -149,7 +149,7 @@ describe('MCP over streamable HTTP', () => {
     // ...and a new client starts a new one.
     const again = await connect(`${base}/mcp`);
     const { tools } = await again.listTools();
-    expect(tools.length).toBe(37);
+    expect(tools.length).toBe(42);
     expect(handler.sessionCount).toBe(1);
   });
 });

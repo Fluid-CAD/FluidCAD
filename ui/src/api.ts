@@ -298,8 +298,8 @@ export interface UserPreferences {
 }
 
 export interface AgentPreferences {
-  /** The agent a new chat starts with; null until the user picks one. */
-  defaultAgent: 'claude' | 'codex' | null;
+  /** The agent a new chat starts with; null until the user picks one. `api`: on the provider of `apiModel`. */
+  defaultAgent: 'claude' | 'codex' | 'api' | null;
   /** Absolute path to the `claude` binary, overriding detection. */
   claudePath?: string;
   /** Absolute path to the `codex` binary, overriding detection. */
@@ -314,6 +314,12 @@ export interface AgentPreferences {
   claudeEffort?: string;
   /** Codex's reasoning effort (each model lists its own); absent means the model's default. */
   codexEffort?: string;
+  /** The `api` agent's last-used model, with its provider: `<providerId>/<model>`. */
+  apiModel?: string;
+  /** The `api` agent's effort (each model lists its own); absent means the model's default. */
+  apiEffort?: string;
+  /** The `api` agent's custom (OpenAI-compatible) servers; the built-in providers are implicit. Keys are never here. */
+  providers?: AgentProviderConfig[];
   /** Ask before every edit (default), or apply workspace edits without asking. */
   permissionMode: 'ask' | 'auto-edits';
   /**
@@ -324,6 +330,27 @@ export interface AgentPreferences {
    */
   claudeIgnoreApiKey?: boolean;
 }
+
+/**
+ * A provider of the `api` agent as kept in the preferences
+ * (docs/agent-chat-plan.md Appendix A.3, §20.2): in practice a custom
+ * OpenAI-compatible server such as Ollama or LM Studio. `id` is a slug
+ * (`^[a-z0-9][a-z0-9-]{0,31}$`, not a built-in id) and the first part of its
+ * models' ids. Its key, if any, is stored apart (`PUT api/agent/providers/:id/key`).
+ */
+export type AgentProviderConfig = {
+  id: string;
+  kind: 'anthropic' | 'openai' | 'openrouter' | 'openai-compatible';
+  label: string;
+  /** Required for `openai-compatible`; http or https. */
+  baseURL?: string;
+  /** A manual model list, for a server whose models cannot be listed. */
+  models?: string[];
+  /** What the server is set to, in tokens (local models). */
+  contextWindow?: number;
+  /** Whether to send images; off by default for `openai-compatible`. */
+  images?: boolean;
+};
 
 /** Which of a sketch's children the timeline lists: every row, or only the features that open an edit dialog. */
 export type TimelineSketchChildren = 'all' | 'editable';

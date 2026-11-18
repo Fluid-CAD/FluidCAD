@@ -26,7 +26,7 @@ export type AgentTabDeps = {
   onSaved?(): void;
 };
 
-const NAMES: Record<AgentInstall['kind'], string> = { claude: 'Claude Code', codex: 'Codex' };
+const NAMES: Record<AgentInstall['kind'], string> = { claude: 'Claude Code', codex: 'Codex', api: 'API' };
 /** "Use my Claude subscription even if ANTHROPIC_API_KEY is set" (§19, the owner's wording). */
 export const IGNORE_API_KEY_LABEL = 'Use my Claude subscription even if ANTHROPIC_API_KEY is set';
 

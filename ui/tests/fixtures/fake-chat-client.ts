@@ -5,6 +5,7 @@ import type {
   AgentInstall,
   AgentKind,
   AgentModel,
+  ApiProviderStatus,
   ApprovalDecision,
   ChatEvent,
   ChatPart,
@@ -16,6 +17,8 @@ import type {
   SessionStatus,
   SessionSummary,
 } from '../../src/ui/chat/chat-types';
+
+const BUILT_INS = ['anthropic', 'openai', 'openrouter'];
 
 type Subscription = {
   id: string;
@@ -44,6 +47,8 @@ export class FakeChatClient implements ChatClient {
     { id: 'haiku', label: 'Haiku' },
     { id: 'fable', label: 'Fable' },
   ];
+  /** What `models('api')` answers: every ready provider's models, `<providerId>/<model>`. */
+  apiModelsValue: AgentModel[] = [];
   epoch = 'epoch-1';
   readonly snapshots = new Map<string, SessionSnapshot>();
   readonly subscriptions: Subscription[] = [];
@@ -81,6 +86,43 @@ export class FakeChatClient implements ChatClient {
       loggedIn: null,
       authMethod: null,
       problem: 'Codex is not supported by this version of FluidCAD yet.',
+    };
+  }
+
+  /** One provider of the `api` agent; a built-in with no key unless overridden. */
+  static provider(overrides: Partial<ApiProviderStatus> & { id: string }): ApiProviderStatus {
+    const builtIn: Record<string, { label: string; kind: ApiProviderStatus['kind']; envVar: string }> = {
+      anthropic: { label: 'Anthropic API', kind: 'anthropic', envVar: 'ANTHROPIC_API_KEY' },
+      openai: { label: 'OpenAI API', kind: 'openai', envVar: 'OPENAI_API_KEY' },
+      openrouter: { label: 'OpenRouter', kind: 'openrouter', envVar: 'OPENROUTER_API_KEY' },
+    };
+    const known = builtIn[overrides.id];
+    const base: ApiProviderStatus = known
+      ? { id: overrides.id, kind: known.kind, label: known.label, builtIn: true, envVar: known.envVar, hasKey: false, keySource: null, ready: false, images: true, problem: 'No API key.' }
+      : { id: overrides.id, kind: 'openai-compatible', label: overrides.id, builtIn: false, hasKey: false, keySource: null, ready: true, images: false };
+    const status = { ...base, ...overrides };
+    if (status.ready) {
+      delete status.problem;
+    }
+    return status;
+  }
+
+  /**
+   * The `api` agent as the engine reports it (§20.3): no program, signed in
+   * when a provider is ready. Without `providers`, the three built-ins with
+   * no key.
+   */
+  static apiInstall(providers: ApiProviderStatus[] = BUILT_INS.map((id) => FakeChatClient.provider({ id }))): AgentInstall {
+    const loggedIn = providers.some((p) => p.ready);
+    return {
+      kind: 'api',
+      path: null,
+      version: null,
+      minVersion: '',
+      supported: true,
+      loggedIn,
+      providers,
+      ...(loggedIn ? {} : { problem: 'No API key or local model is set up.' }),
     };
   }
 
@@ -180,7 +222,54 @@ export class FakeChatClient implements ChatClient {
     return { ok: true, value: structuredClone(this.agentsValue) };
   });
 
-  models = vi.fn(async (_kind: AgentKind): Promise<ChatAnswer<AgentModel[]>> => ({ ok: true, value: structuredClone(this.modelsValue) }));
+  models = vi.fn(async (kind: AgentKind): Promise<ChatAnswer<AgentModel[]>> => ({
+    ok: true,
+    value: structuredClone(kind === 'api' ? this.apiModelsValue : this.modelsValue),
+  }));
+
+  /** The providers `GET …/providers` answers: the `api` entry's, as detection last said. */
+  providers = vi.fn(async (): Promise<ChatAnswer<ApiProviderStatus[]>> => {
+    const api = this.agentsValue.find((a) => a.kind === 'api');
+    return { ok: true, value: structuredClone(api?.providers ?? []) };
+  });
+
+  /** Stores a key as the engine does: the provider has one, from the store, and is ready. */
+  setProviderKey = vi.fn(async (id: string, apiKey: string): Promise<ChatAnswer<null>> => {
+    const provider = this.agentsValue.find((a) => a.kind === 'api')?.providers?.find((p) => p.id === id);
+    if (!provider) {
+      return { ok: false, status: 404, error: `No provider "${id}".` };
+    }
+    if (provider.keySource === 'env') {
+      return { ok: false, status: 409, error: `The key comes from ${provider.envVar}.` };
+    }
+    if (apiKey.trim() === '' || apiKey.length > 512) {
+      return { ok: false, status: 400, error: 'An API key is 1 to 512 characters.' };
+    }
+    Object.assign(provider, { hasKey: true, keySource: 'stored', ready: true });
+    delete provider.problem;
+    this.refreshApi();
+    return { ok: true, value: null };
+  });
+
+  removeProviderKey = vi.fn(async (id: string): Promise<ChatAnswer<null>> => {
+    const provider = this.agentsValue.find((a) => a.kind === 'api')?.providers?.find((p) => p.id === id);
+    if (provider && provider.keySource === 'stored') {
+      Object.assign(provider, { hasKey: false, keySource: null, ready: !provider.builtIn });
+      if (provider.builtIn) {
+        provider.problem = 'No API key.';
+      }
+      this.refreshApi();
+    }
+    return { ok: true, value: null };
+  });
+
+  /** The `api` entry's sign-in follows its providers. */
+  private refreshApi(): void {
+    const index = this.agentsValue.findIndex((a) => a.kind === 'api');
+    if (index >= 0) {
+      this.agentsValue[index] = FakeChatClient.apiInstall(this.agentsValue[index].providers);
+    }
+  }
 
   /** How the sign-in started from the app stands (`loginStatus` answers it). */
   loginState: LoginStatus = { state: 'pending' };

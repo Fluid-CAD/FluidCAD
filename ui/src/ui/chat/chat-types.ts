@@ -3,7 +3,55 @@
 // `AgentModel`), as `screenshot-overlays.ts` mirrors `ws-protocol.ts`. The
 // page never imports the agent package; change both together.
 
-export type AgentKind = 'claude' | 'codex';
+/**
+ * `api`: FluidCAD's own agent loop on a model provider the user has a key
+ * for, or a local server (§20). Its models carry the provider:
+ * `<providerId>/<model>`.
+ */
+export type AgentKind = 'claude' | 'codex' | 'api';
+
+/** What drives a provider of the `api` agent (§20.2). */
+export type ApiProviderKind = 'anthropic' | 'openai' | 'openrouter' | 'openai-compatible';
+
+/**
+ * One provider of the `api` agent as the engine reports it (§20.3): a
+ * built-in (Anthropic, OpenAI, OpenRouter) or a custom OpenAI-compatible
+ * server. The page learns whether it has a key and where from, never the key.
+ */
+export type ApiProviderStatus = {
+  id: string;
+  kind: ApiProviderKind;
+  label: string;
+  builtIn: boolean;
+  /** Custom entries. */
+  baseURL?: string;
+  hasKey: boolean;
+  /** `env`: the key comes from the environment, and no field is offered. */
+  keySource: 'env' | 'stored' | null;
+  /** Built-ins: the variable that wins over a stored key. */
+  envVar?: string;
+  ready: boolean;
+  /** Whether images are sent. */
+  images: boolean;
+  contextWindow?: number;
+  /** Why it is not ready ("No API key."). */
+  problem?: string;
+};
+
+/** The `api` agent's built-in providers, always present, in the order the pickers list them. */
+export const BUILT_IN_PROVIDERS: readonly string[] = ['anthropic', 'openai', 'openrouter'];
+
+/** The provider of an `api` model id (`anthropic/claude-…` → `anthropic`): the part before the first `/`. */
+export function providerOf(modelId: string | null | undefined): string | null {
+  const slash = modelId ? modelId.indexOf('/') : -1;
+  return slash > 0 ? modelId!.slice(0, slash) : null;
+}
+
+/** An `api` model id without its provider (`openrouter/anthropic/claude-…` → `anthropic/claude-…`). */
+export function modelPart(modelId: string): string {
+  const slash = modelId.indexOf('/');
+  return slash > 0 ? modelId.slice(slash + 1) : modelId;
+}
 
 export type PermissionMode = 'ask' | 'auto-edits';
 
@@ -190,12 +238,16 @@ export type ChatEventEnvelope = { epoch: string; seq: number; event: ChatEvent }
 /** Answer of `POST api/agent/sessions/:id/revert`: what was put back, and what could not be (with why). */
 export type RevertResult = { restored: string[]; failed?: { path: string; error: string }[] };
 
-/** What detection found for one CLI (`GET api/agent/agents`). */
+/**
+ * What detection found for one agent (`GET api/agent/agents`). The `api`
+ * agent has no program: no path or version, `minVersion` empty, signed in
+ * when a provider is ready — read it by its `kind`.
+ */
 export type AgentInstall = {
   kind: AgentKind;
   path: string | null;
   version: string | null;
-  /** The oldest version the driver supports; empty when FluidCAD has no driver for it. */
+  /** The oldest version the driver supports; empty when FluidCAD has no driver for it (or no program: `api`). */
   minVersion: string;
   /** Found and at least `minVersion`. */
   supported: boolean;
@@ -211,17 +263,23 @@ export type AgentInstall = {
   apiKeyIgnored?: boolean;
   /** What to tell the user when it is not ready. */
   problem?: string;
+  /** `api`: every provider, ready or not. */
+  providers?: ApiProviderStatus[];
 };
 
 export type AgentModel = {
-  /** What goes to the CLI; `default` means no model flag. */
+  /** What goes to the CLI; `default` means no model flag. `api`: `<providerId>/<model>`. */
   id: string;
   label?: string;
-  /** Codex: the model Codex uses when none is chosen. */
+  /** Codex: the model Codex uses when none is chosen. `api`: the provider's suggested model. */
   isDefault?: boolean;
-  /** Codex: the reasoning efforts the model accepts, and the one it uses by default. */
+  /** Codex and `api`: the reasoning efforts the model accepts, and the one it uses by default. */
   efforts?: string[];
   defaultEffort?: string;
+  /** `api`: the provider the model belongs to. */
+  provider?: string;
+  /** `api`: whether the model takes images. */
+  acceptsImages?: boolean;
 };
 
 /** A sign-in from the app (`GET api/agent/agents/:kind/login/:id`); nothing about the account. */

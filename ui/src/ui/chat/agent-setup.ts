@@ -25,6 +25,14 @@ export const AGENT_INFO: Record<AgentKind, { name: string; label: string; instal
     // Codex's app server runs the ChatGPT sign-in (§5.2, account/login/start).
     signInFromApp: true,
   },
+  api: {
+    name: 'API',
+    label: 'API',
+    installUrl: '',
+    login: '',
+    update: '',
+    signInFromApp: false,
+  },
 };
 
 export type AgentSetupDeps = {

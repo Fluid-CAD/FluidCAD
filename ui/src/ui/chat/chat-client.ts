@@ -2,6 +2,7 @@ import type {
   AgentInstall,
   AgentKind,
   AgentModel,
+  ApiProviderStatus,
   ApprovalDecision,
   ChatEventEnvelope,
   LoginStatus,
@@ -46,6 +47,15 @@ export interface ChatClient {
   startLogin(kind: AgentKind): Promise<ChatAnswer<{ loginId: string; url: string }>>;
   loginStatus(kind: AgentKind, loginId: string): Promise<ChatAnswer<LoginStatus>>;
   cancelLogin(kind: AgentKind, loginId: string): Promise<ChatAnswer<null>>;
+  /** The `api` agent's providers (§20.3): whether each has a key and is ready; never a key. */
+  providers(): Promise<ChatAnswer<ApiProviderStatus[]>>;
+  /**
+   * Store a provider's API key on the engine (`PUT …/providers/:id/key`).
+   * 409 when the environment sets it, 404 for a provider the engine does
+   * not know (a custom entry not saved yet), 400 for an empty or overlong key.
+   */
+  setProviderKey(id: string, apiKey: string): Promise<ChatAnswer<null>>;
+  removeProviderKey(id: string): Promise<ChatAnswer<null>>;
   sessions(): Promise<ChatAnswer<SessionSummary[]>>;
   createSession(agent: AgentKind): Promise<ChatAnswer<{ id: string }>>;
   snapshot(id: string): Promise<ChatAnswer<SessionSnapshot>>;
@@ -105,6 +115,20 @@ export class HttpChatClient implements ChatClient {
 
   cancelLogin(kind: AgentKind, loginId: string): Promise<ChatAnswer<null>> {
     return this.request('POST', `${BASE}/agents/${encodeURIComponent(kind)}/login/${encodeURIComponent(loginId)}/cancel`, {});
+  }
+
+  async providers(): Promise<ChatAnswer<ApiProviderStatus[]>> {
+    const answer = await this.request<{ providers: ApiProviderStatus[] }>('GET', `${BASE}/providers`);
+    return answer.ok === false ? answer : { ok: true, value: answer.value.providers };
+  }
+
+  setProviderKey(id: string, apiKey: string): Promise<ChatAnswer<null>> {
+    // The key goes in the body only: never in a URL, never logged.
+    return this.request('PUT', this.providerKey(id), { apiKey });
+  }
+
+  removeProviderKey(id: string): Promise<ChatAnswer<null>> {
+    return this.request('DELETE', this.providerKey(id));
   }
 
   async sessions(): Promise<ChatAnswer<SessionSummary[]>> {
@@ -181,6 +205,10 @@ export class HttpChatClient implements ChatClient {
         source.close();
       },
     };
+  }
+
+  private providerKey(id: string): string {
+    return `${BASE}/providers/${encodeURIComponent(id)}/key`;
   }
 
   private session(id: string): string {

@@ -288,7 +288,7 @@ export class FakeChatClient implements ChatClient {
 
   sessions = vi.fn(async (): Promise<ChatAnswer<SessionSummary[]>> => {
     const rows = [...this.snapshots.values()]
-      .map((s) => ({ id: s.id, title: s.title, agent: s.agent, updatedAt: s.updatedAt, status: s.status }))
+      .map((s) => ({ id: s.id, title: s.title, agent: s.agent, model: s.model, updatedAt: s.updatedAt, status: s.status }))
       .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     return { ok: true, value: structuredClone(rows) };
   });

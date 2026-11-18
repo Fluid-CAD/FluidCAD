@@ -1,6 +1,6 @@
 import { MENU_CLASS, MENU_ROW_CLASS } from '../menu-styles';
 import { ChatIcons } from './chat-icons';
-import type { AgentKind, SessionStatus, SessionSummary } from './chat-types';
+import type { SessionStatus, SessionSummary } from './chat-types';
 import { relativeTime } from './time-format';
 
 /** The most chats the menu lists. */
@@ -14,7 +14,8 @@ export type ChatSessionsMenuDeps = {
   /** The chats, newest first, and the one on screen (null: a new chat). */
   sessions(): readonly SessionSummary[];
   current(): string | null;
-  agentName(kind: AgentKind): string;
+  /** How the chat's agent is named: the program, or for the `api` agent its provider. */
+  agentName(session: SessionSummary): string;
   onNewChat(): void;
   onOpen(id: string): void;
   /** Rename `id`; resolves to an error to show, or null once renamed. */
@@ -173,7 +174,7 @@ export class ChatSessionsMenu {
     meta.dataset.ref = 'session-meta';
     const status = statusLabel(session.status);
     const time = relativeTime(session.updatedAt, this.deps.now?.() ?? new Date());
-    meta.textContent = [this.deps.agentName(session.agent), time].filter(Boolean).join(' · ');
+    meta.textContent = [this.deps.agentName(session), time].filter(Boolean).join(' · ');
     if (status) {
       const badge = document.createElement('span');
       badge.className = `chat-session-status chat-session-status-${status.tone}`;
@@ -181,7 +182,7 @@ export class ChatSessionsMenu {
       badge.textContent = status.text;
       meta.append(document.createTextNode(' · '), badge);
     }
-    open.title = `${session.title}\n${this.deps.agentName(session.agent)} · ${new Date(session.updatedAt).toLocaleString()}`;
+    open.title = `${session.title}\n${this.deps.agentName(session)} · ${new Date(session.updatedAt).toLocaleString()}`;
     open.append(
       ChatIcons.span(current ? ChatIcons.CHECK : ChatIcons.SESSION, `[&>svg]:size-4 mt-0.5 ${current ? 'text-primary' : 'text-base-content/50'}`),
       column(title, meta),

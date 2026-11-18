@@ -1,6 +1,6 @@
 import type { LeftSlot } from '../left-slot';
 import { showPopupMenu, type PopupMenuItem } from '../popup-menu';
-import { AGENT_INFO, agentChipLabel, authDescription, renderAgentSetup, renderWelcome, type AgentSetupDeps } from './agent-setup';
+import { AGENT_INFO, agentChipLabel, authDescription, providerLabel, renderAgentSetup, renderWelcome, type AgentSetupDeps } from './agent-setup';
 import type { ChatClient } from './chat-client';
 import { ChatComposer } from './chat-composer';
 import { ChatIcons } from './chat-icons';
@@ -204,7 +204,10 @@ export class ChatPanel {
       host: deps.container,
       sessions: () => this.state.sessions,
       current: () => this.state.session?.id ?? null,
-      agentName: (kind) => AGENT_INFO[kind]?.name ?? kind,
+      agentName: (session) =>
+        session.agent === 'api'
+          ? providerLabel(this.state.install('api'), providerOf(session.model))
+          : (AGENT_INFO[session.agent]?.name ?? session.agent),
       onNewChat: () => this.newChat(),
       onOpen: (id) => void this.state.openSession(id),
       onRename: (id, title) => this.state.renameSession(id, title),

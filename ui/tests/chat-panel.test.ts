@@ -941,6 +941,18 @@ describe('the API agent (§20)', () => {
     return client;
   }
 
+  it('the chats menu names an api chat by its provider', async () => {
+    const client = withApi([ANTHROPIC, OPENROUTER]);
+    client.addSession({ id: 'p', title: 'On a key', agent: 'api', model: 'anthropic/claude-opus-5-5', updatedAt: new Date().toISOString() });
+    client.addSession({ id: 'q', title: 'Not run yet', agent: 'api', model: null, updatedAt: '2026-11-17T08:00:00.000Z' });
+    const h = mount(client);
+    await opened(h);
+    h.$<HTMLButtonElement>('[data-ref="sessions"]')!.click();
+    await settle();
+    const metas = [...h.container.querySelectorAll('[data-ref="session-menu"] [data-ref="session-meta"]')].map((t) => t.textContent!.split(' · ')[0]);
+    expect(metas).toEqual(['Anthropic API', 'API']);
+  });
+
   it('lists each ready provider after Claude Code and Codex, by its label', async () => {
     const h = mount(withApi([OLLAMA, ANTHROPIC, OPENAI_NONE, OPENROUTER]));
     await opened(h);

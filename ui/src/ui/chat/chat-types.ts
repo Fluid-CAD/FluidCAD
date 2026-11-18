@@ -208,6 +208,8 @@ export type SessionSummary = {
   id: string;
   title: string;
   agent: AgentKind;
+  /** The model the chat last ran with; for the `api` agent `<providerId>/<model>`. */
+  model?: string | null;
   updatedAt: string;
   status: SessionStatus;
 };

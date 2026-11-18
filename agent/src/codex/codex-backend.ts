@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AgentBackend, AgentInstall, AgentModel, AgentRun, BackendEvent, BackendLogin, DetectOptions, OpenOptions } from '../backend.ts';
+import type { AgentBackend, AgentInstall, AgentModel, AgentRun, BackendEvent, BackendLogin, DetectOptions, OpenOptions, TurnImage } from '../backend.ts';
 import { AsyncQueue } from '../async-queue.ts';
 import { compareVersions, findOnPath, isExecutableFile, parseVersion, runBriefly } from '../locate.ts';
 import { CodexAppServer, type ThreadListener } from './app-server.ts';
@@ -582,7 +582,7 @@ export class CodexRun implements AgentRun, ThreadListener {
     }
   }
 
-  send(input: { text: string; imagePath?: string }): void {
+  send(input: { text: string; images?: TurnImage[] }): void {
     if (this.closed || this.server.exited) {
       throw new Error('Codex is not running.');
     }
@@ -594,8 +594,8 @@ export class CodexRun implements AgentRun, ThreadListener {
       this.emit({ type: 'notice', level: notice.level, text: notice.text });
     }
     const content: unknown[] = [];
-    if (input.imagePath) {
-      content.push({ type: 'localImage', path: input.imagePath });
+    for (const image of input.images ?? []) {
+      content.push({ type: 'localImage', path: image.path });
     }
     content.push({ type: 'text', text: input.text, text_elements: [] });
     const params = {

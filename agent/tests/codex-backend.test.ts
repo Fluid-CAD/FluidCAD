@@ -197,9 +197,11 @@ describe.runIf(posix)('CodexRun against a fake app server', () => {
     });
     expect(sent('mcpServerStatus/list')[0].params).toMatchObject({ threadId: run.ref });
 
+    const drawing = path.join(tmp, 'drawing.jpg');
     const image = path.join(tmp, 'capture.png');
+    fs.writeFileSync(drawing, 'jpeg');
     fs.writeFileSync(image, 'png');
-    run.send({ text: 'image please', imagePath: image });
+    run.send({ text: 'image please', images: [{ path: drawing, mediaType: 'image/jpeg' }, { path: image, mediaType: 'image/png' }] });
     await until(() => turnEnds(events).length === 1);
     run.send({ text: 'hello there' });
     await until(() => turnEnds(events).length === 2);
@@ -208,6 +210,7 @@ describe.runIf(posix)('CodexRun against a fake app server', () => {
     expect(turnStarts[0].params).toEqual({
       threadId: run.ref,
       input: [
+        { type: 'localImage', path: drawing },
         { type: 'localImage', path: image },
         { type: 'text', text: 'image please', text_elements: [] },
       ],
@@ -217,7 +220,8 @@ describe.runIf(posix)('CodexRun against a fake app server', () => {
     });
     expect(turnStarts[1].params.input).toEqual([{ type: 'text', text: 'hello there', text_elements: [] }]);
     const text = events.filter((e) => e.type === 'text-delta').map((e: any) => e.delta).join('');
-    expect(text).toBe(`image: ${image}echo: hello there`);
+    // The fake names the first image it was given.
+    expect(text).toBe(`image: ${drawing}echo: hello there`);
     expect(events.filter((e) => e.type === 'reasoning-delta')).toEqual([{ type: 'reasoning-delta', id: 'rs-turn-2', delta: '**Looking**' }]);
     // The image turn reported no usage; the second reports the thread's totals since none came before.
     expect(events.filter((e) => e.type === 'usage')).toEqual([{ type: 'usage', inputTokens: 3000, outputTokens: 10 }]);

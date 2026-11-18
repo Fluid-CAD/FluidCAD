@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { TurnFailure, type AgentBackend, type AgentInstall, type AgentRun, type BackendEvent, type TurnError } from './backend.ts';
+import { TurnFailure, type AgentBackend, type AgentInstall, type AgentRun, type BackendEvent, type TurnError, type TurnImage } from './backend.ts';
 import { EventLog } from './event-log.ts';
 import { buildCliText, CONTINUE_TEXT, interruptedTurnNote, type InterruptedToolCall, type WorkspaceState } from './instructions.ts';
 import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-endpoint.ts';
@@ -261,16 +261,27 @@ export class AgentSession {
     this.turn = { turnId, mode: input.mode ?? 'ask', assistantMessageId: null, parts: new Set(), stopping: false };
 
     this.emit({ type: 'message-start', message: { id: userMessageId, role: 'user', turnId, createdAt } });
-    // The words, the reference chips, then the capture they are drawn in.
-    const parts: ChatPart[] = [{ type: 'text', id: randomUUID(), text: input.text }];
+    // The words, the images the user attached, the reference chips, then the
+    // capture they are drawn in. The model gets the images in that order.
+    const parts: ChatPart[] = input.text.trim() === '' ? [] : [{ type: 'text', id: randomUUID(), text: input.text }];
+    const images: TurnImage[] = [];
+    const attachedImages: string[] = [];
+    for (const attachment of input.attachments ?? []) {
+      const file = `${randomUUID()}.${IMAGE_EXTENSIONS[attachment.mediaType]}`;
+      const name = attachment.name ?? 'image';
+      images.push({ path: this.deps.store.writeFile(this.record.id, file, Buffer.from(attachment.base64, 'base64')), mediaType: attachment.mediaType });
+      parts.push({ type: 'image', id: randomUUID(), file, name });
+      attachedImages.push(name);
+    }
     if (input.references && input.references.length > 0) {
       parts.push({ type: 'references', id: randomUUID(), references: input.references });
     }
-    let imagePath: string | undefined;
+    let captureAttached = false;
     if (input.image) {
       const file = `${randomUUID()}.png`;
-      imagePath = this.deps.store.writeFile(this.record.id, file, Buffer.from(input.image.base64, 'base64'));
+      images.push({ path: this.deps.store.writeFile(this.record.id, file, Buffer.from(input.image.base64, 'base64')), mediaType: 'image/png' });
       parts.push({ type: 'image', id: randomUUID(), file });
+      captureAttached = true;
     }
     for (const part of parts) {
       this.emit({ type: 'part-start', messageId: userMessageId, part });
@@ -279,7 +290,8 @@ export class AgentSession {
     this.record.turns.push({ id: turnId, userMessageId, revertible: false });
 
     if (!this.record.titleSetByUser && this.record.turns.length === 1) {
-      const firstLine = input.text.trim().split('\n')[0] ?? '';
+      // A message of images only is titled by its first image.
+      const firstLine = (input.text.trim().split('\n')[0] ?? '') || (attachedImages[0] ?? '');
       if (firstLine !== '') {
         this.record.title = cutTitle(firstLine);
         this.emit({ type: 'title', title: this.record.title });
@@ -292,12 +304,13 @@ export class AgentSession {
     const cliText = buildCliText({
       text: input.text,
       references: input.references,
-      imageAttached: imagePath !== undefined,
+      attachedImages,
+      imageAttached: captureAttached,
       workspace: this.deps.workspaceState(),
       revertedFiles,
       ...(extra.interruptedTurn ? { interruptedTurn: extra.interruptedTurn } : {}),
     });
-    void this.startTurn(turnId, { cliText, imagePath, model: input.model, effort: input.effort, revertedFiles });
+    void this.startTurn(turnId, { cliText, images, model: input.model, effort: input.effort, revertedFiles });
     return { turnId };
   }
 
@@ -442,7 +455,7 @@ export class AgentSession {
 
   private async startTurn(
     turnId: string,
-    input: { cliText: string; imagePath?: string; model?: string; effort?: string; revertedFiles: string[] },
+    input: { cliText: string; images: TurnImage[]; model?: string; effort?: string; revertedFiles: string[] },
   ): Promise<void> {
     try {
       const setup = await this.deps.prepareTurn();
@@ -466,7 +479,7 @@ export class AgentSession {
         return;
       }
       this.setStatus({ state: 'running', turnId });
-      this.run.send({ text: input.cliText, imagePath: input.imagePath });
+      this.run.send({ text: input.cliText, ...(input.images.length > 0 ? { images: input.images } : {}) });
       if (input.revertedFiles.length > 0) {
         // The CLI has been told; a revert made since keeps its own files.
         const told = new Set(input.revertedFiles);

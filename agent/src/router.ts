@@ -10,12 +10,34 @@ import { LoginError, UnsupportedAgentError } from './runtime.ts';
 import { ProviderKeyError } from './api/providers.ts';
 import { RevertError, SessionBusyError, type AgentSession } from './session.ts';
 import { SessionStore } from './session-store.ts';
-import { CLAUDE_EFFORTS, isEffortFor, splitApiModelId, type AgentKind, type ApprovalDecision, type ChatEventEnvelope, type PermissionMode, type SceneReference, type SendMessage } from './types.ts';
+import {
+  ATTACHMENT_MEDIA_TYPES,
+  CLAUDE_EFFORTS,
+  isEffortFor,
+  splitApiModelId,
+  type AgentKind,
+  type ApprovalDecision,
+  type AttachmentMediaType,
+  type ChatEventEnvelope,
+  type MessageAttachment,
+  type PermissionMode,
+  type SceneReference,
+  type SendMessage,
+} from './types.ts';
 
 /** A comment line this often keeps proxies and the browser from timing the stream out. */
 export const HEARTBEAT_MS = 15_000;
 const MAX_TEXT_CHARS = 100_000;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+/** Images the user may attach to one message. */
+export const MAX_ATTACHMENTS = 8;
+/**
+ * The largest attached image, decoded: its base64 stays within the 5 MB the
+ * Anthropic API takes per image. The page sizes an image to this before it
+ * sends it (`ui/src/ui/chat/image-attachments.ts`).
+ */
+export const MAX_ATTACHMENT_BYTES = 3_500_000;
+const MAX_ATTACHMENT_NAME_CHARS = 120;
 const MAX_REFERENCES = 8;
 const MAX_MODEL_CHARS = 200;
 /** Longest API key `PUT …/providers/:id/key` takes. */
@@ -437,14 +459,32 @@ export function parseSendMessage(body: any, kind: AgentKind = 'claude'): { messa
   if (!body || typeof body !== 'object') {
     return { error: 'Expected a JSON body.' };
   }
-  const text = body.text;
-  if (typeof text !== 'string' || text.trim() === '') {
+  let attachments: MessageAttachment[] | undefined;
+  if (body.attachments !== undefined) {
+    if (!Array.isArray(body.attachments) || body.attachments.length > MAX_ATTACHMENTS) {
+      return { error: `\`attachments\` must be at most ${MAX_ATTACHMENTS} images.` };
+    }
+    attachments = [];
+    for (const raw of body.attachments) {
+      const attachment = parseAttachment(raw);
+      if (!attachment) {
+        return { error: `Each of \`attachments\` must be { mediaType, base64 }: a PNG, JPEG, WebP or GIF of at most ${MAX_ATTACHMENT_BYTES} bytes.` };
+      }
+      attachments.push(attachment);
+    }
+  }
+  // An image can go without words; nothing else can.
+  const text = attachments && attachments.length > 0 && (body.text === undefined || body.text === null) ? '' : body.text;
+  if (typeof text !== 'string' || (text.trim() === '' && !(attachments && attachments.length > 0))) {
     return { error: '`text` must be a non-empty string.' };
   }
   if (text.length > MAX_TEXT_CHARS) {
     return { error: `\`text\` is longer than ${MAX_TEXT_CHARS} characters.` };
   }
   const message: SendMessage = { text };
+  if (attachments && attachments.length > 0) {
+    message.attachments = attachments;
+  }
   if (body.references !== undefined) {
     if (!Array.isArray(body.references) || body.references.length > MAX_REFERENCES || !body.references.every(isReference)) {
       return { error: `\`references\` must be at most ${MAX_REFERENCES} scene references.` };
@@ -488,6 +528,41 @@ export function parseSendMessage(body: any, kind: AgentKind = 'claude'): { messa
     message.mode = body.mode;
   }
   return { message };
+}
+
+/**
+ * The image type `bytes` start as, by signature; null for anything else. An
+ * attachment is what its bytes say, whatever the request called it.
+ */
+export function sniffImageType(bytes: Buffer): AttachmentMediaType | null {
+  if (bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+    return 'image/png';
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  const head = bytes.subarray(0, 12).toString('latin1');
+  if (head.startsWith('GIF87a') || head.startsWith('GIF89a')) {
+    return 'image/gif';
+  }
+  if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP') {
+    return 'image/webp';
+  }
+  return null;
+}
+
+/** One entry of `attachments`, or null when it is not an image a message may carry. */
+function parseAttachment(raw: any): MessageAttachment | null {
+  if (!raw || typeof raw !== 'object' || typeof raw.base64 !== 'string' || !(ATTACHMENT_MEDIA_TYPES as readonly unknown[]).includes(raw.mediaType)) {
+    return null;
+  }
+  const bytes = Buffer.from(raw.base64, 'base64');
+  if (bytes.length === 0 || bytes.length > MAX_ATTACHMENT_BYTES || sniffImageType(bytes) !== raw.mediaType) {
+    return null;
+  }
+  // The name is shown and told to the model: one line, no control characters, not long.
+  const name = typeof raw.name === 'string' ? raw.name.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, MAX_ATTACHMENT_NAME_CHARS) : '';
+  return { mediaType: raw.mediaType, base64: raw.base64, ...(name ? { name } : {}) };
 }
 
 function isReference(value: any): boolean {

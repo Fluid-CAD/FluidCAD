@@ -11,7 +11,7 @@ import { createMCPClient, type MCPClient } from '@ai-sdk/mcp';
 import { InvalidToolInputError, isStepCount, NoSuchToolError, streamText, type LanguageModel, type ModelMessage, type ToolSet, type UserContent } from 'ai';
 import { Agent, fetch as undiciFetch } from 'undici';
 import { AsyncQueue } from '../async-queue.ts';
-import { TurnFailure, type AgentBackend, type AgentInstall, type AgentModel, type AgentRun, type BackendEvent, type DetectOptions, type OpenOptions } from '../backend.ts';
+import { TurnFailure, type AgentBackend, type AgentInstall, type AgentModel, type AgentRun, type BackendEvent, type DetectOptions, type OpenOptions, type TurnImage } from '../backend.ts';
 import { splitApiModelId } from '../types.ts';
 import { mapProviderError, redact, type ErrorContext } from './errors.ts';
 import { HISTORY_FILE, historyPath, readHistory, writeHistory } from './history.ts';
@@ -183,7 +183,7 @@ export class ApiRun implements AgentRun {
     return this.history;
   }
 
-  send(input: { text: string; imagePath?: string }): void {
+  send(input: { text: string; images?: TurnImage[] }): void {
     if (this.closed) {
       throw new Error('The chat with the model was closed.');
     }
@@ -228,7 +228,7 @@ export class ApiRun implements AgentRun {
 
   // ---------------------------------------------------------------------------
 
-  private async runTurn(input: { text: string; imagePath?: string }, abort: AbortController): Promise<void> {
+  private async runTurn(input: { text: string; images?: TurnImage[] }, abort: AbortController): Promise<void> {
     const turn = this.turn!;
     const turnNo = ++this.turns;
     for (const note of this.notes.splice(0)) {
@@ -368,19 +368,24 @@ export class ApiRun implements AgentRun {
     this.endTurn(turn, { type: 'turn-end', reason: 'done' }, usage);
   }
 
-  /** The user's message: the text, and the references capture when the model takes images. */
-  private userMessage(input: { text: string; imagePath?: string }): ModelMessage {
+  /** The user's message: the text, and its images (the attachments, the references capture) when the model takes images. */
+  private userMessage(input: { text: string; images?: TurnImage[] }): ModelMessage {
     let text = input.text;
     const content: Exclude<UserContent, string> = [];
-    if (input.imagePath) {
-      if (this.o.images) {
+    const images = input.images ?? [];
+    if (images.length > 0 && !this.o.images) {
+      text += `\n\n(${images.length === 1 ? 'The image of this message is' : `The ${images.length} images of this message are`} not attached: this model does not take images.)`;
+    } else {
+      let unread = 0;
+      for (const image of images) {
         try {
-          content.push({ type: 'file', mediaType: 'image/png', data: fs.readFileSync(input.imagePath).toString('base64') });
+          content.push({ type: 'file', mediaType: image.mediaType, data: fs.readFileSync(image.path).toString('base64') });
         } catch {
-          text += '\n\n(The capture of the references could not be read, so it is not attached.)';
+          unread += 1;
         }
-      } else {
-        text += '\n\n(The capture of the references is not attached: this model does not take images.)';
+      }
+      if (unread > 0) {
+        text += `\n\n(${unread === 1 ? 'An image of this message' : `${unread} images of this message`} could not be read, so ${unread === 1 ? 'it is' : 'they are'} not attached.)`;
       }
     }
     return { role: 'user', content: [{ type: 'text', text }, ...content] };

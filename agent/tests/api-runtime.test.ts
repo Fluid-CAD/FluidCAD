@@ -22,6 +22,8 @@ import type { ChatPart, SessionSnapshot, ToolPart } from '../src/types.ts';
 
 const KEY = 'sk-ant-api03-test-key-0123456789';
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201c2a3a4f30000000049454e44ae426082', 'hex');
+/** The start of a JPEG: all the engine looks at. */
+const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('jpeg-body')]);
 
 type Chunk = Record<string, any>;
 const usage = (input = 100, output = 10) => ({ inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: output, text: output, reasoning: 0 } });
@@ -324,13 +326,18 @@ describe('the API agent', () => {
     prefs.agent.providers = [{ id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: 'http://127.0.0.1:9/v1', models: ['qwen3-vl:4b'], contextWindow: 4096 }];
     scripted.script.push([...text('0', 'Hi.'), finish('stop', 4096)]);
     const id = await newSession();
-    const sent = await json('POST', `${base}/sessions/${id}/messages`, { text: 'look', model: 'ollama/qwen3-vl:4b', image: { mediaType: 'image/png', base64: PNG.toString('base64') } });
+    const sent = await json('POST', `${base}/sessions/${id}/messages`, {
+      text: 'look',
+      model: 'ollama/qwen3-vl:4b',
+      attachments: [{ mediaType: 'image/jpeg', base64: JPEG.toString('base64'), name: 'drawing.jpg' }],
+      image: { mediaType: 'image/png', base64: PNG.toString('base64') },
+    });
     expect(sent.status).toBe(202);
     const done = await settled(id);
     expect(modelRequests[0]).toEqual({ provider: 'ollama', model: 'qwen3-vl:4b', images: false });
     const user = (scripted.requests[0] as any).prompt[1];
     expect(user.content.map((p: any) => p.type)).toEqual(['text']);
-    expect(user.content[0].text).toContain('this model does not take images');
+    expect(user.content[0].text).toContain('(The 2 images of this message are not attached: this model does not take images.)');
     const notices = lastAssistant(done).parts.filter((p) => p.type === 'notice').map((p: any) => p.text);
     expect(notices).toHaveLength(1);
     expect(notices[0]).toContain('context of 4096 tokens');
@@ -449,7 +456,12 @@ describe('the API agent on a local OpenAI-compatible server', () => {
       expect(models).toEqual([{ id: 'lm-studio/tiny:1b', label: 'tiny:1b', provider: 'lm-studio', acceptsImages: true }]);
 
       const id = await newSession();
-      await json('POST', `${base}/sessions/${id}/messages`, { text: 'what is this?', model: 'lm-studio/tiny:1b', image: { mediaType: 'image/png', base64: PNG.toString('base64') } });
+      await json('POST', `${base}/sessions/${id}/messages`, {
+        text: 'what is this?',
+        model: 'lm-studio/tiny:1b',
+        attachments: [{ mediaType: 'image/jpeg', base64: JPEG.toString('base64'), name: 'drawing.jpg' }],
+        image: { mediaType: 'image/png', base64: PNG.toString('base64') },
+      });
       const done = await settled(id);
       expect(done.status).toEqual({ state: 'idle' });
       const assistant = lastAssistant(done);
@@ -464,9 +476,11 @@ describe('the API agent on a local OpenAI-compatible server', () => {
       expect(first.temperature).toBeUndefined();
       expect(first.tools).toHaveLength(37);
       expect(first.messages[0]).toEqual({ role: 'system', content: composeInstructions('api') });
-      // The capture went with the user's words, as an image.
+      // The user's image and the capture went with their words, each under its own type.
       expect(first.messages[1].role).toBe('user');
-      expect(first.messages[1].content.map((p: any) => p.type)).toEqual(['text', 'image_url']);
+      expect(first.messages[1].content.map((p: any) => p.type)).toEqual(['text', 'image_url', 'image_url']);
+      expect(first.messages[1].content.slice(1).map((p: any) => p.image_url.url.split(';')[0])).toEqual(['data:image/jpeg', 'data:image/png']);
+      expect(first.messages[1].content[0].text).toContain('<attached_images count="1">\n  1: drawing.jpg\n</attached_images>');
       // The tool's result went back as content parts (images would follow in a user message).
       const tool = second.messages.find((m: any) => m.role === 'tool');
       expect(tool.tool_call_id).toBe('call_1');

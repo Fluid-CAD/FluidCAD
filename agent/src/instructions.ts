@@ -53,8 +53,11 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     '- `<workspace_state file="…" render="…" unit="…"/>`: the model file on screen (absolute path; absent when',
     '  none is open), how its last render went (`rendered`, `build-error`, `compile-error`, `none`) and the',
     '  project\'s length unit.',
+    '- `<attached_images>`, when the user attached images of their own (a drawing, a photo, a screenshot): they',
+    '  are the first images of the message, in the order listed, each by its file name.',
     '- `<scene_references>`, when the user attached geometry from the viewport: `[n]` in their text refers to',
-    '  `<ref n="…">` and to the geometry drawn in that colour in the attached image. A ref\'s `selector` is the',
+    '  `<ref n="…">` and to the geometry drawn in that colour in the capture, the last image of the message',
+    '  (`image="attached"`). A ref\'s `selector` is the',
     '  code to write for that geometry: copy it exactly, arguments and filters included (a shorter form selects',
     '  other geometry). When the line naming its feature says "not bound", add',
     '  `const <variable> = ` to that statement first; add the ref\'s `imports` to the file\'s imports.',
@@ -276,8 +279,10 @@ export function interruptedTurnNote(input: { request: string | null; calls: Inte
 /** The text the CLI gets for a user message (§7.2). */
 export function buildCliText(input: {
   text: string;
+  /** The file names of the images the user attached, in order ({@link attachedImagesTag}). */
+  attachedImages?: string[];
   references?: SceneReference[];
-  /** The references capture goes with the message. */
+  /** The references capture goes with the message, after the user's images. */
   imageAttached?: boolean;
   workspace: WorkspaceState;
   /** Files reverted since the CLI was last told (§12.2). */
@@ -285,7 +290,8 @@ export function buildCliText(input: {
   /** The note about a turn an engine restart cut off ({@link interruptedTurnNote}), when continuing it. */
   interruptedTurn?: string;
 }): string {
-  const blocks = [input.text.trim()];
+  // A message of images only has no words of its own.
+  const blocks = input.text.trim() === '' ? [] : [input.text.trim()];
   const references = input.references && input.references.length > 0 ? formatSceneReferences(input.references, { image: input.imageAttached }) : null;
   const tail: string[] = [];
   if (input.interruptedTurn) {
@@ -294,12 +300,25 @@ export function buildCliText(input: {
   if (input.revertedFiles && input.revertedFiles.length > 0) {
     tail.push(revertedChangesNote(input.revertedFiles));
   }
+  if (input.attachedImages && input.attachedImages.length > 0) {
+    tail.push(attachedImagesTag(input.attachedImages));
+  }
   if (references) {
     tail.push(references);
   }
   tail.push(workspaceStateTag(input.workspace));
   blocks.push(tail.join('\n'));
   return blocks.join('\n\n');
+}
+
+/** The `<attached_images>` block: the user's images in the order the message carries them, by file name. */
+export function attachedImagesTag(names: string[]): string {
+  return [
+    `<attached_images count="${names.length}">`,
+    // A name is the user's file's: it stays on its line and opens or closes no tag.
+    ...names.map((name, i) => `  ${i + 1}: ${oneLine(name).replace(/[<>]/g, '')}`),
+    '</attached_images>',
+  ].join('\n');
 }
 
 export function workspaceStateTag(state: WorkspaceState): string {

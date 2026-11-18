@@ -37,6 +37,19 @@ describe('instructions', () => {
     expect(buildCliText({ text: 'x', workspace: { file: null, render: 'none', unit: 'mm' }, revertedFiles: [] })).not.toContain('reverted');
   });
 
+  it('lists the images the user attached, before the references whose capture follows them', () => {
+    const workspace = { file: null, render: 'rendered' as const, unit: 'mm' };
+    expect(buildCliText({ text: 'model this', attachedImages: ['front view.png', 'image'], workspace })).toBe(
+      'model this\n\n<attached_images count="2">\n  1: front view.png\n  2: image\n</attached_images>\n<workspace_state render="rendered" unit="mm"/>',
+    );
+    // A message of images only starts at the block; a name stays on its line.
+    expect(buildCliText({ text: ' ', attachedImages: ['a\nb.png'], workspace })).toBe(
+      '<attached_images count="1">\n  1: a b.png\n</attached_images>\n<workspace_state render="rendered" unit="mm"/>',
+    );
+    expect(buildCliText({ text: 'x', attachedImages: [], workspace })).not.toContain('attached_images');
+    expect(IN_APP_PREAMBLE).toContain('<attached_images>');
+  });
+
   it('leaves out the file when none is open and escapes attribute values', () => {
     expect(workspaceStateTag({ file: null, render: 'none', unit: 'in' })).toBe('<workspace_state render="none" unit="in"/>');
     expect(workspaceStateTag({ file: '/w/"a"<b>&.fluid.js', render: 'compile-error', unit: 'mm' })).toBe(

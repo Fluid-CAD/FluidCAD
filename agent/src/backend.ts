@@ -1,7 +1,7 @@
 // What a CLI backend provides (docs/agent-chat-plan.md §6.3). One driver per
 // CLI; the session talks to this interface only.
 
-import type { AgentKind, ApiProviderStatus } from './types.ts';
+import type { AgentKind, ApiProviderStatus, AttachmentMediaType } from './types.ts';
 
 export type { AgentKind } from './types.ts';
 
@@ -126,11 +126,17 @@ export type AgentInstall = {
   problem?: string;
 };
 
+/** An image of a turn's message, on disk (under the session's `files/`). */
+export type TurnImage = { path: string; mediaType: AttachmentMediaType };
+
 export interface AgentRun {
   /** Store this to resume later. */
   readonly ref: string;
-  /** Start a turn. `imagePath` is a PNG on disk. */
-  send(input: { text: string; imagePath?: string }): void;
+  /**
+   * Start a turn. `images` go with the text in this order: the user's
+   * attachments, then the references capture.
+   */
+  send(input: { text: string; images?: TurnImage[] }): void;
   /** Ends when the CLI process exits. */
   readonly events: AsyncIterable<BackendEvent>;
   /** Ends the current turn; resolves once it has ended (or the process was killed). */

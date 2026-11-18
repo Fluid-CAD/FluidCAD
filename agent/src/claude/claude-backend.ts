@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { AgentBackend, AgentInstall, AgentModel, AgentRun, BackendEvent, DetectOptions, OpenOptions } from '../backend.ts';
+import type { AgentBackend, AgentInstall, AgentModel, AgentRun, BackendEvent, DetectOptions, OpenOptions, TurnImage } from '../backend.ts';
 import { AsyncQueue } from '../async-queue.ts';
 import { trackChild } from '../children.ts';
 import { compareVersions, findOnPath, isExecutableFile, parseVersion, runBriefly, type ExecResult } from '../locate.ts';
@@ -305,14 +305,14 @@ export class ClaudeRun implements AgentRun {
     return this.turnActive;
   }
 
-  send(input: { text: string; imagePath?: string }): void {
+  send(input: { text: string; images?: TurnImage[] }): void {
     if (this.exited) {
       throw new Error('Claude Code is not running.');
     }
     const content: unknown[] = [];
-    if (input.imagePath) {
-      const data = fs.readFileSync(input.imagePath).toString('base64');
-      content.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data } });
+    for (const image of input.images ?? []) {
+      const data = fs.readFileSync(image.path).toString('base64');
+      content.push({ type: 'image', source: { type: 'base64', media_type: image.mediaType, data } });
     }
     content.push({ type: 'text', text: input.text });
     this.turnActive = true;

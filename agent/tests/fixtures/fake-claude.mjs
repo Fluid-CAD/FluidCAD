@@ -85,8 +85,14 @@ rl.on('line', (line) => {
       out({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
       return;
     }
+    // `images?`: say which image blocks came before the text, by type and content.
+    const images = msg.message.content
+      .slice(0, msg.message.content.findIndex((b) => b.type === 'text'))
+      .filter((b) => b.type === 'image')
+      .map((b) => `${b.source.media_type}=${Buffer.from(b.source.data, 'base64').toString('utf8')}`);
+    const reply = text.startsWith('images?') ? `images: ${images.join(', ')}` : `echo: ${text.split('\n')[0]}`;
     out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } });
-    out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: `echo: ${text.split('\n')[0]}` } } });
+    out({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: reply } } });
     out({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
     out({ type: 'stream_event', event: { type: 'message_stop' } });
     result('success', false);

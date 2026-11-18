@@ -101,9 +101,24 @@ export type SceneReference = {
   unit: string;
 };
 
+/** The image types a message's attachments may be. */
+export const ATTACHMENT_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
+
+export type AttachmentMediaType = (typeof ATTACHMENT_MEDIA_TYPES)[number];
+
+/**
+ * An image the user attached to a message: pasted, dropped or picked from
+ * disk (a drawing, a photo, a screenshot). The page sizes it first
+ * (`ui/src/ui/chat/image-attachments.ts`); `name` is its file name.
+ */
+export type MessageAttachment = { mediaType: AttachmentMediaType; base64: string; name?: string };
+
 /** Body of `POST api/agent/sessions/:id/messages`. */
 export type SendMessage = {
+  /** May be empty when the message has `attachments`. */
   text: string;
+  /** The user's images, in the order they attached them. */
+  attachments?: MessageAttachment[];
   references?: SceneReference[];
   /** The references capture, PNG. */
   image?: { mediaType: 'image/png'; base64: string };
@@ -160,8 +175,12 @@ export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
 export type ChatPart =
   | { type: 'text'; id: string; text: string }
   | { type: 'reasoning'; id: string; text: string }
-  /** `file` is a name under the session's `files/`. */
-  | { type: 'image'; id: string; file: string }
+  /**
+   * `file` is a name under the session's `files/`. `name`: set for an image
+   * the user attached (its file name, `image` when it had none); absent: the
+   * references capture.
+   */
+  | { type: 'image'; id: string; file: string; name?: string }
   | { type: 'references'; id: string; references: SceneReference[] }
   | ToolPart
   | NoticePart;

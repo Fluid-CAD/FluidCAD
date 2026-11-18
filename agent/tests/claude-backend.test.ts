@@ -382,6 +382,19 @@ describe.runIf(posix)('ClaudeRun against a fake CLI', () => {
     expect(trackedChildCount()).toBe(children - 1);
   });
 
+  it('sends a message\'s images before its text, each under its own type', async () => {
+    const { run, events, ended } = await open();
+    const drawing = path.join(tmp, 'drawing.jpg');
+    const capture = path.join(tmp, 'capture.png');
+    fs.writeFileSync(drawing, 'a drawing');
+    fs.writeFileSync(capture, 'the capture');
+    run.send({ text: 'images?', images: [{ path: drawing, mediaType: 'image/jpeg' }, { path: capture, mediaType: 'image/png' }] });
+    await until(() => events.some((e) => e.type === 'turn-end'));
+    expect(events.filter((e) => e.type === 'text-delta').map((e: any) => e.delta)).toEqual(['images: image/jpeg=a drawing, image/png=the capture']);
+    await run.close();
+    await ended;
+  });
+
   it('interrupts a turn with a control request and stays usable', async () => {
     const { run, events } = await open();
     run.send({ text: 'something slow' });

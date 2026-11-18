@@ -8,9 +8,9 @@ import express from 'express';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { AsyncQueue } from '../src/async-queue.ts';
-import type { AgentBackend, AgentInstall, AgentRun, BackendEvent, OpenOptions } from '../src/backend.ts';
+import type { AgentBackend, AgentInstall, AgentRun, BackendEvent, OpenOptions, TurnImage } from '../src/backend.ts';
 import { AgentRuntime } from '../src/runtime.ts';
-import { createRuntimeRouter } from '../src/router.ts';
+import { createRuntimeRouter, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, parseSendMessage, sniffImageType } from '../src/router.ts';
 import { McpEndpoints } from '../src/mcp-endpoint.ts';
 import { RESTART_REASON } from '../src/session.ts';
 import { SessionStore, type SessionRecord } from '../src/session-store.ts';
@@ -27,6 +27,8 @@ class FakeRun implements AgentRun {
   readonly ref: string;
   readonly queue = new AsyncQueue<BackendEvent>();
   readonly sent: string[] = [];
+  /** The images each message came with. */
+  readonly images: TurnImage[][] = [];
   /** What each scripted tool call returned to the "model". */
   readonly results: any[] = [];
   closed = false;
@@ -42,8 +44,9 @@ class FakeRun implements AgentRun {
     return this.queue;
   }
 
-  send(input: { text: string; imagePath?: string }): void {
+  send(input: { text: string; images?: TurnImage[] }): void {
     this.sent.push(input.text);
+    this.images.push(input.images ?? []);
     void this.turn(input.text);
   }
 
@@ -850,5 +853,96 @@ describe('approval, checkpoints and revert', () => {
     expect(readFile('bracket.fluid.js')).toBe('v1');
     expect(done.turns[0].revertible).toBe(false);
     expect(done.turns[0].files).toBeUndefined();
+  });
+});
+
+// The smallest bytes each type is known by.
+const PNG_BYTES = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('png-body')]);
+const JPEG_BYTES = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('jpeg-body')]);
+const WEBP_BYTES = Buffer.concat([Buffer.from('RIFF'), Buffer.from([4, 0, 0, 0]), Buffer.from('WEBPVP8 ')]);
+const GIF_BYTES = Buffer.from('GIF89a-body');
+const attachment = (mediaType: string, bytes: Buffer, name?: string) => ({ mediaType, base64: bytes.toString('base64'), ...(name ? { name } : {}) });
+
+describe('images attached to a message', () => {
+  it('tells the four image types apart by their bytes', () => {
+    expect(sniffImageType(PNG_BYTES)).toBe('image/png');
+    expect(sniffImageType(JPEG_BYTES)).toBe('image/jpeg');
+    expect(sniffImageType(WEBP_BYTES)).toBe('image/webp');
+    expect(sniffImageType(GIF_BYTES)).toBe('image/gif');
+    expect(sniffImageType(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toBeNull();
+    expect(sniffImageType(Buffer.alloc(0))).toBeNull();
+  });
+
+  it('takes images with or without words, and refuses what is not one', () => {
+    const png = attachment('image/png', PNG_BYTES, 'bracket.png');
+    expect(parseSendMessage({ text: 'model this', attachments: [png] })).toEqual({ message: { text: 'model this', attachments: [png] } });
+    // An image can go without words; nothing else can.
+    expect(parseSendMessage({ text: '', attachments: [png] })).toEqual({ message: { text: '', attachments: [png] } });
+    expect(parseSendMessage({ attachments: [png] })).toEqual({ message: { text: '', attachments: [png] } });
+    expect(parseSendMessage({ text: '  ', attachments: [] })).toEqual({ error: '`text` must be a non-empty string.' });
+    expect(parseSendMessage({ text: 'hi', attachments: [] })).toEqual({ message: { text: 'hi' } });
+
+    // The bytes decide: a type they do not match, another format, nothing, too much, too many.
+    const refused = (attachments: unknown) => 'error' in parseSendMessage({ text: 'hi', attachments });
+    expect(refused([attachment('image/jpeg', PNG_BYTES)])).toBe(true);
+    expect(refused([attachment('image/svg+xml', Buffer.from('<svg/>'))])).toBe(true);
+    expect(refused([attachment('image/png', Buffer.from('not an image'))])).toBe(true);
+    expect(refused([{ mediaType: 'image/png', base64: '' }])).toBe(true);
+    expect(refused([attachment('image/png', Buffer.concat([PNG_BYTES, Buffer.alloc(MAX_ATTACHMENT_BYTES)]))])).toBe(true);
+    expect(refused(Array.from({ length: MAX_ATTACHMENTS + 1 }, () => png))).toBe(true);
+    expect(refused('bracket.png')).toBe(true);
+    expect(refused(Array.from({ length: MAX_ATTACHMENTS }, () => png))).toBe(false);
+
+    // A name is one short line; anything else about it is dropped.
+    const named = parseSendMessage({ text: 'hi', attachments: [{ ...png, name: ` a\nb\u0000${'x'.repeat(300)}` }] });
+    expect('message' in named && named.message.attachments![0].name).toBe(`a b ${'x'.repeat(116)}`);
+    expect(parseSendMessage({ text: 'hi', attachments: [{ ...png, name: 7 }] })).toEqual({ message: { text: 'hi', attachments: [attachment('image/png', PNG_BYTES)] } });
+  });
+
+  it('stores them, shows them in the message and hands them to the agent before the capture', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const sent = await json('POST', `${base}/sessions/${id}/messages`, {
+      text: 'model this',
+      attachments: [attachment('image/jpeg', JPEG_BYTES, 'front view.jpg'), attachment('image/webp', WEBP_BYTES)],
+      image: { mediaType: 'image/png', base64: PNG_BYTES.toString('base64') },
+    });
+    expect(sent.status).toBe(202);
+    const snap = await idle(id);
+
+    const parts = snap.messages[0].parts;
+    expect(parts.map((p) => p.type)).toEqual(['text', 'image', 'image', 'image']);
+    const [front, second, capture] = parts.slice(1) as { type: 'image'; file: string; name?: string }[];
+    expect(front).toMatchObject({ name: 'front view.jpg', file: expect.stringMatching(/\.jpg$/) });
+    expect(second).toMatchObject({ name: 'image', file: expect.stringMatching(/\.webp$/) });
+    // The capture is the one image without a name.
+    expect(capture.file).toMatch(/\.png$/);
+    expect(capture.name).toBeUndefined();
+
+    // The page reads each back under its own type.
+    const served = await fetch(`${base}/sessions/${id}/files/${front.file}`);
+    expect(served.headers.get('content-type')).toBe('image/jpeg');
+    expect(Buffer.from(await served.arrayBuffer()).equals(JPEG_BYTES)).toBe(true);
+
+    const run = backend.runs[0];
+    expect(run.images[0].map((image) => image.mediaType)).toEqual(['image/jpeg', 'image/webp', 'image/png']);
+    expect(run.images[0].map((image) => path.basename(image.path))).toEqual([front.file, second.file, capture.file]);
+    expect(fs.readFileSync(run.images[0][1].path).equals(WEBP_BYTES)).toBe(true);
+    expect(run.sent[0]).toContain('model this\n\n<attached_images count="2">\n  1: front view.jpg\n  2: image\n</attached_images>\n<workspace_state ');
+  });
+
+  it('runs a message of images only, titled by the first of them', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    expect((await json('POST', `${base}/sessions/${id}/messages`, { text: '', attachments: [attachment('image/gif', GIF_BYTES, 'hinge.gif')] })).status).toBe(202);
+    const snap = await idle(id);
+    expect(snap.title).toBe('hinge.gif');
+    expect(snap.messages[0].parts.map((p) => p.type)).toEqual(['image']);
+    expect(backend.runs[0].sent[0].startsWith('<attached_images count="1">\n  1: hinge.gif\n</attached_images>\n<workspace_state ')).toBe(true);
+    expect(backend.runs[0].images[0]).toHaveLength(1);
+
+    // A message without images goes as before: no image, no block.
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'thanks' });
+    await idle(id);
+    expect(backend.runs[0].images[1]).toEqual([]);
+    expect(backend.runs[0].sent[1]).not.toContain('attached_images');
   });
 });

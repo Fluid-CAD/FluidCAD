@@ -117,6 +117,22 @@ References are not available:
 - for sketch entities, constraints, dimensions and vertices: a reference is made of faces and edges only,
 - while the timeline is rolled back: the chip asks you to roll the timeline forward to the last feature.
 
+## Attaching images
+
+A message can carry images of your own: a dimensioned drawing to model, a photo of a part, a screenshot. Attach one in any of three ways:
+
+- click the paperclip at the bottom left of the message box and pick the files,
+- paste an image from the clipboard into the message box,
+- drop image files anywhere on the panel.
+
+Each image shows as a thumbnail above the message box, with a **×** to take it away. A message takes up to eight images, and can be sent with images and no text.
+
+PNG, JPEG, WebP and GIF files are sent as they are when their longest edge is 2000 pixels or less. A larger image is scaled down to 2000 pixels first, and an image in another format your browser can show (SVG, BMP, AVIF) is converted to PNG. A file that is not an image, or one that cannot be read, is left out, and a line under the thumbnails says so.
+
+When you send, your message shows the images; click one to see it in full size. The agent gets them in the order you attached them, with their file names, so you can refer to "the second image" or to a file by name. Images are stored with the chat (see [Chats](#chats)).
+
+A model that does not read images gets the message without them; a line under the thumbnails warns you before you send. This applies to a local model whose server has **Send images** off, and to the models a provider lists as text-only.
+
 ## Chats
 
 The title in the panel header opens the list of this project's chats, newest first. Each row shows the chat's title, its agent, when it last changed, and what it is doing when it is not idle (Working, Waiting for you, Interrupted, Limit reached, Error). Pick a row to reopen the chat, or start a **New chat**.

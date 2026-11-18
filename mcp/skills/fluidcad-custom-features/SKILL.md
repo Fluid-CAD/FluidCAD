@@ -21,7 +21,8 @@ Don't write one, and say why, when:
 - it is the same geometry again in one model: `repeat()` re-applies a feature at new positions, `copy()` duplicates a finished shape;
 - it is a whole part reused with other dimensions: a `part()` with `param()` values, inserted where needed (the **fluidcad-assembly** skill) — unless one feature builds that part and it should carry the feature's dialog: then the feature plus `definePart` (section 9);
 - it is several parts that move against each other, sized from one set of values (a wardrobe with hinged doors and sliding drawers): a generated assembly, `Generator` + `defineAssembly` (section 9);
-- a built-in already does it (`hole()` for drilled, clearance, tapped, counterbored and countersunk holes; `draft()`; `rib()`; `shell()`): search the docs first.
+- a built-in already does it (`hole()` for drilled, clearance, tapped, counterbored and countersunk holes; `draft()`; `rib()`; `shell()`): search the docs first;
+- a package already has it: `list_packages` shows the features of the packages the project uses and the user's library holds, `search_hub` searches the FluidCAD hub, and `get_hub_package` returns a feature's call and values. `install_package` adds the package to the project (its code runs in FluidCAD with the user's permissions: name the package and its publisher to the user, and do not retry an install they declined), and the model imports the feature by the package's name. Write your own when nothing fits, or when the user wants the feature to be theirs to change.
 
 ## 2. Design it in CAD terms
 

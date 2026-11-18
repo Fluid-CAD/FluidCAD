@@ -22,6 +22,8 @@ Two rules from the API decide the mechanics:
 
 Convention: one part per `.part.js` file, named after the thing it is (`bracket.part.js` exports `bracket`); one `.assembly.js` file per mechanism. Several components in one file each get their own `part()`, but that file cannot be inserted piecemeal with the same clarity, so prefer one file each.
 
+**A bought or standard component may already exist as a package.** Before modeling a gear, a fastener, a bearing, a standoff or a profile, call `list_packages` (what the project uses and the user's library holds) and `search_hub` (the FluidCAD hub). `get_hub_package` returns each part's `usage` and parameters and each generated part's values and connectors, and `read_package_file` reads its doc pages. `install_package` adds the package to the project; its code runs in FluidCAD with the user's permissions, so install only what the assembly needs, name the package and its publisher to the user, and do not retry an install they declined. A package's part is imported by the package's name and placed with `insert()`, like a part of the workspace; it is read-only and builds in the package's own unit. When nothing fits, model the part and say so.
+
 ## 2. Files and units
 
 | suffix | scene | contents |

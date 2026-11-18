@@ -1322,6 +1322,23 @@ describe('approval on tool cards (§12.1)', () => {
     expect(h.$('[data-ref="approval-question"]')!.textContent!.trim()).toBe('This reaches outside the project. Allow it?');
   });
 
+  it("asks about a package install by what it means: the package's code will run with the user's permissions", async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({
+      name: 'install_package',
+      title: 'Install @acme/kit from the hub',
+      kind: 'outside',
+      input: { name: '@acme/kit' },
+      diff: undefined,
+      approval: { id: 'ap3', canAllowSession: false },
+    }));
+    const h = mount(client);
+    await opened(h);
+    expect(h.$('[data-ref="approval-question"]')!.textContent!.trim()).toBe("A package's code runs in FluidCAD with your permissions. Install it?");
+    expect(h.$$('[data-ref="approval"] button').map((b) => b.dataset.ref)).toEqual(['allow', 'deny']);
+    expect(h.$('[data-part="tool"]')!.textContent).toContain('Install @acme/kit from the hub');
+  });
+
   it('settled elsewhere (another tab, a stop): the buttons go; stopped, timed out and cancelled cards say why', async () => {
     const client = new FakeChatClient();
     waitingSession(client);

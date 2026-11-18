@@ -534,6 +534,10 @@ function section(label: string, body: string): HTMLElement {
 
 /** What the approval asks, by what the call does. */
 function approvalQuestion(part: ToolPart): string {
+  if (part.name === 'install_package') {
+    // The one thing to know before saying yes (the packages docs say the same of every install).
+    return 'A package\'s code runs in FluidCAD with your permissions. Install it?';
+  }
   switch (part.kind) {
     case 'edit':
       return part.diff ? 'Apply this change?' : 'Allow this change?';

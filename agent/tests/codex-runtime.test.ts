@@ -113,6 +113,7 @@ describe.runIf(posix)('a Codex session', () => {
     expect(agents.map((a) => [a.kind, a.supported])).toEqual([
       ['claude', false],
       ['codex', true],
+      ['api', false],
     ]);
     const models = (await json('GET', `${base}/agents/codex/models`)).body.models;
     expect(models.map((m: any) => m.id)).toEqual(['default', 'gpt-test-luna', 'gpt-test-astra']);

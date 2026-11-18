@@ -26,9 +26,13 @@ export type SessionRecord = {
   updatedAt: string;
   agent: {
     kind: AgentKind;
-    /** Claude session UUID or Codex thread id; null until the CLI has the conversation. */
+    /**
+     * Claude session UUID or Codex thread id; for the API agent, the file
+     * name of its model history in the session's folder. Null until the
+     * agent has the conversation.
+     */
     ref: string | null;
-    /** The model last used; null for the CLI's default. */
+    /** The model last used; null for the CLI's default. The API agent's is provider-qualified. */
     model: string | null;
     /** The effort last used; absent for the CLI's default. */
     effort?: string;
@@ -218,7 +222,7 @@ function parseRecord(raw: any, id: string): SessionRecord | null {
     return null;
   }
   const kind = raw.agent?.kind;
-  if (kind !== 'claude' && kind !== 'codex') {
+  if (kind !== 'claude' && kind !== 'codex' && kind !== 'api') {
     return null;
   }
   return {

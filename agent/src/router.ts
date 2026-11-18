@@ -7,9 +7,10 @@ import path from 'node:path';
 import { Router, type Request, type Response } from 'express';
 import type { AgentRuntime } from './runtime.ts';
 import { LoginError, UnsupportedAgentError } from './runtime.ts';
+import { ProviderKeyError } from './api/providers.ts';
 import { RevertError, SessionBusyError, type AgentSession } from './session.ts';
 import { SessionStore } from './session-store.ts';
-import { CLAUDE_EFFORTS, isEffortFor, type AgentKind, type ApprovalDecision, type ChatEventEnvelope, type PermissionMode, type SceneReference, type SendMessage } from './types.ts';
+import { CLAUDE_EFFORTS, isEffortFor, splitApiModelId, type AgentKind, type ApprovalDecision, type ChatEventEnvelope, type PermissionMode, type SceneReference, type SendMessage } from './types.ts';
 
 /** A comment line this often keeps proxies and the browser from timing the stream out. */
 export const HEARTBEAT_MS = 15_000;
@@ -17,6 +18,8 @@ const MAX_TEXT_CHARS = 100_000;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_REFERENCES = 8;
 const MAX_MODEL_CHARS = 200;
+/** Longest API key `PUT …/providers/:id/key` takes. */
+const MAX_KEY_CHARS = 512;
 /** A model alias or full name; the same rule as the `agent.claudeModel` preference. */
 const MODEL_PATTERN = /^[A-Za-z0-9][\w.:@\/\[\]-]*$/;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -45,12 +48,33 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
   });
 
   router.get('/agents/:kind/models', async (req, res) => {
-    const kind = req.params.kind;
-    if (kind !== 'claude' && kind !== 'codex') {
-      res.status(404).json({ error: `Unknown agent: ${kind}` });
+    const kind = agentKindOf(req, res);
+    if (!kind) {
       return;
     }
     res.json({ models: await runtime.models(kind) });
+  });
+
+  // --- The API agent's providers and keys (§20.3) ----------------------------
+  //
+  // A key goes in and never comes back out: the page learns `hasKey` and
+  // `keySource` only.
+
+  router.get('/providers', async (_req, res) => {
+    res.json({ providers: await runtime.providerStatuses() });
+  });
+
+  router.put('/providers/:id/key', async (req, res) => {
+    const apiKey = req.body?.apiKey;
+    if (typeof apiKey !== 'string' || apiKey.trim() === '' || apiKey.length > MAX_KEY_CHARS) {
+      res.status(400).json({ error: `\`apiKey\` must be a non-empty string of at most ${MAX_KEY_CHARS} characters.` });
+      return;
+    }
+    await providerKeyRoute(res, () => runtime.setProviderKey(String(req.params.id), apiKey));
+  });
+
+  router.delete('/providers/:id/key', async (req, res) => {
+    await providerKeyRoute(res, () => runtime.deleteProviderKey(String(req.params.id)));
   });
 
   // --- Signing in from the app (§5.2) ---------------------------------------
@@ -108,8 +132,8 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
 
   router.post('/sessions', (req, res) => {
     const kind = req.body?.agent;
-    if (kind !== 'claude' && kind !== 'codex') {
-      res.status(400).json({ error: '`agent` must be "claude" or "codex".' });
+    if (kind !== 'claude' && kind !== 'codex' && kind !== 'api') {
+      res.status(400).json({ error: '`agent` must be "claude", "codex" or "api".' });
       return;
     }
     try {
@@ -162,6 +186,11 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
     const parsed = parseSendMessage(req.body, session.record.agent.kind);
     if ('error' in parsed) {
       res.status(400).json({ error: parsed.error });
+      return;
+    }
+    const providerChange = apiProviderChange(session, parsed.message.model);
+    if (providerChange) {
+      res.status(400).json({ error: providerChange });
       return;
     }
     try {
@@ -308,11 +337,46 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
 
 function agentKindOf(req: Request, res: Response): AgentKind | null {
   const kind = String(req.params.kind ?? '');
-  if (kind !== 'claude' && kind !== 'codex') {
+  if (kind !== 'claude' && kind !== 'codex' && kind !== 'api') {
     res.status(404).json({ error: `Unknown agent: ${kind}` });
     return null;
   }
   return kind;
+}
+
+/** Runs a key change and answers it: 204, or 404 (unknown provider), 409 (the key comes from the environment), 400. */
+async function providerKeyRoute(res: Response, change: () => Promise<void>): Promise<void> {
+  try {
+    await change();
+    res.status(204).end();
+  } catch (e) {
+    if (e instanceof ProviderKeyError) {
+      res.status(e.reason === 'not-found' ? 404 : e.reason === 'env' ? 409 : 400).json({ error: e.message });
+      return;
+    }
+    if (e instanceof UnsupportedAgentError) {
+      res.status(404).json({ error: e.message });
+      return;
+    }
+    // Never the key: the store's own errors do not carry it either.
+    res.status(500).json({ error: 'The key could not be saved.' });
+  }
+}
+
+/**
+ * Why a message may not run an API chat on `model`: an API chat stays on
+ * the provider it started with (§20.1), so its history never crosses
+ * providers. Null when it may.
+ */
+function apiProviderChange(session: AgentSession, model: string | undefined): string | null {
+  if (session.record.agent.kind !== 'api' || !model || !session.record.agent.model) {
+    return null;
+  }
+  const before = splitApiModelId(session.record.agent.model)?.providerId;
+  const after = splitApiModelId(model)?.providerId;
+  return before && after && before !== after
+    ? `This chat runs on the "${before}" provider; start a new chat to use "${after}".`
+    : null;
 }
 
 function findSession(runtime: AgentRuntime, req: Request, res: Response): AgentSession | null {
@@ -401,6 +465,9 @@ export function parseSendMessage(body: any, kind: AgentKind = 'claude'): { messa
   if (body.model !== undefined && body.model !== null && body.model !== '') {
     if (typeof body.model !== 'string' || body.model.length > MAX_MODEL_CHARS || !MODEL_PATTERN.test(body.model)) {
       return { error: '`model` must be a model alias or name.' };
+    }
+    if (kind === 'api' && !splitApiModelId(body.model)) {
+      return { error: '`model` must name its provider: `<provider>/<model>`, e.g. `anthropic/claude-opus-5-5`.' };
     }
     message.model = body.model;
   }

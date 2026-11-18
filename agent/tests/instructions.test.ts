@@ -134,7 +134,7 @@ describe('instructions', () => {
   });
 
   it('tells both agents how to read references and to learn the model from the scene tools', () => {
-    for (const kind of ['claude', 'codex'] as const) {
+    for (const kind of ['claude', 'codex', 'api'] as const) {
       const preamble = inAppPreamble(kind);
       expect(preamble).toContain('`[n]` in their text refers to');
       expect(preamble).toContain('not bound');

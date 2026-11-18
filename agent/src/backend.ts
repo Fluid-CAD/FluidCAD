@@ -1,7 +1,7 @@
 // What a CLI backend provides (docs/agent-chat-plan.md §6.3). One driver per
 // CLI; the session talks to this interface only.
 
-import type { AgentKind } from './types.ts';
+import type { AgentKind, ApiProviderStatus } from './types.ts';
 
 export type { AgentKind } from './types.ts';
 
@@ -60,8 +60,12 @@ export type AgentModel = {
   /** Codex: the reasoning efforts the model accepts, and the one it uses by default. */
   efforts?: string[];
   defaultEffort?: string;
-  /** Codex: whether the model accepts images (the references capture). */
+  /** Codex, API agent: whether the model accepts images (the references capture). */
   acceptsImages?: boolean;
+  /** API agent: the provider the model belongs to (the `<providerId>` of its id). */
+  provider?: string;
+  /** API agent: the model's context window in tokens, when its provider says. */
+  contextWindow?: number;
 };
 
 export type OpenOptions = {
@@ -78,6 +82,12 @@ export type OpenOptions = {
   model?: string;
   effort?: string;
   env: NodeJS.ProcessEnv;
+  /**
+   * The session's own folder (where `session.json` is), for a backend that
+   * keeps the conversation itself: the API agent stores its model history
+   * there, under the name `ref` gives.
+   */
+  sessionDir?: string;
 };
 
 export type AgentInstall = {
@@ -110,6 +120,8 @@ export type AgentInstall = {
    * signed in. `authMethod` and `loggedIn` describe that environment.
    */
   apiKeyIgnored?: boolean;
+  /** API agent: every model provider and whether it is ready (`loggedIn`: any is). */
+  providers?: ApiProviderStatus[];
   /** What to tell the user when it is not ready. */
   problem?: string;
 };
@@ -128,6 +140,19 @@ export interface AgentRun {
 
 /** `resetsAt`: when a plan limit resets (ISO); `message` never carries it, the page words it in local time. */
 export type TurnError = { kind: 'auth' | 'rate-limit' | 'other'; message: string; resetsAt?: string };
+
+/**
+ * `open()` could not start the run for a reason the user should see as
+ * such (the API agent: no key for the chosen provider is `auth`); the
+ * session ends the turn with `error` instead of a generic failure.
+ */
+export class TurnFailure extends Error {
+  readonly error: TurnError;
+  constructor(error: TurnError) {
+    super(error.message);
+    this.error = error;
+  }
+}
 
 export type BackendEvent =
   | { type: 'text-delta'; id: string; delta: string }

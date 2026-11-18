@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AgentBackend, AgentInstall, AgentRun, BackendEvent, TurnError } from './backend.ts';
+import { TurnFailure, type AgentBackend, type AgentInstall, type AgentRun, type BackendEvent, type TurnError } from './backend.ts';
 import { EventLog } from './event-log.ts';
 import { buildCliText, CONTINUE_TEXT, interruptedTurnNote, type InterruptedToolCall, type WorkspaceState } from './instructions.ts';
 import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-endpoint.ts';
@@ -46,6 +46,11 @@ export type TurnSetup = {
   env: NodeJS.ProcessEnv;
   defaultModel?: string;
   defaultEffort?: string;
+  /**
+   * A message that names no model keeps the session's own (the API agent:
+   * a chat stays on its provider) before falling back to `defaultModel`.
+   */
+  stickyModel?: boolean;
 };
 
 export type SessionDeps = {
@@ -222,6 +227,7 @@ export class AgentSession {
       agent: this.record.agent.kind,
       updatedAt: this.record.updatedAt,
       status: structuredClone(this.statusValue),
+      model: this.record.agent.model,
     };
   }
 
@@ -444,7 +450,8 @@ export class AgentSession {
         return;
       }
       const install = setup.install;
-      if (!install.path || !install.supported) {
+      // The API agent runs no program: it has no path.
+      if ((!install.path && install.kind !== 'api') || !install.supported) {
         this.finishTurn('error', { kind: 'not-installed', message: install.problem ?? `${agentName(install.kind)} was not found.` });
         return;
       }
@@ -452,7 +459,7 @@ export class AgentSession {
         this.finishTurn('error', { kind: 'auth', message: install.problem ?? `${agentName(install.kind)} is not signed in.` });
         return;
       }
-      const model = input.model ?? setup.defaultModel ?? null;
+      const model = input.model ?? (setup.stickyModel ? this.record.agent.model : null) ?? setup.defaultModel ?? null;
       const effort = input.effort ?? setup.defaultEffort ?? null;
       await this.ensureRun(setup, model, effort);
       if (this.turn?.turnId !== turnId || !this.run) {
@@ -473,7 +480,7 @@ export class AgentSession {
       }
     } catch (e) {
       if (this.turn?.turnId === turnId) {
-        this.finishTurn('error', { kind: 'other', message: e instanceof Error ? e.message : String(e) });
+        this.finishTurn('error', e instanceof TurnFailure ? e.error : { kind: 'other', message: e instanceof Error ? e.message : String(e) });
       }
     }
   }
@@ -494,6 +501,7 @@ export class AgentSession {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       env: setup.env,
+      sessionDir: this.deps.store.sessionDir(this.record.id),
     });
     this.run = run;
     this.runKey = { model, effort };
@@ -952,7 +960,7 @@ const IMAGE_EXTENSIONS: Record<string, string> = {
 };
 
 function agentName(kind: AgentKind): string {
-  return kind === 'codex' ? 'Codex' : 'Claude Code';
+  return kind === 'codex' ? 'Codex' : kind === 'api' ? 'The API agent' : 'Claude Code';
 }
 
 /** How a tool call of a cut-off turn ended, for the continue note. */

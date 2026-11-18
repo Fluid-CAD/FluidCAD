@@ -3,7 +3,36 @@
 // The page mirrors these by hand in `ui/src/ui/chat/chat-types.ts`; change
 // both together.
 
-export type AgentKind = 'claude' | 'codex';
+/**
+ * `api`: FluidCAD's own agent loop on a model provider the user has a key
+ * for, or a local server (§20). Its sessions' model ids are provider-qualified:
+ * `<providerId>/<model>`.
+ */
+export type AgentKind = 'claude' | 'codex' | 'api';
+
+export type ApiProviderKind = 'anthropic' | 'openai' | 'openrouter' | 'openai-compatible';
+
+/** A model provider of the API agent, as Settings and the panel see it (§20.3). Never carries a key. */
+export type ApiProviderStatus = {
+  id: string;
+  kind: ApiProviderKind;
+  label: string;
+  builtIn: boolean;
+  /** Custom entries. */
+  baseURL?: string;
+  hasKey: boolean;
+  /** `env`: the key comes from the environment, and Settings offers no field for it. */
+  keySource: 'env' | 'stored' | null;
+  /** Built-ins: the environment variable that wins over a stored key. */
+  envVar?: string;
+  /** Built-ins: has a key. Custom entries: has a base URL (the key is optional). */
+  ready: boolean;
+  /** Whether images (the references capture, screenshots) are sent to its models. */
+  images: boolean;
+  contextWindow?: number;
+  /** e.g. "No API key.", or that its key was refused when its models were listed. */
+  problem?: string;
+};
 
 export type PermissionMode = 'ask' | 'auto-edits';
 
@@ -20,12 +49,29 @@ export const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 /** A Codex reasoning effort word (`low` … `max`, `ultra`, as `model/list` names them). */
 export const EFFORT_PATTERN = /^[a-z][a-z0-9-]{0,23}$/;
 
-/** Whether `effort` is a level agent `kind` takes. */
+/** Whether `effort` is a level agent `kind` takes (Codex and the API agent: whatever the model lists). */
 export function isEffortFor(kind: AgentKind, effort: unknown): effort is string {
   if (typeof effort !== 'string') {
     return false;
   }
   return kind === 'claude' ? (CLAUDE_EFFORTS as readonly string[]).includes(effort) : EFFORT_PATTERN.test(effort);
+}
+
+/** A provider id of the API agent: a built-in name or a custom entry's slug. */
+export const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/**
+ * An API agent model id split at the first `/`: `ollama/qwen3-vl:4b` →
+ * `{ providerId: 'ollama', model: 'qwen3-vl:4b' }`. Null when it has no
+ * provider part.
+ */
+export function splitApiModelId(id: string): { providerId: string; model: string } | null {
+  const slash = id.indexOf('/');
+  if (slash <= 0 || slash === id.length - 1) {
+    return null;
+  }
+  const providerId = id.slice(0, slash);
+  return PROVIDER_ID_PATTERN.test(providerId) ? { providerId, model: id.slice(slash + 1) } : null;
 }
 
 /**
@@ -175,6 +221,8 @@ export type SessionSummary = {
   agent: AgentKind;
   updatedAt: string;
   status: SessionStatus;
+  /** The model the session last ran with (provider-qualified for the API agent); null for the CLI's default. */
+  model: string | null;
 };
 
 export type ChatEvent =

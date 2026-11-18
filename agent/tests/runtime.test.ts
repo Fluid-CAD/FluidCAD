@@ -329,7 +329,7 @@ describe('agent sessions API', () => {
     expect(stored.agent).toEqual({ kind: 'claude', ref: run.ref, model: 'haiku' });
 
     const list = await json('GET', `${base}/sessions`);
-    expect(list.body.sessions).toEqual([{ id, title: done.title, agent: 'claude', updatedAt: done.updatedAt, status: { state: 'idle' } }]);
+    expect(list.body.sessions).toEqual([{ id, title: done.title, agent: 'claude', updatedAt: done.updatedAt, status: { state: 'idle' }, model: 'haiku' }]);
   });
 
   it('replays from the right place on reconnect and asks for a resync when it cannot', async () => {
@@ -503,8 +503,10 @@ describe('agent sessions API', () => {
     expect(agents.body.agents.map((a: AgentInstall) => [a.kind, a.supported])).toEqual([
       ['claude', true],
       ['codex', false],
+      // This runtime has no API backend.
+      ['api', false],
     ]);
-    expect((await json('POST', `${base}/agents/recheck`)).body.agents).toHaveLength(2);
+    expect((await json('POST', `${base}/agents/recheck`)).body.agents).toHaveLength(3);
     expect((await json('GET', `${base}/agents/claude/models`)).body.models).toEqual([{ id: 'default', label: 'Default' }]);
     expect((await json('GET', `${base}/agents/nope/models`)).status).toBe(404);
   });

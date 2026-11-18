@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import type { AgentHostDeps } from '../../server/dist/agent-host.js';
 import type { Preferences } from '../../server/dist/preferences.js';
 import type { AgentBackend, AgentInstall, AgentModel, BackendLogin } from './backend.ts';
+import { ApiBackend } from './api/api-backend.ts';
+import { ProviderRegistry } from './api/providers.ts';
 import { ClaudeBackend, claudeChildEnv } from './claude/claude-backend.ts';
 import { CodexBackend } from './codex/codex-backend.ts';
 import { composeInstructions } from './instructions.ts';
@@ -12,15 +14,20 @@ import { McpEndpoints, SharedMcpIndexes } from './mcp-endpoint.ts';
 import { AgentSession, type SessionDeps, type TurnSetup } from './session.ts';
 import { SessionStore } from './session-store.ts';
 import type { ToolGateOptions } from './tool-gate.ts';
-import { isEffortFor, type AgentKind, type SessionSummary } from './types.ts';
+import { isEffortFor, type AgentKind, type ApiProviderStatus, type SessionSummary } from './types.ts';
 
-export const AGENT_KINDS: AgentKind[] = ['claude', 'codex'];
+export const AGENT_KINDS: AgentKind[] = ['claude', 'codex', 'api'];
 
 /** How the panel and the messages name each agent. */
-export const AGENT_NAMES: Record<AgentKind, string> = { claude: 'Claude Code', codex: 'Codex' };
+export const AGENT_NAMES: Record<AgentKind, string> = { claude: 'Claude Code', codex: 'Codex', api: 'API agent' };
 
 export type AgentRuntimeOptions = {
   backends?: Partial<Record<AgentKind, AgentBackend>>;
+  /**
+   * The API agent's providers (keys, custom entries, model lists). Default:
+   * the engine's preferences, environment and `agent-credentials.json`.
+   */
+  providers?: ProviderRegistry;
   store?: SessionStore;
   /** The environment children inherit (tests pass their own). */
   env?: NodeJS.ProcessEnv;
@@ -73,15 +80,21 @@ export class AgentRuntime {
   private loaded = false;
   private readonly instructionsText = new Map<AgentKind, string>();
   private readonly logins = new Map<string, LoginRecord>();
+  /** The API agent's providers; null when this runtime has no API backend. */
+  readonly providers: ProviderRegistry | null;
 
   constructor(deps: AgentHostDeps, options: AgentRuntimeOptions = {}) {
     this.deps = deps;
+    this.baseEnv = options.env ?? process.env;
+    const providers = options.providers ?? new ProviderRegistry({ loadPreferences: () => deps.loadPreferences(), env: this.baseEnv });
     this.backends = options.backends ?? {
       claude: new ClaudeBackend(),
       codex: new CodexBackend({ clientVersion: deps.version, cwd: deps.workspacePath }),
+      api: new ApiBackend({ providers, clientVersion: deps.version }),
     };
+    const api = this.backends.api;
+    this.providers = api instanceof ApiBackend ? api.providers : options.providers ?? null;
     this.store = options.store ?? SessionStore.forWorkspace(deps.workspacePath);
-    this.baseEnv = options.env ?? process.env;
     this.idleMs = options.idleMs;
     this.gateOptions = options.gate;
     liveRuntimes.add(this);
@@ -142,6 +155,18 @@ export class AgentRuntime {
         authMethod: null,
         problem: `${AGENT_NAMES[kind] ?? kind} is not available in this version of FluidCAD.`,
       });
+    }
+    if (kind === 'api') {
+      // Nothing to locate or run: the providers' state is read afresh each time (§20.3).
+      return backend.detect({ env: { ...this.baseEnv } }).catch((e): AgentInstall => ({
+        kind,
+        path: null,
+        version: null,
+        minVersion: '',
+        supported: true,
+        loggedIn: null,
+        problem: `Reading the model providers failed: ${e instanceof Error ? e.message : String(e)}`,
+      }));
     }
     const pathOverride = kind === 'claude' ? prefs.agent?.claudePath : prefs.agent?.codexPath;
     const choice = this.apiKeyChoice(kind, prefs);
@@ -252,6 +277,31 @@ export class AgentRuntime {
       return claudeChildEnv(this.baseEnv, { ignoreApiKey });
     }
     return { ...this.baseEnv };
+  }
+
+  // -------------------------------------------------------------------------
+  // The API agent's providers (§20.3)
+  // -------------------------------------------------------------------------
+
+  /** Every provider of the API agent, as Settings shows them; empty without an API backend. */
+  async providerStatuses(): Promise<ApiProviderStatus[]> {
+    return this.providers ? this.providers.statuses() : [];
+  }
+
+  /** Stores the key of provider `id` (ProviderKeyError when refused); the model lists are read again. */
+  async setProviderKey(id: string, apiKey: unknown): Promise<void> {
+    if (!this.providers) {
+      throw new UnsupportedAgentError('api');
+    }
+    await this.providers.setKey(id, apiKey);
+  }
+
+  /** Forgets the stored key of provider `id` (ProviderKeyError for an unknown id). */
+  async deleteProviderKey(id: string): Promise<void> {
+    if (!this.providers) {
+      throw new UnsupportedAgentError('api');
+    }
+    await this.providers.deleteKey(id);
   }
 
   /** The user's explicit API-key choice for `kind`; undefined: automatic. */
@@ -374,15 +424,22 @@ export class AgentRuntime {
       // The user may have installed or signed in since: look again before refusing.
       install = await this.install(kind, prefs, true);
     }
-    const model = kind === 'claude' ? prefs.agent?.claudeModel : prefs.agent?.codexModel;
+    const model = kind === 'claude' ? prefs.agent?.claudeModel : kind === 'codex' ? prefs.agent?.codexModel : prefs.agent?.apiModel ?? suggestedApiModel(install);
     const effort = defaultEffort(kind, prefs);
     return {
       install,
       env: this.childEnv(kind, prefs, install),
       ...(model ? { defaultModel: model } : {}),
       ...(effort ? { defaultEffort: effort } : {}),
+      // An API chat stays on its provider (§20.1).
+      ...(kind === 'api' ? { stickyModel: true } : {}),
     };
   }
+}
+
+/** The API agent's model when nothing names one: the suggested default, when its provider is ready (§20.3). */
+function suggestedApiModel(install: AgentInstall): string | undefined {
+  return install.providers?.some((p) => p.id === 'anthropic' && p.ready) ? 'anthropic/claude-opus-5-5' : undefined;
 }
 
 /**
@@ -391,7 +448,7 @@ export class AgentRuntime {
  * high, which both agents take).
  */
 export function defaultEffort(kind: AgentKind, prefs: Preferences): string | undefined {
-  const own = kind === 'claude' ? prefs.agent?.claudeEffort : prefs.agent?.codexEffort;
+  const own = kind === 'claude' ? prefs.agent?.claudeEffort : kind === 'codex' ? prefs.agent?.codexEffort : prefs.agent?.apiEffort;
   if (isEffortFor(kind, own)) {
     return own;
   }

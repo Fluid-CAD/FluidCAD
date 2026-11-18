@@ -10,10 +10,29 @@ import type { AgentRenderState } from '../../server/dist/agent-host.js';
 import type { AgentKind, SceneReference } from './types.ts';
 
 /** What the CLI's own tools may do, per agent. */
-const OWN_TOOLS: Record<AgentKind, string> = {
+const OWN_TOOLS: Record<Exclude<AgentKind, 'api'>, string> = {
   claude: 'not available; your own Read, Glob and Grep tools may read files inside the project.',
   codex: 'not available (the sandbox is read-only, and apply_patch cannot write); read files with `fluidcad_app`\'s\nread_file.',
 };
+
+/** Which tools the agent has, and what it may not do (the CLIs reach FluidCAD's as the `fluidcad_app` MCP server). */
+function toolsIntro(kind: AgentKind): string[] {
+  if (kind === 'api') {
+    // FluidCAD's own agent loop: its tools are FluidCAD's and nothing else.
+    return [
+      'Your tools are FluidCAD\'s, and they are all you have. Their workspace is fixed to this project: there is no',
+      '`workspace` argument, and list_workspaces returns this project only.',
+      'Read and change the project only with these tools; there is no shell and no file access of your own.',
+      'Read files with read_file.',
+    ];
+  }
+  return [
+    'Your FluidCAD tools are the `fluidcad_app` MCP server. Its workspace is fixed to this project: there is no',
+    '`workspace` argument, and list_workspaces returns this project only.',
+    'Read and change the project only with the `fluidcad_app` tools. Shell commands and direct file edits are',
+    OWN_TOOLS[kind],
+  ];
+}
 
 /** The preamble of the system prompt for `kind` (§8.3). */
 export function inAppPreamble(kind: AgentKind = 'claude'): string {
@@ -21,10 +40,7 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     'You are running inside the FluidCAD app, next to the user, on their open project.',
     'They see the 3D viewport and the feature tree as you work; do not describe what a screenshot would show them.',
     '',
-    'Your FluidCAD tools are the `fluidcad_app` MCP server. Its workspace is fixed to this project: there is no',
-    '`workspace` argument, and list_workspaces returns this project only.',
-    'Read and change the project only with the `fluidcad_app` tools. Shell commands and direct file edits are',
-    OWN_TOOLS[kind],
+    ...toolsIntro(kind),
     'To learn what the model is and how it is built, use the scene tools first (get_scene_summary, measure,',
     'resolve_selection, screenshot) rather than reading the source files; read a file when you are about to change it.',
     '',

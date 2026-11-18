@@ -1378,7 +1378,7 @@ function loadAgentPanel(): Promise<ChatPanel> {
       slot: leftSlot,
       settings: () => agentSettings.current,
       openExternal: (url) => void ExternalLinks.open(url),
-      openSettings: () => settingsModal.show('agent'),
+      openSettings: () => settingsModal.show('agent', 'api-keys'),
       openSource: editorSurfaceEnabled
         ? (filePath, line, column) => withEditorSurface((surface) => {
             // The render reports 1-based columns; the editor counts from 0.

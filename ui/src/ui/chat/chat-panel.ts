@@ -638,16 +638,24 @@ export class ChatPanel {
     const auth = authDescription(install);
     const isCurrent = (entry: AgentEntry) => entry.kind === kind && (kind !== 'api' || entry.provider?.id === provider);
     let chip: HTMLElement | null = null;
-    if (!this.state.session && entries.length > 1) {
+    const openSettings = this.deps.openSettings;
+    // A new chat picks its agent here; Manage (keys, local models, what is installed) is in the same menu.
+    if (!this.state.session && (entries.length > 1 || (entries.length === 1 && openSettings))) {
       const picker = chipButton('agent-picker');
       fillChip(picker, text);
       picker.setAttribute('aria-label', `Agent: ${text}`);
-      picker.addEventListener('click', () => this.showChipMenu(picker, 'agent-menu', entries.map((entry) => ({
-        icon: isCurrent(entry) ? ChatIcons.CHECK : '',
-        label: entry.label,
-        className: isCurrent(entry) ? 'font-medium' : undefined,
-        onSelect: () => this.chooseAgent(entry),
-      }))));
+      picker.addEventListener('click', () => {
+        const items: PopupMenuItem[] = entries.map((entry) => ({
+          icon: isCurrent(entry) ? ChatIcons.CHECK : '',
+          label: entry.label,
+          className: isCurrent(entry) ? 'font-medium' : undefined,
+          onSelect: () => this.chooseAgent(entry),
+        }));
+        if (openSettings) {
+          items.push({ icon: ChatIcons.SETTINGS, label: 'Manage', separated: true, onSelect: () => openSettings() });
+        }
+        this.showChipMenu(picker, 'agent-menu', items);
+      });
       chip = picker;
     } else if (entries.length > 1 || auth || kind === 'api') {
       // One agent needs no picker, but how Claude is paid for, or which

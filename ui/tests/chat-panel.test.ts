@@ -162,9 +162,8 @@ describe('the Agent panel', () => {
     await opened(h);
     expect(h.panel.el.getAttribute('aria-label')).toBe('Agent');
     expect(h.$('[data-ref="welcome"]')!.textContent).toContain('Claude Code');
-    // One agent installed: no picker, just the chip saying how Claude is paid for.
-    expect(h.$('[data-ref="agent-picker"]')).toBeNull();
-    expect(label(h.$('[data-ref="agent-name"]')!)).toBe('Claude (Subscription)');
+    // One agent installed: the chip says how Claude is paid for, and its menu has Manage.
+    expect(label(h.$('[data-ref="agent-picker"]')!)).toBe('Claude (Subscription)');
     expect(h.$$('img')).toHaveLength(0);
   });
 });
@@ -293,7 +292,7 @@ describe('the empty states (§9.1)', () => {
     const h = mount();
     await opened(h);
     expect(h.$('[data-ref="welcome"] [data-ref="auth"]')!.textContent).toBe('Claude Code runs on your Claude subscription.');
-    expect(label(h.$('[data-ref="agent-name"]')!)).toBe('Claude (Subscription)');
+    expect(label(h.$('[data-ref="agent-picker"]')!)).toBe('Claude (Subscription)');
 
     const client = new FakeChatClient();
     client.agentsValue = [FakeChatClient.install({ authMethod: 'api_key' })];
@@ -302,7 +301,7 @@ describe('the empty states (§9.1)', () => {
     const welcome = k.$$('[data-ref="welcome"]')[0];
     expect(welcome.textContent).toContain('ANTHROPIC_API_KEY');
     expect(welcome.textContent).toContain('Use my Claude subscription even if ANTHROPIC_API_KEY is set');
-    expect(label(k.$('[data-ref="agent-name"]')!)).toBe('Claude (API)');
+    expect(label(k.$('[data-ref="agent-picker"]')!)).toBe('Claude (API)');
     k.$<HTMLButtonElement>('[data-ref="welcome"] [data-ref="open-settings"]')!.click();
     expect(k.openSettings).toHaveBeenCalled();
   });
@@ -313,7 +312,7 @@ describe('the empty states (§9.1)', () => {
     ignored.agentsValue = [FakeChatClient.install({ authMethod: 'claude.ai', apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: true })];
     const h = mount(ignored);
     await opened(h);
-    const badge = h.$<HTMLElement>('[data-ref="agent-name"]')!;
+    const badge = h.$<HTMLElement>('[data-ref="agent-picker"]')!;
     expect(label(badge)).toBe('Claude (Subscription)');
     expect(badge.dataset.tone).toBeUndefined();
     expect(badge.title).toContain('leaves ANTHROPIC_API_KEY out');
@@ -324,7 +323,7 @@ describe('the empty states (§9.1)', () => {
     kept.agentsValue = [FakeChatClient.install({ authMethod: 'api_key', apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: false })];
     const k = mount(kept);
     await opened(k);
-    const keptChip = k.$<HTMLElement>('[data-ref="agent-name"]')!;
+    const keptChip = k.$<HTMLElement>('[data-ref="agent-picker"]')!;
     expect(label(keptChip)).toBe('Claude (API)');
     expect(keptChip.dataset.tone).toBe('warning');
     expect(keptChip.title).toContain('in Settings → Agent');
@@ -334,7 +333,7 @@ describe('the empty states (§9.1)', () => {
     only.agentsValue = [FakeChatClient.install({ authMethod: 'api_key', apiKeyPresent: true, subscriptionAvailable: false, apiKeyIgnored: false })];
     const o = mount(only);
     await opened(o);
-    expect(label(o.$('[data-ref="agent-name"]')!)).toBe('Claude (API)');
+    expect(label(o.$('[data-ref="agent-picker"]')!)).toBe('Claude (API)');
     const hint = o.$$('[data-ref="welcome"] [data-ref="auth-hint"]')[0];
     expect(hint.textContent).toContain('No Claude subscription is signed in');
     expect(hint.textContent).toContain('claude auth login');
@@ -822,13 +821,17 @@ describe('the chips under the message box', () => {
     expect(again.settings.claudeEffort).toBeUndefined();
   });
 
-  it('the agent chip is a picker only when more than one agent can run, and a plain chip with one', async () => {
+  it('the agent chip of a new chat lists the agents that can run, then Manage, which opens Settings', async () => {
     const one = new FakeChatClient();
     one.agentsValue = [FakeChatClient.install(), FakeChatClient.codexUnsupported()];
     const h = mount(one);
     await opened(h);
-    expect(h.$('[data-ref="agent-picker"]')).toBeNull();
-    expect(label(h.$('[data-ref="agent-name"]')!)).toBe('Claude (Subscription)');
+    const only = h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="agent-picker"]')!;
+    expect(label(only)).toBe('Claude (Subscription)');
+    expect(menuRows(h, only, 'agent-menu')).toEqual(['Claude (Subscription)', 'Manage']);
+    pick(h, only, 'agent-menu', 'Manage');
+    expect(h.openSettings).toHaveBeenCalledTimes(1);
+    expect(h.panel.state.agent).toBe('claude');
 
     const two = new FakeChatClient();
     two.agentsValue = [FakeChatClient.install(), FakeChatClient.install({ kind: 'codex', authMethod: null })];
@@ -836,7 +839,7 @@ describe('the chips under the message box', () => {
     await opened(k);
     const chip = () => k.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="agent-picker"]')!;
     expect(label(chip())).toBe('Claude (Subscription)');
-    expect(menuRows(k, chip(), 'agent-menu')).toEqual(['Claude (Subscription)', 'Codex']);
+    expect(menuRows(k, chip(), 'agent-menu')).toEqual(['Claude (Subscription)', 'Codex', 'Manage']);
     pick(k, chip(), 'agent-menu', 'Codex');
     expect(label(chip())).toBe('Codex');
     expect(k.panel.state.agent).toBe('codex');
@@ -853,7 +856,7 @@ describe('the chips under the message box', () => {
     await opened(h);
     const controls = h.$('[data-ref="composer"] [data-ref="composer-controls"]')!;
     expect([...controls.querySelectorAll<HTMLElement>('.chat-chip:not(.hidden)')].map((c) => c.dataset.ref)).toEqual([
-      'agent-name', 'model-picker', 'effort-picker', 'mode',
+      'agent-picker', 'model-picker', 'effort-picker', 'mode',
     ]);
     // The chips row and Send share the footer under the textarea.
     const footer = controls.parentElement!;
@@ -957,7 +960,7 @@ describe('the API agent (§20)', () => {
     const h = mount(withApi([OLLAMA, ANTHROPIC, OPENAI_NONE, OPENROUTER]));
     await opened(h);
     const chip = h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="agent-picker"]')!;
-    expect(menuRows(h, chip, 'agent-menu')).toEqual(['Claude (Subscription)', 'Codex', 'Anthropic API', 'OpenRouter', 'Ollama']);
+    expect(menuRows(h, chip, 'agent-menu')).toEqual(['Claude (Subscription)', 'Codex', 'Anthropic API', 'OpenRouter', 'Ollama', 'Manage']);
   });
 
   it("picking a provider starts an api chat on its default model; the model chip lists that provider's models only", async () => {
@@ -1024,9 +1027,8 @@ describe('the API agent (§20)', () => {
     client.apiModelsValue = [];
     const h = mount(client);
     await opened(h);
-    // The only agent that runs: no picker, but the chip says where it runs.
-    expect(h.$('[data-ref="agent-picker"]')).toBeNull();
-    expect(label(h.$('[data-ref="agent-name"]')!)).toBe('Ollama');
+    // The only agent that runs: the chip says where it runs.
+    expect(label(h.$('[data-ref="agent-picker"]')!)).toBe('Ollama');
     expect(h.$('[data-ref="welcome"]')!.textContent).toContain('The agent works on the project');
     const model = () => h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="model-picker"]')!;
     expect(label(model())).toBe('Model');
@@ -1072,7 +1074,7 @@ describe('the API agent (§20)', () => {
     await settle();
     expect(h.panel.state.agent).toBe('api');
     expect(h.$('[data-ref="welcome"]')).not.toBeNull();
-    expect(label(h.$('[data-ref="agent-name"]')!)).toBe('Anthropic API');
+    expect(label(h.$('[data-ref="agent-picker"]')!)).toBe('Anthropic API');
     expect(h.$('[data-ref="model-picker"]')!.dataset.value).toBe('anthropic/claude-opus-5-5');
   });
 

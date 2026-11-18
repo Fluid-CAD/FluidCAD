@@ -63,7 +63,7 @@ let env: NodeJS.ProcessEnv;
 let credentials: AgentCredentials;
 let modelRequests: { provider: string; model: string; images: boolean }[];
 
-async function start(options: { stepLimit?: number; fetch?: typeof fetch } = {}): Promise<void> {
+async function start(options: { stepLimit?: number; fetch?: typeof fetch; realModels?: boolean } = {}): Promise<void> {
   scripted = new ScriptedModel();
   modelRequests = [];
   const app = express();
@@ -79,15 +79,20 @@ async function start(options: { stepLimit?: number; fetch?: typeof fetch } = {})
     env,
     credentials,
     // No network: every model list fails, and the providers fall back (§20.3).
-    fetch: options.fetch ?? ((async () => { throw new TypeError('fetch failed'); }) as typeof fetch),
+    fetch: options.fetch ?? (options.realModels ? undefined : ((async () => { throw new TypeError('fetch failed'); }) as typeof fetch)),
   });
   const api = new ApiBackend({
     providers,
     stepLimit: options.stepLimit,
-    createModel: (p, model, o) => {
-      modelRequests.push({ provider: p.id, model, images: o.images });
-      return scripted.model;
-    },
+    // realModels: the provider packages themselves, against a server the test runs.
+    ...(options.realModels
+      ? {}
+      : {
+          createModel: (p, model, o) => {
+            modelRequests.push({ provider: p.id, model, images: o.images });
+            return scripted.model;
+          },
+        }),
   });
   runtime = new AgentRuntime(
     {
@@ -381,5 +386,106 @@ describe('provider routes', () => {
       { id: 'anthropic/claude-opus-5-5', label: 'Claude Opus 5.5', provider: 'anthropic', acceptsImages: true, isDefault: true },
       { id: 'anthropic/claude-haiku-5-5', label: 'Claude Haiku 5.5', provider: 'anthropic', acceptsImages: true },
     ]);
+  });
+});
+
+/**
+ * A local OpenAI-compatible server (what Ollama or LM Studio answer), with
+ * its replies scripted per request: no network, no model.
+ */
+async function fakeCompatibleServer(replies: object[][]): Promise<{ url: string; requests: any[]; close(): Promise<void> }> {
+  const requests: any[] = [];
+  const app = express();
+  app.use(express.json({ limit: '50mb' }));
+  app.get('/v1/models', (_req, res) => res.json({ object: 'list', data: [{ id: 'tiny:1b', object: 'model' }] }));
+  app.post('/v1/chat/completions', (req, res) => {
+    requests.push(req.body);
+    const chunks = replies[requests.length - 1] ?? [];
+    res.setHeader('content-type', 'text/event-stream');
+    for (const chunk of chunks) {
+      res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: req.body.model, ...chunk })}\n\n`);
+    }
+    res.end('data: [DONE]\n\n');
+  });
+  const fake = http.createServer(app);
+  await new Promise<void>((resolve) => fake.listen(0, '127.0.0.1', () => resolve()));
+  return {
+    url: `http://127.0.0.1:${(fake.address() as AddressInfo).port}/v1`,
+    requests,
+    close: () => new Promise<void>((resolve) => {
+      fake.closeAllConnections();
+      fake.close(() => resolve());
+    }),
+  };
+}
+
+const delta = (d: object, finish: string | null = null) => ({ choices: [{ index: 0, delta: d, finish_reason: finish }] });
+const usageChunk = (prompt: number, completion: number) => ({ choices: [], usage: { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion } });
+
+describe('the API agent on a local OpenAI-compatible server', () => {
+  async function restartReal(): Promise<void> {
+    await runtime.shutdown();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await start({ realModels: true });
+  }
+
+  it('lists its models, sends the capture as an image, runs a tool call through the gate and warns of a cut prompt', async () => {
+    const local = await fakeCompatibleServer([
+      [
+        delta({ role: 'assistant', reasoning: 'I should read the skill.' }),
+        delta({ tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'read_skill', arguments: JSON.stringify({ name: 'fluidcad' }) } }] }),
+        delta({}, 'tool_calls'),
+        // A server with a 4k context reports what it read.
+        usageChunk(4096, 12),
+      ],
+      [delta({ role: 'assistant', content: 'A plate.' }), delta({}, 'stop'), usageChunk(4096, 3)],
+    ]);
+    try {
+      prefs.agent.providers = [{ id: 'lm-studio', kind: 'openai-compatible', label: 'LM Studio', baseURL: local.url, images: true }];
+      credentials.write('lm-studio', 'local-key-123');
+      await restartReal();
+      const models = (await json('GET', `${base}/agents/api/models`)).body.models.filter((m: any) => m.provider === 'lm-studio');
+      expect(models).toEqual([{ id: 'lm-studio/tiny:1b', label: 'tiny:1b', provider: 'lm-studio', acceptsImages: true }]);
+
+      const id = await newSession();
+      await json('POST', `${base}/sessions/${id}/messages`, { text: 'what is this?', model: 'lm-studio/tiny:1b', image: { mediaType: 'image/png', base64: PNG.toString('base64') } });
+      const done = await settled(id);
+      expect(done.status).toEqual({ state: 'idle' });
+      const assistant = lastAssistant(done);
+      expect(assistant.parts.map((p) => p.type)).toEqual(['reasoning', 'tool', 'notice', 'text']);
+      expect(assistant.parts[1]).toMatchObject({ source: 'fluidcad', name: 'read_skill', state: 'done' });
+      expect((assistant.parts[2] as any).text).toContain('LM Studio read only 4096 tokens');
+      expect(done.turns[0].usage).toEqual({ inputTokens: 8192, outputTokens: 15 });
+
+      const [first, second] = local.requests;
+      expect(first.model).toBe('tiny:1b');
+      expect(first.stream_options).toEqual({ include_usage: true });
+      expect(first.temperature).toBeUndefined();
+      expect(first.tools).toHaveLength(37);
+      expect(first.messages[0]).toEqual({ role: 'system', content: composeInstructions('api') });
+      // The capture went with the user's words, as an image.
+      expect(first.messages[1].role).toBe('user');
+      expect(first.messages[1].content.map((p: any) => p.type)).toEqual(['text', 'image_url']);
+      // The tool's result went back as content parts (images would follow in a user message).
+      const tool = second.messages.find((m: any) => m.role === 'tool');
+      expect(tool.tool_call_id).toBe('call_1');
+      expect(Array.isArray(tool.content)).toBe(true);
+      expect(tool.content[0].type).toBe('text');
+      expect(JSON.stringify(local.requests)).not.toContain('local-key-123');
+    } finally {
+      await local.close();
+    }
+  });
+
+  it('names the URL of a server that is not running', async () => {
+    const local = await fakeCompatibleServer([]);
+    const url = local.url;
+    await local.close();
+    prefs.agent.providers = [{ id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: url, models: ['qwen3-vl:4b'] }];
+    await restartReal();
+    const id = await newSession();
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'hello', model: 'ollama/qwen3-vl:4b' });
+    expect((await settled(id)).status).toEqual({ state: 'error', kind: 'other', message: `Could not reach Ollama at ${url}. Is the server running?` });
   });
 });

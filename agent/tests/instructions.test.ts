@@ -150,6 +150,7 @@ describe('instructions', () => {
     for (const kind of ['claude', 'codex', 'api'] as const) {
       const preamble = inAppPreamble(kind);
       expect(preamble).toContain('`[n]` in their text refers to');
+      expect(preamble).toContain('`@path` in the user\'s text names a file of the project');
       expect(preamble).toContain('not bound');
       expect(preamble).toContain('$obj["<id>"]');
       expect(preamble).toContain('resolve it again before relying on it');

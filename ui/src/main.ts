@@ -1379,6 +1379,8 @@ function loadAgentPanel(): Promise<ChatPanel> {
       settings: () => agentSettings.current,
       openExternal: (url) => void ExternalLinks.open(url),
       openSettings: () => settingsModal.show('agent', 'api-keys'),
+      // `@` in the composer names a project file: the `+` picker's listing.
+      listFiles: async () => (await listWorkspaceFiles()).files,
       openSource: editorSurfaceEnabled
         ? (filePath, line, column) => withEditorSurface((surface) => {
             // The render reports 1-based columns; the editor counts from 0.

@@ -1,5 +1,6 @@
 import { ChatIcons } from './chat-icons';
 import { ATTACHMENT_MEDIA_TYPES } from './chat-types';
+import { FileMentions, type MentionFile } from './file-mentions';
 
 export type ChatComposerDeps = {
   /** Send `text`; resolves true once the engine took it (the box then empties). */
@@ -11,6 +12,11 @@ export type ChatComposerDeps = {
    * to go with the message as images. Absent: neither is offered.
    */
   onAttach?(files: File[]): void;
+  /**
+   * The project's files, for naming one in the message with `@`
+   * ({@link FileMentions}). Absent: `@` is only a character.
+   */
+  listFiles?(): Promise<MentionFile[]>;
 };
 
 /** The textarea's tallest, before it scrolls. */
@@ -23,6 +29,10 @@ const MAX_HEIGHT_PX = 200;
  * while a turn runs. Enter sends, Shift+Enter
  * adds a line, Escape stops the turn. Typing goes on while a turn runs, for
  * the next message; Enter waits until it ends.
+ *
+ * Typing `@` lists the project's files above the box; picking one writes
+ * its path in the text as `@path` ({@link FileMentions}). While that list
+ * offers a file, Enter picks it and Escape closes the list.
  *
  * The textarea carries `data-chat-composer`: the page's shortcuts (Ctrl+B,
  * the bare letters) leave it alone (`editable-target.ts`).
@@ -45,6 +55,8 @@ export class ChatComposer {
   private readonly button: HTMLButtonElement;
   /** Attach an image; null when the composer attaches none. */
   private readonly attachButton: HTMLButtonElement | null = null;
+  /** The `@` file list; null when the composer names no files. */
+  private readonly mentions: FileMentions | null = null;
   private busy = false;
   private enabled = true;
   private submitting = false;
@@ -138,6 +150,14 @@ export class ChatComposer {
         this.textarea.focus();
       }
     });
+    if (deps.listFiles) {
+      this.mentions = new FileMentions({
+        textarea: this.textarea,
+        host: box,
+        listFiles: deps.listFiles,
+        onReplace: (start, end, text) => this.replaceRange(start, end, text),
+      });
+    }
     this.el.append(this.attachments, box);
     this.paint();
   }
@@ -210,6 +230,16 @@ export class ChatComposer {
     this.caret = { start: head.length, end: head.length };
   }
 
+  /** Put `text` in place of `start`..`end` and leave the caret after it (a file picked from the `@` list). */
+  private replaceRange(start: number, end: number, text: string): void {
+    const value = this.textarea.value;
+    const head = `${value.slice(0, start)}${text}`;
+    this.value = `${head}${value.slice(end)}`;
+    this.textarea.focus();
+    this.textarea.setSelectionRange(head.length, head.length);
+    this.caret = { start: head.length, end: head.length };
+  }
+
   /** Send what is typed; the box empties once the engine took it. */
   async submit(): Promise<boolean> {
     const text = this.textarea.value;
@@ -231,6 +261,10 @@ export class ChatComposer {
   }
 
   private onKeyDown(event: KeyboardEvent): void {
+    // The `@` list first: Enter picks its file, Escape closes it.
+    if (this.mentions?.handleKey(event)) {
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey) {
       event.preventDefault();
       void this.submit();

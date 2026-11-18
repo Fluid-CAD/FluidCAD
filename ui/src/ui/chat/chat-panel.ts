@@ -3,6 +3,7 @@ import { showPopupMenu, type PopupMenuItem, type PopupMenuOptions } from '../pop
 import { AGENT_INFO, agentChipLabel, authDescription, providerLabel, renderAgentSetup, renderWelcome, type AgentSetupDeps } from './agent-setup';
 import type { ChatClient } from './chat-client';
 import { ChatComposer } from './chat-composer';
+import type { MentionFile } from './file-mentions';
 import { ChatIcons } from './chat-icons';
 import { ChatSessionsMenu } from './chat-sessions-menu';
 import { PERMISSION_MODES } from './permission-modes';
@@ -100,6 +101,8 @@ export type ChatPanelDeps = {
    * idle selection, renders, the capture. Absent: no references.
    */
   scene?: ChatSceneHost;
+  /** The project's files, for naming one in a message with `@`; absent: no file mentions. */
+  listFiles?(): Promise<MentionFile[]>;
   /** Makes an attached image ready to send (tests); absent: the browser's decoder and a canvas. */
   prepareImage?: ImagePreparer;
   /** Timers for reattaching after a refused stream (tests). */
@@ -265,6 +268,7 @@ export class ChatPanel {
       onSubmit: (text) => this.send(text),
       onStop: () => void this.state.stop(),
       onAttach: (files) => this.images.add(files),
+      ...(deps.listFiles ? { listFiles: deps.listFiles } : {}),
     });
     this.composer.controls.append(this.agentSlot, this.modelSlot, this.effortSlot, this.modeButton);
     this.references = deps.scene ? new SceneReferences(deps.scene, this.composer) : null;

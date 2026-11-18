@@ -944,6 +944,57 @@ describe('the API agent (§20)', () => {
     return client;
   }
 
+  it('a long model list gets a search field and scrolls; Other model… starts from what was searched', async () => {
+    const client = withApi([OPENROUTER]);
+    client.apiModelsValue = Array.from({ length: 40 }, (_, i): AgentModel => ({
+      id: `openrouter/vendor${i % 4}/model-${i}`,
+      label: `Vendor ${i % 4}: Model ${i}`,
+      provider: 'openrouter',
+      ...(i === 0 ? { isDefault: true } : {}),
+    }));
+    const h = mount(client);
+    await opened(h);
+    pick(h, h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="agent-picker"]')!, 'agent-menu', 'OpenRouter');
+    await settle();
+    const model = () => h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="model-picker"]')!;
+    model().click();
+    const menu = h.container.querySelector<HTMLElement>('[data-ref="model-menu"]')!;
+    const search = menu.querySelector<HTMLInputElement>('[data-ref="menu-search"]')!;
+    expect(search.placeholder).toBe('Search models');
+    expect(document.activeElement).toBe(search);
+    const shown = () => [...menu.querySelectorAll<HTMLElement>('[data-ref="menu-list"] [role="menuitem"]:not(.hidden)')].map((r) => r.textContent!.trim());
+    expect(shown()).toHaveLength(40);
+    // By the name, or by the id.
+    search.value = 'vendor 3: model 1';
+    search.dispatchEvent(new Event('input'));
+    expect(shown()).toEqual(['Vendor 3: Model 11', 'Vendor 3: Model 15', 'Vendor 3: Model 19', 'Vendor 3: Model 31']);
+    search.value = 'vendor2/model-38';
+    search.dispatchEvent(new Event('input'));
+    expect(shown()).toEqual(['Vendor 2: Model 38']);
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    expect(h.onModelChosen).toHaveBeenLastCalledWith('api', 'openrouter/vendor2/model-38');
+    expect(label(model())).toBe('Vendor 2: Model 38');
+
+    // Nothing found: Other model… takes the search as the name to type.
+    model().click();
+    const again = h.container.querySelector<HTMLElement>('[data-ref="model-menu"]')!;
+    const field = again.querySelector<HTMLInputElement>('[data-ref="menu-search"]')!;
+    field.value = 'acme/new-model';
+    field.dispatchEvent(new Event('input'));
+    [...again.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((r) => r.textContent!.trim() === 'Other model…')!.click();
+    await settle();
+    expect(h.$<HTMLInputElement>('[data-ref="model-input"]')!.value).toBe('acme/new-model');
+
+    // A short list stays a plain menu.
+    const k = mount(withApi([ANTHROPIC]));
+    await opened(k);
+    pick(k, k.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="agent-picker"]')!, 'agent-menu', 'Anthropic API');
+    await settle();
+    k.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="model-picker"]')!.click();
+    expect(k.container.querySelector('[data-ref="model-menu"] [data-ref="menu-search"]')).toBeNull();
+    closePopupMenu();
+  });
+
   it('the chats menu names an api chat by its provider', async () => {
     const client = withApi([ANTHROPIC, OPENROUTER]);
     client.addSession({ id: 'p', title: 'On a key', agent: 'api', model: 'anthropic/claude-opus-5-5', updatedAt: new Date().toISOString() });

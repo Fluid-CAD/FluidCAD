@@ -1,5 +1,5 @@
 import type { LeftSlot } from '../left-slot';
-import { showPopupMenu, type PopupMenuItem } from '../popup-menu';
+import { showPopupMenu, type PopupMenuItem, type PopupMenuOptions } from '../popup-menu';
 import { AGENT_INFO, agentChipLabel, authDescription, providerLabel, renderAgentSetup, renderWelcome, type AgentSetupDeps } from './agent-setup';
 import type { ChatClient } from './chat-client';
 import { ChatComposer } from './chat-composer';
@@ -49,6 +49,8 @@ export type ChatPanelSettings = {
 
 /** The effort picker's row for "no effort flag": the agent's (or model's) own default. */
 const DEFAULT_EFFORT = '';
+/** More models than this, and the model chip's menu gets a search field and scrolls. */
+const MODEL_SEARCH_AT = 12;
 
 /** A confirm in the page's own dialog chrome (main.ts's `confirmDialog`). */
 export type ChatConfirmOptions = {
@@ -167,6 +169,8 @@ export class ChatPanel {
   private readonly effortSlot: HTMLSpanElement;
   /** The model picker shows a text field for a model by name. */
   private typingModel = false;
+  /** The text "Other model…" starts with: what the search found nothing for. */
+  private typedModelSeed: string | null = null;
   /** The mode switched from its chip, until Settings → Agent is saved again. */
   private modeChoice: PermissionMode | null = null;
 
@@ -733,7 +737,8 @@ export class ChatPanel {
       const api = this.state.agent === 'api';
       const provider = api ? this.provider : null;
       // An `api` model is typed without its provider: the chat already has one.
-      input.value = current === 'default' ? '' : api ? modelPart(current) : current;
+      input.value = this.typedModelSeed ?? (current === 'default' ? '' : api ? modelPart(current) : current);
+      this.typedModelSeed = null;
       input.spellcheck = false;
       const commit = (save: boolean) => {
         const value = input.value.trim();
@@ -782,27 +787,38 @@ export class ChatPanel {
       ? `Model: ${AGENT_INFO[this.state.agent].name}'s own default`
       : current === '' ? 'Model: choose one' : `Model: ${api ? modelPart(current) : current}`;
     chip.setAttribute('aria-label', `Model: ${label}`);
-    chip.addEventListener('click', () => this.showChipMenu(chip, 'model-menu', [
-      ...options.map((model): PopupMenuItem => ({
-        icon: model.id === current ? ChatIcons.CHECK : '',
-        label: name(model),
-        className: model.id === current ? 'font-medium' : undefined,
-        onSelect: () => {
-          this.chooseModel(model.id);
-          this.paintModelPicker();
+    chip.addEventListener('click', () => {
+      // A long list (OpenRouter has hundreds) gets a search field and scrolls.
+      const searchable = options.length > MODEL_SEARCH_AT;
+      let menu: HTMLElement | null = null;
+      menu = this.showChipMenu(chip, 'model-menu', [
+        ...options.map((model): PopupMenuItem => ({
+          icon: model.id === current ? ChatIcons.CHECK : '',
+          label: name(model),
+          keywords: model.id,
+          selected: model.id === current,
+          className: model.id === current ? 'font-medium' : undefined,
+          onSelect: () => {
+            this.chooseModel(model.id);
+            this.paintModelPicker();
+          },
+        })),
+        {
+          icon: '',
+          label: 'Other model…',
+          separated: true,
+          pinned: true,
+          title: 'Any model name the program accepts',
+          onSelect: () => {
+            // What was searched for, and not found, is where typing starts.
+            const searched = menu?.querySelector<HTMLInputElement>('[data-ref="menu-search"]')?.value.trim() ?? '';
+            this.typingModel = true;
+            this.typedModelSeed = searched || null;
+            this.paintModelPicker();
+          },
         },
-      })),
-      {
-        icon: '',
-        label: 'Other model…',
-        separated: true,
-        title: 'Any model name the program accepts',
-        onSelect: () => {
-          this.typingModel = true;
-          this.paintModelPicker();
-        },
-      },
-    ]));
+      ], searchable ? { search: { placeholder: 'Search models', empty: 'No model matches' } } : {});
+    });
     this.modelSlot.append(chip);
     // Codex's levels depend on the model.
     this.paintEffortPicker();
@@ -868,10 +884,11 @@ export class ChatPanel {
   }
 
   /** A chip's menu, opening upwards from it (the chips sit at the panel's bottom). */
-  private showChipMenu(chip: HTMLElement, ref: string, items: PopupMenuItem[]): void {
+  private showChipMenu(chip: HTMLElement, ref: string, items: PopupMenuItem[], options: Pick<PopupMenuOptions, 'search'> = {}): HTMLElement {
     const rect = chip.getBoundingClientRect();
-    const menu = showPopupMenu(this.deps.container, { clientX: rect.left, clientY: rect.top - 4 }, items, { focusFirst: true, placement: 'above' });
+    const menu = showPopupMenu(this.deps.container, { clientX: rect.left, clientY: rect.top - 4 }, items, { focusFirst: true, placement: 'above', ...options });
     menu.dataset.ref = ref;
+    return menu;
   }
 
   /**

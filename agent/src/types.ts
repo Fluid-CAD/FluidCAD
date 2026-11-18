@@ -23,6 +23,12 @@ export type ApiProviderStatus = {
   hasKey: boolean;
   /** `env`: the key comes from the environment, and Settings offers no field for it. */
   keySource: 'env' | 'stored' | null;
+  /**
+   * The key's first characters and "…" (`sk-or-v1-a…`), so Settings can say
+   * which key it is: at most 10 characters and a quarter of the key. Absent
+   * without a key. Never more of the key than that.
+   */
+  keyPreview?: string;
   /** Built-ins: the environment variable that wins over a stored key. */
   envVar?: string;
   /** Built-ins: has a key. Custom entries: has a base URL (the key is optional). */

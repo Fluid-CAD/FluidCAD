@@ -8,7 +8,7 @@ import { mapProviderError, redact } from '../src/api/errors.ts';
 import { readHistory, writeHistory } from '../src/api/history.ts';
 import { IMAGE_OMITTED_NOTE, moveToolImagesToUserMessages, providerOptionsFor, systemMessage, withoutImages } from '../src/api/language-model.ts';
 import { parseAnthropicModels, parseCompatibleModels, parseOpenAIModels, parseOpenRouterModels } from '../src/api/models.ts';
-import { ProviderKeyError, ProviderRegistry, type ResolvedProvider } from '../src/api/providers.ts';
+import { ProviderKeyError, ProviderRegistry, keyPreview, type ResolvedProvider } from '../src/api/providers.ts';
 
 // The API agent's providers, model lists, errors and history (§20), without
 // a network: model lists come from a fake fetch.
@@ -103,6 +103,14 @@ function registry(options: { env?: NodeJS.ProcessEnv; prefs?: any; fetch?: typeo
 
 const OLLAMA = { id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: 'http://localhost:11434/v1', models: ['qwen3-vl:4b'], contextWindow: 4096 };
 
+describe('keyPreview', () => {
+  it('shows at most 10 characters and a quarter of the key', () => {
+    expect(keyPreview('sk-or-v1-0123456789abcdef0123456789abcdef0123456789')).toBe('sk-or-v1-0…');
+    expect(keyPreview('abcdefgh')).toBe('ab…');
+    expect(keyPreview('abc')).toBe('…');
+  });
+});
+
 describe('ProviderRegistry', () => {
   it('reports the built-ins and custom entries, the environment winning, and never a key', async () => {
     const r = registry({ env: { OPENAI_API_KEY: 'sk-env-openai-1234567890' }, prefs: { agent: { providers: [OLLAMA] } } });
@@ -110,12 +118,16 @@ describe('ProviderRegistry', () => {
     r.credentials.write('openai', 'sk-stored-openai-1234567890');
     const statuses = await r.statuses();
     expect(statuses).toEqual([
-      { id: 'anthropic', kind: 'anthropic', label: 'Anthropic API', builtIn: true, hasKey: true, keySource: 'stored', envVar: 'ANTHROPIC_API_KEY', ready: true, images: true },
-      { id: 'openai', kind: 'openai', label: 'OpenAI API', builtIn: true, hasKey: true, keySource: 'env', envVar: 'OPENAI_API_KEY', ready: true, images: true },
+      { id: 'anthropic', kind: 'anthropic', label: 'Anthropic API', builtIn: true, hasKey: true, keySource: 'stored', keyPreview: 'sk-ant…', envVar: 'ANTHROPIC_API_KEY', ready: true, images: true },
+      { id: 'openai', kind: 'openai', label: 'OpenAI API', builtIn: true, hasKey: true, keySource: 'env', keyPreview: 'sk-env…', envVar: 'OPENAI_API_KEY', ready: true, images: true },
       { id: 'openrouter', kind: 'openrouter', label: 'OpenRouter', builtIn: true, hasKey: false, keySource: null, envVar: 'OPENROUTER_API_KEY', ready: false, images: true, problem: 'No API key.' },
       { id: 'ollama', kind: 'openai-compatible', label: 'Ollama', builtIn: false, baseURL: 'http://localhost:11434/v1', hasKey: false, keySource: null, ready: true, images: false, contextWindow: 4096 },
     ]);
-    expect(JSON.stringify(statuses)).not.toContain('sk-');
+    // Only a short prefix of a key ever reaches the page.
+    const text = JSON.stringify(statuses);
+    for (const key of ['sk-env-openai-1234567890', 'sk-ant-stored-1234567890', 'sk-stored-openai-1234567890', '1234567890']) {
+      expect(text).not.toContain(key);
+    }
     expect((await r.resolve('openai'))!.apiKey).toBe('sk-env-openai-1234567890');
   });
 

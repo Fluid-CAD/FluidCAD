@@ -125,6 +125,7 @@ export class ProviderRegistry {
       ...(p.baseURL ? { baseURL: p.baseURL } : {}),
       hasKey,
       keySource: p.keySource,
+      ...(p.apiKey !== null ? { keyPreview: keyPreview(p.apiKey) } : {}),
       ...(p.builtIn ? { envVar: AgentCredentials.envVar(p.id) } : {}),
       ready,
       images: p.images,
@@ -292,4 +293,12 @@ function digest(text: string): string {
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(16);
+}
+
+/**
+ * What the page may see of `key`: its first characters and "…", at most 10
+ * and at most a quarter of the key, so a short key shows little of itself.
+ */
+export function keyPreview(key: string): string {
+  return `${key.slice(0, Math.min(10, Math.floor(key.length / 4)))}…`;
 }

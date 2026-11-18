@@ -59,13 +59,13 @@ Each message is billed to your key by the provider, like any other use of it; th
 
 The agent works on the project only through FluidCAD's own tools, the same ones the [MCP server](/docs/cli#fluidcad-mcp) offers to external agents. They are tied to the project open in this window:
 
-- **Read**: the docs and the API, the scene (features, shapes, faces, edges, measurements, interference), screenshots of the view, and the project's files.
+- **Read**: the docs and the API, the scene (features, shapes, faces, edges, measurements, interference), screenshots of the view, the project's files, the packages installed on this computer, and the [FluidCAD hub](#packages-from-the-hub): it can search for packages and read what one offers.
 - **Change**: write or edit a project file, recompute, roll the timeline back, set breakpoints, pick a configuration.
-- **Outside the project**: export a file, pack the project, import a STEP file.
+- **Outside the project**: export a file, pack the project, import a STEP file, install a package from the hub.
 
 Everything else is switched off for the chat:
 
-- No shell commands, no web access, and no writing files except through FluidCAD's tools.
+- No shell commands, no web access beyond the hub FluidCAD is set to, and no writing files except through FluidCAD's tools.
 - Claude Code keeps its read-only file tools (Read, Glob, Grep), confined to the project folder. Codex runs in its read-only sandbox and reads files through FluidCAD's tools.
 - Your other MCP servers are not loaded into the chat, and Claude Code does not load your settings files or hooks. Your own configuration files are not changed.
 
@@ -79,7 +79,7 @@ By default the agent asks before every change. A change shows as a card in the t
 | **Allow for this session** | Runs this call, and later calls of the same tool in this chat without asking. |
 | **Deny** | Does not run it. The agent is told you declined. |
 
-The mode chip under the message box switches between **Ask before edits** and **Apply edits automatically**. In the second mode changes to the project run without asking; their cards still show what was done. Exporting, packing and importing a STEP file reach outside the project, so they always ask, in either mode, and never offer **Allow for this session**. The mode is saved with your settings.
+The mode chip under the message box switches between **Ask before edits** and **Apply edits automatically**. In the second mode changes to the project run without asking; their cards still show what was done. Exporting, packing, importing a STEP file and installing a package reach outside the project, so they always ask, in either mode, and never offer **Allow for this session**. The mode is saved with your settings.
 
 A card left unanswered for an hour times out, and the call is not run. **Stop** (or Escape in the message box) ends the turn and declines anything still waiting.
 
@@ -91,7 +91,18 @@ The agent never overwrites a file that has unsaved changes in the code editor. I
 
 Before a turn first changes a file, FluidCAD keeps a copy of it. Under a message whose turn changed files, **Revert this turn** puts those files back as they were before it, after a confirmation that lists them. A file the turn created is deleted. Later turns that changed files are reverted with it, so the files never end up in a mix of states. The conversation stays as it is; the turn is marked **Reverted**, and the agent is told with your next message which files went back.
 
-Reverting covers project files the agent wrote. It does not undo an export, a pack or a STEP import.
+Reverting covers project files the agent wrote. It does not undo an export, a pack or a STEP import. Reverting a turn that installed a package puts `fluidcad.json` back, so the project no longer uses the package; the package itself stays in your library.
+
+## Packages from the hub
+
+The agent can look for a [package](/docs/packages) instead of modeling a standard part or writing a feature from scratch. Ask for it ("find a standoff package and use it on this plate"), or it may look on its own.
+
+- **Searching and reading never ask.** The agent searches the hub, reads a package's description, features, parts, README and doc pages, and sees which packages your project uses and which your library holds. Searches are sent to the hub signed out, as the Hub panel's are.
+- **Installing always asks.** The card names the package, the version when the agent chose one, and reads *A package's code runs in FluidCAD with your permissions. Install it?* A package's code runs in the FluidCAD engine with your permissions, so allow an install only for a package and publisher you trust. The [Hub panel](/docs/packages#installing-a-package) shows the same package, with its publisher, screenshots and README, if you want to look first. **Deny** installs nothing.
+- An allowed install does what the Hub panel's **Install** does: FluidCAD downloads the package, checks that its files are the ones the hub lists, installs it where **New packages go to** says, and records it in `fluidcad.json`. A package already in your library is used without a download. The toolbar's **Custom** dropdown and the **Packages** dialog show it right away.
+- The agent can't move your project to another version of a package it already uses unless it asks for an upgrade, which the card says (**Upgrade to …**). It can't replace an installed version, remove a package, publish, or sign in to the hub.
+
+What a package says about itself (its description, README and doc pages) is written by its publisher. The agent is told to read it as reference material and not as instructions, and it can't install anything without your approval whatever a package's text says.
 
 ## Pointing at geometry
 

@@ -175,7 +175,7 @@ A package reaches other projects only through the hub. Until an admin approves i
 
 ## Installing a package
 
-Packages install from the hub, in the app or from the terminal.
+Packages install from the hub: in the app, from the terminal, or through the agent.
 
 In the app, click **FluidCAD Hub** on the left rail. The Hub panel opens beside the scene: search the hub's packages, and open one to see its screenshots, parts, versions and README. Its **Install 0.1.0** button installs it where **New packages go to** says (see [Your library](#your-library)). The arrow beside it, **Install into…**, chooses **into my library** or **into this project** instead. A package that is already there reads **Installed**, and one the project uses at an older version offers **Upgrade to** the newer one. The top bar's **Packages** dialog has **Find packages in the Hub panel** too.
 
@@ -192,6 +192,8 @@ FluidCAD downloads the package, checks that its files are the ones the hub lists
 ```
 
 It installs into your library (`--project`: into the project's `packages/` folder, committed with it; the default is the **New packages go to** setting) and, in a project, records the package in `fluidcad.json`. In a project, `npx fluidcad install` alone downloads every package the project records but this machine doesn't have. The [CLI reference](/docs/cli#fluidcad-install) has every form and flag.
+
+The [agent](/docs/agent#packages-from-the-hub) can search the hub and install a package for you. It asks before every install, and the same checks run.
 
 A package's code runs in the FluidCAD engine with your permissions, and neither `fluidcad install` nor the Hub panel's **Install** asks first. Install only packages you trust.
 

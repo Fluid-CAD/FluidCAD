@@ -44,9 +44,9 @@ The switch **Use my Claude subscription even if ANTHROPIC_API_KEY is set** in Se
 
 Without Claude Code or Codex, the agent can run on a model provider you have an API key for (Anthropic, OpenAI or OpenRouter), or on a model running on your own computer, served by Ollama, LM Studio or any OpenAI-compatible server. FluidCAD then runs the agent itself, with the same tools, approvals and reverting as above.
 
-**API keys.** In Settings › Agent, under **API keys**, paste the key next to the provider and click **Save**. The key is stored on this computer, in `agent-credentials.json` in FluidCAD's home folder (`~/.fluidcad`), readable only by your user. The page never shows it again; it only says whether a key is saved. **Remove** deletes it.
+**API keys.** In Settings › Agent, open **API keys** (or pick **Manage** at the bottom of the agent chip's menu), paste the key next to the provider and click **Save**. The key is stored on this computer, in `agent-credentials.json` in FluidCAD's home folder (`~/.fluidcad`), readable only by your user. The page never shows it again, only its first few characters so you can tell which key it is. **Edit** replaces it and **Remove** deletes it.
 
-- A key in the environment FluidCAD was started from wins: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. The row then says **Set by** the variable and offers no field.
+- A key in the environment FluidCAD was started from wins: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. The row then shows its first characters and **Set by** the variable, with no field.
 - A key saved here is used by this agent only. It is never given to Claude Code or Codex, and the switch about `ANTHROPIC_API_KEY` above does not change it.
 
 **Local models.** Under **Local models**, click **Add Ollama**, **Add LM Studio** or **Add other server**, check the base URL (Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`), and click **Save**. A server may also take a key, a context window (what you set the server to, in tokens; FluidCAD warns when it is too small for the agent), and **Send images**, off by default: turn it on for a model that reads images.
@@ -152,10 +152,12 @@ Settings › Agent holds:
 | Agent for new chats | Claude Code, Codex, an API key or local model (the provider used last), or the first one ready. |
 | Edits | **Ask before edits** or **Apply edits automatically**: the same switch as the mode chip under the message box. |
 | Use my Claude subscription even if ANTHROPIC_API_KEY is set | Leaves an inherited `ANTHROPIC_API_KEY` out of Claude Code's environment. On by default when a Claude subscription is signed in, off when none is; turning it on or off makes that your choice. See [above](#claude-code-and-anthropic_api_key). |
-| API keys | A key for Anthropic, OpenAI and OpenRouter, each saved by its own **Save**. See [On an API key or a local model](#on-an-api-key-or-a-local-model). |
+| API keys | A key for Anthropic, OpenAI and OpenRouter, each saved by its own **Save**, then shown by its first characters with **Edit** and **Remove**. See [On an API key or a local model](#on-an-api-key-or-a-local-model). |
 | Local models | Your Ollama, LM Studio or other OpenAI-compatible servers. |
 
-Under them, **Detected Agents** lists each program with its version, path and state (Ready, Not signed in, Too old, Not found), and each API provider and local model with whether it is ready, and **Check again**.
+The tab folds these into sections: **General** (the first two), **Claude Code**, **API keys**, **Local models** and **Detected Agents**. **Manage**, at the bottom of the agent chip's menu in a new chat, opens it on **API keys**.
+
+**Detected Agents** lists each program with its version, path and state (Ready, Not signed in, Too old, Not found), and each API provider and local model with whether it is ready, and **Check again**.
 
 The model and the effort are not in Settings: pick them with the chips under the message box (see [Chats](#chats)).
 

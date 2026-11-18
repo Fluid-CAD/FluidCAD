@@ -73,7 +73,7 @@ export class ChatComposer {
     this.textarea.dataset.chatComposer = '';
     this.textarea.dataset.ref = 'input';
     this.textarea.className = 'chat-composer-input';
-    this.textarea.placeholder = 'Ask about this model…';
+    this.textarea.placeholder = 'Describe a part or a change…';
     this.textarea.setAttribute('aria-label', 'Message the agent');
     this.textarea.spellcheck = true;
     this.textarea.addEventListener('input', () => {

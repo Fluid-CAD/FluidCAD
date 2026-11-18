@@ -1080,7 +1080,7 @@ describe('the API agent (§20)', () => {
     await opened(h);
     // The only agent that runs: the chip says where it runs.
     expect(label(h.$('[data-ref="agent-picker"]')!)).toBe('Ollama');
-    expect(h.$('[data-ref="welcome"]')!.textContent).toContain('The agent works on the project');
+    expect(h.$('[data-ref="welcome"]')!.textContent).toContain('The agent can model');
     const model = () => h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="model-picker"]')!;
     expect(label(model())).toBe('Model');
 

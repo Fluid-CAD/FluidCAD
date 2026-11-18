@@ -266,11 +266,10 @@ export function renderWelcome(install: AgentInstall | null, deps: AgentSetupDeps
   el.className = 'chat-welcome';
   el.dataset.ref = 'welcome';
   el.append(ChatIcons.span(ChatIcons.AGENT, '[&>svg]:size-6 text-primary/80'));
-  el.append(heading('Ask about this model, or change it'));
+  el.append(heading('What do you want to build?'));
   el.append(
     paragraph(
-      `${install && install.kind !== 'api' ? AGENT_INFO[install.kind].name : 'The agent'} works on the project through FluidCAD's tools: the scene, the code, measurements, screenshots. ` +
-        'It shows each change and waits for you to allow it, unless you switch to “Apply edits automatically” below; a turn’s changes can be reverted.',
+      `${install && install.kind !== 'api' ? AGENT_INFO[install.kind].name : 'The agent'} can model, edit and inspect your project.`,
     ),
   );
   const auth = authDescription(install);

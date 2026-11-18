@@ -32,16 +32,33 @@ import type { ChatEvent, ChatMessage, PermissionMode, ToolPart } from '../src/ty
 // as "older engine" and carry on.
 let engine: http.Server;
 let dirtyFiles: string[] = [];
+/** What the engine's `POST /api/hub/install` does; null answers 404 like any other route. */
+let hubInstall: ((body: any) => { status: number; json: unknown }) | null = null;
+let hubInstalls: any[] = [];
 let workspace: string;
 let pinned: RegistryEntry;
 
 beforeEach(async () => {
   workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-gate-')));
   dirtyFiles = [];
+  hubInstall = null;
+  hubInstalls = [];
   engine = http.createServer((req, res) => {
     if (req.url === '/api/editor/dirty-files') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(dirtyFiles.map((p) => ({ path: p, lastModifiedMs: 0 }))));
+      return;
+    }
+    if (req.url === '/api/hub/install' && hubInstall) {
+      const chunks: Buffer[] = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        hubInstalls.push(body);
+        const answer = hubInstall!(body);
+        res.writeHead(answer.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(answer.json));
+      });
       return;
     }
     req.resume();
@@ -475,6 +492,133 @@ describe('ToolGate: approval', () => {
     gate.settleAll('shutdown');
     expect(await decision).toEqual({ allow: false, message: STOPPED_MESSAGE });
     expect(host.tools()[0]).toMatchObject({ state: 'denied', error: 'The app closed before you answered.' });
+  });
+});
+
+describe('ToolGate: installing a package from the hub', () => {
+  const KIT = '@acme/kit';
+  const PINNED = '{\n  "dependencies": {\n    "@acme/kit": { "version": "0.2.0", "integrity": "sha256-x" }\n  }\n}\n';
+  /** The engine's install: answers the outcome, writing the pin into fluidcad.json when it pins. */
+  const installing = (pin: 'pinned' | 'unchanged' | null) => (body: any) => {
+    if (pin === 'pinned') {
+      fs.writeFileSync(file('fluidcad.json'), PINNED);
+    }
+    return {
+      status: 200,
+      json: { name: body.name, version: '0.2.0', source: 'hub', status: 'installed', target: 'library', pin, upgradedFrom: null, notes: [], manifest: { features: [], parts: [], files: [] } },
+    };
+  };
+
+  it('always asks, in auto-edits too, never offers the session, and a declined install never reaches the engine', async () => {
+    hubInstall = installing('pinned');
+    const host = new FakeHost();
+    host.turn = { turnId: 't1', mode: 'auto-edits' };
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    const id = await host.waiting();
+    expect(host.tools()[0]).toMatchObject({
+      name: 'install_package',
+      title: 'Install @acme/kit from the hub',
+      kind: 'outside',
+      input: { name: KIT },
+      approval: { id, canAllowSession: false },
+    });
+    expect(gate.decide(id, 'allow-session')).toBe('not-offered');
+    expect(gate.decide(id, 'deny')).toBe('ok');
+    expect(textOf(await call)).toBe(DECLINED_MESSAGE);
+    expect(hubInstalls).toEqual([]);
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+
+    // Allowed once is once: the next install asks again.
+    const again = client.callTool({ name: 'install_package', arguments: { name: KIT, version: '0.2.0', target: 'project' } });
+    const second = await host.waiting(1);
+    expect(host.tools()[1].title).toBe('Install @acme/kit@0.2.0 from the hub into this project');
+    gate.decide(second, 'allow');
+    expect((await again).isError).not.toBe(true);
+    expect(hubInstalls).toEqual([{ name: KIT, version: '0.2.0', target: 'project' }]);
+    const third = client.callTool({ name: 'install_package', arguments: { name: '@acme/other', upgrade: true } });
+    const last = await host.waiting(2);
+    expect(host.tools()[2].title).toBe('Upgrade to @acme/other from the hub');
+    gate.decide(last, 'deny');
+    await third;
+  });
+
+  it('searches and reads the hub without asking', async () => {
+    const host = new FakeHost();
+    const client = await connect(new ToolGate(host));
+    await client.callTool({ name: 'search_hub', arguments: { query: 'standoff' } });
+    await client.callTool({ name: 'get_hub_package', arguments: { name: KIT } });
+    await client.callTool({ name: 'list_packages', arguments: {} });
+    await client.callTool({ name: 'read_package_file', arguments: { name: KIT, version: '0.2.0', path: 'docs/standoff.md' } });
+    expect(host.approvalChanges).toEqual([]);
+    expect(host.tools().map((part) => [part.title, part.kind])).toEqual([
+      ['Search the hub: standoff', 'read'],
+      ['Read @acme/kit on the hub', 'read'],
+      ['List the packages', 'read'],
+      ['Read docs/standoff.md of @acme/kit', 'read'],
+    ]);
+  });
+
+  it("keeps fluidcad.json as it was before an install that pins, so reverting the turn puts the pins back", async () => {
+    fs.writeFileSync(file('fluidcad.json'), '{}\n');
+    hubInstall = installing('pinned');
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    gate.decide(await host.waiting(), 'allow');
+    expect((await call).isError).not.toBe(true);
+    expect(read('fluidcad.json')).toBe(PINNED);
+    expect([...host.checkpoints.get('t1')!.values()]).toEqual([{ path: file('fluidcad.json'), existed: true, content: '{}\n' }]);
+    expect(host.tools()[0]).toMatchObject({ state: 'done' });
+  });
+
+  it('records that the install created fluidcad.json when the project had none', async () => {
+    hubInstall = installing('pinned');
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    gate.decide(await host.waiting(), 'allow');
+    await call;
+    expect([...host.checkpoints.get('t1')!.values()]).toEqual([{ path: file('fluidcad.json'), existed: false, content: '' }]);
+  });
+
+  it('keeps no copy for an install that left fluidcad.json alone, or that the engine refused', async () => {
+    fs.writeFileSync(file('fluidcad.json'), PINNED);
+    hubInstall = installing('unchanged');
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const used = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    gate.decide(await host.waiting(), 'allow');
+    await used;
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+
+    hubInstall = () => ({ status: 409, json: { error: 'This project pins @acme/kit 0.2.0; pinning 0.3.0 instead would change its geometry.', code: 'version-change' } });
+    const refused = client.callTool({ name: 'install_package', arguments: { name: KIT, version: '0.3.0' } });
+    gate.decide(await host.waiting(1), 'allow');
+    const result = await refused;
+    expect(result.isError).toBe(true);
+    expect(JSON.parse(textOf(result))).toMatchObject({ code: 'install-refused', details: { code: 'version-change' } });
+    expect(host.tools()[1].state).toBe('error');
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+  });
+
+  it("leaves the turn's own earlier copy of fluidcad.json in place", async () => {
+    fs.writeFileSync(file('fluidcad.json'), '{}\n');
+    hubInstall = installing('unchanged');
+    const host = new FakeHost();
+    host.turn = { turnId: 't1', mode: 'auto-edits' };
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    await client.callTool({ name: 'write_file', arguments: { path: 'fluidcad.json', content: '{ "unit": "mm" }\n' } });
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    gate.decide(await host.waiting(1), 'allow');
+    await call;
+    // The write's copy is the turn's: the install neither replaces nor drops it.
+    expect([...host.checkpoints.get('t1')!.values()]).toEqual([{ path: file('fluidcad.json'), existed: true, content: '{}\n' }]);
   });
 });
 

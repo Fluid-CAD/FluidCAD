@@ -53,6 +53,14 @@ export const FORCE_REFUSED_MESSAGE =
 
 /** The tools whose effect is a change to one workspace file: previewed as a diff, checkpointed before they run. */
 const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_range']);
+/**
+ * The tools that may write the project's package pins (`fluidcad.json`
+ * `dependencies`): the file is checkpointed before they run, so reverting
+ * the turn puts the pins back. What they installed stays in the library.
+ */
+const PIN_TOOLS = new Set(['install_package']);
+/** The project's configuration file, where the pins are. */
+const PROJECT_CONFIG_FILE = 'fluidcad.json';
 
 /** What the gate needs from its session. */
 export type ToolGateHost = {
@@ -115,6 +123,11 @@ type CallState = {
   file: string | null;
   /** Whether this call took the turn's checkpoint of `file`. */
   checkpointed: boolean;
+  /**
+   * For a call that may or may not change `file` (an install and the pins):
+   * the file as it was. A call that left it so has nothing to revert.
+   */
+  before?: Checkpoint;
 };
 
 /** The class of `name`; undefined for a tool missing from TOOL_CLASSES. */
@@ -264,9 +277,16 @@ export class ToolGate implements McpToolGate {
     }
     // Synchronous from here to the return: nothing can stop the turn in between.
     let checkpointed = false;
-    if (preview) {
+    let file: string | null = preview?.absPath ?? null;
+    let before: Checkpoint | undefined;
+    if (preview || PIN_TOOLS.has(call.name)) {
       try {
-        checkpointed = this.host.checkpoint(turn.turnId, readCheckpoint(preview.absPath));
+        const copy = readCheckpoint(preview ? preview.absPath : projectConfigPath(this.host.workspacePath));
+        checkpointed = this.host.checkpoint(turn.turnId, copy);
+        if (!preview) {
+          file = copy.path;
+          before = copy;
+        }
       } catch (e) {
         // Without a copy the change could not be reverted: it is not made.
         const message = `FluidCAD could not keep a copy of the file before changing it: ${e instanceof Error ? e.message : String(e)}`;
@@ -275,7 +295,7 @@ export class ToolGate implements McpToolGate {
         return { allow: false, message };
       }
     }
-    this.calls.set(call, { messageId, partId: part.id, turnId: turn.turnId, file: preview?.absPath ?? null, checkpointed });
+    this.calls.set(call, { messageId, partId: part.id, turnId: turn.turnId, file, checkpointed, ...(before ? { before } : {}) });
     this.host.persist();
     return { allow: true };
   }
@@ -325,6 +345,15 @@ export class ToolGate implements McpToolGate {
         patch = { state: 'error', error: text || 'The tool failed.', ...(images.length > 0 ? { output: { images } } : {}) };
       }
     } else {
+      // An install that left the pins as they were (the package was already
+      // used, or no project pins anything) changed no file of the project.
+      if (state.file && state.checkpointed && state.before && sameFile(state.before)) {
+        try {
+          this.host.dropCheckpoint(state.turnId, state.file);
+        } catch (e) {
+          console.error('[agent] could not drop a checkpoint:', e);
+        }
+      }
       patch = { state: 'done', output: { ...(text ? { text } : {}), ...(images.length > 0 ? { images } : {}) } };
     }
     this.host.emit({ type: 'part-update', messageId: state.messageId, partId: state.partId, patch });
@@ -481,6 +510,28 @@ function readCheckpoint(absPath: string): Checkpoint {
   }
 }
 
+/** `<workspace>/fluidcad.json`, canonical, as the file tools resolve a workspace path. */
+function projectConfigPath(workspacePath: string): string {
+  let root = workspacePath;
+  try {
+    root = fs.realpathSync(root);
+  } catch {
+    // Keep it as given.
+  }
+  return path.join(root, PROJECT_CONFIG_FILE);
+}
+
+/** Whether the file is still what `before` recorded: there or not, with the same text. */
+function sameFile(before: Checkpoint): boolean {
+  try {
+    const now = readCheckpoint(before.path);
+    return now.existed === before.existed && now.content === before.content;
+  } catch {
+    // Unreadable now: keep the copy.
+    return false;
+  }
+}
+
 /** A unified diff of the file now against what the call would write. */
 export function unifiedDiff(rel: string, preview: Pick<SourceEditPreview, 'existed' | 'before' | 'after'>): string {
   const diff = createTwoFilesPatch(
@@ -594,6 +645,19 @@ export function toolTitle(name: string, input: unknown, workspacePath: string): 
       return 'Export shapes';
     case 'pack':
       return 'Pack the package';
+    case 'search_hub':
+      return typeof i.query === 'string' && i.query.trim() !== '' ? `Search the hub: ${i.query.trim()}` : 'Browse the hub';
+    case 'get_hub_package':
+      return i.name ? `Read ${i.name}${i.version ? ` ${i.version}` : ''} on the hub` : 'Read a hub package';
+    case 'list_packages':
+      return i.name ? `Read the installed ${i.name}` : 'List the packages';
+    case 'read_package_file':
+      return i.name && i.path ? `Read ${i.path} of ${i.name}` : 'Read a package file';
+    case 'install_package': {
+      const what = i.name ? `${i.name}${i.version ? `@${i.version}` : ''}` : 'a package';
+      const where = i.target === 'project' ? ' into this project' : '';
+      return i.upgrade === true ? `Upgrade to ${what} from the hub${where}` : `Install ${what} from the hub${where}`;
+    }
     default:
       return name.replace(/_/g, ' ');
   }

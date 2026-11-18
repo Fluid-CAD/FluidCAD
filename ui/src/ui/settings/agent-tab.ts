@@ -5,7 +5,6 @@ import { ICON_TRASH } from '../icons';
 import { BUILT_IN_PROVIDERS, PROVIDER_ID, agentSettings, isServerUrl } from './agent-settings';
 import {
   FIELD_HINT,
-  FIELD_LABEL,
   SELECT,
   TEXT_INPUT,
   TOGGLE,
@@ -78,9 +77,12 @@ export class AgentTab implements SettingsTab {
   private defaultAgent!: HTMLSelectElement;
   private permission!: HTMLSelectElement;
   private ignoreApiKey!: HTMLInputElement;
-  private keysSection!: HTMLDivElement;
+  private readonly sections = new Map<string, Section>();
+  /** A section asked for before detection showed it: unfolded and scrolled to once it does. */
+  private revealAfterDetect: string | null = null;
+  private keysSection!: HTMLElement;
   private keys!: HTMLDivElement;
-  private serversSection!: HTMLDivElement;
+  private serversSection!: HTMLElement;
   private servers!: HTMLDivElement;
   private serversError!: HTMLParagraphElement;
   private readonly serverViews = new Map<string, ServerView>();
@@ -94,6 +96,12 @@ export class AgentTab implements SettingsTab {
     this.ctx = ctx;
     const changed = () => ctx.changed();
 
+    const general = this.section('general', 'General', root);
+    const claude = this.section('claude', 'Claude Code', root);
+    this.keysSection = this.section('api-keys', 'API keys', root).root;
+    this.serversSection = this.section('servers', 'Local models', root).root;
+    const detected = this.section('detected', 'Detected Agents', root);
+
     this.defaultAgent = select([
       ['', 'The first one ready'],
       ['claude', 'Claude Code'],
@@ -106,7 +114,7 @@ export class AgentTab implements SettingsTab {
       this.draft.defaultAgent = value === 'claude' || value === 'codex' || value === 'api' ? value : null;
       changed();
     });
-    root.appendChild(field('Agent for new chats', this.defaultAgent));
+    general.body.appendChild(field('Agent for new chats', this.defaultAgent));
 
     this.permission = select(PERMISSION_MODES.map((m): [string, string] => [m.mode, m.label]));
     this.permission.dataset.ref = 'permission-mode';
@@ -114,7 +122,7 @@ export class AgentTab implements SettingsTab {
       this.draft.permissionMode = this.permission.value === 'auto-edits' ? 'auto-edits' : 'ask';
       changed();
     });
-    root.appendChild(
+    general.body.appendChild(
       field(
         'Edits',
         this.permission,
@@ -131,34 +139,30 @@ export class AgentTab implements SettingsTab {
     });
     this.ignoreApiKey = ignore.input;
     this.ignoreApiKey.dataset.ref = 'ignore-api-key';
-    root.appendChild(ignore.row);
+    claude.body.appendChild(ignore.row);
     const ignoreHint = document.createElement('p');
     ignoreHint.className = `${FIELD_HINT} -mt-3 mb-4`;
     ignoreHint.dataset.ref = 'ignore-api-key-hint';
     ignoreHint.textContent =
       'When ANTHROPIC_API_KEY is set, Claude Code bills that key instead of your subscription. ' +
       'Turn this on to hide the key from Claude Code. On by default when you are signed in to a Claude subscription.';
-    root.appendChild(ignoreHint);
+    claude.body.appendChild(ignoreHint);
 
     // The `api` agent's keys and servers: shown once detection says the engine has it.
-    this.keysSection = document.createElement('div');
-    this.keysSection.dataset.ref = 'api-keys';
-    this.keysSection.className = 'mb-4 hidden';
+    this.keysSection.classList.add('hidden');
     const keysHint = document.createElement('p');
     keysHint.className = `${FIELD_HINT} mb-2`;
-    keysHint.textContent = 'Used only by the agent on an API key, never by Claude Code or Codex.';
+    keysHint.textContent = 'Used by the API agent only, never by Claude Code or Codex.';
     this.keys = document.createElement('div');
-    this.keys.className = 'flex flex-col gap-2';
-    this.keysSection.append(sectionLabel('API keys'), keysHint, this.keys);
-    root.appendChild(this.keysSection);
+    this.keys.dataset.ref = 'key-list';
+    this.keys.className = 'rounded-md border border-base-content/10 divide-y divide-base-content/10';
+    this.sections.get('api-keys')!.body.append(keysHint, this.keys);
 
-    this.serversSection = document.createElement('div');
-    this.serversSection.dataset.ref = 'servers';
-    this.serversSection.className = 'mb-4 hidden';
+    this.serversSection.classList.add('hidden');
     this.servers = document.createElement('div');
     this.servers.className = 'flex flex-col gap-2';
     const add = document.createElement('div');
-    add.className = 'flex flex-wrap gap-1 mt-2';
+    add.className = 'flex flex-wrap gap-1.5 mt-2';
     for (const preset of SERVER_PRESETS) {
       const button = document.createElement('button');
       button.type = 'button';
@@ -171,25 +175,21 @@ export class AgentTab implements SettingsTab {
     this.serversError = document.createElement('p');
     this.serversError.dataset.ref = 'servers-error';
     this.serversError.className = `${FIELD_HINT} text-error mt-1 hidden`;
-    this.serversSection.append(sectionLabel('Local models'), this.servers, add, this.serversError);
-    root.appendChild(this.serversSection);
+    this.sections.get('servers')!.body.append(this.servers, add, this.serversError);
 
-    const foundHeader = document.createElement('div');
-    foundHeader.className = 'flex items-center justify-between gap-2 mb-1.5';
-    const foundLabel = document.createElement('span');
-    foundLabel.className = FIELD_LABEL;
-    foundLabel.textContent = 'Detected Agents';
+    const recheckRow = document.createElement('div');
+    recheckRow.className = 'flex justify-end mb-1.5';
     const recheck = document.createElement('button');
     recheck.type = 'button';
     recheck.dataset.ref = 'recheck';
-    recheck.className = GHOST_BUTTON;
+    recheck.className = `${GHOST_BUTTON} border border-base-content/15`;
     recheck.textContent = 'Check again';
     recheck.addEventListener('click', () => void this.detect(true));
-    foundHeader.append(foundLabel, recheck);
+    recheckRow.appendChild(recheck);
     this.found = document.createElement('div');
     this.found.dataset.ref = 'found';
-    this.found.className = 'flex flex-col gap-2 mb-2';
-    root.append(foundHeader, this.found);
+    this.found.className = 'flex flex-col gap-2';
+    detected.body.append(recheckRow, this.found);
 
     this.sync();
   }
@@ -209,6 +209,59 @@ export class AgentTab implements SettingsTab {
 
   isDirty(): boolean {
     return !sameSettings(this.draft, agentSettings.current);
+  }
+
+  /** Unfold section `id` and bring it into view (Settings opened from the panel's Manage). */
+  reveal(id: string): void {
+    const section = this.sections.get(id);
+    if (!section) {
+      return;
+    }
+    section.toggle.checked = true;
+    OPEN_SECTIONS.add(id);
+    if (section.root.classList.contains('hidden')) {
+      this.revealAfterDetect = id;
+    } else {
+      section.root.scrollIntoView?.({ block: 'start' });
+    }
+  }
+
+  /**
+   * One folding section of the tab, with its title; `General` starts
+   * unfolded, and what the user unfolds stays so while the page is open.
+   */
+  private section(id: string, title: string, root: HTMLElement): Section {
+    const el = document.createElement('div');
+    el.dataset.section = id;
+    el.dataset.ref = id;
+    el.className = 'collapse collapse-arrow border border-base-content/10 rounded-md mb-2 last:mb-0';
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.dataset.ref = 'section-toggle';
+    toggle.className = '!min-h-0 !p-0 !h-9';
+    toggle.setAttribute('aria-label', title);
+    toggle.checked = OPEN_SECTIONS.has(id);
+    toggle.addEventListener('change', () => {
+      if (toggle.checked) {
+        OPEN_SECTIONS.add(id);
+      } else {
+        OPEN_SECTIONS.delete(id);
+      }
+    });
+    const head = document.createElement('div');
+    head.dataset.ref = 'section-title';
+    head.className = 'collapse-title !min-h-0 !py-2.5 !px-3 !pr-8 text-xs font-medium text-base-content/85';
+    head.textContent = title;
+    const content = document.createElement('div');
+    content.className = 'collapse-content !px-3 !pb-0';
+    const body = document.createElement('div');
+    body.className = 'pt-1 pb-3 [&>*:last-child]:mb-0';
+    content.appendChild(body);
+    el.append(toggle, head, content);
+    root.appendChild(el);
+    const section: Section = { root: el, body, toggle };
+    this.sections.set(id, section);
+    return section;
   }
 
   save(persist: PersistPreference): void {
@@ -294,27 +347,31 @@ export class AgentTab implements SettingsTab {
     for (const provider of builtIns) {
       const row = document.createElement('div');
       row.dataset.provider = provider.id;
-      row.className = 'grid grid-cols-[7rem_1fr] items-center gap-x-2';
+      row.className = 'px-3 py-2';
+      const line = document.createElement('div');
+      line.className = 'flex items-center gap-3';
       const name = document.createElement('span');
-      name.className = 'text-xs text-base-content/80 truncate';
+      name.className = 'w-24 shrink-0 text-xs font-medium text-base-content/85 truncate';
       name.textContent = provider.label;
       const key = this.keyControls(provider.id, provider, false);
-      row.append(name, key.el, key.error);
-      key.error.classList.add('col-start-2');
+      line.append(name, key.el);
+      row.append(line, key.error);
+      key.error.classList.add('pl-[6.75rem]');
       this.keys.appendChild(row);
     }
   }
 
   /**
-   * A provider's key: "Set by VARIABLE" when the environment sets it (no
-   * field: it wins anyway); otherwise a password field with Save, and Remove
-   * when a key is stored. `status` null: a server the engine does not know
-   * yet, whose key the dialog's Save stores after the server. A server's key
-   * is optional (a local server needs none).
+   * A provider's key. From the environment: its first characters and the
+   * variable that sets it (no field: it wins anyway). Stored: its first
+   * characters with Edit and Remove; Edit swaps in a field with Save and
+   * Cancel. None: a password field with Save. `status` null: a server the
+   * engine does not know yet, whose key the dialog's Save stores after the
+   * server. A server's key is optional (a local server needs none).
    */
   private keyControls(id: string, status: ApiProviderStatus | null, server: boolean): KeyControls {
     const el = document.createElement('div');
-    el.className = 'flex items-center gap-1.5 min-w-0';
+    el.className = 'flex flex-1 items-center gap-1.5 min-w-0 min-h-8';
     const error = document.createElement('p');
     error.dataset.ref = 'key-error';
     error.className = `${FIELD_HINT} text-error mt-1 hidden`;
@@ -324,29 +381,71 @@ export class AgentTab implements SettingsTab {
     if (status?.keySource === 'env') {
       const env = document.createElement('span');
       env.dataset.ref = 'key-env';
-      env.className = 'text-xs text-base-content/60';
+      env.className = 'text-[11px] text-base-content/55 shrink-0';
       env.append(document.createTextNode('Set by '));
       const code = document.createElement('code');
       code.className = 'font-mono';
       code.textContent = status.envVar ?? 'the environment';
       env.appendChild(code);
-      el.appendChild(env);
+      el.append(keyPreview(status.keyPreview), env);
       return controls;
     }
 
+    const stored = status?.keySource === 'stored';
     input.type = 'password';
     input.dataset.ref = 'key-input';
     input.className = KEY_INPUT;
     input.autocomplete = 'off';
     input.spellcheck = false;
-    input.placeholder = status?.keySource === 'stored' ? 'Key saved' : server ? 'Optional' : 'Paste a key';
+    input.placeholder = stored ? 'Paste a new key' : server ? 'Optional' : 'Paste a key';
     input.setAttribute('aria-label', `${status?.label ?? 'Server'} API key`);
-    el.appendChild(input);
+    if (stored) {
+      // Escape while editing a saved key goes back to it; the dialog stays open.
+      input.dataset.ownEscape = '';
+    }
+
+    // A server the engine does not know yet has no Save of its own: the dialog's stores it.
+    const save = status ? smallButton('Save', 'key-save') : null;
+    const cancel = stored ? smallButton('Cancel', 'key-cancel') : null;
+    const edit = stored ? smallButton('Edit', 'key-edit') : null;
+    const remove = stored ? smallButton('Remove', 'key-remove') : null;
+    const preview = stored ? keyPreview(status!.keyPreview) : null;
+    let editing = !stored;
 
     const fail = (message: string | null) => {
       error.textContent = message ?? '';
       error.classList.toggle('hidden', message === null);
     };
+    const paintSave = () => {
+      if (save) {
+        save.disabled = input.disabled || input.value.trim() === '';
+      }
+    };
+    const setBusy = (busy: boolean) => {
+      input.disabled = busy;
+      for (const button of [cancel, edit, remove]) {
+        if (button) {
+          button.disabled = busy;
+        }
+      }
+      paintSave();
+    };
+    const paint = () => {
+      el.replaceChildren();
+      if (editing) {
+        el.append(...[input, save, cancel].filter((n): n is HTMLInputElement | HTMLButtonElement => n !== null));
+      } else {
+        el.append(preview!, edit!, remove!);
+      }
+      paintSave();
+    };
+    const stopEditing = () => {
+      editing = false;
+      input.value = '';
+      fail(null);
+      paint();
+    };
+
     controls.store = async () => {
       const value = input.value.trim();
       if (value === '' || !this.deps?.setKey) {
@@ -365,55 +464,43 @@ export class AgentTab implements SettingsTab {
       await this.keysChanged();
       return true;
     };
-
-    // A server the engine does not know yet has no Save of its own: the dialog's stores it.
-    const save = status ? smallButton('Save', 'key-save') : null;
-    const remove = status?.keySource === 'stored' ? smallButton('Remove', 'key-remove') : null;
-    const setBusy = (busy: boolean) => {
-      input.disabled = busy;
-      if (remove) {
-        remove.disabled = busy;
-      }
-      if (save) {
-        save.disabled = busy || input.value.trim() === '';
-      }
-    };
-    const paintSave = () => {
-      if (save) {
-        save.disabled = input.value.trim() === '';
-      }
-    };
     controls.refresh = paintSave;
+
     input.addEventListener('input', () => {
       paintSave();
       fail(null);
     });
-    if (save) {
-      paintSave();
-      save.addEventListener('click', () => void controls.store());
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          void controls.store();
-        }
-      });
-      el.appendChild(save);
-    }
-    if (remove) {
-      remove.addEventListener('click', async () => {
-        if (!this.deps?.removeKey) {
-          return;
-        }
-        setBusy(true);
-        const problem = await this.deps.removeKey(id);
-        setBusy(false);
-        fail(problem);
-        if (problem === null) {
-          await this.keysChanged();
-        }
-      });
-      el.appendChild(remove);
-    }
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && save) {
+        e.preventDefault();
+        void controls.store();
+      } else if (e.key === 'Escape' && stored) {
+        // Back to the saved key, not out of the dialog.
+        e.preventDefault();
+        e.stopPropagation();
+        stopEditing();
+      }
+    });
+    save?.addEventListener('click', () => void controls.store());
+    cancel?.addEventListener('click', stopEditing);
+    edit?.addEventListener('click', () => {
+      editing = true;
+      paint();
+      input.focus();
+    });
+    remove?.addEventListener('click', async () => {
+      if (!this.deps?.removeKey) {
+        return;
+      }
+      setBusy(true);
+      const problem = await this.deps.removeKey(id);
+      setBusy(false);
+      fail(problem);
+      if (problem === null) {
+        await this.keysChanged();
+      }
+    });
+    paint();
     return controls;
   }
 
@@ -631,6 +718,11 @@ export class AgentTab implements SettingsTab {
       this.paintKeys();
       this.serversSection.classList.toggle('hidden', !installs?.some((i) => i.kind === 'api'));
       this.paintServerKeys();
+      const pending = this.revealAfterDetect ? this.sections.get(this.revealAfterDetect) : null;
+      this.revealAfterDetect = null;
+      if (pending && !pending.root.classList.contains('hidden')) {
+        pending.root.scrollIntoView?.({ block: 'start' });
+      }
     } finally {
       this.detecting = false;
     }
@@ -667,6 +759,12 @@ type KeyControls = {
   /** Paint Save for what the field holds. */
   refresh(): void;
 };
+
+/** A folding section of the tab: its box, where its controls go, and the checkbox that folds it. */
+type Section = { root: HTMLElement; body: HTMLElement; toggle: HTMLInputElement };
+
+/** The sections unfolded, kept while the page is open; General to begin with. */
+const OPEN_SECTIONS = new Set<string>(['general']);
 
 type ServerView = { id: string; card: HTMLElement; label: HTMLInputElement; url: HTMLInputElement; key: KeyControls };
 
@@ -761,11 +859,13 @@ function select(options: [string, string][]): HTMLSelectElement {
   return el;
 }
 
-function sectionLabel(text: string): HTMLElement {
-  const label = document.createElement('div');
-  label.className = `${FIELD_LABEL} mb-1.5`;
-  label.textContent = text;
-  return label;
+/** A stored key as the page may show it: its first characters, from the engine. */
+function keyPreview(text: string | undefined): HTMLElement {
+  const code = document.createElement('code');
+  code.dataset.ref = 'key-preview';
+  code.className = 'flex-1 min-w-0 truncate font-mono text-xs text-base-content/80';
+  code.textContent = text ?? 'Key saved';
+  return code;
 }
 
 function rowLabel(text: string): HTMLLabelElement {

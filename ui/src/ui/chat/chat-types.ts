@@ -28,6 +28,8 @@ export type ApiProviderStatus = {
   hasKey: boolean;
   /** `env`: the key comes from the environment, and no field is offered. */
   keySource: 'env' | 'stored' | null;
+  /** The key's first characters and "…" (`sk-or-v1-a…`); absent without a key. */
+  keyPreview?: string;
   /** Built-ins: the variable that wins over a stored key. */
   envVar?: string;
   ready: boolean;

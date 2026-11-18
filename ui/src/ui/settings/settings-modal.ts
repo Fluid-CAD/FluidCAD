@@ -48,6 +48,7 @@ export class SettingsModal {
   private readonly tabButtons = new Map<string, HTMLButtonElement>();
   private readonly tabDots = new Map<string, HTMLSpanElement>();
   private readonly tabPanels = new Map<string, HTMLDivElement>();
+  private readonly tabsById = new Map<string, SettingsTab>();
   private readonly saveBtn: HTMLButtonElement;
   private readonly tabs: SettingsTab[];
   private activeId: string;
@@ -102,6 +103,7 @@ export class SettingsModal {
     const nav = this.overlay.querySelector<HTMLElement>('[data-ref="tabs"]')!;
     const panels = this.overlay.querySelector<HTMLElement>('[data-ref="panels"]')!;
     for (const tab of this.tabs) {
+      this.tabsById.set(tab.id, tab);
       const button = document.createElement('button');
       button.type = 'button';
       button.dataset.tab = tab.id;
@@ -142,21 +144,29 @@ export class SettingsModal {
     // Escape must not reach the feature dialog or sketch underneath.
     document.addEventListener('keydown', (e) => {
       // A modal that has left the document keeps no hold on the keyboard.
-      if (e.key === 'Escape' && this.overlay.isConnected && this.isOpen()) {
+      // A control marked `data-own-escape` takes Escape itself (a key being edited goes back to the saved one).
+      const own = e.target instanceof Element && e.target.closest('[data-own-escape]') !== null;
+      if (e.key === 'Escape' && !own && this.overlay.isConnected && this.isOpen()) {
         e.stopPropagation();
         this.hide();
       }
     }, true);
   }
 
-  /** Open on `tabId`, or on the tab that was last showing, with every draft reloaded from the app. */
-  show(tabId?: string): void {
+  /**
+   * Open on `tabId`, or on the tab that was last showing, with every draft
+   * reloaded from the app; with its `section` unfolded when given.
+   */
+  show(tabId?: string, section?: string): void {
     if (tabId && this.tabPanels.has(tabId)) {
       this.activate(tabId);
     }
     this.syncAll();
     this.overlay.classList.remove('hidden');
     this.tabButtons.get(this.activeId)?.focus();
+    if (section) {
+      this.tabsById.get(this.activeId)?.reveal?.(section);
+    }
   }
 
   /** Close and drop unsaved edits. */

@@ -245,7 +245,9 @@ export class FakeChatClient implements ChatClient {
     if (apiKey.trim() === '' || apiKey.length > 512) {
       return { ok: false, status: 400, error: 'An API key is 1 to 512 characters.' };
     }
-    Object.assign(provider, { hasKey: true, keySource: 'stored', ready: true });
+    // As the engine does: the first characters only, at most 10 and a quarter of the key.
+    const keyPreview = `${apiKey.slice(0, Math.min(10, Math.floor(apiKey.length / 4)))}…`;
+    Object.assign(provider, { hasKey: true, keySource: 'stored', keyPreview, ready: true });
     delete provider.problem;
     this.refreshApi();
     return { ok: true, value: null };
@@ -255,6 +257,7 @@ export class FakeChatClient implements ChatClient {
     const provider = this.agentsValue.find((a) => a.kind === 'api')?.providers?.find((p) => p.id === id);
     if (provider && provider.keySource === 'stored') {
       Object.assign(provider, { hasKey: false, keySource: null, ready: !provider.builtIn });
+      delete provider.keyPreview;
       if (provider.builtIn) {
         provider.problem = 'No API key.';
       }

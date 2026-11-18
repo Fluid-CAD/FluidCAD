@@ -295,10 +295,39 @@ describe("Settings → Agent: the API agent's keys and local models", () => {
     FakeChatClient.provider({ id: 'openrouter' }),
   ];
 
-  it('one row per built-in provider: the variable that sets it, a stored key with Remove, or an empty field', async () => {
+  it('folds its settings into sections; General starts open, and Manage opens it on API keys', async () => {
+    const h = mountApi(NONE());
+    h.modal.show('agent');
+    await settle();
+    const sections = [...h.panel.querySelectorAll<HTMLElement>('[data-section]')];
+    expect(sections.map((el) => [el.dataset.section, el.querySelector('[data-ref="section-title"]')!.textContent])).toEqual([
+      ['general', 'General'], ['claude', 'Claude Code'], ['api-keys', 'API keys'], ['servers', 'Local models'], ['detected', 'Detected Agents'],
+    ]);
+    const open = () => sections.filter((el) => el.querySelector<HTMLInputElement>('[data-ref="section-toggle"]')!.checked).map((el) => el.dataset.section);
+    expect(open()).toEqual(['general']);
+    // Each control sits in its section.
+    expect(h.$('[data-section="general"] [data-ref="default-agent"]')).not.toBeNull();
+    expect(h.$('[data-section="claude"] [data-ref="ignore-api-key"]')).not.toBeNull();
+    expect(h.$('[data-section="api-keys"] [data-provider="anthropic"]')).not.toBeNull();
+    expect(h.$('[data-section="detected"] [data-ref="found"]')).not.toBeNull();
+
+    h.modal.hide();
+    h.modal.show('agent', 'api-keys');
+    await settle();
+    expect(open()).toEqual(['general', 'api-keys']);
+    // What the user unfolds stays unfolded the next time.
+    h.modal.hide();
+    h.modal.show('agent');
+    await settle();
+    expect(open()).toEqual(['general', 'api-keys']);
+    sections[2].querySelector<HTMLInputElement>('[data-ref="section-toggle"]')!.click();
+    expect(open()).toEqual(['general']);
+  });
+
+  it('one row per built-in provider: the variable that sets it, a stored key by its first characters with Edit and Remove, or an empty field', async () => {
     const h = mountApi([
-      FakeChatClient.provider({ id: 'anthropic', hasKey: true, keySource: 'env', ready: true }),
-      FakeChatClient.provider({ id: 'openai', hasKey: true, keySource: 'stored', ready: true }),
+      FakeChatClient.provider({ id: 'anthropic', hasKey: true, keySource: 'env', keyPreview: 'sk-ant-api…', ready: true }),
+      FakeChatClient.provider({ id: 'openai', hasKey: true, keySource: 'stored', keyPreview: 'sk-proj-Ab…', ready: true }),
       FakeChatClient.provider({ id: 'openrouter' }),
     ]);
     h.modal.show('agent');
@@ -310,15 +339,31 @@ describe("Settings → Agent: the API agent's keys and local models", () => {
     // From the environment: said, and no field (it would not win anyway).
     expect(h.row('anthropic').textContent).toContain('Anthropic API');
     expect(h.row('anthropic').querySelector('[data-ref="key-env"]')!.textContent).toBe('Set by ANTHROPIC_API_KEY');
-    expect(h.row('anthropic').querySelector('input')).toBeNull();
+    expect(h.row('anthropic').querySelector('[data-ref="key-preview"]')!.textContent).toBe('sk-ant-api…');
+    expect(h.row('anthropic').querySelector('input, button')).toBeNull();
 
-    // Stored: a field to replace it, and Remove.
-    const stored = h.row('openai').querySelector<HTMLInputElement>('[data-ref="key-input"]')!;
+    // Stored: its first characters, Edit and Remove; no field until Edit.
+    const openai = h.row('openai');
+    expect(openai.querySelector('[data-ref="key-preview"]')!.textContent).toBe('sk-proj-Ab…');
+    expect([...openai.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Edit', 'Remove']);
+    expect(openai.querySelector('[data-ref="key-input"]')).toBeNull();
+    openai.querySelector<HTMLButtonElement>('[data-ref="key-edit"]')!.click();
+    const stored = openai.querySelector<HTMLInputElement>('[data-ref="key-input"]')!;
     expect(stored.type).toBe('password');
     expect(stored.autocomplete).toBe('off');
-    expect(stored.placeholder).toBe('Key saved');
+    expect(stored.placeholder).toBe('Paste a new key');
     expect(stored.value).toBe('');
-    expect(h.row('openai').querySelector('[data-ref="key-remove"]')).not.toBeNull();
+    expect([...openai.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Save', 'Cancel']);
+    expect(openai.querySelector<HTMLButtonElement>('[data-ref="key-save"]')!.disabled).toBe(true);
+    // Cancel (or Escape) goes back to the saved key, dropping what was typed.
+    h.type(stored, 'sk-typed');
+    openai.querySelector<HTMLButtonElement>('[data-ref="key-cancel"]')!.click();
+    expect(openai.querySelector('[data-ref="key-input"]')).toBeNull();
+    expect(openai.querySelector('[data-ref="key-preview"]')!.textContent).toBe('sk-proj-Ab…');
+    openai.querySelector<HTMLButtonElement>('[data-ref="key-edit"]')!.click();
+    expect(openai.querySelector<HTMLInputElement>('[data-ref="key-input"]')!.value).toBe('');
+    openai.querySelector<HTMLInputElement>('[data-ref="key-input"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(openai.querySelector('[data-ref="key-input"]')).toBeNull();
 
     // None: an empty field; Save waits for a key.
     const none = h.row('openrouter').querySelector<HTMLInputElement>('[data-ref="key-input"]')!;
@@ -347,9 +392,9 @@ describe("Settings → Agent: the API agent's keys and local models", () => {
     expect(h.client.setProviderKey).toHaveBeenCalledWith('openrouter', SECRET);
     expect(h.save).not.toHaveBeenCalled();
     expect(h.savePreference).not.toHaveBeenCalled();
-    // Stored: the page keeps no copy, and learns only that there is one.
-    expect(input().value).toBe('');
-    expect(input().placeholder).toBe('Key saved');
+    // Stored: the page keeps no copy, and shows only its first characters.
+    expect(h.row('openrouter').querySelector('[data-ref="key-input"]')).toBeNull();
+    expect(h.row('openrouter').querySelector('[data-ref="key-preview"]')!.textContent).toBe('sk-or-…');
     expect(h.row('openrouter').querySelector('[data-ref="key-remove"]')).not.toBeNull();
     expect(h.overlay.innerHTML).not.toContain(SECRET);
     expect(JSON.stringify(agentSettings.current)).not.toContain(SECRET);
@@ -426,9 +471,10 @@ describe("Settings → Agent: the API agent's keys and local models", () => {
     expect(h.save.mock.invocationCallOrder[0]).toBeLessThan(h.client.setProviderKey.mock.invocationCallOrder[0]);
     expect(JSON.stringify(h.saved)).not.toContain(SECRET);
     const savedCard = h.$('[data-server="ollama"]')!;
-    expect(savedCard.querySelector<HTMLInputElement>('[data-ref="key-input"]')!.value).toBe('');
-    // Known now: its key has its own Save and Remove, like the built-ins.
-    expect(savedCard.querySelector('[data-ref="key-save"]')).not.toBeNull();
+    // Known now, with its key stored: shown like the built-ins', with Edit and Remove.
+    expect(savedCard.querySelector('[data-ref="key-input"]')).toBeNull();
+    expect(savedCard.querySelector('[data-ref="key-preview"]')!.textContent).toBe('sk-or-…');
+    expect(savedCard.querySelector('[data-ref="key-edit"]')).not.toBeNull();
     expect(savedCard.querySelector('[data-ref="key-remove"]')).not.toBeNull();
     expect(h.dialogSave().disabled).toBe(true);
     expect(h.$('[data-ref="found"] [data-provider="ollama"] [data-ref="verdict"]')!.textContent).toBe('Ready');

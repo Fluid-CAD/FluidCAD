@@ -32,7 +32,8 @@ export type MarkdownOptions = {
  * show their alt text. Code blocks are {@link CodeBlock}s.
  */
 export function createMarkdownStream(root: HTMLElement, options: MarkdownOptions): MarkdownStream {
-  const renderer = new DomRenderer(root, options);
+  // An emphasis ends by its own `_` when the parser still holds that `_` as it closes it.
+  const renderer = new DomRenderer(root, options, () => parser.pending.startsWith('_'));
   const parser = smd.parser({
     data: renderer,
     add_token: (r: DomRenderer, type: smd.Token) => r.open(type),
@@ -102,12 +103,25 @@ type Frame = {
    * way the agent names a scene reference, stays as written.
    */
   bracket?: Text | null;
+  /**
+   * The `_` or `__` of an "emphasis" that opened inside a word
+   * (`get_scene_summary`): not emphasis in CommonMark, so it is shown as
+   * written and its text stays plain.
+   */
+  literal?: string;
 };
 
 class DomRenderer {
   private readonly stack: Frame[];
+  /** The last character of text shown, to tell an underscore inside a word. */
+  private lastChar = '';
 
-  constructor(root: HTMLElement, private readonly options: MarkdownOptions) {
+  constructor(
+    root: HTMLElement,
+    private readonly options: MarkdownOptions,
+    /** Whether the emphasis being closed ends with its own `_` (not at the end of its block). */
+    private readonly closedByUnderscore: () => boolean,
+  ) {
     this.stack = [{ type: smd.DOCUMENT, node: root }];
   }
 
@@ -118,6 +132,13 @@ class DomRenderer {
   open(type: smd.Token): void {
     const parent = this.top.node;
     const frame: Frame = { type, node: parent };
+    if ((type === smd.ITALIC_UND || type === smd.STRONG_UND) && /[\p{L}\p{N}]/u.test(this.lastChar)) {
+      // `snake_case`: underscores inside a word are not emphasis (the parser does not know).
+      frame.literal = type === smd.STRONG_UND ? '__' : '_';
+      this.text(frame.literal);
+      this.stack.push(frame);
+      return;
+    }
     switch (type) {
       case smd.DOCUMENT:
         return;
@@ -235,6 +256,12 @@ class DomRenderer {
       return;
     }
     const frame = this.stack.pop()!;
+    if (frame.literal) {
+      if (this.closedByUnderscore()) {
+        this.text(frame.literal);
+      }
+      return;
+    }
     frame.code?.finish();
     if (frame.bracket) {
       // No `(url)` came: it was text in brackets.
@@ -256,6 +283,7 @@ class DomRenderer {
 
   text(text: string): void {
     const frame = this.top;
+    this.lastChar = text.slice(-1);
     if (frame.code) {
       frame.code.append(text);
       return;

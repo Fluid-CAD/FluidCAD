@@ -107,6 +107,35 @@ describe('markdown renderer safety', () => {
     expect(root.querySelector('[data-ref="code-block"] code')!.textContent).toBe('let x: number = 1;');
   });
 
+  it('keeps underscores inside words as written: snake_case is not emphasis', () => {
+    const root = render('Calling get_scene_summary, then max_count and min_count; a__b__c.');
+    expect(root.querySelector('em, strong')).toBeNull();
+    expect(root.textContent).toBe('Calling get_scene_summary, then max_count and min_count; a__b__c.');
+    // One that never closes keeps its text, with no underscore added.
+    const open = render('The my_var value is set');
+    expect(open.querySelector('em')).toBeNull();
+    expect(open.textContent).toBe('The my_var value is set');
+    // At the end of the text, and followed by punctuation.
+    expect(render('Use foo_bar_').textContent).toBe('Use foo_bar_');
+    expect(render('See foo_bar_.').textContent).toBe('See foo_bar_.');
+    // Real emphasis still works.
+    const em = render('This is _really_ __important__.');
+    expect(em.querySelector('em')!.textContent).toBe('really');
+    expect(em.querySelector('strong')!.textContent).toBe('important');
+  });
+
+  it('keeps snake_case as written however the text is chunked', () => {
+    const text = 'Read get_scene_summary and then _emphasis_ here.';
+    const root = document.createElement('div');
+    const stream = createMarkdownStream(root, { openLink });
+    for (const ch of text) {
+      stream.write(ch);
+    }
+    stream.end();
+    expect(root.textContent).toBe('Read get_scene_summary and then emphasis here.');
+    expect(root.querySelector('em')!.textContent).toBe('emphasis');
+  });
+
   it('keeps text in brackets that is not a link as written: the agent names a reference [1]', () => {
     const text = '[1] is the top face and [2] the rim; see [the docs](https://example.com/d). Dead: [x](javascript:1).';
     const root = render(text);

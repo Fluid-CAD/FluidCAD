@@ -120,8 +120,11 @@ const s = sketch('xy', () => {
   region('lens', a, b);               // inside both
   region('crescent', a, far(b));      // inside a, outside b
 
-  const r = rect([0, 0], 40, 20);
-  region('inside', r);                // a bare rect covers all four sides; r.top() names one
+  const bottom = line([0, 0], [40, 0]);   // a rectangle is four lines
+  const right = line([40, 0], [40, 20]);
+  const top = line([40, 20], [0, 20]);
+  const left = line([0, 20], [0, 0]);
+  region('inside', bottom, right, top, left);   // every line on the region's outer loop
 });
 extrude(20, s).region('ring', 'lens');
 ```

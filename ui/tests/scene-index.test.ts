@@ -204,6 +204,7 @@ describe('no id/parentId scans over scene lists', () => {
     // The generated definitions the assembly bar's Custom dropdown lists, by definition id.
     'interactive/generated/generated-menu.ts',
     // The Agent panel's messages, parts, sessions, models and API providers, not scene objects.
+    'ui/chat/agent-setup.ts',
     'ui/chat/chat-panel.ts',
     'ui/chat/chat-reducer.ts',
     'ui/chat/chat-state.ts',

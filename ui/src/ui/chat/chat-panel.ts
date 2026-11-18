@@ -6,15 +6,18 @@ import { ChatComposer } from './chat-composer';
 import { ChatIcons } from './chat-icons';
 import { ChatSessionsMenu } from './chat-sessions-menu';
 import { PERMISSION_MODES } from './permission-modes';
-import { ChatState, type ChatChange, type ChatTimers, type RevertOutcome } from './chat-state';
+import { ChatState, type AgentReadiness, type ChatChange, type ChatTimers, type RevertOutcome } from './chat-state';
 import { ChatTranscript } from './chat-transcript';
 import {
   CLAUDE_EFFORTS,
   COMMON_EFFORTS,
   effortLabel,
   isBusy,
+  modelPart,
+  providerOf,
   type AgentKind,
   type AgentModel,
+  type ApiProviderStatus,
   type ApprovalDecision,
   type Effort,
   type PermissionMode,
@@ -33,9 +36,12 @@ export type ChatPanelSettings = {
   /** Each agent's model for new chats (the last picked on the model chip); absent: the CLI's default. */
   claudeModel?: string;
   codexModel?: string;
+  /** The `api` agent's last model, with its provider (`anthropic/claude-…`): new `api` chats start on that provider. */
+  apiModel?: string;
   /** Each agent's effort for new chats (the last picked on the effort chip); absent: the CLI's default. */
   claudeEffort?: Effort;
   codexEffort?: Effort;
+  apiEffort?: Effort;
   /** The older shared effort, read when the agent's own is absent. */
   effort?: Effort;
   permissionMode: PermissionMode;
@@ -99,10 +105,16 @@ const MIN_WIDTH = 300;
 /** The model picker's row that asks for a model by name. */
 const OTHER_MODEL = '__other__';
 
+/** One row of the agent picker: Claude Code, Codex, or one provider of the `api` agent. */
+type AgentEntry = { kind: AgentKind; provider: ApiProviderStatus | null; label: string };
+
 /**
  * The Agent panel (docs/agent-chat-plan.md §10): a chat with the user's own
  * Claude Code (or Codex), which reads the project through FluidCAD's MCP
- * tools, docked on the left from the rail's Agent button.
+ * tools, docked on the left from the rail's Agent button. The `api` agent
+ * (§20) runs FluidCAD's own agent loop on a provider the user has a key for,
+ * or a local server: each ready provider is an entry of the agent picker,
+ * and an `api` chat stays on its provider.
  *
  * **One slot** with the code editor and the Hub ({@link LeftSlot}): opening
  * it closes whichever holds the slot, at the shared width; below 640 px it
@@ -142,8 +154,14 @@ export class ChatPanel {
   private started = false;
   /** The composer shows and takes messages (the agent is ready, or a turn runs). */
   private composerUsable = false;
-  /** The model picked in the panel, per agent; holds over the chat's own until the page reloads (and is remembered for new chats). */
-  private readonly modelChoices = new Map<AgentKind, string>();
+  /**
+   * The model picked in the panel, per agent (per provider for `api`:
+   * `api:<providerId>`); holds over the chat's own until the page reloads
+   * (and is remembered for new chats).
+   */
+  private readonly modelChoices = new Map<string, string>();
+  /** The provider a new `api` chat starts on, picked on the agent chip; null: the last used, else the first ready. */
+  private draftProvider: string | null = null;
   /** The effort picked in the panel, per agent (`DEFAULT_EFFORT`: the default); holds until the page reloads (and is remembered for new chats). */
   private readonly effortChoices = new Map<AgentKind, string>();
   private readonly effortSlot: HTMLSpanElement;
@@ -319,12 +337,69 @@ export class ChatPanel {
     this.el.remove();
   }
 
-  /** The model a message goes with: the panel's pick, the session's, the last one picked for new chats, else the CLI's own. */
+  /**
+   * The model a message goes with: the panel's pick, the session's, the last
+   * one picked for new chats, else the CLI's own. For `api`, of the chat's
+   * provider only, else that provider's suggested model: '' until its models
+   * are read, or when it lists none.
+   */
   get model(): string {
     const settings = this.deps.settings();
+    if (this.state.agent === 'api') {
+      return this.apiModel() ?? '';
+    }
     const preferred = this.state.agent === 'codex' ? settings.codexModel : settings.claudeModel;
     const session = this.state.session;
     return this.modelChoices.get(this.state.agent) ?? session?.model ?? preferred ?? 'default';
+  }
+
+  /**
+   * The provider of an `api` chat (null for Claude Code and Codex): the
+   * session's, from its model; for a new chat the one picked on the agent
+   * chip, else the last used, else the first ready.
+   */
+  get provider(): string | null {
+    if (this.state.agent !== 'api') {
+      return null;
+    }
+    const session = this.state.session;
+    const own = providerOf(session?.model);
+    if (own) {
+      return own;
+    }
+    const ready = this.state.apiProviders;
+    if (this.draftProvider && ready.some((p) => p.id === this.draftProvider)) {
+      return this.draftProvider;
+    }
+    const last = providerOf(this.deps.settings().apiModel);
+    const fallback = ready.find((p) => p.id === last)?.id ?? ready[0]?.id ?? null;
+    // A chat that has not run yet keeps naming its provider, so its setup says which is missing.
+    return fallback ?? (session ? this.draftProvider ?? last : null);
+  }
+
+  /** The `api` chat's model: picked, the session's, the last used on this provider, else the provider's suggested one. */
+  private apiModel(): string | null {
+    const provider = this.provider;
+    if (!provider) {
+      return null;
+    }
+    const candidates = [this.modelChoices.get(`api:${provider}`), this.state.session?.model, this.deps.settings().apiModel];
+    const found = candidates.find((id) => id && providerOf(id) === provider);
+    if (found) {
+      return found;
+    }
+    const models = this.providerModels(provider);
+    return (models.find((m) => m.isDefault) ?? models[0])?.id ?? null;
+  }
+
+  /** The models of one `api` provider (`<providerId>/<model>`). */
+  private providerModels(provider: string): AgentModel[] {
+    return (this.state.models.get('api') ?? []).filter((m) => (m.provider ?? providerOf(m.id)) === provider);
+  }
+
+  /** Where the panel keeps a model picked on the chip: per agent, and per provider for `api`. */
+  private modelKey(): string {
+    return this.state.agent === 'api' ? `api:${this.provider}` : this.state.agent;
   }
 
   /**
@@ -336,10 +411,13 @@ export class ChatPanel {
     const settings = this.deps.settings();
     const kind = this.state.agent;
     const levels = this.effortLevels();
+    const preferred = kind === 'api'
+      ? settings.apiEffort
+      : (kind === 'codex' ? settings.codexEffort : settings.claudeEffort) ?? settings.effort;
     const candidates = [
       this.effortChoices.get(kind),
       this.state.session?.effort ?? undefined,
-      (kind === 'codex' ? settings.codexEffort : settings.claudeEffort) ?? settings.effort,
+      preferred,
     ];
     for (const candidate of candidates) {
       if (candidate === DEFAULT_EFFORT) {
@@ -355,7 +433,8 @@ export class ChatPanel {
   /**
    * The levels the agent and model take: Claude Code's `--effort` choices;
    * for Codex, those the model lists (the default model's for "Default"),
-   * else the three every model takes.
+   * else the three every model takes; for `api`, those the model lists, if
+   * any (none: the model takes no effort).
    */
   effortLevels(): readonly string[] {
     const kind = this.state.agent;
@@ -364,6 +443,9 @@ export class ChatPanel {
     }
     const models = this.state.models.get(kind) ?? [];
     const id = this.model;
+    if (kind === 'api') {
+      return models.find((m) => m.id === id)?.efforts ?? [];
+    }
     const model = id === 'default' ? models.find((m) => m.isDefault) : models.find((m) => m.id === id);
     return model?.efforts && model.efforts.length > 0 ? model.efforts : COMMON_EFFORTS;
   }
@@ -392,12 +474,13 @@ export class ChatPanel {
     }
   }
 
-  /** A new chat starts with the default agent when it can run, else the first that can. */
+  /** A new chat starts with the default agent when it can run, else the first that can (the programs before the API agent, as the picker lists them). */
   private pickDraftAgent(): void {
-    const offered = this.state.offeredAgents;
-    if (offered.length === 0) {
+    const all = this.state.offeredAgents;
+    if (all.length === 0) {
       return;
     }
+    const offered = [...all.filter((a) => a.kind !== 'api'), ...all.filter((a) => a.kind === 'api')];
     const preferred = this.deps.settings().defaultAgent;
     const ready = offered.filter((a) => ChatState.readinessOf(a).state === 'ready');
     const pick = offered.find((a) => a.kind === preferred && ChatState.readinessOf(a).state === 'ready')
@@ -422,6 +505,14 @@ export class ChatPanel {
         console.warn('FluidCAD: the references capture failed:', err);
       }
       if (!this.references!.isCurrent(attached.generation)) {
+        return false;
+      }
+    }
+    if (this.state.agent === 'api') {
+      // An `api` message names its model, with the provider: there is no program default.
+      await this.state.loadModels('api');
+      if (!this.model) {
+        this.state.fail('Choose a model on the model chip first.');
         return false;
       }
     }
@@ -473,6 +564,7 @@ export class ChatPanel {
         this.paintStatus();
         return;
       case 'agents':
+        this.agentsChanged();
         this.paintToolbar();
         this.paintBody();
         this.paintStatus();
@@ -485,6 +577,23 @@ export class ChatPanel {
       case 'activity':
         this.paintStatus();
         return;
+    }
+  }
+
+  /**
+   * Detection answered again: a new chat whose agent cannot run moves to one
+   * that can (a key was just added), and an `api` chat reads its models
+   * (again, once a provider changed).
+   */
+  private agentsChanged(): void {
+    if (this.started && !this.state.session) {
+      const install = this.state.install(this.state.draftAgent);
+      if (!install || ChatState.readinessOf(install).state !== 'ready') {
+        this.pickDraftAgent();
+      }
+    }
+    if (this.state.agent === 'api' && this.state.readiness('api').state === 'ready') {
+      void this.state.loadModels('api');
     }
   }
 
@@ -518,30 +627,28 @@ export class ChatPanel {
    */
   private paintToolbar(): void {
     const kind = this.state.agent;
+    const provider = this.provider;
     this.agentSlot.replaceChildren();
-    const ready = this.state.offeredAgents.filter((a) => ChatState.readinessOf(a).state === 'ready');
+    const entries = this.agentEntries();
     const install = this.state.install(kind);
-    const text = agentChipLabel(install, kind);
+    const text = agentChipLabel(install, kind, provider);
     const auth = authDescription(install);
+    const isCurrent = (entry: AgentEntry) => entry.kind === kind && (kind !== 'api' || entry.provider?.id === provider);
     let chip: HTMLElement | null = null;
-    if (!this.state.session && ready.length > 1) {
+    if (!this.state.session && entries.length > 1) {
       const picker = chipButton('agent-picker');
       fillChip(picker, text);
       picker.setAttribute('aria-label', `Agent: ${text}`);
-      picker.addEventListener('click', () => this.showChipMenu(picker, 'agent-menu', ready.map((other) => ({
-        icon: other.kind === kind ? ChatIcons.CHECK : '',
-        label: agentChipLabel(other, other.kind),
-        className: other.kind === kind ? 'font-medium' : undefined,
-        onSelect: () => {
-          this.state.setDraftAgent(other.kind);
-          this.deps.onAgentChosen?.(other.kind);
-          void this.state.loadModels(other.kind);
-          this.paintToolbar();
-        },
+      picker.addEventListener('click', () => this.showChipMenu(picker, 'agent-menu', entries.map((entry) => ({
+        icon: isCurrent(entry) ? ChatIcons.CHECK : '',
+        label: entry.label,
+        className: isCurrent(entry) ? 'font-medium' : undefined,
+        onSelect: () => this.chooseAgent(entry),
       }))));
       chip = picker;
-    } else if (ready.length > 1 || auth) {
-      // One agent needs no picker, but how Claude is paid for is still worth showing.
+    } else if (entries.length > 1 || auth || kind === 'api') {
+      // One agent needs no picker, but how Claude is paid for, or which
+      // provider an `api` chat runs on, is still worth showing.
       const name = document.createElement('span');
       name.dataset.ref = 'agent-name';
       name.className = 'chat-chip';
@@ -552,12 +659,53 @@ export class ChatPanel {
       if (auth?.apiKey) {
         chip.dataset.tone = 'warning';
       }
-      const runs = `This chat runs on ${AGENT_INFO[kind].name}.`;
+      const runs = `This chat runs on ${kind === 'api' ? text : AGENT_INFO[kind].name}.`;
       chip.title = auth ? `${auth.long}${auth.hint ? ` ${auth.hint.text}` : ''}` : runs;
       this.agentSlot.append(chip);
     }
     this.paintModelPicker();
     this.paintMode();
+  }
+
+  /**
+   * What a new chat can start with (§20.1): each ready CLI, then each ready
+   * provider of the `api` agent as its own entry ("Anthropic API",
+   * "OpenAI API", "OpenRouter", then the local servers by their name).
+   */
+  private agentEntries(): AgentEntry[] {
+    const ready = this.state.offeredAgents.filter((a) => ChatState.readinessOf(a).state === 'ready');
+    const entries: AgentEntry[] = ready
+      .filter((a) => a.kind !== 'api')
+      .map((a) => ({ kind: a.kind, provider: null, label: agentChipLabel(a, a.kind) }));
+    if (ready.some((a) => a.kind === 'api')) {
+      for (const provider of this.state.apiProviders) {
+        entries.push({ kind: 'api', provider, label: provider.label });
+      }
+    }
+    return entries;
+  }
+
+  /** A new chat starts with `entry`; for a provider, on its last-used (else suggested) model, which new chats then keep. */
+  private chooseAgent(entry: AgentEntry): void {
+    if (entry.provider) {
+      this.draftProvider = entry.provider.id;
+    }
+    this.state.setDraftAgent(entry.kind);
+    this.deps.onAgentChosen?.(entry.kind);
+    if (entry.kind === 'api') {
+      void this.state.loadModels('api').then(() => {
+        const model = this.state.agent === 'api' && !this.state.session ? this.apiModel() : null;
+        if (model) {
+          // The provider is part of the model: remembering it is what starts the next chat there too.
+          this.chooseModel(model);
+        }
+        this.paintToolbar();
+      });
+    } else {
+      void this.state.loadModels(entry.kind);
+    }
+    this.paintToolbar();
+    this.paintBody();
   }
 
   /** The model chip: Default, the agent's models, and any model by name ("Other model…" types it in place). */
@@ -571,13 +719,16 @@ export class ChatPanel {
       input.className = 'chat-chip-input';
       input.placeholder = 'Model name';
       input.setAttribute('aria-label', 'Model name');
-      input.value = current === 'default' ? '' : current;
+      const api = this.state.agent === 'api';
+      const provider = api ? this.provider : null;
+      // An `api` model is typed without its provider: the chat already has one.
+      input.value = current === 'default' ? '' : api ? modelPart(current) : current;
       input.spellcheck = false;
       const commit = (save: boolean) => {
         const value = input.value.trim();
         this.typingModel = false;
-        if (save && /^[A-Za-z0-9][\w.:@/[\]-]*$/.test(value)) {
-          this.chooseModel(value);
+        if (save && /^[A-Za-z0-9][\w.:@/[\]-]*$/.test(value) && (!api || provider)) {
+          this.chooseModel(api ? `${provider}/${value}` : value);
         }
         this.paintModelPicker();
       };
@@ -600,21 +751,30 @@ export class ChatPanel {
       queueMicrotask(() => input.focus());
       return;
     }
-    const models: AgentModel[] = this.state.models.get(this.state.agent) ?? [{ id: 'default', label: 'Default' }];
+    const api = this.state.agent === 'api';
+    const provider = this.provider;
+    // An `api` chat offers its provider's models only, named without the provider.
+    const models: AgentModel[] = api
+      ? (provider ? this.providerModels(provider) : [])
+      : this.state.models.get(this.state.agent) ?? [{ id: 'default', label: 'Default' }];
+    const name = (model: AgentModel) => model.label ?? (api ? modelPart(model.id) : model.id);
     const options = [...models];
-    if (!options.some((m) => m.id === current)) {
-      options.push({ id: current, label: current });
+    if (current !== '' && !options.some((m) => m.id === current)) {
+      options.push({ id: current });
     }
-    const label = options.find((m) => m.id === current)?.label ?? current;
+    const shown = options.find((m) => m.id === current);
+    const label = shown ? name(shown) : 'Model';
     const chip = chipButton('model-picker');
     chip.dataset.value = current;
     fillChip(chip, label);
-    chip.title = current === 'default' ? `Model: ${AGENT_INFO[this.state.agent].name}'s own default` : `Model: ${current}`;
+    chip.title = current === 'default'
+      ? `Model: ${AGENT_INFO[this.state.agent].name}'s own default`
+      : current === '' ? 'Model: choose one' : `Model: ${api ? modelPart(current) : current}`;
     chip.setAttribute('aria-label', `Model: ${label}`);
     chip.addEventListener('click', () => this.showChipMenu(chip, 'model-menu', [
       ...options.map((model): PopupMenuItem => ({
         icon: model.id === current ? ChatIcons.CHECK : '',
-        label: model.label ?? model.id,
+        label: name(model),
         className: model.id === current ? 'font-medium' : undefined,
         onSelect: () => {
           this.chooseModel(model.id);
@@ -639,20 +799,24 @@ export class ChatPanel {
 
   /** A model picked on the chip: it goes with the next messages, and new chats of this agent start with it. */
   private chooseModel(model: string): void {
-    this.modelChoices.set(this.state.agent, model);
+    this.modelChoices.set(this.modelKey(), model);
     this.deps.onModelChosen?.(this.state.agent, model);
   }
 
-  /** The effort chip: the default, then the levels of the agent and model. */
+  /** The effort chip: the default, then the levels of the agent and model (none for an `api` model that takes no effort). */
   private paintEffortPicker(): void {
     this.effortSlot.replaceChildren();
+    if (this.state.agent === 'api' && this.effortLevels().length === 0) {
+      return;
+    }
     const current = this.effort;
     const label = (value: string) => (value === DEFAULT_EFFORT ? 'Default effort' : `${effortLabel(value)} effort`);
     const chip = chipButton('effort-picker');
     chip.dataset.value = current;
     // The default needs no "Default": the chip just says what it sets.
     fillChip(chip, current === DEFAULT_EFFORT ? 'Effort' : label(current));
-    chip.title = `Effort: how hard the model thinks before it answers${current === DEFAULT_EFFORT ? ` (${AGENT_INFO[this.state.agent].name}'s own default)` : ''}.`;
+    const owner = this.state.agent === 'api' ? 'the model' : AGENT_INFO[this.state.agent].name;
+    chip.title = `Effort: how hard the model thinks before it answers${current === DEFAULT_EFFORT ? ` (${owner}'s own default)` : ''}.`;
     chip.setAttribute('aria-label', `Effort: ${label(current)}`);
     chip.addEventListener('click', () => this.showChipMenu(chip, 'effort-menu',
       [DEFAULT_EFFORT, ...this.effortLevels()].map((value) => ({
@@ -745,6 +909,10 @@ export class ChatPanel {
 
   /** Whether the session's agent bills each use (an API key), so a cost is worth showing. */
   private billedPerUse(): boolean {
+    if (this.state.agent === 'api') {
+      // A built-in provider bills the key; a local server costs nothing.
+      return this.state.install('api')?.providers?.find((p) => p.id === this.provider)?.builtIn === true;
+    }
     return authDescription(this.state.install(this.state.agent))?.apiKey === true;
   }
 
@@ -873,7 +1041,7 @@ export class ChatPanel {
 
   /** Transcript, welcome or setup; the composer when the agent can run. */
   private paintBody(): void {
-    const readiness = this.state.readiness();
+    const readiness = this.readiness();
     const ready = readiness.state === 'ready';
     const empty = (this.state.session?.messages.length ?? 0) === 0;
     const kind = this.state.agent;
@@ -892,6 +1060,7 @@ export class ChatPanel {
         },
         cancel: () => void this.state.cancelSignIn(),
       },
+      apiOption: this.offersApi(),
     };
 
     this.center.replaceChildren();
@@ -913,6 +1082,29 @@ export class ChatPanel {
     this.composerUsable = composerShown && (ready || isBusy(this.state.status));
     this.composer.setEnabled(this.composerUsable);
     this.syncReferences();
+  }
+
+  /**
+   * Where the agent on screen stands. An `api` chat is ready only when its
+   * own provider is: another one being ready does not run this chat.
+   */
+  private readiness(): AgentReadiness {
+    const readiness = this.state.readiness();
+    if (readiness.state !== 'ready' || readiness.install.kind !== 'api') {
+      return readiness;
+    }
+    const id = this.provider;
+    if (id && readiness.install.providers?.find((p) => p.id === id)?.ready) {
+      return readiness;
+    }
+    return { state: 'signed-out', install: readiness.install, ...(id ? { providerId: id } : {}) };
+  }
+
+  /** Neither CLI is installed but the engine has the `api` agent: the not-found screen offers it too (§20.1). */
+  private offersApi(): boolean {
+    const agents = this.state.agents ?? [];
+    return agents.some((a) => a.kind === 'api') &&
+      agents.filter((a) => a.kind !== 'api').every((a) => a.minVersion === '' || ChatState.readinessOf(a).state === 'not-found');
   }
 
   /** The selection attaches only while the panel is open and its composer usable (§11.1). */
@@ -951,7 +1143,7 @@ export class ChatPanel {
     }
     switch (status.state) {
       case 'starting':
-        return `Starting ${AGENT_INFO[this.state.agent].name}…`;
+        return `Starting ${this.state.agent === 'api' ? 'the agent' : AGENT_INFO[this.state.agent].name}…`;
       case 'running':
         return 'Working…';
       case 'awaiting-approval':

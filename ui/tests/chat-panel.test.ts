@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel, type ChatConfirmOptions, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
-import type { AgentKind, ChatMessage, PermissionMode, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
+import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChatMessage, PermissionMode, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
 import { LeftSlot } from '../src/ui/left-slot';
 import { closePopupMenu } from '../src/ui/popup-menu';
 import { isEditableTarget, isChatComposer } from '../src/editable-target';
@@ -63,11 +63,14 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
   const onPermissionModeChosen = vi.fn((mode: PermissionMode) => {
     current.permissionMode = mode;
   });
+  const onAgentChosen = vi.fn((kind: AgentKind) => {
+    current.defaultAgent = kind;
+  });
   const onModelChosen = vi.fn((kind: AgentKind, model: string) => {
-    current[kind === 'codex' ? 'codexModel' : 'claudeModel'] = model === 'default' ? undefined : model;
+    current[kind === 'api' ? 'apiModel' : kind === 'codex' ? 'codexModel' : 'claudeModel'] = model === 'default' ? undefined : model;
   });
   const onEffortChosen = vi.fn((kind: AgentKind, effort: string) => {
-    current[kind === 'codex' ? 'codexEffort' : 'claudeEffort'] = effort === '' ? undefined : effort;
+    current[kind === 'api' ? 'apiEffort' : kind === 'codex' ? 'codexEffort' : 'claudeEffort'] = effort === '' ? undefined : effort;
   });
   const panel = new ChatPanel({
     container,
@@ -78,6 +81,7 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
     openSettings,
     openSource,
     confirm,
+    onAgentChosen,
     onPermissionModeChosen,
     onModelChosen,
     onEffortChosen,
@@ -99,7 +103,7 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
     return event;
   };
   const width = () => document.documentElement.style.getPropertyValue('--fluidcad-editor-width');
-  return { client, panel, container, events, slot, editor, openExternal, openSettings, openSource, confirm, onPermissionModeChosen, onModelChosen, onEffortChosen, timers, settings: current, $, $$, input, sendButton, type, key, width };
+  return { client, panel, container, events, slot, editor, openExternal, openSettings, openSource, confirm, onAgentChosen, onPermissionModeChosen, onModelChosen, onEffortChosen, timers, settings: current, $, $$, input, sendButton, type, key, width };
 }
 
 /** Open a chip's menu (it opens in the panel's container) and read its rows' labels; the menu closes again. */
@@ -911,6 +915,206 @@ describe('the chips under the message box', () => {
     h.key('Enter');
     await settle();
     expect(client.sent[0].message).toMatchObject({ model: 'gpt-terra', effort: 'ultra' });
+  });
+});
+
+// The `api` agent (docs/agent-chat-plan.md §20): FluidCAD's own agent loop on
+// a provider the user has a key for, or a local server. Each ready provider
+// is an entry of the agent picker; an `api` chat stays on its provider.
+describe('the API agent (§20)', () => {
+  const ANTHROPIC = FakeChatClient.provider({ id: 'anthropic', hasKey: true, keySource: 'stored', ready: true });
+  const OPENAI_NONE = FakeChatClient.provider({ id: 'openai' });
+  const OPENROUTER = FakeChatClient.provider({ id: 'openrouter', hasKey: true, keySource: 'env', ready: true });
+  const OLLAMA = FakeChatClient.provider({ id: 'ollama', label: 'Ollama', baseURL: 'http://localhost:11434/v1' });
+  const API_MODELS: AgentModel[] = [
+    { id: 'anthropic/claude-opus-5-5', label: 'Claude Opus 5.5', provider: 'anthropic', isDefault: true, efforts: ['low', 'medium', 'high', 'max'], defaultEffort: 'high' },
+    { id: 'anthropic/claude-sonnet-5', label: 'Claude Sonnet 5', provider: 'anthropic', efforts: ['low', 'medium', 'high'] },
+    { id: 'openrouter/anthropic/claude-opus-5-5', provider: 'openrouter', isDefault: true },
+    { id: 'openrouter/openai/gpt-x', provider: 'openrouter' },
+  ];
+
+  /** Claude Code and Codex ready, and the API agent with `providers` (the engine may list a server first). */
+  function withApi(providers: ApiProviderStatus[], clis: AgentInstall[] = [FakeChatClient.install(), FakeChatClient.install({ kind: 'codex', authMethod: null })]) {
+    const client = new FakeChatClient();
+    client.agentsValue = [...clis, FakeChatClient.apiInstall(providers)];
+    client.apiModelsValue = API_MODELS;
+    return client;
+  }
+
+  it('lists each ready provider after Claude Code and Codex, by its label', async () => {
+    const h = mount(withApi([OLLAMA, ANTHROPIC, OPENAI_NONE, OPENROUTER]));
+    await opened(h);
+    const chip = h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="agent-picker"]')!;
+    expect(menuRows(h, chip, 'agent-menu')).toEqual(['Claude (Subscription)', 'Codex', 'Anthropic API', 'OpenRouter', 'Ollama']);
+  });
+
+  it("picking a provider starts an api chat on its default model; the model chip lists that provider's models only", async () => {
+    const h = mount(withApi([ANTHROPIC, OPENAI_NONE, OPENROUTER]));
+    await opened(h);
+    const agent = () => h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="agent-picker"]')!;
+    const model = () => h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="model-picker"]')!;
+    const effort = () => h.$<HTMLButtonElement>('[data-ref="effort-picker"]');
+
+    pick(h, agent(), 'agent-menu', 'OpenRouter');
+    await settle();
+    expect(label(agent())).toBe('OpenRouter');
+    expect(h.panel.state.agent).toBe('api');
+    expect(h.onAgentChosen).toHaveBeenLastCalledWith('api');
+    // The provider is remembered with its model, so new chats start there.
+    expect(h.onModelChosen).toHaveBeenLastCalledWith('api', 'openrouter/anthropic/claude-opus-5-5');
+    // Its models only, named without the provider; no Default (no program to default to).
+    expect(label(model())).toBe('anthropic/claude-opus-5-5');
+    expect(menuRows(h, model(), 'model-menu')).toEqual(['anthropic/claude-opus-5-5', 'openai/gpt-x', 'Other model…']);
+    // A model that takes no effort has no effort chip.
+    expect(effort()).toBeNull();
+
+    pick(h, agent(), 'agent-menu', 'Anthropic API');
+    await settle();
+    expect(label(agent())).toBe('Anthropic API');
+    expect(label(model())).toBe('Claude Opus 5.5');
+    expect(menuRows(h, model(), 'model-menu')).toEqual(['Claude Opus 5.5', 'Claude Sonnet 5', 'Other model…']);
+    expect(menuRows(h, effort()!, 'effort-menu')).toEqual(['Default', 'Low', 'Medium', 'High', 'Max']);
+    pick(h, model(), 'model-menu', 'Claude Sonnet 5');
+    expect(h.onModelChosen).toHaveBeenLastCalledWith('api', 'anthropic/claude-sonnet-5');
+    // The effort chip follows the model's own levels.
+    expect(menuRows(h, effort()!, 'effort-menu')).toEqual(['Default', 'Low', 'Medium', 'High']);
+    pick(h, effort()!, 'effort-menu', 'High');
+    expect(h.onEffortChosen).toHaveBeenLastCalledWith('api', 'high');
+
+    h.type('Make it 2 mm thicker.');
+    h.key('Enter');
+    await settle();
+    expect(h.client.createSession).toHaveBeenCalledWith('api');
+    expect(h.client.sent[0].message).toMatchObject({ model: 'anthropic/claude-sonnet-5', effort: 'high' });
+    // In the chat the provider is fixed: its name, without a menu.
+    expect(h.$('[data-ref="agent-picker"]')).toBeNull();
+    const name = h.$<HTMLElement>('[data-ref="composer-controls"] [data-ref="agent-name"]')!;
+    expect(label(name)).toBe('Anthropic API');
+    expect(name.title).toBe('This chat runs on Anthropic API.');
+    expect(menuRows(h, model(), 'model-menu')).toEqual(['Claude Opus 5.5', 'Claude Sonnet 5', 'Other model…']);
+  });
+
+  it('a new chat starts on the last provider and model used, or the first ready one', async () => {
+    const h = mount(withApi([ANTHROPIC, OPENROUTER]), { defaultAgent: 'api', apiModel: 'openrouter/openai/gpt-x' });
+    await opened(h);
+    expect(label(h.$('[data-ref="agent-picker"]')!)).toBe('OpenRouter');
+    expect(h.$('[data-ref="model-picker"]')!.dataset.value).toBe('openrouter/openai/gpt-x');
+
+    // That provider is not ready any more: the first one that is, on its suggested model.
+    const k = mount(withApi([ANTHROPIC, OPENAI_NONE]), { defaultAgent: 'api', apiModel: 'openai/gpt-y' });
+    await opened(k);
+    expect(label(k.$('[data-ref="agent-picker"]')!)).toBe('Anthropic API');
+    expect(k.$('[data-ref="model-picker"]')!.dataset.value).toBe('anthropic/claude-opus-5-5');
+  });
+
+  it('on a local model: its name on the chip, any model by name, and no send without a model', async () => {
+    const client = withApi([OLLAMA], [FakeChatClient.install({ path: null, version: null, supported: false, loggedIn: null, authMethod: null })]);
+    client.apiModelsValue = [];
+    const h = mount(client);
+    await opened(h);
+    // The only agent that runs: no picker, but the chip says where it runs.
+    expect(h.$('[data-ref="agent-picker"]')).toBeNull();
+    expect(label(h.$('[data-ref="agent-name"]')!)).toBe('Ollama');
+    expect(h.$('[data-ref="welcome"]')!.textContent).toContain('The agent works on the project');
+    const model = () => h.$<HTMLButtonElement>('[data-ref="composer-controls"] [data-ref="model-picker"]')!;
+    expect(label(model())).toBe('Model');
+
+    h.type('hello');
+    h.key('Enter');
+    await settle();
+    expect(h.client.createSession).not.toHaveBeenCalled();
+    expect(h.$('[data-ref="status-text"]')!.textContent).toBe('Choose a model on the model chip first.');
+
+    pick(h, model(), 'model-menu', 'Other model…');
+    const name = h.$<HTMLInputElement>('[data-ref="model-input"]')!;
+    name.value = 'qwen3-vl:4b';
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(model().dataset.value).toBe('ollama/qwen3-vl:4b');
+    expect(label(model())).toBe('qwen3-vl:4b');
+    h.key('Enter');
+    await settle();
+    expect(h.client.sent[0].message.model).toBe('ollama/qwen3-vl:4b');
+  });
+
+  it('neither program installed: the not-found screen also offers an API key, through Settings', async () => {
+    const client = new FakeChatClient();
+    client.agentsValue = [
+      FakeChatClient.install({ path: null, version: null, supported: false, loggedIn: null, authMethod: null }),
+      FakeChatClient.codexUnsupported(),
+      FakeChatClient.apiInstall(),
+    ];
+    const h = mount(client);
+    await opened(h);
+    const setup = h.$('[data-ref="setup"]')!;
+    expect(setup.dataset.state).toBe('not-found');
+    expect(setup.querySelector('h3')!.textContent).toBe('The Agent needs Claude Code or an API key');
+    expect(h.$('[data-ref="api-option"]')!.textContent).toBe('Or run it on your own API key or a local model, such as Ollama:');
+    h.$<HTMLButtonElement>('[data-ref="add-api-key"]')!.click();
+    expect(h.openSettings).toHaveBeenCalledTimes(1);
+
+    // A key added in Settings: the new chat moves to the API agent by itself.
+    client.recheckValue = [client.agentsValue[0], client.agentsValue[1], FakeChatClient.apiInstall([ANTHROPIC])];
+    client.apiModelsValue = API_MODELS;
+    h.$<HTMLButtonElement>('[data-ref="check-again"]')!.click();
+    await settle();
+    await settle();
+    expect(h.panel.state.agent).toBe('api');
+    expect(h.$('[data-ref="welcome"]')).not.toBeNull();
+    expect(label(h.$('[data-ref="agent-name"]')!)).toBe('Anthropic API');
+    expect(h.$('[data-ref="model-picker"]')!.dataset.value).toBe('anthropic/claude-opus-5-5');
+  });
+
+  it('the API agent with no provider ready: Add an API key opens Settings', async () => {
+    const client = new FakeChatClient();
+    client.agentsValue = [FakeChatClient.install({ path: null, version: null, supported: false, loggedIn: null, authMethod: null }), FakeChatClient.apiInstall()];
+    const h = mount(client, { defaultAgent: 'api' });
+    await opened(h);
+    const setup = h.$('[data-ref="setup"]')!;
+    expect(setup.dataset.state).toBe('signed-out');
+    expect(setup.querySelector('h3')!.textContent).toBe('Add an API key');
+    expect(setup.textContent).toContain('Anthropic, OpenAI or OpenRouter API key, or on a local model');
+    // No program to install, update or sign in to.
+    expect(h.$('[data-ref="install-link"], [data-ref="command"], [data-ref="sign-in"]')).toBeNull();
+    expect(h.$('[data-ref="composer"]')!.classList.contains('hidden')).toBe(true);
+    h.$<HTMLButtonElement>('[data-ref="add-api-key"]')!.click();
+    expect(h.openSettings).toHaveBeenCalledTimes(1);
+    expect(h.$('[data-ref="check-again"]')).not.toBeNull();
+  });
+
+  it("a chat whose provider is no longer ready says which, with the way to Settings", async () => {
+    const client = withApi([ANTHROPIC, OPENAI_NONE]);
+    client.addSession({
+      id: 's',
+      title: 'On OpenAI',
+      agent: 'api',
+      model: 'openai/gpt-y',
+      messages: [{ id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'x', text: 'hi' }] }],
+      turns: [{ id: 't1', userMessageId: 'u1', revertible: false }],
+    });
+    const h = mount(client);
+    await opened(h);
+    expect(h.panel.state.session?.id).toBe('s');
+    expect(label(h.$('[data-ref="agent-name"]')!)).toBe('OpenAI API');
+    const setup = h.$('[data-ref="setup"]')!;
+    expect(setup.dataset.state).toBe('signed-out');
+    expect(setup.querySelector('h3')!.textContent).toBe('OpenAI API is not ready');
+    expect(setup.textContent).toContain('No API key.');
+    expect(h.$('[data-ref="composer"]')!.classList.contains('hidden')).toBe(true);
+    h.$<HTMLButtonElement>('[data-ref="add-api-key"]')!.click();
+    expect(h.openSettings).toHaveBeenCalled();
+  });
+
+  it('a turn on a provider key shows its cost; on a local server it costs nothing', async () => {
+    const client = withApi([ANTHROPIC, OLLAMA]);
+    const turns: TurnRecord[] = [{ id: 't1', userMessageId: 'u1', revertible: false, usage: { inputTokens: 1200, outputTokens: 300, costUsd: 0.0123 } }];
+    const messages: ChatMessage[] = [
+      { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'x', text: 'hi' }] },
+      { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'y', text: 'Hello.' }] },
+    ];
+    client.addSession({ id: 's', title: 'S', agent: 'api', model: 'anthropic/claude-opus-5-5', messages, turns });
+    const h = mount(client);
+    await opened(h);
+    expect(h.$('[data-message-id="a1"] [data-ref="usage"]')!.textContent).toBe('1.2k in · 300 out · $0.01');
   });
 });
 

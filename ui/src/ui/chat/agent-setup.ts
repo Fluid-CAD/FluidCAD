@@ -1,11 +1,13 @@
 import { ChatIcons } from './chat-icons';
-import type { AgentReadiness, SignIn } from './chat-state';
+import type { AgentReadiness, InstallReadiness, SignIn } from './chat-state';
 import type { AgentInstall, AgentKind } from './chat-types';
 
 /**
  * What each CLI is called and how it is installed, updated and signed in
  * (§9.1). The names are plain text naming what runs (§4.2): no logos.
- * `label` is the short name on the agent chip and in its menu.
+ * `label` is the short name on the agent chip and in its menu. The `api`
+ * agent has no program: its chip names the provider, and its setup is a key
+ * in Settings → Agent (§20.1).
  */
 export const AGENT_INFO: Record<AgentKind, { name: string; label: string; installUrl: string; login: string; update: string; signInFromApp: boolean }> = {
   claude: {
@@ -43,6 +45,11 @@ export type AgentSetupDeps = {
   recheck(): Promise<void>;
   /** Signing in from the app, for an agent that offers it (Codex); absent: the terminal command only. */
   signIn?: SignInControls;
+  /**
+   * No CLI is installed and the engine has the `api` agent: the not-found
+   * screen also offers running on an API key or a local model.
+   */
+  apiOption?: boolean;
 };
 
 export type SignInControls = {
@@ -103,17 +110,32 @@ export function authDescription(install: AgentInstall | null): AuthDescription |
   }
 }
 
-/** The agent chip's text: "Claude (Subscription)", "Claude (API)", "Codex". */
-export function agentChipLabel(install: AgentInstall | null, kind: AgentKind): string {
+/**
+ * The agent chip's text: "Claude (Subscription)", "Claude (API)", "Codex";
+ * for the `api` agent the provider's label ("Anthropic API", "Ollama").
+ */
+export function agentChipLabel(install: AgentInstall | null, kind: AgentKind, providerId?: string | null): string {
+  if (kind === 'api') {
+    return providerLabel(install, providerId);
+  }
   const auth = authDescription(install);
   return auth ? `${AGENT_INFO[kind].label} (${auth.short})` : AGENT_INFO[kind].label;
+}
+
+/** A provider of the `api` agent as the pickers name it: its label, else its id. */
+export function providerLabel(install: AgentInstall | null, providerId: string | null | undefined): string {
+  if (!providerId) {
+    return AGENT_INFO.api.label;
+  }
+  return install?.providers?.find((p) => p.id === providerId)?.label ?? providerId;
 }
 
 /**
  * The panel when the agent cannot run yet (§9.1): not found (with the
  * install page and where FluidCAD looks), too old (the version found and the
  * one needed), not signed in (the command to run, a copy button and Check
- * again), or detection itself failing.
+ * again), or detection itself failing. For the `api` agent, by its kind: no
+ * provider ready, or the chat's provider not ready (§20.1).
  */
 export function renderAgentSetup(readiness: AgentReadiness, deps: AgentSetupDeps): HTMLElement {
   const el = document.createElement('div');
@@ -136,11 +158,14 @@ export function renderAgentSetup(readiness: AgentReadiness, deps: AgentSetupDeps
   }
 
   const install = readiness.install;
+  if (install.kind === 'api') {
+    return apiSetup(el, readiness, deps);
+  }
   const info = AGENT_INFO[install.kind];
   switch (readiness.state) {
     case 'not-found': {
       el.append(
-        heading(`The Agent needs ${info.name}`),
+        heading(deps.apiOption ? `The Agent needs ${info.name} or an API key` : `The Agent needs ${info.name}`),
         paragraph(
           `The Agent runs ${info.name}, installed on this computer and signed in with your own account. ` +
             'FluidCAD does not include it.',
@@ -153,6 +178,18 @@ export function renderAgentSetup(readiness: AgentReadiness, deps: AgentSetupDeps
       install.append(document.createTextNode(`Install ${info.name}`), ChatIcons.span(ChatIcons.EXTERNAL, '[&>svg]:size-3.5'));
       install.addEventListener('click', () => deps.openLink(info.installUrl));
       el.append(install);
+      if (deps.apiOption) {
+        const option = paragraph(
+          deps.openSettings
+            ? 'Or run it on your own API key or a local model, such as Ollama:'
+            : 'Or run it on your own API key or a local model, such as Ollama, set up in Settings → Agent.',
+        );
+        option.dataset.ref = 'api-option';
+        el.append(option);
+        if (deps.openSettings) {
+          el.append(addKeyButton(deps, false));
+        }
+      }
       if (readiness.install.path && readiness.install.problem) {
         // A stored path (`claudePath`, `codexPath`) that is not the program.
         el.append(paragraph(readiness.install.problem, 'text-warning'));
@@ -194,6 +231,35 @@ export function renderAgentSetup(readiness: AgentReadiness, deps: AgentSetupDeps
   }
 }
 
+/**
+ * The `api` agent's setup: with no provider ready, "Add an API key"
+ * (Settings → Agent); for a chat whose provider stopped being ready, which
+ * one and why.
+ */
+function apiSetup(el: HTMLElement, readiness: InstallReadiness, deps: AgentSetupDeps): HTMLElement {
+  const providerId = readiness.state === 'signed-out' ? readiness.providerId : undefined;
+  if (providerId) {
+    const provider = readiness.install.providers?.find((p) => p.id === providerId);
+    el.append(
+      heading(`${provider?.label ?? providerId} is not ready`),
+      paragraph(provider ? provider.problem ?? 'Check its key in Settings → Agent.' : 'It is no longer set up in Settings → Agent.'),
+    );
+  } else {
+    el.append(
+      heading('Add an API key'),
+      paragraph(
+        'The Agent can run on your own Anthropic, OpenAI or OpenRouter API key, or on a local model, such as Ollama' +
+          (deps.openSettings ? '.' : ', set up in Settings → Agent.'),
+      ),
+    );
+  }
+  if (deps.openSettings) {
+    el.append(addKeyButton(deps, true));
+  }
+  el.append(checkAgain(deps));
+  return el;
+}
+
 /** The welcome of a new chat: what the agent can do, and how it is paid for. */
 export function renderWelcome(install: AgentInstall | null, deps: AgentSetupDeps): HTMLElement {
   const el = document.createElement('div');
@@ -203,7 +269,7 @@ export function renderWelcome(install: AgentInstall | null, deps: AgentSetupDeps
   el.append(heading('Ask about this model, or change it'));
   el.append(
     paragraph(
-      `${install ? AGENT_INFO[install.kind].name : 'The agent'} works on the project through FluidCAD's tools: the scene, the code, measurements, screenshots. ` +
+      `${install && install.kind !== 'api' ? AGENT_INFO[install.kind].name : 'The agent'} works on the project through FluidCAD's tools: the scene, the code, measurements, screenshots. ` +
         'It shows each change and waits for you to allow it, unless you switch to “Apply edits automatically” below; a turn’s changes can be reverted.',
     ),
   );
@@ -336,6 +402,19 @@ function checkAgain(deps: AgentSetupDeps): HTMLButtonElement {
       button.disabled = false;
     }
   });
+  return button;
+}
+
+/** "Add an API key": Settings → Agent, where the keys and local models are. */
+function addKeyButton(deps: AgentSetupDeps, primary: boolean): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.dataset.ref = 'add-api-key';
+  button.className = primary
+    ? 'btn btn-sm btn-primary gap-1.5 self-start'
+    : 'btn btn-sm btn-ghost border border-base-content/15 gap-1.5 self-start';
+  button.append(ChatIcons.span(ChatIcons.SETTINGS, '[&>svg]:size-3.5'), document.createTextNode('Add an API key'));
+  button.addEventListener('click', () => deps.openSettings?.());
   return button;
 }
 

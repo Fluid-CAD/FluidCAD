@@ -1,10 +1,12 @@
 import type { ChatClient, ChatStream } from './chat-client';
 import { reduceChat, reduceTurns } from './chat-reducer';
 import {
+  BUILT_IN_PROVIDERS,
   isBusy,
   type AgentInstall,
   type AgentKind,
   type AgentModel,
+  type ApiProviderStatus,
   type ApprovalDecision,
   type ChatEvent,
   type ChatEventEnvelope,
@@ -46,8 +48,12 @@ export type AgentReadiness =
   | { state: 'unavailable'; error: string }
   | { state: 'not-found'; install: AgentInstall }
   | { state: 'too-old'; install: AgentInstall }
-  | { state: 'signed-out'; install: AgentInstall }
+  /** `api`: no provider is ready, or (`providerId`) the chat's provider is not. */
+  | { state: 'signed-out'; install: AgentInstall; providerId?: string }
   | { state: 'ready'; install: AgentInstall };
+
+/** The readiness of an agent detection reported. */
+export type InstallReadiness = Extract<AgentReadiness, { install: AgentInstall }>;
 
 /**
  * Signing in from the app (Codex): `starting` until the engine answers
@@ -144,9 +150,19 @@ export class ChatState {
     return this.session?.agent ?? this.draftAgent;
   }
 
-  /** The agents FluidCAD can drive (detected or not): those with a driver. */
+  /** The agents FluidCAD can drive (detected or not): those with a driver, and the `api` agent (no program, so no version). */
   get offeredAgents(): AgentInstall[] {
-    return (this.agents ?? []).filter((a) => a.minVersion !== '');
+    return (this.agents ?? []).filter((a) => a.kind === 'api' || a.minVersion !== '');
+  }
+
+  /** The `api` agent's ready providers: the built-ins in their order, then the custom servers as the engine lists them. */
+  get apiProviders(): ApiProviderStatus[] {
+    const providers = (this.install('api')?.providers ?? []).filter((p) => p.ready);
+    const rank = (p: ApiProviderStatus) => (p.builtIn ? BUILT_IN_PROVIDERS.indexOf(p.id) : BUILT_IN_PROVIDERS.length);
+    return providers
+      .map((p, index) => ({ p, index }))
+      .sort((a, b) => rank(a.p) - rank(b.p) || a.index - b.index)
+      .map(({ p }) => p);
   }
 
   install(kind: AgentKind = this.agent): AgentInstall | null {
@@ -167,7 +183,11 @@ export class ChatState {
     return ChatState.readinessOf(install);
   }
 
-  static readinessOf(install: AgentInstall): AgentReadiness {
+  static readinessOf(install: AgentInstall): InstallReadiness {
+    if (install.kind === 'api') {
+      // No program to find or update: ready once a provider is.
+      return install.loggedIn ? { state: 'ready', install } : { state: 'signed-out', install };
+    }
     if (install.supported) {
       return install.loggedIn === false ? { state: 'signed-out', install } : { state: 'ready', install };
     }
@@ -190,8 +210,13 @@ export class ChatState {
     if (answer.ok === false) {
       this.agentsError = answer.error;
     } else {
+      const before = apiSignature(this.agents);
       this.agents = answer.value;
       this.agentsError = null;
+      // A key added or removed, a server changed: the `api` agent's models are read again.
+      if (apiSignature(this.agents) !== before) {
+        this.models.delete('api');
+      }
     }
     this.emit({ kind: 'agents' });
   }
@@ -553,6 +578,12 @@ export class ChatState {
     }
   }
 
+  /** Show `message` above the composer, as an action's failure. */
+  fail(message: string): void {
+    this.error = message;
+    this.emit({ kind: 'activity' });
+  }
+
   /** Drop the last action's error (the user dismissed it). */
   clearError(): void {
     if (this.error) {
@@ -691,4 +722,10 @@ export class ChatState {
       listener(change);
     }
   }
+}
+
+/** What the `api` agent's model list depends on: which providers are ready, and where the servers are. */
+function apiSignature(agents: AgentInstall[] | null): string {
+  const providers = agents?.find((a) => a.kind === 'api')?.providers ?? [];
+  return JSON.stringify(providers.map((p) => [p.id, p.ready, p.baseURL ?? '']));
 }

@@ -23,6 +23,12 @@ export type PopupMenuItem = {
   /** Shown but not pickable; `title` then says why. */
   disabled?: boolean;
   title?: string;
+  /** With {@link PopupMenuOptions.search}: more text the filter matches besides the label (a model's id). */
+  keywords?: string;
+  /** With {@link PopupMenuOptions.search}: kept under the list whatever is typed ("Other model…"). */
+  pinned?: boolean;
+  /** With {@link PopupMenuOptions.search}: the row the list scrolls to when it opens (the current choice). */
+  selected?: boolean;
 };
 
 export type PopupMenuOptions = {
@@ -35,7 +41,17 @@ export type PopupMenuOptions = {
    * button near the window's bottom such as the Agent panel's composer chips).
    */
   placement?: 'below' | 'above';
+  /**
+   * A filter field above the rows, and the rows in a list that scrolls: for
+   * a long menu (the Agent panel's model chip on OpenRouter). The field takes
+   * the focus; every word typed must appear in a row's label or keywords.
+   * Rows with submenus are not supported here.
+   */
+  search?: { placeholder: string; empty?: string };
 };
+
+/** A searchable menu is never taller than this, nor than the room the window leaves. */
+const SEARCH_MAX_HEIGHT = 420;
 
 /** Keep the menu clear of the viewport's edges by at least this much. */
 const EDGE_MARGIN = 8;
@@ -71,7 +87,15 @@ export function showPopupMenu(
   menu.className = MENU;
   menu.setAttribute('role', 'menu');
   // `close` is assigned below; a row only calls it once the menu is showing.
-  fillMenu(menu, items, () => close());
+  const search = options.search ? fillSearchMenu(menu, items, options.search, () => close()) : null;
+  if (!search) {
+    fillMenu(menu, items, () => close());
+  }
+  if (search) {
+    // Room above the chip (a dropup) or below the click, whichever way it opens.
+    const room = options.placement === 'above' ? position.clientY - EDGE_MARGIN : window.innerHeight - position.clientY - EDGE_MARGIN;
+    menu.style.maxHeight = `${Math.max(160, Math.min(SEARCH_MAX_HEIGHT, room))}px`;
+  }
 
   const hostRect = host.getBoundingClientRect();
   let left = position.clientX - hostRect.left;
@@ -134,10 +158,122 @@ export function showPopupMenu(
     }
   };
   open = { el: menu, close };
-  if (options.focusFirst) {
+  if (search) {
+    // The height it opened with stays while filtering: the field does not move under the typing.
+    menu.style.height = `${menu.getBoundingClientRect().height}px`;
+    search.input.focus();
+    search.list.querySelector<HTMLElement>('[data-selected]')?.scrollIntoView?.({ block: 'nearest' });
+  } else if (options.focusFirst) {
     menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   }
   return menu;
+}
+
+/**
+ * A searchable menu's parts: the filter field, the scrolling list of the
+ * rows it filters, then the pinned rows. Arrow keys move between the field
+ * and the rows shown; Enter in the field picks the first row shown; typing
+ * on a row goes on in the field.
+ */
+function fillSearchMenu(
+  menu: HTMLElement,
+  items: PopupMenuItem[],
+  options: { placeholder: string; empty?: string },
+  close: () => void,
+): { input: HTMLInputElement; list: HTMLElement } {
+  menu.classList.add('flex', 'flex-col', 'w-[300px]');
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.dataset.ref = 'menu-search';
+  input.className = 'input input-xs input-bordered w-full shrink-0 mb-1 text-[13px]';
+  input.placeholder = options.placeholder;
+  input.setAttribute('aria-label', options.placeholder);
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  const list = document.createElement('div');
+  list.dataset.ref = 'menu-list';
+  list.className = 'flex-1 min-h-0 overflow-y-auto';
+  const empty = document.createElement('div');
+  empty.dataset.ref = 'menu-empty';
+  empty.className = 'hidden px-2 py-1.5 text-[12px] text-base-content/50';
+  empty.textContent = options.empty ?? 'No matches';
+  const footer = document.createElement('div');
+  footer.className = 'shrink-0';
+
+  const rows: { row: HTMLButtonElement; text: string }[] = [];
+  for (const item of items) {
+    const row = buildRow(item);
+    // One line per row, the whole name on hover.
+    row.querySelector('span:last-child')?.classList.add('truncate', 'min-w-0');
+    row.title ||= item.label;
+    row.addEventListener('click', () => {
+      close();
+      item.onSelect?.();
+    });
+    if (item.pinned) {
+      if (item.separated) {
+        const rule = document.createElement('div');
+        rule.className = 'my-1 border-t border-base-content/10';
+        rule.setAttribute('role', 'separator');
+        footer.appendChild(rule);
+      }
+      footer.appendChild(row);
+      continue;
+    }
+    if (item.selected) {
+      row.dataset.selected = '';
+    }
+    rows.push({ row, text: `${item.label} ${item.keywords ?? ''}`.toLowerCase() });
+    list.appendChild(row);
+  }
+  list.appendChild(empty);
+
+  const shown = () => rows.filter((r) => !r.row.classList.contains('hidden')).map((r) => r.row);
+  input.addEventListener('input', () => {
+    const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let any = false;
+    for (const { row, text } of rows) {
+      const match = words.every((w) => text.includes(w));
+      row.classList.toggle('hidden', !match);
+      any ||= match;
+    }
+    empty.classList.toggle('hidden', any || rows.length === 0);
+    list.scrollTop = 0;
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      shown()[0]?.focus();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      shown()[0]?.click();
+    }
+  });
+  list.addEventListener('keydown', (event) => {
+    const visible = shown();
+    const at = visible.indexOf(event.target as HTMLButtonElement);
+    if (at < 0) {
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      visible[Math.min(visible.length - 1, at + 1)].focus();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      (at === 0 ? input : visible[at - 1]).focus();
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Typing on a row filters on.
+      event.preventDefault();
+      input.focus();
+      input.value += event.key;
+      input.dispatchEvent(new Event('input'));
+    }
+  });
+  menu.append(input, list);
+  if (footer.childElementCount > 0) {
+    menu.appendChild(footer);
+  }
+  return { input, list };
 }
 
 /**

@@ -277,7 +277,8 @@ export class ApiRun implements AgentRun {
         stopWhen: isStepCount(this.o.stepLimit),
         abortSignal: abort.signal,
         providerOptions: providerOptionsFor(p, this.o.info, this.o.effort),
-        maxRetries: p.builtIn ? 2 : 1,
+        // A local server that is down stays down: say so at once.
+        maxRetries: p.builtIn ? 2 : 0,
         ...(this.o.images ? {} : { prepareStep: ({ messages }: { messages: ModelMessage[] }) => ({ messages: withoutImages(messages) }) }),
         onStepEnd: (s) => {
           this.history.push(...(s.response.messages as ModelMessage[]));

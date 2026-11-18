@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from '../src/ui/settings/settings-modal';
 import { agentSettings, applyAgentPreferences, DEFAULT_AGENT_PREFERENCES, rememberEffort, rememberModel } from '../src/ui/settings/agent-settings';
 import { IGNORE_API_KEY_LABEL } from '../src/ui/settings/agent-tab';
-import type { AgentInstall } from '../src/ui/chat/chat-types';
+import type { AgentInstall, ApiProviderStatus } from '../src/ui/chat/chat-types';
 import type { AgentPreferences, UserPreferences } from '../src/api';
 import { settle } from './fixtures/fake-packages-client';
+import { FakeChatClient } from './fixtures/fake-chat-client';
 
 // Settings → Agent (docs/agent-chat-plan.md §9.3, §19): the agent for new
 // chats, the permission mode and the subscription-over-API-key choice, saved
@@ -66,7 +67,8 @@ describe('Settings → Agent', () => {
       expect(h.panel.querySelector(`[data-ref="${ref}"]`)).toBeNull();
     }
     expect(h.panel.querySelectorAll('input[type="text"], datalist')).toHaveLength(0);
-    expect(h.panel.textContent).not.toMatch(/model|effort|program/i);
+    // ("Local models" are the API agent's servers, not a model to pick.)
+    expect([...h.panel.querySelectorAll('label')].map((l) => l.textContent)).not.toContainEqual(expect.stringMatching(/model|effort|program/i));
 
     expect(h.panel.textContent).toContain('Detected Agents');
     expect(h.panel.textContent).not.toContain('What FluidCAD found');
@@ -195,5 +197,302 @@ describe("the chips' model and effort, kept for new chats", () => {
     // Default effort clears the agent's own.
     expect(rememberEffort('codex', '')).toEqual({ claudeEffort: 'max', codexEffort: '', effort: '' });
     expect('codexEffort' in agentSettings.current).toBe(false);
+  });
+
+  it("the API agent's model carries its provider; its effort is its own", () => {
+    applyAgentPreferences({ agent: { defaultAgent: 'api', permissionMode: 'ask', claudeEffort: 'max', apiModel: 'no-provider' } } as UserPreferences);
+    // A stored model without a provider is not one.
+    expect(agentSettings.current.defaultAgent).toBe('api');
+    expect(agentSettings.current.apiModel).toBeUndefined();
+    expect(rememberModel('api', 'openrouter/anthropic/claude-x')).toEqual({ apiModel: 'openrouter/anthropic/claude-x' });
+    expect(rememberEffort('api', 'high')).toEqual({ apiEffort: 'high' });
+    expect(agentSettings.current).toMatchObject({ apiModel: 'openrouter/anthropic/claude-x', apiEffort: 'high', claudeEffort: 'max' });
+  });
+
+  it('reads the stored servers defensively: built-in ids, bad slugs and other kinds are left out', () => {
+    applyAgentPreferences({
+      agent: {
+        defaultAgent: null,
+        permissionMode: 'ask',
+        providers: [
+          { id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: 'http://localhost:11434/v1', contextWindow: 8192 },
+          { id: 'anthropic', kind: 'openai-compatible', label: 'Not me', baseURL: 'http://x' },
+          { id: 'Bad Id', kind: 'openai-compatible', label: 'Bad', baseURL: 'http://x' },
+          { id: 'other', kind: 'openai', label: 'Other' },
+        ],
+      },
+    } as UserPreferences);
+    expect(agentSettings.current.providers).toEqual([
+      { id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: 'http://localhost:11434/v1', contextWindow: 8192 },
+    ]);
+  });
+});
+
+// The `api` agent (docs/agent-chat-plan.md §20): its built-in providers' keys
+// and the local servers. A key goes to the engine by its own PUT, never
+// through the preferences, and the page keeps no copy.
+describe("Settings → Agent: the API agent's keys and local models", () => {
+  const SECRET = 'sk-or-v1-0123456789abcdef';
+
+  /** Settings → Agent over an in-memory engine (the panel's fake client), wired as main.ts wires it. */
+  function mountApi(providers: ApiProviderStatus[]) {
+    const client = new FakeChatClient();
+    client.agentsValue = [CLAUDE, CODEX, FakeChatClient.apiInstall(providers)];
+    const savePreference = vi.fn();
+    const saved: AgentPreferences[] = [];
+    const save = vi.fn(async (value: AgentPreferences) => {
+      saved.push(structuredClone(value));
+      // The engine now knows the servers saved.
+      const api = client.agentsValue.find((a) => a.kind === 'api')!;
+      for (const server of value.providers ?? []) {
+        if (!api.providers!.some((p) => p.id === server.id)) {
+          api.providers!.push(FakeChatClient.provider({ id: server.id, label: server.label, baseURL: server.baseURL }));
+        }
+      }
+      return true;
+    });
+    const onSaved = vi.fn();
+    const modal = new SettingsModal(document.body, {
+      savePreference,
+      resetPreferences: async () => null,
+      applyPreferences: () => undefined,
+      agent: {
+        agents: async (fresh) => {
+          const answer = await client.agents(fresh);
+          return answer.ok ? answer.value : null;
+        },
+        save,
+        onSaved,
+        providers: async () => {
+          const answer = await client.providers();
+          return answer.ok ? answer.value : null;
+        },
+        setKey: async (id, apiKey) => {
+          const answer = await client.setProviderKey(id, apiKey);
+          return answer.ok === false ? answer.error : null;
+        },
+        removeKey: async (id) => {
+          const answer = await client.removeProviderKey(id);
+          return answer.ok === false ? answer.error : null;
+        },
+      },
+    });
+    const overlay = document.body.querySelector<HTMLElement>('[role="dialog"]')!;
+    const panel = overlay.querySelector<HTMLElement>('[data-panel="agent"]')!;
+    const $ = <T extends Element = HTMLElement>(selector: string) => panel.querySelector<T>(selector);
+    const dialogSave = () => overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!;
+    const row = (id: string) => $(`[data-ref="api-keys"] [data-provider="${id}"]`)!;
+    const type = (input: HTMLInputElement, value: string) => {
+      input.value = value;
+      input.dispatchEvent(new Event('input'));
+    };
+    return { client, modal, overlay, panel, $, save, saved, savePreference, onSaved, dialogSave, row, type };
+  }
+
+  const NONE = () => [
+    FakeChatClient.provider({ id: 'anthropic' }),
+    FakeChatClient.provider({ id: 'openai' }),
+    FakeChatClient.provider({ id: 'openrouter' }),
+  ];
+
+  it('one row per built-in provider: the variable that sets it, a stored key with Remove, or an empty field', async () => {
+    const h = mountApi([
+      FakeChatClient.provider({ id: 'anthropic', hasKey: true, keySource: 'env', ready: true }),
+      FakeChatClient.provider({ id: 'openai', hasKey: true, keySource: 'stored', ready: true }),
+      FakeChatClient.provider({ id: 'openrouter' }),
+    ]);
+    h.modal.show('agent');
+    await settle();
+    expect([...h.panel.querySelectorAll<HTMLElement>('[data-ref="api-keys"] [data-provider]')].map((r) => r.dataset.provider)).toEqual([
+      'anthropic', 'openai', 'openrouter',
+    ]);
+
+    // From the environment: said, and no field (it would not win anyway).
+    expect(h.row('anthropic').textContent).toContain('Anthropic API');
+    expect(h.row('anthropic').querySelector('[data-ref="key-env"]')!.textContent).toBe('Set by ANTHROPIC_API_KEY');
+    expect(h.row('anthropic').querySelector('input')).toBeNull();
+
+    // Stored: a field to replace it, and Remove.
+    const stored = h.row('openai').querySelector<HTMLInputElement>('[data-ref="key-input"]')!;
+    expect(stored.type).toBe('password');
+    expect(stored.autocomplete).toBe('off');
+    expect(stored.placeholder).toBe('Key saved');
+    expect(stored.value).toBe('');
+    expect(h.row('openai').querySelector('[data-ref="key-remove"]')).not.toBeNull();
+
+    // None: an empty field; Save waits for a key.
+    const none = h.row('openrouter').querySelector<HTMLInputElement>('[data-ref="key-input"]')!;
+    expect(none.placeholder).toBe('Paste a key');
+    expect(h.row('openrouter').querySelector('[data-ref="key-remove"]')).toBeNull();
+    expect(h.row('openrouter').querySelector<HTMLButtonElement>('[data-ref="key-save"]')!.disabled).toBe(true);
+
+    // Detected Agents lists each provider, ready or not.
+    const found = h.$('[data-ref="found"]')!;
+    expect([...found.querySelectorAll<HTMLElement>('[data-agent="api"]')].map((r) => [r.dataset.provider, r.querySelector('[data-ref="verdict"]')!.textContent])).toEqual([
+      ['anthropic', 'Ready'], ['openai', 'Ready'], ['openrouter', 'Not ready'],
+    ]);
+    expect(found.querySelector('[data-provider="openrouter"]')!.textContent).toContain('No API key.');
+  });
+
+  it('a key is stored by its own Save, never through the preferences, and the field is emptied', async () => {
+    const h = mountApi(NONE());
+    h.modal.show('agent');
+    await settle();
+    const input = () => h.row('openrouter').querySelector<HTMLInputElement>('[data-ref="key-input"]')!;
+    h.type(input(), `  ${SECRET} `);
+    // Typing a key is not an unsaved setting: the dialog's Save stays off.
+    expect(h.dialogSave().disabled).toBe(true);
+    h.row('openrouter').querySelector<HTMLButtonElement>('[data-ref="key-save"]')!.click();
+    await settle();
+    expect(h.client.setProviderKey).toHaveBeenCalledWith('openrouter', SECRET);
+    expect(h.save).not.toHaveBeenCalled();
+    expect(h.savePreference).not.toHaveBeenCalled();
+    // Stored: the page keeps no copy, and learns only that there is one.
+    expect(input().value).toBe('');
+    expect(input().placeholder).toBe('Key saved');
+    expect(h.row('openrouter').querySelector('[data-ref="key-remove"]')).not.toBeNull();
+    expect(h.overlay.innerHTML).not.toContain(SECRET);
+    expect(JSON.stringify(agentSettings.current)).not.toContain(SECRET);
+    expect(h.$('[data-ref="found"] [data-provider="openrouter"] [data-ref="verdict"]')!.textContent).toBe('Ready');
+    // An open Agent panel reads detection again.
+    expect(h.onSaved).toHaveBeenCalled();
+
+    // Remove deletes the stored key.
+    h.row('openrouter').querySelector<HTMLButtonElement>('[data-ref="key-remove"]')!.click();
+    await settle();
+    expect(h.client.removeProviderKey).toHaveBeenCalledWith('openrouter');
+    expect(input().placeholder).toBe('Paste a key');
+    expect(h.$('[data-ref="found"] [data-provider="openrouter"] [data-ref="verdict"]')!.textContent).toBe('Not ready');
+
+    // Nothing the tab saves through the preferences carries a key.
+    const agent = h.$<HTMLSelectElement>('[data-ref="default-agent"]')!;
+    agent.value = 'api';
+    agent.dispatchEvent(new Event('change'));
+    h.dialogSave().click();
+    await settle();
+    expect(h.saved).toEqual([{ defaultAgent: 'api', permissionMode: 'ask', claudeIgnoreApiKey: null }]);
+  });
+
+  it('a refused key says why; a key typed and not stored is gone on Cancel', async () => {
+    const h = mountApi(NONE());
+    h.modal.show('agent');
+    await settle();
+    const input = () => h.row('anthropic').querySelector<HTMLInputElement>('[data-ref="key-input"]')!;
+    h.type(input(), 'x'.repeat(600));
+    input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+    await settle();
+    const error = h.row('anthropic').querySelector<HTMLElement>('[data-ref="key-error"]')!;
+    expect(error.textContent).toBe('An API key is 1 to 512 characters.');
+    expect(error.classList.contains('hidden')).toBe(false);
+
+    h.type(input(), SECRET);
+    h.modal.hide();
+    h.modal.show('agent');
+    await settle();
+    expect(input().value).toBe('');
+    expect(h.overlay.innerHTML).not.toContain(SECRET);
+  });
+
+  it('adds a local model from a preset; the dialog saves it in agent.providers, then stores its key', async () => {
+    const h = mountApi(NONE());
+    h.modal.show('agent');
+    await settle();
+    expect(h.$('[data-ref="servers"]')!.classList.contains('hidden')).toBe(false);
+    h.$<HTMLButtonElement>('[data-ref="add-ollama"]')!.click();
+    const card = h.$('[data-server="ollama"]')!;
+    expect(card.querySelector<HTMLInputElement>('[data-ref="server-label"]')!.value).toBe('Ollama');
+    expect(card.querySelector<HTMLInputElement>('[data-ref="server-url"]')!.value).toBe('http://localhost:11434/v1');
+    // Images are off by default for these servers.
+    expect(card.querySelector<HTMLInputElement>('[data-ref="server-images"]')!.checked).toBe(false);
+    // Not saved yet, so the engine does not know it: no Save of its own for the key.
+    expect(card.querySelector('[data-ref="key-save"]')).toBeNull();
+    expect(card.querySelector<HTMLInputElement>('[data-ref="key-input"]')!.placeholder).toBe('Optional');
+    expect(h.dialogSave().disabled).toBe(false);
+
+    h.type(card.querySelector<HTMLInputElement>('[data-ref="server-context"]')!, '32768');
+    h.type(card.querySelector<HTMLInputElement>('[data-ref="key-input"]')!, SECRET);
+    h.dialogSave().click();
+    await settle();
+    await settle();
+    expect(h.saved).toEqual([{
+      defaultAgent: null,
+      permissionMode: 'ask',
+      claudeIgnoreApiKey: null,
+      providers: [{ id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: 'http://localhost:11434/v1', images: false, contextWindow: 32768 }],
+    }]);
+    expect(agentSettings.current.providers).toEqual(h.saved[0].providers);
+    // The key went by its own PUT, after the server was saved.
+    expect(h.client.setProviderKey).toHaveBeenCalledWith('ollama', SECRET);
+    expect(h.save.mock.invocationCallOrder[0]).toBeLessThan(h.client.setProviderKey.mock.invocationCallOrder[0]);
+    expect(JSON.stringify(h.saved)).not.toContain(SECRET);
+    const savedCard = h.$('[data-server="ollama"]')!;
+    expect(savedCard.querySelector<HTMLInputElement>('[data-ref="key-input"]')!.value).toBe('');
+    // Known now: its key has its own Save and Remove, like the built-ins.
+    expect(savedCard.querySelector('[data-ref="key-save"]')).not.toBeNull();
+    expect(savedCard.querySelector('[data-ref="key-remove"]')).not.toBeNull();
+    expect(h.dialogSave().disabled).toBe(true);
+    expect(h.$('[data-ref="found"] [data-provider="ollama"] [data-ref="verdict"]')!.textContent).toBe('Ready');
+
+    // A second Ollama gets an id of its own.
+    h.$<HTMLButtonElement>('[data-ref="add-ollama"]')!.click();
+    expect(h.$<HTMLInputElement>('[data-server="ollama-2"] [data-ref="server-label"]')!.value).toBe('Ollama 2');
+  });
+
+  it('edits and removes a stored server; one without a valid base URL is not saved', async () => {
+    applyAgentPreferences({
+      agent: {
+        defaultAgent: null,
+        permissionMode: 'ask',
+        providers: [{ id: 'lm-studio', kind: 'openai-compatible', label: 'LM Studio', baseURL: 'http://localhost:1234/v1', images: false }],
+      },
+    } as UserPreferences);
+    const h = mountApi([...NONE(), FakeChatClient.provider({ id: 'lm-studio', label: 'LM Studio', baseURL: 'http://localhost:1234/v1' })]);
+    h.modal.show('agent');
+    await settle();
+    const card = h.$('[data-server="lm-studio"]')!;
+    h.type(card.querySelector<HTMLInputElement>('[data-ref="server-label"]')!, 'Studio');
+    const images = card.querySelector<HTMLInputElement>('[data-ref="server-images"]')!;
+    images.checked = true;
+    images.dispatchEvent(new Event('change'));
+    // A server with no address yet.
+    h.$<HTMLButtonElement>('[data-ref="add-custom"]')!.click();
+    const custom = h.$('[data-server="server"]')!;
+    expect(custom.querySelector<HTMLInputElement>('[data-ref="server-url"]')!.value).toBe('');
+    h.dialogSave().click();
+    await settle();
+    // Not sent: the field says what is wrong, and the tab stays unsaved.
+    expect(h.saved[0]).not.toHaveProperty('providers');
+    expect(custom.querySelector('[data-ref="server-url"]')!.classList.contains('input-error')).toBe(true);
+    expect(h.$('[data-ref="servers-error"]')!.classList.contains('hidden')).toBe(false);
+    expect(h.dialogSave().disabled).toBe(false);
+
+    h.type(custom.querySelector<HTMLInputElement>('[data-ref="server-url"]')!, 'ftp://example.com');
+    h.dialogSave().click();
+    await settle();
+    expect(h.saved.at(-1)).not.toHaveProperty('providers');
+
+    // Remove the bad one: the edits to the other go.
+    custom.querySelector<HTMLButtonElement>('[data-ref="server-remove"]')!.click();
+    h.dialogSave().click();
+    await settle();
+    expect(h.saved.at(-1)!.providers).toEqual([
+      { id: 'lm-studio', kind: 'openai-compatible', label: 'Studio', baseURL: 'http://localhost:1234/v1', images: true },
+    ]);
+    expect(h.$('[data-ref="servers-error"]')!.classList.contains('hidden')).toBe(true);
+
+    // Removing every server saves an empty list (the engine deletes their keys).
+    h.$<HTMLButtonElement>('[data-server="lm-studio"] [data-ref="server-remove"]')!.click();
+    h.dialogSave().click();
+    await settle();
+    expect(h.saved.at(-1)!.providers).toEqual([]);
+    expect(agentSettings.current.providers).toBeUndefined();
+  });
+
+  it('hides the keys and servers when the engine has no API agent', async () => {
+    const h = mount();
+    h.modal.show('agent');
+    await settle();
+    expect(h.$('[data-ref="api-keys"]').classList.contains('hidden')).toBe(true);
+    expect(h.$('[data-ref="servers"]').classList.contains('hidden')).toBe(true);
   });
 });

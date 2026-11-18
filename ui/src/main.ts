@@ -1136,10 +1136,22 @@ const settingsModal = new SettingsModal(container, {
       return answer.ok ? answer.value : null;
     },
     // Awaited, so the detection that follows reads the new API-key choice.
-    save: async (value) => {
-      await savePreferenceNow('agent', value);
-    },
+    save: (value) => savePreferenceNow('agent', value),
     onSaved: () => agentPanel?.settingsChanged(),
+    // The `api` agent's keys go to the engine by their own routes, never
+    // through the preferences; the page only learns whether each is set.
+    providers: async () => {
+      const answer = await chatClient.providers();
+      return answer.ok ? answer.value : null;
+    },
+    setKey: async (id, apiKey) => {
+      const answer = await chatClient.setProviderKey(id, apiKey);
+      return answer.ok === false ? answer.error : null;
+    },
+    removeKey: async (id) => {
+      const answer = await chatClient.removeProviderKey(id);
+      return answer.ok === false ? answer.error : null;
+    },
   },
 });
 

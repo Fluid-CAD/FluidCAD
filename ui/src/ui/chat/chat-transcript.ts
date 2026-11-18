@@ -169,7 +169,7 @@ function findPart(messages: readonly ChatMessage[], messageId: string, partId: s
 
 /**
  * One message: a user's (a bubble on the right: their words as typed, the
- * capture, the references) or the agent's (full width: text, thinking, tool
+ * images they attached in one row, the references, the capture) or the agent's (full width: text, thinking, tool
  * cards, notices). A live message settles each part when the next starts,
  * and all of them when it ends.
  *
@@ -223,7 +223,25 @@ export class MessageView {
     const view = this.createView(part);
     this.parts.set(part.id, view);
     this.last = view;
-    this.body.append(view.el);
+    if (part.type === 'image' && part.name !== undefined) {
+      // The images the user attached sit side by side, wrapping.
+      this.attachedRow().append(view.el);
+    } else {
+      this.body.append(view.el);
+    }
+  }
+
+  /** The row of attached images the message ends with, made when its first image comes. */
+  private attachedRow(): HTMLElement {
+    const last = this.body.lastElementChild;
+    if (last instanceof HTMLElement && last.classList.contains('chat-images')) {
+      return last;
+    }
+    const row = document.createElement('div');
+    row.className = 'chat-images';
+    row.dataset.ref = 'attached-images';
+    this.body.append(row);
+    return row;
   }
 
   end(): void {

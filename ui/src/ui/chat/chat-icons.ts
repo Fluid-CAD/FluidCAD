@@ -31,6 +31,7 @@ import iconPencil from '@tabler/icons/outline/pencil.svg?raw';
 import iconTrash from '@tabler/icons/outline/trash.svg?raw';
 import iconLogin from '@tabler/icons/outline/login-2.svg?raw';
 import iconPin from '@tabler/icons/outline/pin.svg?raw';
+import iconPaperclip from '@tabler/icons/outline/paperclip.svg?raw';
 
 export const ChatIcons = {
   SEND: iconArrowUp,
@@ -66,6 +67,8 @@ export const ChatIcons = {
   SIGN_IN: iconLogin,
   /** Keep the live reference chip. */
   PIN: iconPin,
+  /** Attach an image to the message. */
+  ATTACH: iconPaperclip,
 
   /** `svg` in a span sized by `className`. */
   span(svg: string, className = '[&>svg]:size-4'): HTMLSpanElement {

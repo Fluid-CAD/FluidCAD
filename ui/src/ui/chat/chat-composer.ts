@@ -1,10 +1,16 @@
 import { ChatIcons } from './chat-icons';
+import { ATTACHMENT_MEDIA_TYPES } from './chat-types';
 
 export type ChatComposerDeps = {
   /** Send `text`; resolves true once the engine took it (the box then empties). */
   onSubmit(text: string): Promise<boolean>;
   /** Stop the running turn (the Stop button, Escape). */
   onStop(): void;
+  /**
+   * Files the user picked with the Attach button or pasted into the box,
+   * to go with the message as images. Absent: neither is offered.
+   */
+  onAttach?(files: File[]): void;
 };
 
 /** The textarea's tallest, before it scrolls. */
@@ -23,19 +29,27 @@ const MAX_HEIGHT_PX = 200;
  *
  * `attachments` (`data-ref="attachments"`, above the textarea) holds the
  * scene references (§11.1: the selection's live chip and the kept ones),
- * whose labels put their `[n]` in the text through {@link insertToken}.
+ * whose labels put their `[n]` in the text through {@link insertToken}, and
+ * the images attached to the message. An image is attached with the Attach
+ * button left of the chips (a file picker) or by pasting one into the box;
+ * with one attached, the message can go without words
+ * ({@link setSendsWithoutText}).
  */
 export class ChatComposer {
   readonly el: HTMLDivElement;
   readonly textarea: HTMLTextAreaElement;
-  /** Above the textarea: the reference chips ({@link setAttachments}). */
+  /** Above the textarea: the reference chips and the attached images ({@link setAttachments}). */
   readonly attachments: HTMLDivElement;
   /** Under the textarea, left of Send: the chips the panel puts there (model, effort, edit mode). */
   readonly controls: HTMLDivElement;
   private readonly button: HTMLButtonElement;
+  /** Attach an image; null when the composer attaches none. */
+  private readonly attachButton: HTMLButtonElement | null = null;
   private busy = false;
   private enabled = true;
   private submitting = false;
+  /** Something is attached that can go without words (an image). */
+  private sendsWithoutText = false;
   /**
    * Where the caret was when the textarea lost focus: a token put in from
    * a chip goes there (a blurred textarea's own selection does not survive
@@ -70,6 +84,7 @@ export class ChatComposer {
     this.textarea.addEventListener('blur', () => {
       this.caret = { start: this.textarea.selectionStart, end: this.textarea.selectionEnd };
     });
+    this.textarea.addEventListener('paste', (event) => this.onPaste(event));
 
     this.button = document.createElement('button');
     this.button.type = 'button';
@@ -86,6 +101,34 @@ export class ChatComposer {
     this.controls.dataset.ref = 'composer-controls';
     const footer = document.createElement('div');
     footer.className = 'chat-composer-footer';
+    if (deps.onAttach) {
+      // The picker behind the Attach button: images only, several at once.
+      const picker = document.createElement('input');
+      picker.type = 'file';
+      picker.accept = ATTACHMENT_MEDIA_TYPES.join(',');
+      picker.multiple = true;
+      picker.className = 'hidden';
+      picker.dataset.ref = 'attach-input';
+      picker.tabIndex = -1;
+      picker.addEventListener('change', () => {
+        const files = [...(picker.files ?? [])];
+        // Emptied, so picking the same file again is a change too.
+        picker.value = '';
+        if (files.length > 0) {
+          deps.onAttach!(files);
+          this.textarea.focus();
+        }
+      });
+      this.attachButton = document.createElement('button');
+      this.attachButton.type = 'button';
+      this.attachButton.dataset.ref = 'attach';
+      this.attachButton.className = 'chat-composer-attach';
+      this.attachButton.title = 'Attach an image (or paste or drop one)';
+      this.attachButton.setAttribute('aria-label', 'Attach an image');
+      this.attachButton.innerHTML = ChatIcons.ATTACH;
+      this.attachButton.addEventListener('click', () => picker.click());
+      footer.append(picker, this.attachButton);
+    }
     footer.append(this.controls, this.button);
     box.append(this.textarea, footer);
     // A click on the box's padding (not on a chip or the button) types.
@@ -127,14 +170,22 @@ export class ChatComposer {
     }
   }
 
+  /** Whether the message can go with no words typed: an image is attached to it. */
+  setSendsWithoutText(sends: boolean): void {
+    if (this.sendsWithoutText !== sends) {
+      this.sendsWithoutText = sends;
+      this.paint();
+    }
+  }
+
   focus(): void {
     this.textarea.focus();
   }
 
-  /** Show `el` above the textarea (the scene references); it hides itself when empty. */
-  setAttachments(el: HTMLElement): void {
-    this.attachments.replaceChildren(el);
-    this.attachments.classList.remove('hidden');
+  /** Show `els` above the textarea (the scene references, the attached images); each hides itself when empty. */
+  setAttachments(...els: HTMLElement[]): void {
+    this.attachments.replaceChildren(...els);
+    this.attachments.classList.toggle('hidden', els.length === 0);
   }
 
   /**
@@ -162,7 +213,7 @@ export class ChatComposer {
   /** Send what is typed; the box empties once the engine took it. */
   async submit(): Promise<boolean> {
     const text = this.textarea.value;
-    if (this.busy || !this.enabled || this.submitting || text.trim() === '') {
+    if (this.busy || !this.enabled || this.submitting || !this.hasMessage()) {
       return false;
     }
     this.submitting = true;
@@ -192,6 +243,29 @@ export class ChatComposer {
     }
   }
 
+  /**
+   * An image on the clipboard (a screenshot, a copied picture) is attached.
+   * A clipboard that also has text is pasted as text: a spreadsheet's cells
+   * come with a picture of themselves.
+   */
+  private onPaste(event: ClipboardEvent): void {
+    const data = event.clipboardData;
+    if (!this.deps.onAttach || !data) {
+      return;
+    }
+    const images = [...data.files].filter((file) => file.type.startsWith('image/'));
+    if (images.length === 0 || data.getData('text/plain') !== '') {
+      return;
+    }
+    event.preventDefault();
+    this.deps.onAttach(images);
+  }
+
+  /** Whether there is anything to send: words, or an image without them. */
+  private hasMessage(): boolean {
+    return this.textarea.value.trim() !== '' || this.sendsWithoutText;
+  }
+
   private autosize(): void {
     this.textarea.style.height = 'auto';
     const height = Math.min(this.textarea.scrollHeight, MAX_HEIGHT_PX);
@@ -210,6 +284,9 @@ export class ChatComposer {
     this.button.title = stop ? 'Stop (Esc)' : 'Send (Enter)';
     this.button.setAttribute('aria-label', stop ? 'Stop the agent' : 'Send');
     this.button.dataset.action = stop ? 'stop' : 'send';
-    this.button.disabled = !stop && (!this.enabled || this.submitting || this.textarea.value.trim() === '');
+    this.button.disabled = !stop && (!this.enabled || this.submitting || !this.hasMessage());
+    if (this.attachButton) {
+      this.attachButton.disabled = !this.enabled;
+    }
   }
 }

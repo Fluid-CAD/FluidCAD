@@ -370,11 +370,12 @@ export class ChatState {
   }
 
   /**
-   * Send `text` in the session on screen (creating it for a new chat).
-   * Resolves true once the engine took it; its turn then arrives as events.
+   * Send `text` in the session on screen (creating it for a new chat); it
+   * may be empty when images go with it. Resolves true once the engine took
+   * it; its turn then arrives as events.
    */
   async send(text: string, options: SendOptions = {}): Promise<boolean> {
-    if (this.busy || this.reverting || text.trim() === '') {
+    if (this.busy || this.reverting || (text.trim() === '' && !(options.attachments && options.attachments.length > 0))) {
       return false;
     }
     this.sending = true;

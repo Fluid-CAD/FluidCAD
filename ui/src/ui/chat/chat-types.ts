@@ -95,10 +95,22 @@ export type SceneReference = {
   unit: string;
 };
 
+/** The image types a message's attachments may be. */
+export const ATTACHMENT_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const;
+
+export type AttachmentMediaType = (typeof ATTACHMENT_MEDIA_TYPES)[number];
+
+/** An image the user attached to a message (pasted, dropped or picked from disk); `name` is its file name. */
+export type MessageAttachment = { mediaType: AttachmentMediaType; base64: string; name?: string };
+
 /** Body of `POST api/agent/sessions/:id/messages`. */
 export type SendMessage = {
+  /** May be empty when the message has `attachments`. */
   text: string;
+  /** The user's images, in the order they attached them. */
+  attachments?: MessageAttachment[];
   references?: SceneReference[];
+  /** The references capture. */
   image?: { mediaType: 'image/png'; base64: string };
   /** A model alias or full name; `default` means the CLI's own setting. */
   model?: string;
@@ -151,7 +163,8 @@ export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
 
 export type TextPart = { type: 'text'; id: string; text: string };
 export type ReasoningPart = { type: 'reasoning'; id: string; text: string };
-export type ImagePart = { type: 'image'; id: string; file: string };
+/** `name`: set for an image the user attached (its file name); absent: the references capture. */
+export type ImagePart = { type: 'image'; id: string; file: string; name?: string };
 export type ReferencesPart = { type: 'references'; id: string; references: SceneReference[] };
 /**
  * `resetsAt` (ISO): when a plan limit resets, worded in local time by the
@@ -282,7 +295,7 @@ export type AgentModel = {
   defaultEffort?: string;
   /** `api`: the provider the model belongs to. */
   provider?: string;
-  /** `api`: whether the model takes images. */
+  /** Codex and `api`: whether the model takes images (absent: it is not known, and they are sent). */
   acceptsImages?: boolean;
 };
 

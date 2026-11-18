@@ -25,6 +25,7 @@ import {
   type TurnRecord,
 } from './chat-types';
 import type { Colorizer } from './code-block';
+import { ImageAttachments, type ImagePreparer } from './image-attachments';
 import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
 import { resetsText } from './time-format';
 import { usageText } from './usage';
@@ -99,6 +100,8 @@ export type ChatPanelDeps = {
    * idle selection, renders, the capture. Absent: no references.
    */
   scene?: ChatSceneHost;
+  /** Makes an attached image ready to send (tests); absent: the browser's decoder and a canvas. */
+  prepareImage?: ImagePreparer;
   /** Timers for reattaching after a refused stream (tests). */
   timers?: ChatTimers;
 };
@@ -128,7 +131,9 @@ type AgentEntry = { kind: AgentKind; provider: ApiProviderStatus | null; label: 
  * ({@link ChatComposer}), whose chips under the text pick the agent, the
  * model, the effort and the permission mode (Ask before edits / Apply edits
  * automatically, the `agent.permissionMode` preference), and say how the
- * agent is paid for (subscription or API key). The session's status drives what shows: Stop while
+ * agent is paid for (subscription or API key). Images go with a message
+ * too ({@link ImageAttachments}): picked with the composer's Attach button,
+ * pasted into the message box, or dropped anywhere on the panel. The session's status drives what shows: Stop while
  * a turn runs, the approval cards while it waits, Continue after the engine
  * restarted mid-turn, the errors. Under each user message, Revert this turn
  * while the turn has changes to put back (§12.2). Until the agent can run,
@@ -141,6 +146,8 @@ export class ChatPanel {
   readonly composer: ChatComposer;
   /** The selected geometry attached to the next message (§11.1); null without a scene. */
   readonly references: SceneReferences | null;
+  /** The images attached to the next message. */
+  readonly images: ImageAttachments;
   private readonly sessionButton: HTMLButtonElement;
   private readonly sessionTitle: HTMLSpanElement;
   private readonly agentSlot: HTMLSpanElement;
@@ -257,14 +264,21 @@ export class ChatPanel {
     this.composer = new ChatComposer({
       onSubmit: (text) => this.send(text),
       onStop: () => void this.state.stop(),
+      onAttach: (files) => this.images.add(files),
     });
     this.composer.controls.append(this.agentSlot, this.modelSlot, this.effortSlot, this.modeButton);
     this.references = deps.scene ? new SceneReferences(deps.scene, this.composer) : null;
-    if (this.references) {
-      this.composer.setAttachments(this.references.el);
-    }
+    this.images = new ImageAttachments({
+      ...(deps.prepareImage ? { prepare: deps.prepareImage } : {}),
+      onChange: () => this.composer.setSendsWithoutText(this.images.size > 0),
+    });
+    this.composer.setAttachments(this.images.el, ...(this.references ? [this.references.el] : []));
 
     this.el.append(header, body, this.statusBar, this.footerSetup, this.composer.el, deps.slot.resizeHandle());
+    // A file dragged over the panel is an image for the message, wherever it is let go.
+    this.el.addEventListener('dragover', this.onDragOver);
+    this.el.addEventListener('dragleave', this.onDragLeave);
+    this.el.addEventListener('drop', this.onDrop);
     deps.container.appendChild(this.el);
 
     this.unsubscribe = this.state.subscribe((change) => this.onChange(change));
@@ -338,6 +352,7 @@ export class ChatPanel {
     window.removeEventListener('resize', this.onResize);
     this.unsubscribe();
     this.references?.destroy();
+    this.images.destroy();
     this.state.dispose();
     this.transcript.destroy();
     this.leaveSlot();
@@ -397,6 +412,24 @@ export class ChatPanel {
     }
     const models = this.providerModels(provider);
     return (models.find((m) => m.isDefault) ?? models[0])?.id ?? null;
+  }
+
+  /**
+   * Whether images reach the model a message goes with. Claude Code and
+   * Codex are sent them as they are. The `api` agent leaves them out for a
+   * model its provider lists as taking none, and for a model typed by name
+   * on a server whose **Send images** is off: the strip then says so.
+   */
+  private modelTakesImages(): boolean {
+    if (this.state.agent !== 'api') {
+      return true;
+    }
+    const id = this.model;
+    const listed = (this.state.models.get('api') ?? []).find((m) => m.id === id);
+    if (listed) {
+      return listed.acceptsImages !== false;
+    }
+    return this.state.apiProviders.find((p) => p.id === this.provider)?.images !== false;
   }
 
   /** The models of one `api` provider (`<providerId>/<model>`). */
@@ -498,7 +531,11 @@ export class ChatPanel {
   }
 
   private async send(text: string): Promise<boolean> {
-    const settings = this.deps.settings();
+    // The images as the strip shows them; one still being sized is waited for.
+    const images = await this.images.forSend();
+    if (text.trim() === '' && images.attachments.length === 0) {
+      return false;
+    }
     // The message carries what the chips show: a selection still resolving
     // is waited for. The references go with one capture of the model, each
     // in its colour (§11.2), taken while their picks still hold.
@@ -529,14 +566,51 @@ export class ChatPanel {
       model: this.model,
       mode: this.mode,
       ...(effort !== DEFAULT_EFFORT ? { effort } : {}),
+      ...(images.attachments.length > 0 ? { attachments: images.attachments } : {}),
       ...(attached ? { references: attached.references } : {}),
       ...(image ? { image } : {}),
     });
-    if (sent && attached) {
-      this.references!.clearSent();
+    if (sent) {
+      this.images.clearSent(images.ids);
+      if (attached) {
+        this.references!.clearSent();
+      }
     }
     return sent;
   }
+
+  /** Whether a drag carries files (the only thing the panel takes). */
+  private static carriesFiles(event: DragEvent): boolean {
+    return [...(event.dataTransfer?.types ?? [])].includes('Files');
+  }
+
+  private readonly onDragOver = (event: DragEvent): void => {
+    if (!ChatPanel.carriesFiles(event)) {
+      return;
+    }
+    // Taken either way: left to the browser, a dropped file replaces the page.
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = this.composerUsable ? 'copy' : 'none';
+    this.el.toggleAttribute('data-dropping', this.composerUsable);
+  };
+
+  private readonly onDragLeave = (event: DragEvent): void => {
+    if (!(event.relatedTarget instanceof Node) || !this.el.contains(event.relatedTarget)) {
+      this.el.removeAttribute('data-dropping');
+    }
+  };
+
+  private readonly onDrop = (event: DragEvent): void => {
+    if (!ChatPanel.carriesFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    this.el.removeAttribute('data-dropping');
+    if (this.composerUsable) {
+      this.images.add([...(event.dataTransfer?.files ?? [])]);
+      this.composer.focus();
+    }
+  };
 
   private onChange(change: ChatChange): void {
     switch (change.kind) {
@@ -727,6 +801,7 @@ export class ChatPanel {
   private paintModelPicker(): void {
     this.modelSlot.replaceChildren();
     const current = this.model;
+    this.images.setModelTakesImages(this.modelTakesImages());
     if (this.typingModel) {
       const input = document.createElement('input');
       input.type = 'text';

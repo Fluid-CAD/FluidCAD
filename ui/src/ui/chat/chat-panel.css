@@ -176,7 +176,14 @@
   cursor: not-allowed;
 }
 
-/* Under the text: the chips on the left, Send at the bottom right. */
+/* A file dragged over the panel lands in the message: the box says so. */
+[data-role='chat-panel'][data-dropping] .chat-composer-box {
+  border-style: dashed;
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 6%, var(--color-base-100));
+}
+
+/* Under the text: Attach and the chips on the left, Send at the bottom right. */
 [data-role='chat-panel'] .chat-composer-footer {
   display: flex;
   align-items: flex-end;
@@ -197,6 +204,35 @@
 [data-role='chat-panel'] .chat-composer-button {
   flex-shrink: 0;
   border-radius: calc(var(--radius-box) - 2px);
+}
+
+/* Attach an image: as tall as the chips it sits before. */
+[data-role='chat-panel'] .chat-composer-attach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  margin-bottom: 3px;
+  border-radius: 999px;
+  color: var(--chat-muted);
+  cursor: pointer;
+}
+
+[data-role='chat-panel'] .chat-composer-attach > svg {
+  width: 15px;
+  height: 15px;
+}
+
+[data-role='chat-panel'] .chat-composer-attach:hover:not(:disabled) {
+  color: var(--color-base-content);
+  background: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+}
+
+[data-role='chat-panel'] .chat-composer-attach:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* The settings chips: a label and a chevron; a click opens their menu above. */
@@ -421,6 +457,24 @@
   max-width: 100%;
   max-height: 220px;
   border-radius: 6px;
+}
+
+/* The images the user attached: thumbnails in a row; a click shows one in full. */
+[data-role='chat-panel'] .chat-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-image[data-kind='attached'] img {
+  display: block;
+  max-height: 120px;
+  cursor: zoom-in;
+}
+
+[data-role='chat-panel'] .chat-image[data-kind='attached'].chat-image-full img {
+  max-height: none;
+  cursor: zoom-out;
 }
 
 /* --- Markdown -------------------------------------------------------------- */
@@ -914,7 +968,64 @@
 /* --- Attaching geometry (above the composer) -------------------------------- */
 
 [data-role='chat-panel'] .chat-composer-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin-bottom: 6px;
+}
+
+/* The images attached to the message: a thumbnail each, its Remove on the corner. */
+[data-role='chat-panel'] .chat-attach-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-attach-image {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  border: 1px solid var(--chat-line);
+  border-radius: 6px;
+  background: var(--chat-surface);
+}
+
+[data-role='chat-panel'] .chat-attach-image > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 5px;
+}
+
+/* Still being sized: dimmed until it is ready to send. */
+[data-role='chat-panel'] .chat-attach-image[data-state='preparing'] > img {
+  opacity: 0.45;
+}
+
+[data-role='chat-panel'] .chat-attach-image-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
+  background: var(--color-base-100);
+  color: var(--chat-muted);
+  cursor: pointer;
+}
+
+[data-role='chat-panel'] .chat-attach-image-remove > svg {
+  width: 10px;
+  height: 10px;
+}
+
+[data-role='chat-panel'] .chat-attach-image-remove:hover {
+  color: var(--color-base-content);
+  border-color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
 }
 
 [data-role='chat-panel'] .chat-attach {

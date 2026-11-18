@@ -51,7 +51,7 @@ Without Claude Code or Codex, the agent can run on a model provider you have an 
 
 **Local models.** Under **Local models**, click **Add Ollama**, **Add LM Studio** or **Add other server**, check the base URL (Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`), and click **Save**. A server may also take a key, a context window (what you set the server to, in tokens; FluidCAD warns when it is too small for the agent), and **Send images**, off by default: turn it on for a model that reads images.
 
-In the panel, each provider that is ready is an entry of the agent chip's menu, after Claude Code and Codex: **Anthropic API**, **OpenAI API**, **OpenRouter**, then your local models by name. A chat stays on the provider it was started with. Its model chip lists that provider's models, and **Other model…** takes any model name it accepts. The effort chip shows when the model offers levels. A new chat starts on the provider and model you used last.
+In the panel, each provider that is ready is an entry of the agent chip's menu, after Claude Code and Codex: **Anthropic API**, **OpenAI API**, **OpenRouter**, then your local models by name. A chat stays on the provider it was started with. Its model chip lists that provider's models; a long list, such as OpenRouter's, has a search field at its top that matches the model's name or id. **Other model…** takes any model name the provider accepts, starting from what you searched for. The effort chip shows when the model offers levels. A new chat starts on the provider and model you used last.
 
 Each message is billed to your key by the provider, like any other use of it; the line under each answer shows the cost when the provider reports it. A local model costs nothing.
 

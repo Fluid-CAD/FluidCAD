@@ -7,7 +7,7 @@
  */
 
 import { MENU_CLASS as MENU, MENU_ROW_CLASS as ROW } from './menu-styles';
-import { ICON_SUBMENU } from './icons';
+import { ICON_SEARCH, ICON_SUBMENU } from './icons';
 
 export type PopupMenuItem = {
   icon: string;
@@ -52,6 +52,14 @@ export type PopupMenuOptions = {
 
 /** A searchable menu is never taller than this, nor than the room the window leaves. */
 const SEARCH_MAX_HEIGHT = 420;
+// A searchable menu's parts, in Quick Find's look (quick-find-popover.ts): a
+// borderless field row with the search icon over a rule, the rows under it
+// with the menu's own inset, and the pinned rows under a rule of their own.
+const SEARCH_FIELD_ROW = 'flex items-center gap-2 h-10 px-3 border-b border-base-content/10 shrink-0 cursor-text';
+const SEARCH_FIELD = 'grow min-w-0 bg-transparent outline-none text-[13px] text-base-content placeholder:text-base-content/40';
+const SEARCH_LIST = 'flex-1 min-h-0 overflow-y-auto p-1';
+const SEARCH_FOOTER = 'shrink-0 p-1 border-t border-base-content/10';
+const SEARCH_EMPTY = 'hidden px-2 py-2 text-[12px] leading-snug text-base-content/55';
 
 /** Keep the menu clear of the viewport's edges by at least this much. */
 const EDGE_MARGIN = 8;
@@ -181,24 +189,32 @@ function fillSearchMenu(
   options: { placeholder: string; empty?: string },
   close: () => void,
 ): { input: HTMLInputElement; list: HTMLElement } {
-  menu.classList.add('flex', 'flex-col', 'w-[300px]');
+  // The parts carry their own insets: the field row and the rules run edge to edge.
+  menu.classList.remove('p-1');
+  menu.classList.add('flex', 'flex-col', 'w-[300px]', 'overflow-hidden');
+  const field = document.createElement('label');
+  field.className = SEARCH_FIELD_ROW;
+  const icon = document.createElement('span');
+  icon.className = 'flex shrink-0 text-base-content/45 [&>svg]:size-4';
+  icon.innerHTML = ICON_SEARCH;
   const input = document.createElement('input');
   input.type = 'text';
   input.dataset.ref = 'menu-search';
-  input.className = 'input input-xs input-bordered w-full shrink-0 mb-1 text-[13px]';
+  input.className = SEARCH_FIELD;
   input.placeholder = options.placeholder;
   input.setAttribute('aria-label', options.placeholder);
   input.autocomplete = 'off';
   input.spellcheck = false;
+  field.append(icon, input);
   const list = document.createElement('div');
   list.dataset.ref = 'menu-list';
-  list.className = 'flex-1 min-h-0 overflow-y-auto';
+  list.className = SEARCH_LIST;
   const empty = document.createElement('div');
   empty.dataset.ref = 'menu-empty';
-  empty.className = 'hidden px-2 py-1.5 text-[12px] text-base-content/50';
+  empty.className = SEARCH_EMPTY;
   empty.textContent = options.empty ?? 'No matches';
   const footer = document.createElement('div');
-  footer.className = 'shrink-0';
+  footer.className = SEARCH_FOOTER;
 
   const rows: { row: HTMLButtonElement; text: string }[] = [];
   for (const item of items) {
@@ -211,12 +227,7 @@ function fillSearchMenu(
       item.onSelect?.();
     });
     if (item.pinned) {
-      if (item.separated) {
-        const rule = document.createElement('div');
-        rule.className = 'my-1 border-t border-base-content/10';
-        rule.setAttribute('role', 'separator');
-        footer.appendChild(rule);
-      }
+      // The footer's own rule sets the pinned rows apart.
       footer.appendChild(row);
       continue;
     }
@@ -269,7 +280,7 @@ function fillSearchMenu(
       input.dispatchEvent(new Event('input'));
     }
   });
-  menu.append(input, list);
+  menu.append(field, list);
   if (footer.childElementCount > 0) {
     menu.appendChild(footer);
   }

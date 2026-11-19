@@ -34,7 +34,7 @@ function close(actual: V2, expected: V2, digits = 9): void {
 }
 
 const HORIZONTAL: SpanFrame = {
-  type: 'span', from: [0, 0], to: [100, 0], toAnchor: [100, 0], arrows: 'both', aligned: false,
+  type: 'span', from: [0, 0], to: [100, 0], toAnchor: [100, 0], arrows: 'both',
 };
 /** The same span, measured the other way round. */
 const REVERSED: SpanFrame = { ...HORIZONTAL, from: [100, 0], to: [0, 0], toAnchor: [0, 0] };
@@ -414,7 +414,9 @@ describe('placed dimensions in the glyph layout', () => {
     expect(text.at).toEqual([70, -15]);
     expect(text.label).toBe('100 mm');
     close(text.offsetDir, [0, 1]);
-    expect(text.style).toBe('span');
+    // The value is lettered along its dimension line, which is its roll axis.
+    expect(text.style).toBe('aligned');
+    close(text.alongDir, [1, 0]);
     // Nothing for the declutterer to slide.
     expect(text.slideRange).toBe(0);
     expect(text.leader).toEqual([[0, -15], [100, -15]]);

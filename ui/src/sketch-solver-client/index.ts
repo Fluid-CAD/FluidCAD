@@ -29,7 +29,8 @@ export {
   dimensionFrame, dimensionLabelText, formatDim, BADGE_LABELS,
 } from './glyphs';
 export {
-  labelAttach, labelCenter, labelCoordsForCenter, labelCoordsOf, placedDimension, readingSide,
+  labelAttach, labelCenter, labelCoordsForCenter, labelCoordsOf, labelLiesAlong, placedDimension,
+  readingSide,
 } from './dimension-label';
 export type {
   AngularFrame, ArcStretch, DimensionFrame, LabelCoords, LabelDragOptions, PlacedDimension,

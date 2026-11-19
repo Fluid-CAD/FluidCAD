@@ -9,7 +9,7 @@
 
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData } from '../types';
-import { labelCenter, labelCoordsForCenter, placedDimension } from '../sketch-solver-client';
+import { labelCenter, labelCoordsForCenter, labelLiesAlong, placedDimension } from '../sketch-solver-client';
 import type { DimensionFrame, LabelCoords } from '../sketch-solver-client';
 import type { Vec2 } from '../sketch-solver-client/resolve';
 import { placedLabelOffsetPx } from '../meshes/containers/glyph-box';
@@ -58,15 +58,15 @@ export class DimensionLabelPlacer {
   /**
    * How far the text's center sits off its attach point when pushed along
    * `push` (sketch-local), px — the sprite layer's own rule, so a placement
-   * computed here lands where it will be drawn. An aligned value rolls to
-   * its line, which puts its short side across the push whatever the angle;
-   * an upright one reaches differently along every screen direction.
+   * computed here lands where it will be drawn. A value lying along its
+   * line is rolled to it, which puts its short side across the push whatever
+   * the angle; an upright one (an angle's) reaches differently along every
+   * screen direction.
    */
   private clearancePx(plane: PlaneData, frame: DimensionFrame, box: BoxPx, push: Vec2, at: Vec2): number {
-    const aligned = frame.type === 'radial' || (frame.type === 'span' && frame.aligned);
     return placedLabelOffsetPx(
       { ...box, roll: 0 },
-      aligned ? { x: 0, y: 1 } : this.screenDirection(plane, push, at),
+      labelLiesAlong(frame) ? { x: 0, y: 1 } : this.screenDirection(plane, push, at),
     );
   }
 

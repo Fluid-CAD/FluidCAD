@@ -409,7 +409,7 @@ describe('dimensionCandidate', () => {
       kind: 'distance', a: { entity: 0, point: 'start' }, b: { entity: 0, point: 'end' }, value: 10,
     });
     expect(dimensionFrame(model, candidate)).toEqual({
-      type: 'span', from: [0, 0], to: [10, 0], toAnchor: [10, 0], arrows: 'both', aligned: false,
+      type: 'span', from: [0, 0], to: [10, 0], toAnchor: [10, 0], arrows: 'both',
     });
     expect(dimensionLabelText(model, candidate)).toBe('10 mm');
   });
@@ -748,9 +748,9 @@ describe('ellipse radius dimension', () => {
     expect(measureDimension(ellipseModel, [nearRxEnd], form, 'x')).toBe(20);
     expect(candidateSpec('dimension', [nearRyEnd], 10, 'y')).toEqual({ kind: 'radius', a: { entity: 6 }, value: 10, axis: 'y' });
     // The semi-radius places along its own axis: a span from the center to
-    // the end of RX, capped at the rim only, its value lying along the line.
+    // the end of RX, capped at the rim only.
     const frame = dimensionFrame(ellipseModel, dimensionCandidate(ellipseModel, [nearRxEnd], form, 'x')!);
-    expect(frame).toMatchObject({ type: 'span', from: [50, 50], arrows: 'end', aligned: true });
+    expect(frame).toMatchObject({ type: 'span', from: [50, 50], arrows: 'end' });
     const to = (frame as { to: [number, number] }).to;
     expect(to[0]).toBeCloseTo(50, 9);
     expect(to[1]).toBeCloseTo(70, 9);

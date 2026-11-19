@@ -10,7 +10,7 @@
 //   * span    — distance, offsetFrom, an ellipse's semi-radius: `u` along
 //               the measured span from its middle, `v` off it. The dimension
 //               line is the span shifted by `v`; the value hangs off it at
-//               `u`.
+//               `u`, lying along it.
 //   * radial  — radius and diameter of a circle or arc: `(u, v)` from the
 //               center along the sketch axes. The leader turns to pass
 //               through the point.
@@ -49,8 +49,6 @@ export type SpanFrame = {
    * the second point rather than on it. Witness lines start here. */
   toAnchor: Vec2;
   arrows: Arrows;
-  /** The value lies ALONG its line (rolled to it) instead of upright. */
-  aligned: boolean;
 };
 
 export type RadialFrame = {
@@ -103,6 +101,17 @@ export type PlacedDimension = {
    * sits outside the measured sector. */
   arc?: { radius: number; witness?: ArcStretch };
 };
+
+/**
+ * Whether a placed value lies ALONG its dimension — rolled to the line it
+ * hangs off, the way a drawing letters a dimension — rather than upright.
+ * Every dimension with a straight line to lie along does: a distance along
+ * its dimension line, a radius or diameter along its leader. An angle's
+ * value rides an arc, which has no one direction to take, and stays upright.
+ */
+export function labelLiesAlong(frame: DimensionFrame): boolean {
+  return frame.type !== 'angular';
+}
 
 /** Below this a length is treated as zero — far under anything drawable. */
 const EPS = 1e-9;

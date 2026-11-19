@@ -4,7 +4,7 @@ import { OrthographicCamera, PerspectiveCamera, Scene } from 'three';
 import { DimensionLabelPlacer } from '../src/interactive/dimension-label-placer';
 import { SketchHoverSelectHandler } from '../src/interactive/sketch-hover-select-handler';
 import { ExpressionInput } from '../src/ui/expression-input';
-import { placedDimension } from '../src/sketch-solver-client';
+import { labelCoordsOf, placedDimension } from '../src/sketch-solver-client';
 import type {
   AngularFrame, DimensionFrame, RadialFrame, SpanFrame,
 } from '../src/sketch-solver-client';
@@ -47,7 +47,7 @@ function topDownContext(zoom: number, width = 800, height = 600) {
 const BOX = { halfWidthPx: 30, halfHeightPx: 11 };
 
 const HORIZONTAL: SpanFrame = {
-  type: 'span', from: [0, 0], to: [100, 0], toAnchor: [100, 0], arrows: 'both', aligned: false,
+  type: 'span', from: [0, 0], to: [100, 0], toAnchor: [100, 0], arrows: 'both',
 };
 const SLANTED: SpanFrame = { ...HORIZONTAL, to: [60, 80], toAnchor: [60, 80] };
 const CIRCLE: RadialFrame = { type: 'radial', center: [10, 20], radius: 40, diameter: true };
@@ -87,6 +87,16 @@ describe('DimensionLabelPlacer', () => {
       const [, v] = placer.coordsFor(PLANE, HORIZONTAL, [50, 40], BOX);
       expect(40 - v).toBeCloseTo((BOX.halfHeightPx + 3) / zoom, 6);
     }
+  });
+
+  it('a slanted distance keeps that same clearance: its value lies along the line', () => {
+    // Rolled to its line, the text always turns its short side to it — the
+    // line stays half a text height plus the gap away at any slope, where
+    // an upright box would need its diagonal reach.
+    const placer = new DimensionLabelPlacer(topDownContext(1));
+    const center: V2 = [-20, 60];
+    const [, v] = placer.coordsFor(PLANE, SLANTED, center, BOX);
+    expect(Math.abs(labelCoordsOf(SLANTED, center)[1] - v)).toBeCloseTo(BOX.halfHeightPx + 3, 6);
   });
 
   it('settles for the nearest drawable placement when the text cannot reach the cursor', () => {

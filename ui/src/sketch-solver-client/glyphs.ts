@@ -11,7 +11,7 @@ import type { DimensionStyle } from './declutter';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from './model';
 import { specEntityIds } from './model';
 import { diameterChord } from './diameter-chord';
-import { placedDimension } from './dimension-label';
+import { labelLiesAlong, placedDimension } from './dimension-label';
 import type { ArcStretch, DimensionFrame } from './dimension-label';
 import { arcSweep } from './tessellate';
 import {
@@ -606,14 +606,13 @@ export function dimensionFrame(model: SolvedSketchModel, c: SolvedConstraintView
         to: span[1],
         toAnchor: corner.length > 0 ? corner[0][1] : span[1],
         arrows: 'both',
-        aligned: false,
       };
     }
 
     case 'offset-from': {
       const span = offsetLeaderLayout(model, spec);
       return span
-        ? { type: 'span', from: span.from, to: span.to, toAnchor: span.to, arrows: 'both', aligned: false }
+        ? { type: 'span', from: span.from, to: span.to, toAnchor: span.to, arrows: 'both' }
         : null;
     }
 
@@ -627,7 +626,7 @@ export function dimensionFrame(model: SolvedSketchModel, c: SolvedConstraintView
         // capped at the rim like the automatic layout draws it.
         const rim = ellipseAxisEnd(e, spec.axis ?? 'x');
         return rim && dist(e.center, rim) > 1e-9
-          ? { type: 'span', from: e.center, to: rim, toAnchor: rim, arrows: 'end', aligned: true }
+          ? { type: 'span', from: e.center, to: rim, toAnchor: rim, arrows: 'end' }
           : null;
       }
       return radialFrame(e, false);
@@ -712,7 +711,6 @@ function placedDimensionGlyphs(
     return null;
   }
   const label = dimensionLabelText(model, c);
-  const aligned = frame.type === 'radial' || (frame.type === 'span' && frame.aligned);
   const text: ConstraintGlyph = {
     ...base,
     type: 'text',
@@ -720,7 +718,9 @@ function placedDimensionGlyphs(
     at: placed.attach,
     offsetDir: placed.push,
     alongDir: placed.along,
-    style: aligned ? 'aligned' : 'span',
+    // A placed value is lettered along the line it hangs off (the sprite
+    // layer rolls an `aligned` label to its `alongDir`).
+    style: labelLiesAlong(frame) ? 'aligned' : 'span',
     slideRange: 0,
     placed: true,
     ...(placed.line ? { leader: [placed.line.from, placed.line.to] as [Vec2, Vec2] } : {}),

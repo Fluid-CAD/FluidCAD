@@ -16,23 +16,17 @@ import { PlaneData } from '../../types';
 import { setDimensionLabel } from '../../api';
 import { roundToUnitDecimals } from '../../units/units';
 import { sceneUnit } from '../../units/scene-unit';
-import { pixelToSketchThreshold, projectToSketch, sketchToClient } from '../sketch-plane-utils';
-import { dimensionFrame, labelCoordsForCenter } from '../../sketch-solver-client';
+import { projectToSketch } from '../sketch-plane-utils';
+import { DimensionLabelPlacer } from '../dimension-label-placer';
+import { dimensionFrame } from '../../sketch-solver-client';
 import type {
   DimensionFrame, LabelCoords, SolvedConstraintView, SolvedSketchModel,
 } from '../../sketch-solver-client';
 import type { Vec2 } from '../../sketch-solver-client/resolve';
 import type { SketchMesh } from '../../meshes/containers/sketch-mesh';
 import type { BadgeHitTarget } from '../../meshes/containers/solved-constraint-meshes';
-import { placedLabelOffsetPx } from '../../meshes/containers/glyph-box';
 import { themeColors } from '../../scene/theme-colors';
 import { DRAG_THRESHOLD_PX } from './types';
-
-/** An angle's arc cannot be dragged tighter than this around its corner. */
-const MIN_ANGLE_ARC_PX = 12;
-/** Screen span used to read a sketch direction off the camera — long enough
- * to stay well conditioned at any zoom. */
-const DIRECTION_PROBE_PX = 100;
 
 /** A press on a dimension label, and — once it travels — the drag it became. */
 type LabelGrab = {
@@ -52,6 +46,7 @@ type LabelGrab = {
 
 export class DimensionLabelDragHandler {
   private canvas: HTMLCanvasElement;
+  private placer: DimensionLabelPlacer;
   private sketchId = '';
   private sketchMesh: SketchMesh | null = null;
   private model: SolvedSketchModel | null = null;
@@ -79,6 +74,7 @@ export class DimensionLabelDragHandler {
     private showMessage: (message: string) => void,
   ) {
     this.canvas = ctx.renderer.domElement;
+    this.placer = new DimensionLabelPlacer(ctx);
     this.boundCanvasPointerDown = this.handleCanvasPointerDown.bind(this);
     this.boundPointerMove = this.handlePointerMove.bind(this);
     this.boundPointerUp = this.handlePointerUp.bind(this);
@@ -215,36 +211,7 @@ export class DimensionLabelDragHandler {
       return;
     }
     const center: Vec2 = [cursor[0] + drag.grabOffset[0], cursor[1] + drag.grabOffset[1]];
-    const localPerPx = pixelToSketchThreshold(this.ctx, 1);
-    this.preview(drag, labelCoordsForCenter(drag.frame, center, {
-      clearance: push => this.clearancePx(drag, push, center) * localPerPx,
-      minArcRadius: MIN_ANGLE_ARC_PX * localPerPx,
-    }));
-  }
-
-  /**
-   * How far the text's center sits off its attach point when pushed along
-   * `push` (sketch-local), px — the sprite layer's own rule, so the preview
-   * lands where the placement will be drawn. An aligned value rolls to its
-   * line, which puts its short side across the push whatever the angle; an
-   * upright one reaches differently along every screen direction.
-   */
-  private clearancePx(drag: LabelGrab, push: Vec2, at: Vec2): number {
-    const box = { halfWidthPx: drag.halfWidthPx, halfHeightPx: drag.halfHeightPx, roll: 0 };
-    const aligned = drag.frame.type === 'radial' || (drag.frame.type === 'span' && drag.frame.aligned);
-    return placedLabelOffsetPx(box, aligned ? { x: 0, y: 1 } : this.screenDirection(push, at));
-  }
-
-  /** A sketch-plane direction as a unit screen direction (px, y down). */
-  private screenDirection(dir: Vec2, at: Vec2): { x: number; y: number } {
-    const reach = pixelToSketchThreshold(this.ctx, DIRECTION_PROBE_PX);
-    const from = sketchToClient(this.ctx, this.plane, at);
-    const to = sketchToClient(this.ctx, this.plane, [at[0] + dir[0] * reach, at[1] + dir[1] * reach]);
-    const x = to.clientX - from.clientX;
-    const y = to.clientY - from.clientY;
-    const length = Math.hypot(x, y);
-    // Edge-on to the sketch nothing is readable anyway — any direction does.
-    return length > 1e-6 ? { x: x / length, y: y / length } : { x: 0, y: -1 };
+    this.preview(drag, this.placer.coordsFor(this.plane, drag.frame, center, drag));
   }
 
   private handlePointerUp(e: PointerEvent): void {

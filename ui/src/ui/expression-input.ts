@@ -22,6 +22,13 @@ export type ExpressionInputOptions = {
   value: string;
   clientX: number;
   clientY: number;
+  /**
+   * Center the field ON the point instead of floating it up and right of
+   * it. A dimension placed as it is drawn opens its value input exactly
+   * where its value will be written; an input following the cursor has to
+   * stay clear of it.
+   */
+  centered?: boolean;
   variables: VariableInfo[];
   onCommit: (result: CommitResult) => void;
   /** Fired once when the input hides, whatever closed it (commit, Escape
@@ -67,6 +74,7 @@ export class ExpressionInput {
   private errorVisible = false;
   private numericOnly = false;
   private arithmeticOnly = false;
+  private centered = false;
   private validate: ((expression: string) => string | null) | null = null;
 
   onSpaceOverride: (() => void) | null = null;
@@ -182,6 +190,7 @@ export class ExpressionInput {
     this.numericOnly = opts.numericOnly ?? false;
     this.arithmeticOnly = opts.arithmeticOnly ?? false;
     this.validate = opts.validate ?? null;
+    this.centered = opts.centered ?? false;
     this.visible = true;
     this.userIsTyping = false;
     this.selectedIndex = -1;
@@ -289,8 +298,12 @@ export class ExpressionInput {
     }
     const container = this.el.parentElement!;
     const rect = container.getBoundingClientRect();
-    this.el.style.left = `${clientX - rect.left + OFFSET_X}px`;
-    this.el.style.top = `${clientY - rect.top + OFFSET_Y}px`;
+    // Centering goes by the field's own box — the dropdown and the error
+    // line hang below it and must not pull it off the point.
+    const dx = this.centered ? -this.wrapperEl.offsetWidth / 2 : OFFSET_X;
+    const dy = this.centered ? -this.wrapperEl.offsetHeight / 2 : OFFSET_Y;
+    this.el.style.left = `${clientX - rect.left + dx}px`;
+    this.el.style.top = `${clientY - rect.top + dy}px`;
   }
 
   commitCurrentValue(): boolean {

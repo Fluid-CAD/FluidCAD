@@ -53,7 +53,7 @@ The solver's verdict (fully constrained, remaining degrees of freedom, conflicts
 
 ## Dimension labels are not yours to place
 
-A dimension statement may carry `.labelAt(u, v)`, as in `distance(a, b, 100).labelAt(0, -12)`. It is where the value is drawn, written when someone drags a dimension in the sketcher, and it changes nothing about the solve or the geometry. Do not add it to dimensions you write: the automatic layout places every value. When you edit a statement that has one, keep it, including when you change the value in front of it.
+A dimension statement may carry `.labelAt(u, v)`, as in `distance(a, b, 100).labelAt(0, -12)`. It is where the value is drawn, written when someone places a dimension as they draw it in the sketcher or drags it afterwards, and it changes nothing about the solve or the geometry. Do not add it to dimensions you write: the automatic layout places every value. When you edit a statement that has one, keep it, including when you change the value in front of it.
 
 ## Guesses pick the branch
 

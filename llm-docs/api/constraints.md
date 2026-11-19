@@ -89,11 +89,12 @@ center accessor instead: `distance(l, a.center(), v)`.
 
 Every dimension statement (`distance`, `angle`, `radius`, `diameter`,
 `offsetFrom`) also takes `.labelAt(u, v)`: where its value is drawn. It is
-what dragging a dimension in the sketcher writes — display only, with no
-effect on the solve or the geometry, in the dimension's own frame so the
-placement follows the geometry ([[api/types/dimension]]). Leave it out when
-writing a sketch: the automatic layout places every value. Keep it on a
-statement that already has one when you edit that statement.
+what the sketcher writes when a dimension is placed as it is drawn, or
+dragged afterwards — display only, with no effect on the solve or the
+geometry, in the dimension's own frame so the placement follows the
+geometry ([[api/types/dimension]]). Leave it out when writing a sketch: the
+automatic layout places every value. Keep it on a statement that already
+has one when you edit that statement.
 
 ```ts
 distance(a, b, 100).labelAt(0, -12)   // dimension line 12 below the span

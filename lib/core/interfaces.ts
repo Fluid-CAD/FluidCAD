@@ -511,10 +511,10 @@ export interface ISpline extends IGeometry {
  */
 export interface IDimension extends ISceneObject {
   /**
-   * Places the dimension's value where it reads best. This is what dragging
-   * a dimension in the sketcher writes; it only moves the annotation and
-   * never changes the geometry. Without it the value is laid out
-   * automatically.
+   * Places the dimension's value where it reads best. This is what the
+   * sketcher writes when a dimension is placed as it is drawn, or dragged
+   * afterwards; it only moves the annotation and never changes the
+   * geometry. Without it the value is laid out automatically.
    *
    * The two numbers are sketch units in the dimension's own frame, so the
    * placement follows the geometry when it moves or turns:

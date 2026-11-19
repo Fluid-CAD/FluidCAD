@@ -303,6 +303,8 @@ export function agentToolTitle(name: string, input: unknown): string {
       return str(i.pattern) ? `Find files: ${str(i.pattern)}` : 'Find files';
     case 'Grep':
       return str(i.pattern) ? `Search: ${str(i.pattern)}` : 'Search files';
+    case 'WebSearch':
+      return str(i.query) ? `Search the web: ${str(i.query)}` : 'Search the web';
     default:
       return name;
   }

@@ -144,7 +144,7 @@ export type ToolPartState = 'running' | 'awaiting-approval' | 'done' | 'error' |
 export type ToolPart = {
   type: 'tool';
   id: string;
-  /** `fluidcad`: a FluidCAD MCP tool, reported by the gate. `agent`: the CLI's own tool (Read, Glob, Grep). */
+  /** `fluidcad`: a FluidCAD MCP tool, reported by the gate. `agent`: the CLI's own tool (Read, Glob, Grep, web search). */
   source: 'fluidcad' | 'agent';
   name: string;
   title: string;

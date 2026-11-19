@@ -129,6 +129,20 @@ describe('ClaudeStreamMapper on synthetic lines', () => {
     ]);
   });
 
+  it('titles a web search with its query', () => {
+    const mapper = new ClaudeStreamMapper();
+    const events = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg_a' } } },
+      start(0, { type: 'tool_use', id: 'toolu_2', name: 'WebSearch', input: {} }),
+      { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"query":"M6 nut width across flats"}' } } },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+    ].flatMap((m) => mapper.push(m));
+    expect(events).toEqual([
+      { type: 'tool', id: 'toolu_2', name: 'WebSearch', title: 'Search the web', state: 'running' },
+      { type: 'tool', id: 'toolu_2', name: 'WebSearch', title: 'Search the web: M6 nut width across flats', state: 'running', input: { query: 'M6 nut width across flats' } },
+    ]);
+  });
+
   it('turns a rejected rate limit into a rate-limit error with the reset time', () => {
     const mapper = new ClaudeStreamMapper();
     mapper.push({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: 1795453200, rateLimitType: 'five_hour' } });

@@ -192,15 +192,16 @@ describe('ClaudeBackend.args', () => {
     }
     expect(after('--input-format')).toBe('stream-json');
     expect(after('--output-format')).toBe('stream-json');
-    expect(after('--tools')).toBe('Read,Glob,Grep');
+    expect(after('--tools')).toBe('Read,Glob,Grep,WebSearch');
     expect(after('--permission-prompts')).toBe('none');
     expect(after('--thinking-display')).toBe('summarized');
     expect(after('--append-system-prompt')).toBe('be brief');
-    expect(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--allowedTools') + 5)).toEqual([
+    expect(args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--allowedTools') + 6)).toEqual([
       'mcp__fluidcad_app__*',
       'Read',
       'Glob',
       'Grep',
+      'WebSearch',
     ]);
     expect(JSON.parse(after('--mcp-config'))).toEqual({
       mcpServers: { fluidcad_app: { type: 'http', url: 'http://127.0.0.1:3100/api/agent/mcp/secret', timeout: CLAUDE_MCP_TIMEOUT_MS } },

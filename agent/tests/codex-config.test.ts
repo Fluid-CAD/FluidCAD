@@ -15,10 +15,10 @@ import { JsonRpcConnection, JsonRpcError, type JsonRpcNotification, type JsonRpc
 const MCP_URL = 'http://127.0.0.1:3100/api/agent/mcp/secret';
 
 describe('the thread configuration (§5.2, §19)', () => {
-  it('is the configuration Phase 0 verified against codex-cli 0.162.1', () => {
+  it('is the configuration Phase 0 verified against codex-cli 0.162.1, with web search on', () => {
     const verified = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'fixtures', 'codex-hardened-thread-start-params.json'), 'utf8'));
     const config = buildThreadConfig({ mcpUrl: verified.config['mcp_servers.fluidcad_app.url'], userServers: ['figma', 'node_repl', 'Neon', 'FluidCAD', 'blender'] });
-    expect(config).toEqual(verified.config);
+    expect(config).toEqual({ ...verified.config, web_search: 'live' });
   });
 
   it('disables every server of the user\'s config, turns plugins and apps off, and adds only FluidCAD\'s', () => {
@@ -29,7 +29,7 @@ describe('the thread configuration (§5.2, §19)', () => {
     expect(config['features.plugins']).toBe(false);
     expect(config['features.apps']).toBe(false);
     expect(config['features.shell_tool']).toBe(false);
-    expect(config.web_search).toBe('disabled');
+    expect(config.web_search).toBe('live');
     expect(config['mcp_servers.fluidcad_app.url']).toBe(MCP_URL);
     expect(config['mcp_servers.fluidcad_app.tool_timeout_sec']).toBe(CODEX_TOOL_TIMEOUT_SEC);
     expect(CODEX_TOOL_TIMEOUT_SEC).toBe(3600);

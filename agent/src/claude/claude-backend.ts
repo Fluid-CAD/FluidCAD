@@ -2,7 +2,8 @@
 //
 // One `claude -p` child per chat session, stream-json both ways, kept open
 // between turns. FluidCAD's MCP endpoint is the only MCP server it gets; its
-// own tools are cut down to read-only file access inside the project.
+// own tools are cut down to read-only file access inside the project and
+// web search.
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -193,11 +194,11 @@ export class ClaudeBackend implements AgentBackend {
       '--verbose',
       '--include-partial-messages',
       '--restricted',
-      '--tools', 'Read,Glob,Grep',
+      '--tools', 'Read,Glob,Grep,WebSearch',
       '--permission-prompts', 'none',
       '--strict-mcp-config',
       '--mcp-config', mcpConfig,
-      '--allowedTools', `mcp__${FLUIDCAD_MCP_SERVER}__*`, 'Read', 'Glob', 'Grep',
+      '--allowedTools', `mcp__${FLUIDCAD_MCP_SERVER}__*`, 'Read', 'Glob', 'Grep', 'WebSearch',
       '--append-system-prompt', options.instructions,
       '--thinking-display', 'summarized',
     ];

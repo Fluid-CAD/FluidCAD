@@ -11,8 +11,8 @@ import type { AgentKind, SceneReference } from './types.ts';
 
 /** What the CLI's own tools may do, per agent. */
 const OWN_TOOLS: Record<Exclude<AgentKind, 'api'>, string> = {
-  claude: 'not available; your own Read, Glob and Grep tools may read files inside the project.',
-  codex: 'not available (the sandbox is read-only, and apply_patch cannot write); read files with `fluidcad_app`\'s\nread_file.',
+  claude: 'not available; your own Read, Glob and Grep tools may read files inside the project, and WebSearch\nmay search the web.',
+  codex: 'not available (the sandbox is read-only, and apply_patch cannot write); read files with `fluidcad_app`\'s\nread_file. Your web search tool may search the web.',
 };
 
 /** Which tools the agent has, and what it may not do (the CLIs reach FluidCAD's as the `fluidcad_app` MCP server). */

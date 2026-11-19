@@ -620,7 +620,7 @@ export class AgentSession {
             source: 'agent',
             name: event.name,
             title: event.title,
-            kind: ['Read', 'Glob', 'Grep'].includes(event.name) ? 'read' : 'other',
+            kind: ['Read', 'Glob', 'Grep', 'WebSearch', 'web_search'].includes(event.name) ? 'read' : 'other',
             state: event.state,
             input: event.input ?? {},
             ...(event.output !== undefined ? { output: { text: event.output } } : {}),

@@ -1,9 +1,9 @@
 // What a chat session's Codex thread is started (and resumed) with
 // (docs/agent-chat-plan.md §5.2 as corrected in §19).
 //
-// Codex runs read-only, never asks for approval, has no shell, web search,
-// plugins, apps, skills or sub-agents, and sees exactly one MCP server:
-// FluidCAD's endpoint for the session, named `fluidcad_app`. The user's own
+// Codex runs read-only, never asks for approval, has no shell, plugins, apps,
+// skills or sub-agents, keeps its web search, and sees exactly one MCP
+// server: FluidCAD's endpoint for the session, named `fluidcad_app`. The user's own
 // MCP servers (the `mcp_servers` of their config.toml) start in every thread
 // unless disabled one by one, so each is disabled by name. Plugin servers are
 // not listed there; `features.plugins` and `features.apps` turn them off.
@@ -45,7 +45,7 @@ export function buildThreadConfig(input: ThreadConfigInput): Record<string, unkn
     'features.plugins': false,
     'features.apps': false,
     'features.shell_tool': false,
-    web_search: 'disabled',
+    web_search: 'live',
     'features.image_generation': false,
     'features.multi_agent': false,
     'features.goals': false,

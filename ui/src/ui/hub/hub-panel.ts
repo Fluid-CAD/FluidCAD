@@ -6,6 +6,7 @@ import { HubPackageView } from './hub-package-view';
 import { HubPanelState } from './hub-panel-state';
 import type { HubEngine } from './hub-row';
 import { HubSearchView } from './hub-search-view';
+import type { LeftSlot } from '../left-slot';
 import './hub-panel.css';
 
 export type HubPanelDeps = {
@@ -23,32 +24,28 @@ export type HubPanelDeps = {
   openExternal(url: string): void;
   /** A package was installed or upgraded: the catalogs, the scene and the Packages overview catch up. */
   onPackagesChanged(installed: HubInstalled): void;
-  /** The slot's width when the panel opens (the code editor's, which it shares). */
-  width(): number;
-  /** The panel was dragged to `width`: the editor takes the same width next time. */
-  onWidthChange?(width: number): void;
-  /** Just before the panel takes the slot: whatever holds it (the code editor) closes. */
-  onTakeSlot?(): void;
+  /**
+   * The left slot it shares with the code editor: opening the panel closes
+   * whatever holds it, and the panel opens at the slot's shared width.
+   */
+  slot: LeftSlot;
   onOpenChange?(open: boolean): void;
   /** Timers for the search debounce and for following a sign-in (tests). */
   timers?: ConstructorParameters<typeof HubPanelState>[1];
 };
 
-const WIDTH_VARIABLE = '--fluidcad-editor-width';
 const MIN_WIDTH = 280;
-const MIN_SCENE_WIDTH = 280;
-const MOBILE_BREAKPOINT = 640;
 
 /**
  * The Hub panel (hub-plan H11): search the hub, read a package, install it,
  * docked on the left from the rail's Hub button.
  *
- * **One slot with the code editor** (decision 5): it docks where the editor
- * pane does and takes width the same way (`--fluidcad-editor-width`, which
- * insets the scene), at the editor's width; opening it closes the editor
- * ({@link HubPanelDeps.onTakeSlot}) and opening the editor closes it
- * ({@link yieldSlot}, which leaves the width to the editor). On a narrow
- * window it covers the scene, as the editor does. Hosts without the
+ * **One slot with the code editor** (decision 5): it docks in the
+ * {@link LeftSlot} where the editor pane does and takes width the same way
+ * (`--fluidcad-editor-width`, which insets the scene), at the shared width;
+ * opening it closes the editor, and opening the editor closes it (the slot
+ * calls its {@link close}, which leaves the width to the editor). On a
+ * narrow window it covers the scene, as the editor does. Hosts without the
  * in-app editor (VS Code, Neovim) dock it the same way.
  *
  * The header says "FluidCAD Hub" (the address is in Settings → Packages)
@@ -71,7 +68,7 @@ export class HubPanel {
   private readonly target: HubInstallTarget;
   private status: HubStatus | null = null;
   private open = false;
-  private width: number;
+  private readonly leaveSlot: () => void;
   private view: 'search' | 'package' = 'search';
   private searchScroll = 0;
   private searchStale = false;
@@ -79,7 +76,7 @@ export class HubPanel {
   private readonly signInWaiters: ((signedIn: boolean) => void)[] = [];
 
   constructor(private readonly deps: HubPanelDeps) {
-    this.width = HubPanel.clampWidth(deps.width());
+    this.leaveSlot = deps.slot.register(this);
     this.state = new HubPanelState(deps.hub, deps.timers);
     this.target = new HubInstallTarget(() => deps.installSetting(), () => deps.projectOpen(), deps.targetMemory ?? null);
     void this.target.restore();
@@ -90,7 +87,6 @@ export class HubPanel {
     this.el.className =
       'absolute left-[var(--fluidcad-rail-width,0px)] top-[var(--fluidcad-chrome-top,104px)] bottom-0 z-[115] '
       + 'flex flex-col bg-base-100 text-base-content border-r border-base-content/10 text-hub-md hidden';
-    this.el.style.width = `${this.width}px`;
 
     const header = document.createElement('div');
     header.className = 'flex items-center gap-2 h-11 shrink-0 pl-3 pr-1.5 border-b border-base-content/10';
@@ -153,7 +149,7 @@ export class HubPanel {
       this.offlineDot.classList.toggle('hidden', snapshot.mode !== 'offline');
     });
 
-    this.el.append(header, this.account.strip, this.search.el, this.detail.el, this.resizeHandle());
+    this.el.append(header, this.account.strip, this.search.el, this.detail.el, deps.slot.resizeHandle());
     deps.container.appendChild(this.el);
     this.renderAccount();
     window.addEventListener('resize', this.onResize);
@@ -174,11 +170,10 @@ export class HubPanel {
   /** Open the panel on the search (its first open searches and reads the status). */
   show(): void {
     if (!this.open) {
-      this.deps.onTakeSlot?.();
-      this.width = HubPanel.clampWidth(this.deps.width());
+      // Whatever held the slot (the code editor) closes first.
+      this.deps.slot.take(this, { el: this.el, minWidth: MIN_WIDTH });
       this.open = true;
       this.el.classList.remove('hidden');
-      this.applyWidth(true);
       this.deps.onOpenChange?.(true);
     }
     void this.refreshStatus();
@@ -194,26 +189,18 @@ export class HubPanel {
     }
   }
 
+  /**
+   * Close the panel: the scene gets its width back — unless another
+   * occupant (the code editor) is taking the slot, which keeps the width
+   * it just set for itself.
+   */
   close(): void {
     if (!this.open) {
       return;
     }
     this.open = false;
     this.el.classList.add('hidden');
-    HubPanel.setWidthVariable(0, true);
-    this.deps.onOpenChange?.(false);
-  }
-
-  /**
-   * The code editor took the slot: hide without touching the width it
-   * already set for itself.
-   */
-  yieldSlot(): void {
-    if (!this.open) {
-      return;
-    }
-    this.open = false;
-    this.el.classList.add('hidden');
+    this.deps.slot.release(this);
     this.deps.onOpenChange?.(false);
   }
 
@@ -310,6 +297,7 @@ export class HubPanel {
 
   destroy(): void {
     window.removeEventListener('resize', this.onResize);
+    this.leaveSlot();
     this.account.destroy();
     this.state.dispose();
     this.search.destroy();
@@ -379,69 +367,10 @@ export class HubPanel {
     return { engine: this.status?.engine ?? null, sdk: this.status?.sdk ?? null };
   }
 
-  // ---------------------------------------------------------------------------
-  // The slot's width, as the editor pane takes it
-  // ---------------------------------------------------------------------------
-
-  private applyWidth(animate: boolean): void {
-    if (window.innerWidth < MOBILE_BREAKPOINT) {
-      this.el.style.width = 'calc(100% - var(--fluidcad-rail-width, 0px))';
-      HubPanel.setWidthVariable(0, animate);
-      return;
-    }
-    this.el.style.width = `${this.width}px`;
-    HubPanel.setWidthVariable(this.width, animate);
-  }
-
-  private setWidth(width: number): void {
-    this.width = HubPanel.clampWidth(width);
-    if (this.open) {
-      this.applyWidth(false);
-    }
-    this.deps.onWidthChange?.(this.width);
-  }
-
-  private static setWidthVariable(value: number, animate: boolean): void {
-    const root = document.documentElement;
-    root.classList.toggle('fluidcad-editor-animating', animate);
-    root.style.setProperty(WIDTH_VARIABLE, `${value}px`);
-    if (animate) {
-      window.setTimeout(() => root.classList.remove('fluidcad-editor-animating'), 220);
-    }
-  }
-
-  private static clampWidth(width: number): number {
-    const rail = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fluidcad-rail-width')) || 0;
-    const max = Math.max(MIN_WIDTH, window.innerWidth - rail - MIN_SCENE_WIDTH);
-    return Math.round(Math.min(max, Math.max(MIN_WIDTH, Number.isFinite(width) ? width : 420)));
-  }
-
-  private resizeHandle(): HTMLElement {
-    const handle = document.createElement('div');
-    handle.dataset.ref = 'resize';
-    handle.className = 'absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-primary/40 active:bg-primary/60 transition-colors';
-    handle.title = 'Drag to resize';
-    handle.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      handle.setPointerCapture?.(event.pointerId);
-      const startX = event.clientX;
-      const startWidth = this.width;
-      const onMove = (move: PointerEvent) => this.setWidth(startWidth + (move.clientX - startX));
-      const onUp = () => {
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
-        handle.removeEventListener('pointercancel', onUp);
-      };
-      handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', onUp);
-      handle.addEventListener('pointercancel', onUp);
-    });
-    return handle;
-  }
-
+  /** The window changed size: cover the scene below 640 px, or stop covering it. */
   private readonly onResize = (): void => {
     if (this.open) {
-      this.applyWidth(false);
+      this.deps.slot.layout();
     }
   };
 }

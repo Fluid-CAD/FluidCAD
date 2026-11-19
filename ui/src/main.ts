@@ -71,7 +71,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, pauseAfterStatement, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, getGlobalParams, setGlobalParam, EVERY_SOLID, type PauseAfterResult, type ShapeSelection, type UserPreferences } from './api';
+import { loadPreferences, savePreference, savePreferenceNow, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, pauseAfterStatement, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, getGlobalParams, setGlobalParam, EVERY_SOLID, type PauseAfterResult, type ShapeSelection, type UserPreferences } from './api';
 import { SceneIndex } from './helpers/scene-index';
 import { setActivePartLocationProvider, isRollbackViewTruncated, sourceLocKey, findActiveSketch } from './helpers/scene-utils';
 import { renderVersions } from './render-versions';
@@ -96,7 +96,7 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
 import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
-import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SEARCH, ICON_SHARE, ICON_TRASH } from './ui/icons';
+import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SEARCH, ICON_SHARE, ICON_TRASH, ICON_UNDO } from './ui/icons';
 import { HubPanelState } from './ui/hub/hub-panel-state';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences, viewerSettings } from './scene/viewer-settings';
@@ -106,6 +106,10 @@ import { applyNewProjectPreferences } from './ui/settings/new-project-defaults';
 import { applyEnginePreferences } from './ui/settings/engine-settings';
 import { applyGlobalMaterialsPreferences } from './ui/settings/global-materials';
 import { applyPackagePreferences, packageSettings } from './ui/settings/package-settings';
+import { agentSettings, applyAgentPreferences, rememberEffort, rememberModel } from './ui/settings/agent-settings';
+import { HttpChatClient } from './ui/chat/chat-client';
+import type { ChatPanel } from './ui/chat/chat-panel';
+import { isChatComposer } from './editable-target';
 import { HttpHubClient, HttpPackagesClient, HttpPublishClient, ProjectUiStateClient, recompute, fetchMeshes } from './api';
 import { MeshCache, meshCache } from './scene/mesh-cache';
 import { SceneMeshes } from './scene/scene-meshes';
@@ -115,6 +119,7 @@ import { PackagesState } from './ui/packages/packages-state';
 import { ProjectPackagesDialog } from './ui/packages/project-packages-dialog';
 import { PackageConsentDialog } from './ui/packages/package-consent-dialog';
 import { HubPanel } from './ui/hub/hub-panel';
+import { LeftSlot, type LeftSlotOccupant } from './ui/left-slot';
 import { HubTargetMemories } from './ui/hub/hub-install-control';
 import { HubMissingInstall } from './ui/hub/hub-missing-install';
 import { ExternalLinks } from './ui/external-links';
@@ -176,22 +181,16 @@ function startEditorSurface(): void {
       setWorkspaceName: (name) => topBar.setWorkspaceName(name),
       onEditRefused: (message) => showToast(message),
       onOpenParamsFile: (absPath) => globalParamsPanel.showFile(absPath),
+      slot: leftSlot,
+      occupant: editorOccupant,
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
-      initialWidth: editorPreferences.width,
       // Whether the pane opens at startup is a Settings choice, not the last
       // state the pane was left in — so nothing is saved here.
-      onOpenChange: (open) => {
-        // The editor and the Hub panel share one slot (H11 decision 5): the
-        // editor opening, however it was opened, sends the panel away and
-        // keeps the width it just took.
-        if (open) {
-          hubPanel.yieldSlot();
-        }
+      onOpenChange: () => {
         // Ctrl+B, the desktop menu and the restored preference all land here,
         // so the rail's latch follows the pane however it was opened.
         panelRail.sync();
       },
-      onWidthChange: (width) => savePreference('editorWidth', width),
     });
     if (editorSceneFile) {
       editorSurface.setSceneFile(editorSceneFile);
@@ -219,6 +218,10 @@ setTimeout(startEditorSurface, 3000);
 if (editorSurfaceEnabled) {
   window.addEventListener('keydown', (e) => {
     if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
+      // Typing to the agent never moves the panels under it.
+      if (isChatComposer(e.target)) {
+        return;
+      }
       e.preventDefault();
       toggleEditorPane();
     }
@@ -240,6 +243,25 @@ function toggleEditorPane(): void {
 let editorPaneOpenOnArrival = false;
 let pendingShowBuildTimings = false;
 
+/**
+ * The left slot beside the rail: the code editor and the Hub panel take
+ * turns in it (H11 decision 5), at one shared width — the `editorWidth`
+ * preference, saved when the user drags the slot's edge.
+ */
+const leftSlot = new LeftSlot({ onResize: (width) => savePreference('editorWidth', width) });
+/**
+ * The editor's place in the slot, there before the editor has loaded:
+ * another panel taking the slot closes the pane, or, while it is still
+ * loading, cancels an open that was asked for.
+ */
+const editorOccupant: LeftSlotOccupant = {
+  close: () => {
+    editorPaneOpenOnArrival = false;
+    editorSurface?.setOpen(false);
+  },
+};
+leftSlot.register(editorOccupant);
+
 const loadingOverlay = new LoadingOverlay(container);
 const engineClient = new HttpEngineClient();
 const viewer = new Viewer('fluidcad-viewer', engineClient);
@@ -256,9 +278,9 @@ viewerSettings.subscribe((s) => {
   }
 });
 
-// The editor pane's remembered geometry, read before the surface is loaded so
-// a session that had it open comes back with it open.
-const editorPreferences = { open: false, width: 420 };
+// Whether the editor pane opens at startup, read before the surface is loaded
+// so a session that had it open comes back with it open.
+const editorPreferences = { open: false };
 
 /**
  * Apply a full preference set to the page: at startup, and again after the
@@ -278,6 +300,7 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   applyEnginePreferences(prefs);
   applyGlobalMaterialsPreferences(prefs);
   applyPackagePreferences(prefs);
+  applyAgentPreferences(prefs);
   featureCatalog.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
   generatedMenu.menu.setToolbarPackages(prefs.toolbarPackages ?? []);
   quickFindPins.set(prefs.quickFindPins ?? null);
@@ -287,7 +310,11 @@ function applyLoadedPreferences(prefs: UserPreferences): void {
   }
   measureController.applyPreferences(prefs);
   editorPreferences.open = prefs.editorOpen === true;
-  editorPreferences.width = typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420;
+  // The saved width is the slot's until the editor has loaded; from then on
+  // the width on screen stands, and a reset reaches it on the next load.
+  if (!editorSurface) {
+    leftSlot.setWidth(typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420);
+  }
 }
 
 loadPreferences().then((prefs) => {
@@ -1070,6 +1097,18 @@ const projectPackagesDialog = new ProjectPackagesDialog(container, {
   onInstallMissing: (pin) => void missingPackageInstall.run(pin),
 });
 
+// The agent API's client (docs/agent-chat-plan.md §7): the Agent panel's, the
+// Settings → Agent tab's, and the probe that shows the rail's Agent button.
+const chatClient = new HttpChatClient();
+let agentPanel: ChatPanel | null = null;
+let agentPanelLoading: Promise<ChatPanel> | null = null;
+/** Told after every render cleared the idle selection (the Agent panel drops its unsent references). */
+const sceneRenderedListeners = new Set<() => void>();
+/** The last part render was a rollback: the view stops before the last feature. */
+let sceneRolledBack = false;
+/** Whether the engine has an agent runtime (`GET api/agent/agents` answered). */
+let agentAvailable = false;
+
 // The global Settings dialog — part of the page in every host; only a
 // viewport-only host (`?editor=0`, an embed) leaves the gear off the bar.
 const settingsModal = new SettingsModal(container, {
@@ -1089,6 +1128,29 @@ const settingsModal = new SettingsModal(container, {
         settingsModal.hide();
         hubPanel.show();
       },
+    },
+  },
+  agent: {
+    agents: async (fresh) => {
+      const answer = await chatClient.agents(fresh);
+      return answer.ok ? answer.value : null;
+    },
+    // Awaited, so the detection that follows reads the new API-key choice.
+    save: (value) => savePreferenceNow('agent', value),
+    onSaved: () => agentPanel?.settingsChanged(),
+    // The `api` agent's keys go to the engine by their own routes, never
+    // through the preferences; the page only learns whether each is set.
+    providers: async () => {
+      const answer = await chatClient.providers();
+      return answer.ok ? answer.value : null;
+    },
+    setKey: async (id, apiKey) => {
+      const answer = await chatClient.setProviderKey(id, apiKey);
+      return answer.ok === false ? answer.error : null;
+    },
+    removeKey: async (id) => {
+      const answer = await chatClient.removeProviderKey(id);
+      return answer.ok === false ? answer.error : null;
     },
   },
 });
@@ -1197,15 +1259,15 @@ packagesState.subscribe(() => {
   void editorSurface?.refreshPackageTypes();
 });
 packagesState.subscribe(() => {
-  const missing = packagesState.missing.length > 0;
-  packagesMissingDot.classList.toggle('hidden', !missing);
-  packagesButton.title = missing ? 'Packages in this project — one is not installed' : 'Packages in this project';
+  const missing = packagesState.missing.length;
+  packagesMissingDot.classList.toggle('hidden', missing === 0);
+  packagesButton.title = missing > 0 ? `Packages in this project: ${missing} not installed` : 'Packages in this project';
 });
 
 // The Hub panel (H11): searching, reading and installing packages, from the
-// rail's Hub button. It shares the editor pane's slot and width (decision
-// 5): opening it closes the editor, and the editor opening closes it
-// (`yieldSlot`, from the editor's onOpenChange). Every host has it — VS Code
+// rail's Hub button. It shares the left slot and its width with the editor
+// pane (decision 5): opening either closes the other (`leftSlot.take`).
+// Every host has it — VS Code
 // and Neovim too, where its button sits under the tree's — and links leave
 // through the host (ExternalLinks).
 const hubPanel = new HubPanel({
@@ -1217,19 +1279,7 @@ const hubPanel = new HubPanel({
   targetMemory: HubTargetMemories.project(new ProjectUiStateClient()),
   openExternal: (url) => void ExternalLinks.open(url),
   onPackagesChanged: () => packagesChanged({ fromHubPanel: true }),
-  width: () => editorSurface?.pane.getWidth() ?? editorPreferences.width,
-  onWidthChange: (width) => {
-    editorPreferences.width = width;
-    if (editorSurface) {
-      editorSurface.pane.setWidth(width);
-    } else {
-      savePreference('editorWidth', width);
-    }
-  },
-  onTakeSlot: () => {
-    editorPaneOpenOnArrival = false;
-    editorSurface?.setOpen(false);
-  },
+  slot: leftSlot,
   onOpenChange: () => panelRail.sync(),
 });
 
@@ -1295,6 +1345,101 @@ const panelRail = new PanelRail(container, {
   isGlobalParamsOpen: () => globalParamsPanel.isOpen,
   onToggleHub: () => hubPanel.toggle(),
   isHubOpen: () => hubPanel.isOpen(),
+  onToggleAgent: () => toggleAgentPanel(),
+  isAgentOpen: () => agentPanel?.isOpen() === true,
+  isAgentAvailable: () => agentAvailable,
+});
+
+// The Agent panel (docs/agent-chat-plan.md §10): a chat with the user's own
+// Claude Code, in the left slot with the editor and the Hub. Its code (and
+// streaming-markdown) is fetched on the first open; the rail button shows
+// once the engine answers for an agent runtime, whether or not a CLI is
+// installed — the panel explains what is missing.
+function toggleAgentPanel(): void {
+  if (agentPanel) {
+    agentPanel.toggle();
+    panelRail.sync();
+    return;
+  }
+  void loadAgentPanel().then((panel) => {
+    panel.show();
+    panelRail.sync();
+  }).catch((err) => {
+    console.warn('FluidCAD: the Agent panel could not be loaded:', err);
+    showToast('The Agent panel could not be loaded.');
+  });
+}
+
+function loadAgentPanel(): Promise<ChatPanel> {
+  agentPanelLoading ??= import('./ui/chat/chat-panel').then(({ ChatPanel }) => {
+    agentPanel = new ChatPanel({
+      container,
+      client: chatClient,
+      slot: leftSlot,
+      settings: () => agentSettings.current,
+      openExternal: (url) => void ExternalLinks.open(url),
+      openSettings: () => settingsModal.show('agent', 'api-keys'),
+      // `@` in the composer names a project file: the `+` picker's listing.
+      listFiles: async () => (await listWorkspaceFiles()).files,
+      openSource: editorSurfaceEnabled
+        ? (filePath, line, column) => withEditorSurface((surface) => {
+            // The render reports 1-based columns; the editor counts from 0.
+            void surface.gotoSource({ filePath, line, column: Math.max(0, column - 1) });
+          })
+        : undefined,
+      colorizer: () => (editorSurface ? (code, language) => editorSurface!.colorize(code, language) : null),
+      onAgentChosen: (kind) => {
+        const next = { ...agentSettings.current, defaultAgent: kind };
+        agentSettings.update(next);
+        savePreference('agent', { defaultAgent: kind } as UserPreferences['agent']);
+      },
+      // The panel's mode chip is the same preference as Settings → Agent's.
+      onPermissionModeChosen: (mode) => {
+        agentSettings.update({ ...agentSettings.current, permissionMode: mode });
+        savePreference('agent', { permissionMode: mode } as UserPreferences['agent']);
+      },
+      // The model and effort chips set each agent's default for new chats.
+      onModelChosen: (kind, model) => savePreference('agent', rememberModel(kind, model) as UserPreferences['agent']),
+      onEffortChosen: (kind, effort) => savePreference('agent', rememberEffort(kind, effort) as UserPreferences['agent']),
+      confirm: ({ kind, ...options }) => confirmDialog({ ...options, icon: kind === 'delete' ? ICON_TRASH : ICON_UNDO }),
+      onOpenChange: () => panelRail.sync(),
+      // Attaching the selected geometry to a message (§11).
+      scene: {
+        selection: () => measureController.selection,
+        addSelectionListener: (fn) => measureController.addSelectionListener(() => fn()),
+        addRenderListener: (fn) => {
+          sceneRenderedListeners.add(fn);
+          return () => {
+            sceneRenderedListeners.delete(fn);
+          };
+        },
+        clearSelection: () => measureController.clearSelection(),
+        isRolledBack: () => sceneRolledBack,
+        currentFile: () => currentSceneAbsPath,
+        // The idle selection's amber is left out of the picture (back on
+        // screen right after): when it goes with the message, `highlight`
+        // draws it in its reference's colour instead.
+        capture: (highlight) => measureController.withSelectionHidden(() => captureScreenshot(viewer.sceneContext, {
+          width: 1024,
+          height: 768,
+          view: { kind: 'current' },
+          fitTo: 'highlight',
+          highlight,
+        })),
+      },
+    });
+    return agentPanel;
+  }).catch((err) => {
+    // A failed fetch (the engine restarting) is tried again on the next click.
+    agentPanelLoading = null;
+    throw err;
+  });
+  return agentPanelLoading;
+}
+
+void chatClient.agents().then((answer) => {
+  agentAvailable = answer.ok;
+  panelRail.sync();
 });
 
 const navbar = new Navbar(container);
@@ -3534,8 +3679,10 @@ function applySceneRendered(msg: any): void {
       viewer.updateAssemblyView(msg.result, assembly);
       SceneTimings.viewed(msg, performance.now() - viewStart, viewer.getAssemblyController()?.getLastUpdateStats());
       lastPartRender = null;
+      sceneRolledBack = false;
     } else {
       lastPartRender = { result: msg.result, isRollback, rollbackStop: msg.rollbackStop };
+      sceneRolledBack = isRollback;
       const viewStart = performance.now();
       viewer.updateView(msg.result, isRollback, msg.rollbackStop);
       SceneTimings.viewed(msg, performance.now() - viewStart);
@@ -3565,6 +3712,9 @@ function applySceneRendered(msg: any): void {
     timelinePickAbort?.abort();
     timelinePickAbort = null;
     measureController.onSceneRendered();
+    for (const listener of [...sceneRenderedListeners]) {
+      listener();
+    }
     if (msg.absPath) {
       topBar.setFileName(msg.absPath);
       currentSceneAbsPath = msg.absPath;

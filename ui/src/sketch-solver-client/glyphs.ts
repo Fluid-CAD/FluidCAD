@@ -11,6 +11,9 @@ import type { DimensionStyle } from './declutter';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from './model';
 import { specEntityIds } from './model';
 import { diameterChord } from './diameter-chord';
+import { labelLiesAlong, placedDimension } from './dimension-label';
+import type { ArcStretch, DimensionFrame } from './dimension-label';
+import { arcSweep } from './tessellate';
 import {
   Vec2,
   alongDirAt,
@@ -90,18 +93,30 @@ export type ConstraintGlyph = GlyphBase & (
       style: DimensionStyle;
       slideRange: number;
       leader?: [Vec2, Vec2];
+      /** The statement placed this value (`.labelAt()`): `at` is where it
+       * attaches to its dimension, and the text sits exactly one clearance
+       * off it along `offsetDir` — never slid, flipped or pushed out by the
+       * declutterer, which routes everything else around it instead. */
+      placed?: boolean;
     }
   /** World-scale dimension leader line. `extensions` are dashed witness
    * leaders from a synthetic leader end to the real anchor it measures
    * (axis-locked distances draw the leader axis-aligned, so the far point
    * can float off it — the angle glyph's extension convention).
-   * `arrows` caps the ends with screen-constant drafting arrowheads. */
+   * `arrows` caps the ends with screen-constant drafting arrowheads.
+   * A placed dimension adds `tail`, the plain continuation from the line's
+   * end out to a value parked beyond it, and `witnessArcs`, the dashed
+   * continuations of an arc to where a radial leader lands off it. */
   | {
       type: 'leader';
       from: Vec2;
       to: Vec2;
       extensions?: [Vec2, Vec2][];
       arrows?: ArrowEnds;
+      tail?: [Vec2, Vec2];
+      witnessArcs?: ArcStretch[];
+      /** The line of a placed dimension (see the `text` glyph's `placed`). */
+      placed?: boolean;
     }
   /** Angle dimension: arc swept from `startAngle` by `sweep` around `at`,
    * with the readout at mid-arc. `extensions` are dashed helper leaders
@@ -117,6 +132,11 @@ export type ConstraintGlyph = GlyphBase & (
       label: string;
       extensions: [Vec2, Vec2][];
       tails: number[];
+      /** A placed angle: the arc is drawn at this sketch-unit `radius`
+       * (world-scale, like a leader) instead of the screen-constant default,
+       * and its value is a separate placed `text` glyph riding it. `witness`
+       * continues the arc, dashed, to a value outside the measured sector. */
+      placed?: { radius: number; witness?: ArcStretch };
     }
 );
 
@@ -211,6 +231,14 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       sourceLocation: c.obj.sourceLocation,
       refEntityIds: specEntityIds(c.spec),
     };
+
+    // A dimension the statement placed (`.labelAt()`) draws exactly there;
+    // the automatic layout below is for the ones nobody has parked yet.
+    const placed = placedDimensionGlyphs(model, c, base);
+    if (placed) {
+      glyphs.push(...placed);
+      continue;
+    }
 
     /** `kind` keys both the glyph letter and its overflow rank; `on` is the
      * entity the badge rides, which fixes its outward/tangent axes. */
@@ -367,7 +395,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
           glyphs.push({
             ...base,
             type: 'text',
-            label: formatLengthLabel(c.value ?? spec.value),
+            label: dimensionLabelText(model, c),
             at: mid(from, to),
             // Push clear of the dimension line, slide along it — the label
             // stays ON its own dimension wherever the declutterer parks it.
@@ -395,7 +423,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
             glyphs.push({
               ...base,
               type: 'text',
-              label: `${e.kind === 'ellipse' ? (spec.axis === 'y' ? 'RY' : 'RX') : 'R'}${formatLengthLabel(c.value ?? spec.value)}`,
+              label: dimensionLabelText(model, c),
               at: mid(e.center, rim),
               // The value rides the radius like a diameter rides its chord:
               // laid ALONG the line, centered between center and rim, one
@@ -426,7 +454,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
           glyphs.push({
             ...base,
             type: 'text',
-            label: formatLengthLabel(c.value ?? spec.value),
+            label: dimensionLabelText(model, c),
             at: mid(from, to),
             offsetDir: perp(dir),
             alongDir: dir,
@@ -453,7 +481,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
             glyphs.push({
               ...base,
               type: 'text',
-              label: `⌀${formatLengthLabel(c.value ?? spec.value)}`,
+              label: dimensionLabelText(model, c),
               at: mid(from, to),
               // The value rides the chord: laid ALONG it (the sprite layer
               // rolls an `aligned` label to its line), centered on it, one gap
@@ -477,7 +505,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         const b = entityFor(model, spec.b);
         if (a && b) {
           const at = lineIntersection(a, b);
-          const label = `${formatDim(c.value ?? (spec.value * 180) / Math.PI, 2)}°`;
+          const label = dimensionLabelText(model, c);
           // The refs orient their lines ('start' reverses) — the arc sweeps
           // counterclockwise from a's ray by the (positive) target, landing
           // in exactly the sector the statement dimensions.
@@ -528,6 +556,227 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
   }
 
   return glyphs;
+}
+
+/**
+ * The value a dimension statement shows: a length with the document unit
+ * (prefixed `R`, `RX`/`RY` or `⌀` for the radial ones), an angle in degrees.
+ * Empty for a constraint that carries no value.
+ */
+export function dimensionLabelText(model: SolvedSketchModel, c: SolvedConstraintView): string {
+  const spec = c.spec;
+  switch (spec.kind) {
+    case 'distance':
+    case 'offset-from':
+      return formatLengthLabel(c.value ?? spec.value);
+    case 'radius': {
+      const ellipse = entityFor(model, spec.a)?.kind === 'ellipse';
+      return `${ellipse ? (spec.axis === 'y' ? 'RY' : 'RX') : 'R'}${formatLengthLabel(c.value ?? spec.value)}`;
+    }
+    case 'diameter':
+      return `⌀${formatLengthLabel(c.value ?? spec.value)}`;
+    case 'angle':
+      return `${formatDim(c.value ?? (spec.value * 180) / Math.PI, 2)}°`;
+    default:
+      return '';
+  }
+}
+
+/**
+ * What a dimension measures, as the frame its label is placed in — the
+ * meaning of the statement's `.labelAt(u, v)` pair (dimension-label.ts).
+ * Null for a constraint that is not a dimension, and for a dimension with
+ * nothing to hang a label on right now: a zero-length span, lines too near
+ * parallel to meet. Those keep the automatic layout, and are not draggable.
+ */
+export function dimensionFrame(model: SolvedSketchModel, c: SolvedConstraintView): DimensionFrame | null {
+  const spec = c.spec;
+  switch (spec.kind) {
+    case 'distance': {
+      // The TRUE measured span, not the automatic layout's lifted leader: a
+      // placement names its own standoff.
+      const span = distanceSpecEndpoints(model, spec);
+      if (!span || dist(span[0], span[1]) < 1e-9) {
+        return null;
+      }
+      const corner = distanceSpecExtensions(model, spec);
+      return {
+        type: 'span',
+        from: span[0],
+        to: span[1],
+        toAnchor: corner.length > 0 ? corner[0][1] : span[1],
+        arrows: 'both',
+      };
+    }
+
+    case 'offset-from': {
+      const span = offsetLeaderLayout(model, spec);
+      return span
+        ? { type: 'span', from: span.from, to: span.to, toAnchor: span.to, arrows: 'both' }
+        : null;
+    }
+
+    case 'radius': {
+      const e = entityFor(model, spec.a);
+      if (!e?.center) {
+        return null;
+      }
+      if (e.kind === 'ellipse') {
+        // A semi-radius runs along its own axis — a span from the center,
+        // capped at the rim like the automatic layout draws it.
+        const rim = ellipseAxisEnd(e, spec.axis ?? 'x');
+        return rim && dist(e.center, rim) > 1e-9
+          ? { type: 'span', from: e.center, to: rim, toAnchor: rim, arrows: 'end' }
+          : null;
+      }
+      return radialFrame(e, false);
+    }
+
+    case 'diameter': {
+      const e = entityFor(model, spec.a);
+      return e ? radialFrame(e, true) : null;
+    }
+
+    case 'angle': {
+      const a = entityFor(model, spec.a);
+      const b = entityFor(model, spec.b);
+      const at = a && b ? lineIntersection(a, b) : null;
+      const da = a ? orientedLineDir(a, spec.a) : null;
+      if (!at || !da) {
+        return null;
+      }
+      return { type: 'angular', at, startAngle: Math.atan2(da[1], da[0]), sweep: spec.value };
+    }
+
+    default:
+      return null;
+  }
+}
+
+function radialFrame(e: SolvedEntityView, diameter: boolean): DimensionFrame | null {
+  if (!e.center || e.radius === undefined || !(e.radius > 1e-9)) {
+    return null;
+  }
+  const arc = e.kind === 'arc' ? arcSweep(e) : null;
+  return { type: 'radial', center: e.center, radius: e.radius, diameter, ...(arc ? { arc } : {}) };
+}
+
+/** How far past an angle arc's end its dashed helper line runs, as a
+ * fraction of the arc's radius — enough to read as a line the arc lands on. */
+const RAY_REACH_OVERSHOOT = 0.1;
+
+/**
+ * Dashed helper line along a sector ray out to an angle arc drawn at
+ * `radius`: from where the segment's own geometry stops (the corner, when
+ * the segment lies behind it) to just past the arc's end. Null when the
+ * segment already reaches the arc — or starts beyond it, where the
+ * extension to the corner (segmentExtensionTo) already passes under the arc.
+ */
+function rayReach(e: SolvedEntityView, at: Vec2, ray: Vec2, radius: number): [Vec2, Vec2] | null {
+  if (!e.start || !e.end) {
+    return null;
+  }
+  const along = (p: Vec2): number => (p[0] - at[0]) * ray[0] + (p[1] - at[1]) * ray[1];
+  const far = Math.max(along(e.start), along(e.end));
+  const near = Math.min(along(e.start), along(e.end));
+  if (radius <= far + 1e-9 || near > radius) {
+    return null;
+  }
+  const from = Math.max(far, 0);
+  const to = radius * (1 + RAY_REACH_OVERSHOOT);
+  return [
+    [at[0] + ray[0] * from, at[1] + ray[1] * from],
+    [at[0] + ray[0] * to, at[1] + ray[1] * to],
+  ];
+}
+
+/**
+ * The glyphs of a dimension whose statement placed its value
+ * (`.labelAt(u, v)`): the dimension line, leader or arc drawn through the
+ * placement, and the value pinned to it. Null when the statement carries no
+ * placement — or one that cannot be drawn, which falls back to the automatic
+ * layout rather than dropping the dimension.
+ */
+function placedDimensionGlyphs(
+  model: SolvedSketchModel,
+  c: SolvedConstraintView,
+  base: GlyphBase,
+): ConstraintGlyph[] | null {
+  if (!c.label) {
+    return null;
+  }
+  const frame = dimensionFrame(model, c);
+  const placed = frame ? placedDimension(frame, c.label) : null;
+  if (!frame || !placed) {
+    return null;
+  }
+  const label = dimensionLabelText(model, c);
+  const text: ConstraintGlyph = {
+    ...base,
+    type: 'text',
+    label,
+    at: placed.attach,
+    offsetDir: placed.push,
+    alongDir: placed.along,
+    // A placed value is lettered along the line it hangs off (the sprite
+    // layer rolls an `aligned` label to its `alongDir`).
+    style: labelLiesAlong(frame) ? 'aligned' : 'span',
+    slideRange: 0,
+    placed: true,
+    ...(placed.line ? { leader: [placed.line.from, placed.line.to] as [Vec2, Vec2] } : {}),
+  };
+
+  if (placed.line) {
+    const { from, to, arrows, tail, witnesses, witnessArcs } = placed.line;
+    return [
+      {
+        ...base,
+        type: 'leader',
+        from,
+        to,
+        arrows,
+        ...(witnesses.length > 0 ? { extensions: witnesses } : {}),
+        ...(tail ? { tail } : {}),
+        ...(witnessArcs.length > 0 ? { witnessArcs } : {}),
+        placed: true,
+      },
+      text,
+    ];
+  }
+
+  const spec = c.spec;
+  if (placed.arc && frame.type === 'angular' && spec.kind === 'angle') {
+    const a = entityFor(model, spec.a);
+    const b = entityFor(model, spec.b);
+    const db = b ? orientedLineDir(b, spec.b) : null;
+    if (!a || !b || !db) {
+      return null;
+    }
+    const da: Vec2 = [Math.cos(frame.startAngle), Math.sin(frame.startAngle)];
+    const radius = placed.arc.radius;
+    return [
+      {
+        ...base,
+        type: 'angle-arc',
+        at: frame.at,
+        startAngle: frame.startAngle,
+        sweep: frame.sweep,
+        label,
+        // World-scale helper lines replace the screen-constant tail stubs:
+        // each sector ray is drawn out to wherever this arc actually is.
+        extensions: [
+          segmentExtensionTo(a, frame.at),
+          segmentExtensionTo(b, frame.at),
+          rayReach(a, frame.at, da, radius),
+          rayReach(b, frame.at, db, radius),
+        ].filter((e): e is [Vec2, Vec2] => e !== null),
+        tails: [],
+        placed: placed.arc,
+      },
+      text,
+    ];
+  }
+  return null;
 }
 
 /**

@@ -1,0 +1,185 @@
+{
+ "initial": {
+  "id": "ed579b35-2fe6-4dff-836d-65180b717e23",
+  "title": "New chat",
+  "agent": "claude",
+  "createdAt": "2026-11-17T14:35:52.416Z",
+  "updatedAt": "2026-11-17T14:35:52.416Z",
+  "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+  "seq": 0,
+  "status": {
+   "state": "idle"
+  },
+  "messages": [],
+  "turns": [],
+  "model": null
+ },
+ "events": [
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 1,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "79b02527-dee7-4040-b115-bae462cb18c2",
+     "role": "user",
+     "turnId": "ebca1568-6e02-42ae-9f8d-76bfae45f479",
+     "createdAt": "2026-11-17T14:35:52.417Z"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 2,
+   "event": {
+    "type": "part-start",
+    "messageId": "79b02527-dee7-4040-b115-bae462cb18c2",
+    "part": {
+     "type": "text",
+     "id": "21062592-0255-4d65-aca6-b66e0da6d83c",
+     "text": "fail please"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 3,
+   "event": {
+    "type": "message-end",
+    "messageId": "79b02527-dee7-4040-b115-bae462cb18c2"
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 4,
+   "event": {
+    "type": "title",
+    "title": "fail please"
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 5,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "starting",
+     "turnId": "ebca1568-6e02-42ae-9f8d-76bfae45f479"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 6,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "running",
+     "turnId": "ebca1568-6e02-42ae-9f8d-76bfae45f479"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 7,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "82d63a36-ea2e-4bbe-9ebb-5648d79338a5",
+     "role": "assistant",
+     "turnId": "ebca1568-6e02-42ae-9f8d-76bfae45f479",
+     "createdAt": "2026-11-17T14:35:52.418Z"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 8,
+   "event": {
+    "type": "part-start",
+    "messageId": "82d63a36-ea2e-4bbe-9ebb-5648d79338a5",
+    "part": {
+     "type": "notice",
+     "id": "290cebe6-6537-4eda-81ce-989422f09b9f",
+     "level": "error",
+     "text": "Limit reached."
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 9,
+   "event": {
+    "type": "message-end",
+    "messageId": "82d63a36-ea2e-4bbe-9ebb-5648d79338a5"
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 10,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "error",
+     "kind": "rate-limit",
+     "message": "Limit reached.",
+     "resetsAt": "2026-11-18T00:00:00.000Z"
+    }
+   }
+  }
+ ],
+ "final": {
+  "id": "ed579b35-2fe6-4dff-836d-65180b717e23",
+  "title": "fail please",
+  "agent": "claude",
+  "createdAt": "2026-11-17T14:35:52.416Z",
+  "updatedAt": "2026-11-17T14:35:52.418Z",
+  "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+  "seq": 10,
+  "status": {
+   "state": "error",
+   "kind": "rate-limit",
+   "message": "Limit reached.",
+   "resetsAt": "2026-11-18T00:00:00.000Z"
+  },
+  "messages": [
+   {
+    "id": "79b02527-dee7-4040-b115-bae462cb18c2",
+    "role": "user",
+    "turnId": "ebca1568-6e02-42ae-9f8d-76bfae45f479",
+    "createdAt": "2026-11-17T14:35:52.417Z",
+    "parts": [
+     {
+      "type": "text",
+      "id": "21062592-0255-4d65-aca6-b66e0da6d83c",
+      "text": "fail please"
+     }
+    ]
+   },
+   {
+    "id": "82d63a36-ea2e-4bbe-9ebb-5648d79338a5",
+    "role": "assistant",
+    "turnId": "ebca1568-6e02-42ae-9f8d-76bfae45f479",
+    "createdAt": "2026-11-17T14:35:52.418Z",
+    "parts": [
+     {
+      "type": "notice",
+      "id": "290cebe6-6537-4eda-81ce-989422f09b9f",
+      "level": "error",
+      "text": "Limit reached."
+     }
+    ]
+   }
+  ],
+  "turns": [
+   {
+    "id": "ebca1568-6e02-42ae-9f8d-76bfae45f479",
+    "userMessageId": "79b02527-dee7-4040-b115-bae462cb18c2",
+    "revertible": false,
+    "endedAt": "2026-11-17T14:35:52.418Z",
+    "endReason": "error"
+   }
+  ],
+  "model": "haiku"
+ }
+}

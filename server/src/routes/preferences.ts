@@ -10,12 +10,15 @@ import {
   SNAP_RADIUS_PX_RANGE,
   TIMELINE_SKETCH_CHILDREN,
   loadPreferences,
+  mergeAgentPreferences,
+  parseAgentProviders,
   parseQuickFindPins,
   parseToolbarPackages,
   resetPreferences,
   savePreferences,
   type Preferences,
 } from '../preferences.ts';
+import { AgentCredentials } from '../agent-credentials.ts';
 import { parseProjectMaterials } from '../project-config.ts';
 import { LibraryMove } from '../packages/library-move.ts';
 import { PackageRoots } from '../packages/package-roots.ts';
@@ -32,13 +35,39 @@ function clampedNumber(value: unknown, [min, max]: [number, number]): number | n
   return Math.min(max, Math.max(min, value));
 }
 
+/** The ids of the agent's custom providers in `prefs`. */
+function customProviderIds(prefs: Preferences): string[] {
+  return (prefs.agent?.providers ?? []).map((p) => p.id);
+}
+
+/**
+ * Forgets the stored API keys of the custom providers `before` had and
+ * `after` does not (§20.3: deleting an entry deletes its key). Nothing is
+ * read or written when no entry went.
+ */
+function forgetRemovedProviderKeys(credentials: AgentCredentials, before: string[], after: string[]): void {
+  for (const id of before.filter((id) => !after.includes(id))) {
+    try {
+      credentials.delete(id);
+    } catch (err: any) {
+      console.error(`[preferences] could not delete the stored key of provider ${id}: ${err?.message ?? err}`);
+    }
+  }
+}
+
+export type PreferencesRouterOptions = {
+  /** The agent's key store (tests pass their own). */
+  agentCredentials?: AgentCredentials;
+};
+
 /**
  * `onSaved` hears every preferences file this router writes, a merge or a
  * reset, so the settings the engine itself acts on (the kernel's worker
  * count) apply without waiting for a restart.
  */
-export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = () => {}): Router {
+export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = () => {}, options: PreferencesRouterOptions = {}): Router {
   const router = Router();
+  const credentials = options.agentCredentials ?? new AgentCredentials();
   // Writes are read-modify-write on one file, so two POSTs in flight at once
   // (the grid chip persists a pitch and the lock back to back) would each
   // load the pre-edit file and the later `writeFile` could land mid-way
@@ -72,9 +101,21 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
         res.status(400).json({ error: libraryProblem, key: 'packageLibraryPath' });
         return;
       }
+      // The agent's custom providers are refused out loud too: an entry the
+      // user typed must not vanish quietly. Nothing is saved.
+      const providers = body.agent && typeof body.agent === 'object' ? body.agent.providers : undefined;
+      if (providers !== undefined && providers !== null) {
+        const parsed = parseAgentProviders(providers);
+        if ('error' in parsed) {
+          res.status(400).json({ error: parsed.error, key: 'agent.providers' });
+          return;
+        }
+      }
+      let providersBefore: string[] = [];
       const libraryBefore = PackageRoots.libraryPath();
       const saved = await serialized(async () => {
         const current = await loadPreferences();
+        providersBefore = customProviderIds(current);
         if (body.theme && typeof body.theme === 'string') {
           current.theme = body.theme;
         }
@@ -188,9 +229,14 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
         if (quickFindPins !== undefined) {
           current.quickFindPins = quickFindPins;
         }
+        // Field by field: a client sends the fields it edited.
+        if (body.agent !== undefined) {
+          current.agent = mergeAgentPreferences(current.agent, body.agent);
+        }
         await savePreferences(current);
         return current;
       });
+      forgetRemovedProviderKeys(credentials, providersBefore, customProviderIds(saved));
       // The library may have moved: every cached package-root verdict goes,
       // and the folder it left is remembered for the copy offer.
       PackageRoots.forget();
@@ -208,7 +254,12 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
   router.post('/preferences/reset', async (_req, res) => {
     try {
       const libraryBefore = PackageRoots.libraryPath();
-      const prefs = await serialized(() => resetPreferences());
+      let providersBefore: string[] = [];
+      const prefs = await serialized(async () => {
+        providersBefore = customProviderIds(await loadPreferences());
+        return resetPreferences();
+      });
+      forgetRemovedProviderKeys(credentials, providersBefore, customProviderIds(prefs));
       PackageRoots.forget();
       LibraryMove.note(libraryBefore, PackageRoots.libraryPath());
       onSaved(prefs);

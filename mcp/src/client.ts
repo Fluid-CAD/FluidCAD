@@ -87,9 +87,25 @@ export class FluidCadClient {
     return readJsonBody<T>(res);
   }
 
+  /** A GET whose answer is read whatever its status: the bytes, the status and the headers. */
+  async getRaw(path: string): Promise<{
+    statusCode: number;
+    data: Buffer;
+    contentType: string;
+    headers: Record<string, string>;
+  }> {
+    return readRawBody(await this.pool.request({ path, method: 'GET' }));
+  }
+
+  /**
+   * A POST whose answer is read whatever its status. `timeoutMs` is how long
+   * the engine may take to start answering, for a call that outlasts
+   * undici's five minutes (a package download).
+   */
   async postRaw(
     path: string,
     body: unknown,
+    options: { timeoutMs?: number } = {},
   ): Promise<{
     statusCode: number;
     data: Buffer;
@@ -101,18 +117,9 @@ export class FluidCadClient {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body ?? {}),
+      ...(options.timeoutMs !== undefined ? { headersTimeout: options.timeoutMs, bodyTimeout: options.timeoutMs } : {}),
     });
-    const chunks: Buffer[] = [];
-    for await (const chunk of res.body) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const contentType = String(res.headers['content-type'] ?? 'application/octet-stream');
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(res.headers)) {
-      if (typeof v === 'string') headers[k.toLowerCase()] = v;
-      else if (Array.isArray(v) && v.length > 0) headers[k.toLowerCase()] = v[0];
-    }
-    return { statusCode: res.statusCode, data: Buffer.concat(chunks), contentType, headers };
+    return readRawBody(res);
   }
 
   async ensureWebSocket(): Promise<WebSocket> {
@@ -278,6 +285,25 @@ export class WsError extends Error {
     super(message);
     this.name = 'WsError';
   }
+}
+
+async function readRawBody(res: Dispatcher.ResponseData): Promise<{
+  statusCode: number;
+  data: Buffer;
+  contentType: string;
+  headers: Record<string, string>;
+}> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of res.body) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const contentType = String(res.headers['content-type'] ?? 'application/octet-stream');
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(res.headers)) {
+    if (typeof v === 'string') headers[k.toLowerCase()] = v;
+    else if (Array.isArray(v) && v.length > 0) headers[k.toLowerCase()] = v[0];
+  }
+  return { statusCode: res.statusCode, data: Buffer.concat(chunks), contentType, headers };
 }
 
 async function readJsonBody<T>(res: Dispatcher.ResponseData): Promise<T> {

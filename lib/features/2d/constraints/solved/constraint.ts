@@ -24,7 +24,7 @@ export class SolvedConstraint extends SceneObject {
   private _pendingRefs: PendingReference[] | null = null;
   private _resolvedSpec: ConstraintSpec | null = null;
 
-  constructor(private kind: string, private displayValue?: number) {
+  constructor(protected readonly kind: string, protected readonly displayValue?: number) {
     super();
   }
 
@@ -157,6 +157,24 @@ export class SolvedConstraint extends SceneObject {
     }
   }
 
+  /**
+   * Stash a chained modifier's own failure as the statement's build error.
+   * An earlier error wins: it is the one the user has to fix first.
+   */
+  protected stashError(message: string): void {
+    if (!this._registrationError) {
+      this._registrationError = message;
+    }
+  }
+
+  /** A blank statement of this one's class for createCopy — subclasses with
+   * their own constructor arguments override it. */
+  protected newInstance(): SolvedConstraint {
+    return new (this.constructor as new (kind: string, displayValue?: number) => SolvedConstraint)(
+      this.kind, this.displayValue,
+    );
+  }
+
   build(): void {
     if (this._registrationError) {
       throw new BuildError(this._registrationError);
@@ -174,7 +192,7 @@ export class SolvedConstraint extends SceneObject {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new SolvedConstraint(this.kind, this.displayValue);
+    const copy = this.newInstance();
     copy._spec = this._spec;
     copy._constraintId = this._constraintId;
     copy._registrationError = this._registrationError;

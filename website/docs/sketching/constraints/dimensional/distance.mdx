@@ -16,10 +16,15 @@ import dimensionFarSide from '!!raw-loader!../../_examples/dimension-far-side.js
 ## In the viewport
 
 1. Click the entities to measure: two points, a point and a line, a line and a circle, two parallel lines, two circles — or a single line for its own length.
-2. Click **Dimension**. For a pair of points that is not axis-aligned, move the cursor to choose the measure — above or below the pair gives the **horizontal** distance, beside it the **vertical** one, inside or diagonal the **aligned** (straight-line) one — and click to place the label.
-3. Type the value and press <kbd>Enter</kbd>. The statement is written after the geometry, the solver applies it, and the label stays on screen.
+2. Click **Dimension**. The dimension follows the cursor: its value sits under the pointer and the dimension line comes along, with witness lines back to what it measures. For a pair of points that is not axis-aligned, where the cursor is also chooses the measure — above or below the pair gives the **horizontal** distance, beside it the **vertical** one, inside or diagonal the **aligned** (straight-line) one.
+3. Click to place the dimension where it reads best.
+4. Type the value and press <kbd>Enter</kbd>. The statement is written after the geometry, the solver applies it, and the label stays where you put it.
 
-Shortcuts: double-click a line to dimension its length; double-click a dimension label to edit its value in place. Dimension labels can be hidden with the sketch dialog's **Show constraints → Dimensional** toggle.
+You can skip the placing click: start typing the value while the dimension is still under the cursor (or press <kbd>Enter</kbd> for the field) and it is laid out automatically instead, clear of the geometry and of the other labels. Press <kbd>Esc</kbd> to drop a dimension you have not placed yet.
+
+With nothing picked, **Dimension** arms and waits for your picks. A single line then offers its length right away; click a second entity instead of an empty spot and the dimension becomes the distance between the two.
+
+Shortcuts: double-click a line to dimension its length; double-click a dimension label to edit its value in place; drag a label to [move the dimension](#moving-a-dimension). Dimension labels can be hidden with the sketch dialog's **Show constraints → Dimensional** toggle.
 
 <UiFigure
   src="/img/docs/ui/constraint-bar-distance.png"
@@ -62,6 +67,34 @@ A distance from a line or point to a circle or arc measures to the **circumferen
 <ExplainedCode code={dimensionFarSide} fileName="gauge.part.js" />
 
 To measure to the center instead, dimension the center point: `distance(wall, c.center(), 150)`.
+
+## Moving a dimension
+
+A dimension sits where you clicked to place it; one you typed straight through is laid out automatically, clear of the geometry and of the other labels. To move either one afterwards, drag its label: the value follows the cursor and its dimension line, leader or arc comes along. Release to keep it there; press <kbd>Esc</kbd> while dragging to put it back.
+
+- A **distance** moves its dimension line off the span it measures, with witness lines back to the measured points, and slides the value along the line — past either end if you drag it there. The value is written along its dimension line, whatever the line's slope.
+- A **radius** or **diameter** turns its leader to pass through the value, which can sit inside the circle or outside it.
+- An **angle** draws its arc through the value, as near to the corner or as far from it as you drag.
+
+A placed or moved dimension stays out of the automatic layout, and the other labels are arranged around it. To hand it back, open the statement's menu in the History panel and choose **Reset label position**.
+
+The placement is saved on the statement as a chained `.labelAt(u, v)`:
+
+```js
+distance(base.start(), base.end(), 100).labelAt(0, -12)   // dimension line 12 below the base
+radius(corner, 8).labelAt(10, 10)                         // value up and right of the center
+angle(base, rise, 60).labelAt(25, 0)                      // arc 25 out from the corner
+```
+
+It only moves the annotation: the solve and the geometry are the same with or without it. The two numbers are in sketch units, measured in the dimension's own frame rather than from the sketch origin, so the label stays with the geometry when a parameter moves, stretches or turns it:
+
+| Dimension | `u` | `v` |
+|-----------|-----|-----|
+| `distance`, `offsetFrom` | along the dimension line, from its middle | how far the dimension line stands off the measured span |
+| `radius`, `diameter` | from the center, along the sketch's X | from the center, along the sketch's Y |
+| `angle` | out from the corner, along the bisector of the measured angle | to the side of the bisector |
+
+An ellipse's `radius(el, r, 'x')` reads like a distance: along and off its semi-axis.
 
 ## Degrees of freedom
 

@@ -8,9 +8,9 @@
 // line but never moves the line itself, so a chord laid down the middle of
 // a spoke stays there at every zoom.
 //
-// The answer is a pure function of the read model, which is what lets the
-// toolbar's placement preview draw exactly the chord the committed glyph
-// will (legality.ts's dimensionPreviewLayout).
+// The answer is a pure function of the read model, so a dimension previewed
+// before it is written (the toolbar draws its candidate through this same
+// pass) shows exactly the chord the committed glyph will.
 
 import type { SolvedEntityView, SolvedSketchModel } from './model';
 import { Vec2, add, arcMidPoint, dist, entityFor, normalize, scale, sub } from './resolve';

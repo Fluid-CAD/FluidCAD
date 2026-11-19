@@ -34,11 +34,14 @@ const s = sketch('xy', () => {
   region('lens', a, b);              // inside both
   region('crescent', a, far(b));     // inside a, outside b
 
-  const r = rect([0, 0], 40, 20);
-  const l = line([20, -5], [20, 25]);
-  region('inside', r);               // a bare rect covers every side on the region
-  region('leftHalf', r, l);          // left of l's own direction (it runs +y)
-  region('rightHalf', r, far(l));
+  // a rectangle is four lines (closed and dimensioned with constraints)
+  const bottom = line([0, 0], [40, 0]);
+  const right = line([40, 0], [40, 20]);
+  const top = line([40, 20], [0, 20]);
+  const left = line([0, 20], [0, 0]);
+  const split = line([20, -5], [20, 25]);
+  region('leftHalf', bottom, top, left, split);        // left of split's own direction (it runs +y)
+  region('rightHalf', bottom, right, top, far(split));
 });
 extrude(20, s).region('ring', 'lens');
 ```
@@ -49,9 +52,9 @@ only where two regions share the same entities (a lens and its crescents,
 the halves of a disc a line cuts). The dialog's region picker writes it
 automatically.
 
-Entities: any sketch entity statement (`line`, `circle`, `arc`, `rect`,
-`project`, `offset`, …), or one edge of a multi-edge statement — `r.top()`,
-`r.corner(2)`, `p.ref(2)`, `o.edge(0)`.
+Entities: any sketch entity statement (`line`, `circle`, `arc`,
+`project`, `offset`, …), or one edge of a multi-edge statement —
+`p.ref(2)`, `o.edge(0)`.
 
 A declaration is topological: it survives dimension edits, dragged
 geometry, unrelated entities added or removed, and holes cut into the

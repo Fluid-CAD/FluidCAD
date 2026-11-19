@@ -6,10 +6,10 @@ import { ErrorBanner } from '../src/ui/error-banner';
 import { FakePackagesClient, settle } from './fixtures/fake-packages-client';
 
 // The project's Packages dialog: the pins with where each loads from, Copy
-// into project / Use from library, the missing-package banner naming the
-// command that downloads the pin (packages install only from the hub,
-// HD31; no install button until H11), and the "update available" chip.
-// Then the render's own missing-package banner (the error banner's action).
+// into project / Use from library, a missing pin's row naming the command
+// that downloads it (packages install only from the hub, HD31; no install
+// button until H11), and the "update available" chip. Then the render's
+// own missing-package banner (the error banner's action).
 
 const opened: ProjectPackagesDialog[] = [];
 
@@ -84,12 +84,15 @@ describe('the project\'s Packages', () => {
     }
   });
 
-  it('leads with the missing-package banner, which names the command that downloads the pin and offers no button (HD31)', async () => {
+  it('says in a missing pin\'s own row that it is not installed, with the command that downloads it, and no button (HD31)', async () => {
     const h = await mount();
-    const banner = h.overlay.querySelector<HTMLElement>('[data-missing="@beta/gears"]')!;
-    expect(banner.textContent!.trim()).toBe("This project uses @beta/gears 1.2.0, which isn't installed: fluidcad install @beta/gears@1.2.0 downloads it from the hub.");
-    expect(banner.querySelector('[data-ref="install-command"]')!.textContent).toBe('fluidcad install @beta/gears@1.2.0');
-    expect(banner.querySelector('button')).toBeNull();
+    const row = h.pin('@beta/gears');
+    expect(row.querySelector('[data-ref="where"]')!.parentElement!.className).toContain('text-error');
+    expect(row.querySelector('[data-ref="install-command"]')!.textContent).toBe('fluidcad install @beta/gears@1.2.0');
+    expect(row.querySelector('button')).toBeNull();
+    // The rows carry it: no alert above the list, and installed pins name no command.
+    expect(h.overlay.querySelector('[data-missing]')).toBeNull();
+    expect(h.overlay.querySelectorAll('[data-ref="install-command"]')).toHaveLength(1);
     // No Install package… either: the Hub panel (H11) brings installs to the page.
     expect(h.overlay.querySelector('[data-ref="install"]')).toBeNull();
     expect(h.overlay.textContent).not.toMatch(/Install (package|from file)/);
@@ -134,7 +137,6 @@ describe('the project\'s Packages', () => {
   it('says so when the project uses no packages', async () => {
     const h = await mount(FakePackagesClient.overview({ pins: [] }));
     expect(h.overlay.querySelector('[data-ref="empty"]')!.textContent).toContain('This project uses no packages yet.');
-    expect(h.overlay.querySelector<HTMLElement>('[data-ref="banner"]')!.classList.contains('hidden')).toBe(true);
   });
 });
 
@@ -190,7 +192,10 @@ describe("the project's Packages: the hub (H11)", () => {
     dialog.show();
     await settle();
     const overlay = document.body.querySelector<HTMLElement>('[data-role="project-packages"]')!;
-    overlay.querySelector<HTMLButtonElement>('[data-missing="@beta/gears"] [data-ref="install-missing"]')!.click();
+    // The missing row's action; the installed rows keep theirs.
+    expect(overlay.querySelectorAll('[data-ref="install-missing"]')).toHaveLength(1);
+    expect(overlay.querySelector('[data-pin="@acme/feature-tests"] [data-action="copy-into-project"]')).not.toBeNull();
+    overlay.querySelector<HTMLButtonElement>('[data-pin="@beta/gears"] [data-ref="install-missing"]')!.click();
     expect(onInstallMissing).toHaveBeenCalledWith({ name: '@beta/gears', version: '1.2.0' });
     expect(dialog.isOpen()).toBe(false);
     dialog.show();

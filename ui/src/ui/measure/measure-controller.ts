@@ -7,6 +7,7 @@ import type { SelectionContextMenu, SelectionMenuHandlers } from '../../interact
 import { MeasureOverlay } from './measure-overlay';
 import { MeasurePanel } from './measure-panel';
 import { MeasureStatusBar } from './measure-status-bar';
+import { withSelectionHidden } from './selection-hidden';
 import { convertLength, formatAngle, formatArea, formatLength } from '../../units/units';
 import type { LengthUnit } from '../../units/units';
 import { sceneUnit } from '../../units/scene-unit';
@@ -78,8 +79,12 @@ export class MeasureController {
   private panel: MeasurePanel;
   private overlay: MeasureOverlay;
   private menu: SelectionContextMenu | null;
-  /** Notified whenever the selection set changes through this controller. */
+  /**
+   * Notified whenever the selection set changes through this controller
+   * (main.ts's own handler); others subscribe with {@link addSelectionListener}.
+   */
   onSelectionChanged: ((selection: SelectedEntity[]) => void) | null = null;
+  private readonly selectionListeners = new Set<(selection: SelectedEntity[]) => void>();
   /** A refusal from the unit chip's dropup (the server said no) to surface. */
   set onNotice(fn: ((message: string) => void) | null) {
     this.statusBar.onNotice = fn;
@@ -147,6 +152,18 @@ export class MeasureController {
 
   get selection(): SelectedEntity[] {
     return this.entities;
+  }
+
+  /**
+   * Also notified whenever the selection set changes (after
+   * {@link onSelectionChanged}); a render clears the selection without
+   * notifying. Returns the unsubscribe.
+   */
+  addSelectionListener(fn: (selection: SelectedEntity[]) => void): () => void {
+    this.selectionListeners.add(fn);
+    return () => {
+      this.selectionListeners.delete(fn);
+    };
   }
 
   /**
@@ -253,6 +270,15 @@ export class MeasureController {
     this.setSelection([]);
   }
 
+  /**
+   * Runs `fn` with the selection's highlight and measure overlay off (a
+   * capture that must show only its own highlight), then puts them back;
+   * the selection itself does not change.
+   */
+  withSelectionHidden<T>(fn: () => T): T {
+    return withSelectionHidden(this.viewer, this.entities, fn, this.overlay);
+  }
+
   /** Scene re-rendered: shape ids may have changed and the viewer already cleared its highlights. */
   onSceneRendered(): void {
     this.menu?.hide();
@@ -278,6 +304,9 @@ export class MeasureController {
     }
     this.fetchMeasurement();
     this.onSelectionChanged?.(this.entities);
+    for (const listener of [...this.selectionListeners]) {
+      listener(this.entities);
+    }
   }
 
   /**

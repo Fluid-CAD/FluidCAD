@@ -31,6 +31,10 @@ export type ToolErrorCode =
   | 'part-rules'
   | 'params-file'
   | 'unknown-configuration'
+  | 'hub-unreachable'
+  | 'hub-refused'
+  | 'install-refused'
+  | 'not-found'
   | 'internal';
 
 export function ok<T>(data: T): ToolResult<T> {

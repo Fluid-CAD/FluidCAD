@@ -66,6 +66,41 @@ describe('applySketchConstraint', () => {
     expect(result.newCode).toContain(`distance(a, c1, 70).max();`);
   });
 
+  it('writes a placed dimension\'s label as a chained .labelAt(), after .max()', async () => {
+    const placed = await applySketchConstraint(SKETCH, {
+      sketchLine: 4,
+      kind: 'distance',
+      targets: [{ line: 5, role: 'start' }, { line: 6, role: 'end' }],
+      valueExpr: '25.5',
+      axis: 'x',
+      label: [3.14159265, -12],
+    });
+    expect(placed.error).toBeUndefined();
+    expect(placed.newCode).toContain(`distance(a.start(), l1.end(), 25.5, 'x').labelAt(3.1416, -12);`);
+
+    const far = await applySketchConstraint(SKETCH, {
+      sketchLine: 4,
+      kind: 'distance',
+      targets: [{ line: 5, featureType: 'line' }, { line: 7, featureType: 'circle' }],
+      valueExpr: '70',
+      tangency: 'max',
+      label: [0, 8],
+    });
+    expect(far.error).toBeUndefined();
+    expect(far.newCode).toContain(`distance(a, c1, 70).max().labelAt(0, 8);`);
+  });
+
+  it('refuses a label on a constraint that is not a dimension', async () => {
+    const result = await applySketchConstraint(SKETCH, {
+      sketchLine: 4,
+      kind: 'parallel',
+      targets: [{ line: 5, featureType: 'line' }, { line: 6, featureType: 'line' }],
+      label: [1, 2],
+    });
+    expect(result.error).toMatch(/not a dimension/);
+    expect(result.newCode).toBe(SKETCH);
+  });
+
   it('two targets on the SAME unbound statement hoist once and share the name (a lone line\'s length is distance(l.start(), l.end(), …))', async () => {
     const result = await applySketchConstraint(SKETCH, {
       sketchLine: 4,

@@ -33,6 +33,11 @@ export function broadcastEditorCapabilities(core: ServerCore, hosts: HostRegistr
   core.broadcastToUI({ type: 'editor-capabilities', undoRedo: capabilities?.undoRedo === true });
 }
 
+/** The dirty-state source of one page's connection. */
+export function uiDirtySource(sessionId: string): string {
+  return `ui:${sessionId}`;
+}
+
 export function attachEditorHostTransport(deps: EditorHostTransportDeps): void {
   const { core, hosts, dispatcher, dirtyBufferState } = deps;
 
@@ -65,8 +70,10 @@ export function attachEditorHostTransport(deps: EditorHostTransportDeps): void {
 
       case 'editor-dirty-state': {
         if (Array.isArray(msg.dirtyFiles)) {
+          // This page's own set: another tab's unsaved files stay as that tab said.
           dirtyBufferState.setDirtyFiles(
             msg.dirtyFiles.filter((p: unknown): p is string => typeof p === 'string'),
+            uiDirtySource(sessionId),
           );
         }
         break;
@@ -82,6 +89,8 @@ export function attachEditorHostTransport(deps: EditorHostTransportDeps): void {
   });
 
   core.setDisconnectHandler((sessionId) => {
+    // The page's unsaved buffers closed with it: they no longer block writes.
+    dirtyBufferState.forget(uiDirtySource(sessionId));
     // Only when the page that was hosting went away — an ordinary viewer tab
     // closing must not make the surviving clients rethink their toolbar.
     if (hosts.detachUiHost(sessionId)) {

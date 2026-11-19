@@ -6,7 +6,7 @@ import { SketchSplit } from '../../sketch-split.ts';
 import { SketchTrim } from '../../sketch-trim.ts';
 import { SketchFillet } from '../../sketch-fillet.ts';
 import { SketchEntityDelete } from '../../sketch-entity-delete.ts';
-import { applyDistanceTangency, applySolvedEmission } from '../../sketch-solved-edit/index.ts';
+import { applyDistanceTangency, applySolvedEmission, DimensionLabel } from '../../sketch-solved-edit/index.ts';
 import { ParamEditor } from '../../param-edit.ts';
 import { ConfigurationEditor } from '../../configuration-edit.ts';
 import { PropertyEditor } from '../../property-edit.ts';
@@ -194,6 +194,9 @@ async function applyFeatureEditTransform(
   }
   if (spec.distanceTangency) {
     return applyDistanceTangency(code, spec.distanceTangency);
+  }
+  if (spec.dimensionLabel) {
+    return DimensionLabel.apply(code, spec.dimensionLabel);
   }
   if (spec.sketchSplit) {
     const { newCode, error } = await SketchSplit.apply(code, spec.sketchSplit);

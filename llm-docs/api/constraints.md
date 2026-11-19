@@ -87,6 +87,20 @@ circumference** by default; chain `.max()` to dimension the far side
 (`.min()` restates the default). For a center distance, dimension the
 center accessor instead: `distance(l, a.center(), v)`.
 
+Every dimension statement (`distance`, `angle`, `radius`, `diameter`,
+`offsetFrom`) also takes `.labelAt(u, v)`: where its value is drawn. It is
+what the sketcher writes when a dimension is placed as it is drawn, or
+dragged afterwards — display only, with no effect on the solve or the
+geometry, in the dimension's own frame so the placement follows the
+geometry ([[api/types/dimension]]). Leave it out when writing a sketch: the
+automatic layout places every value. Keep it on a statement that already
+has one when you edit that statement.
+
+```ts
+distance(a, b, 100).labelAt(0, -12)   // dimension line 12 below the span
+radius(c, 8).labelAt(10, 10)          // value up and right of the center
+```
+
 `offsetFrom` is what the Offset tool writes: the offset curves are real
 `line`/`arc`/`circle` statements (their literals are guesses) and this one
 statement holds each at the distance from the source it follows. The value

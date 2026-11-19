@@ -6,7 +6,7 @@ import {
   type PackageInstallResult,
 } from './package-installer.ts';
 import { PackageName } from './package-name.ts';
-import { PackagePinError, PackagePins, type PinnedPackage } from './package-pins.ts';
+import { PackagePinError, PackagePins, type PinnedPackage, type PinOptions } from './package-pins.ts';
 import { PackageRoots, type PackageLocation, type PackageTarget } from './package-roots.ts';
 import { Semver } from './semver.ts';
 import { TreeHash } from './tree-hash.ts';
@@ -142,14 +142,16 @@ export class ProjectPackages {
    * Pin an installed package into `project` (`@scope/name`, or
    * `@scope/name@version`), and with `copy` copy it from the library into
    * the project too. Without a version it takes the version the project
-   * already pins, else the newest one installed.
+   * already pins, else the newest one installed. `upgrade` lets the pin move
+   * up to an exact version asked for (`PinOptions`).
    */
-  static async useInstalled(spec: string, project: string, options: { copy?: boolean } = {}): Promise<UseInstalledOutcome> {
-    const { name, version, location, integrity } = await ProjectPackages.planInstalled(spec, project);
+  static async useInstalled(spec: string, project: string, options: { copy?: boolean } & PinOptions = {}): Promise<UseInstalledOutcome> {
+    const pinOptions: PinOptions = { upgrade: options.upgrade };
+    const { name, version, location, integrity } = await ProjectPackages.planInstalled(spec, project, pinOptions);
     const copied = options.copy && location.target === 'library'
       ? await PackageInstaller.copy(name, version, 'project', project)
       : null;
-    const pin = PackagePins.pin(project, name, version, integrity);
+    const pin = PackagePins.pin(project, name, version, integrity, pinOptions);
     return { location: copied ?? location, integrity, pin, copied };
   }
 
@@ -162,7 +164,7 @@ export class ProjectPackages {
    * preview resolves a library package through in memory, the very pin its
    * Apply writes.
    */
-  static async planInstalled(spec: string, project: string): Promise<InstalledPlan> {
+  static async planInstalled(spec: string, project: string, options: PinOptions = {}): Promise<InstalledPlan> {
     const { name, version: asked } = ProjectPackages.parseSpec(spec);
     if (!PackagePins.isProject(project)) {
       throw new PackagePinError('not-a-project', `${project} is not a FluidCAD project (no fluidcad.json or init.js), so nothing can be pinned there.`);
@@ -173,7 +175,7 @@ export class ProjectPackages {
       throw new PackageInstallError('not-installed', ProjectPackages.notInstalledSentence(name, asked));
     }
     const integrity = await TreeHash.ofDirectory(location.directory);
-    const pin = PackagePins.check(project, name, version, integrity);
+    const pin = PackagePins.check(project, name, version, integrity, options);
     return { name, version, location, integrity, pin };
   }
 

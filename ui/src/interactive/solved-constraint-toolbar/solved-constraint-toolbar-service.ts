@@ -1,11 +1,11 @@
 // Logic behind the solved constraint bar (sketch-rewrite P4): ordered picks
 // (from the shared hover/select handler) → legality → statement emission via
-// /api/sketch/add-constraint; the two-pick dimension flow with a value
-// input; delete of a picked constraint statement; and the live ghost — a
-// client-side solve previewing the candidate constraint before anything is
-// written.
+// /api/sketch/add-constraint; the dimension flow — the new dimension rides
+// the cursor until a click places it, then takes its value; delete of a
+// picked constraint statement; and the live ghost — a client-side solve
+// previewing the candidate constraint before anything is written.
 
-import { BufferGeometry, Float32BufferAttribute, Group, Line, LineBasicMaterial } from 'three';
+import { Group } from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -14,22 +14,20 @@ import { SceneObjectRender, SourceLocation } from '../../types';
 import { applySketchConstraint, insertSolvedGeometry, removeFeature } from '../../api';
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { themeColors } from '../../scene/theme-colors';
+import { roundToUnitDecimals } from '../../units/units';
+import { sceneUnit } from '../../units/scene-unit';
 import { localToWorld, projectToSketch, sketchToClient } from '../sketch-plane-utils';
-import {
-  ANGLE_ARC_PX_RADIUS,
-  buildAngleArc,
-  buildAngleExtensions,
-  buildDimensionReadout,
-} from '../../meshes/containers/solved-constraint-meshes';
-import { buildDimensionArrows } from '../../meshes/containers/dimension-arrows';
+import { DimensionLabelPlacer } from '../dimension-label-placer';
+import { dimensionLabelBox } from '../../meshes/containers/solved-constraint-meshes';
 import type { SketchHoverSelectHandler, SolvedPick } from '../sketch-hover-select-handler';
-import type { ArrowEnds, SolvedConstraintView } from '../../sketch-solver-client';
-import { angleLabelPlacement } from '../../sketch-solver-client';
-import type { AngleLabelPlacement } from '../../sketch-solver-client';
+import type { LabelCoords, SolvedConstraintView } from '../../sketch-solver-client';
 import {
   LiveSolvedSystem,
   SolvedSketchModel,
   buildSolvedSketchModel,
+  dimensionFrame,
+  dimensionLabelText,
+  layoutConstraintGlyphs,
   tessellateSolvedEntity,
 } from '../../sketch-solver-client';
 import { LineResolutionRegistry } from '../../meshes/shape-meshes/line-resolution';
@@ -42,7 +40,7 @@ import type { DeletePlan } from '../tools/delete-plan';
 import {
   ConstraintButtonId,
   DimensionForm,
-  DimensionPreviewLayout,
+  axisChoiceMoot,
   axisDimensionPicks,
   axisFromCursor,
   candidateSpec,
@@ -50,9 +48,8 @@ import {
   coincidentsAtPicks,
   constraintOptions,
   describeCoincidentRemoval,
+  dimensionCandidate,
   dimensionFormFor,
-  dimensionPreviewLayout,
-  distancePlacementMoot,
   expandDimensionPicks,
   inferTangency,
   isPointPick,
@@ -69,39 +66,61 @@ import {
   angleSectorTargets,
 } from './angle-sector';
 import { constraintTargetFor, sameStatementInstance } from './constraint-targets';
+import { DimensionPreview } from './dimension-preview';
 
 const GHOST_OPACITY = 0.45;
 /** Entities whose params moved more than this ghost-preview. */
 const GHOST_EPS = 1e-6;
-/** = the committed leader's LEADER_OPACITY (solved-constraint-meshes). */
-const PREVIEW_LEADER_OPACITY = 0.45;
-/** Live sector preview during angle placement (label included). */
-const PLACEMENT_OPACITY = 0.65;
-/** Pixel offset from the arc center to the value input — the committed
- * glyph's label radius ((ANGLE_ARC_RADIUS + textSize) in arc px). */
-const ANGLE_INPUT_OFFSET_PX = 46;
-/** The value input's half extents, standing in for the label box when the
- * adaptive angle placement positions it (see angleLabelPlacement). */
-const ANGLE_INPUT_HALF_WIDTH_PX = 60;
-const ANGLE_INPUT_HALF_HEIGHT_PX = 16;
 /** Below this pointer travel a mousedown+up pair reads as a click (the
  * drag handlers' shared threshold) — placement commits, orbits pass. */
 const CLICK_THRESHOLD_PX = 4;
+/** The value input's half extents when it opens centered on a placed value —
+ * how far its point has to stay inside the viewport for the field to fit. */
+const CENTERED_INPUT_HALF_WIDTH_PX = 90;
+const CENTERED_INPUT_HALF_HEIGHT_PX = 20;
+
+/** A key that starts typing a dimension's value (or, for Enter, asks for
+ * the field): pressed while a dimension is still under the cursor it skips
+ * the placing click. */
+const VALUE_START_KEY = /^([0-9.\-]|Enter)$/;
+
+const ANGLE_FORM: DimensionForm = { kind: 'angle', axisChoice: false, tangencyChoice: false };
+
+/**
+ * A dimension on its way to being placed: its value rides the cursor, its
+ * dimension line, leader or arc trailing behind, until a click drops it.
+ * Where the cursor is also picks WHAT is measured when the picks leave that
+ * open — the horizontal, vertical or aligned measure of a point pair, the
+ * sector of two crossing lines.
+ */
+type DimensionPlacement = {
+  id: 'dimension' | 'angle';
+  /** The picks as they were made — a click on more geometry extends these. */
+  source: SolvedPick[];
+  /** The picks the statement names (a lone line is its endpoint pair) — the
+   * aligned form measures and emits these. */
+  rawPicks: SolvedPick[];
+  /** The point pair the horizontal / vertical forms measure and emit (a
+   * circle or arc stands in by its center); null when the picks have no
+   * such forms. */
+  axisPicks: [SolvedPick, SolvedPick] | null;
+  form: DimensionForm;
+  /** Distance: the axis the cursor's region selects. Ellipse radius: the
+   * semi-axis the pick touched. */
+  axis: 'x' | 'y' | undefined;
+  /** Angle: the sector under the cursor. */
+  sector: AngleSector | null;
+  /** Where the value is asked to be, sketch-local; null until the pointer
+   * is over the sketch — the dimension then shows where the automatic
+   * layout puts it. */
+  cursor: Vec2 | null;
+  /** The placement the preview shows — what a click locks in; null while
+   * the automatic layout is shown. */
+  label: LabelCoords | null;
+};
 
 function picksKey(picks: SolvedPick[]): string {
   return picks.map(p => `${p.entityId}:${p.role ?? 'entity'}`).join('|');
-}
-
-/** The value input's spot on an angle preview — the committed readout's
- * adaptive placement with the input's box standing in for the label's, so
- * a thin wedge pushes the input out (or beside the arc) instead of parking
- * it on both rays at once. */
-function angleInputPlacement(arc: { startAngle: number; sweep: number }): AngleLabelPlacement {
-  return angleLabelPlacement(
-    arc.startAngle, arc.sweep,
-    ANGLE_INPUT_HALF_WIDTH_PX, ANGLE_INPUT_HALF_HEIGHT_PX,
-    ANGLE_INPUT_OFFSET_PX, ANGLE_ARC_PX_RADIUS,
-  );
 }
 
 export class SolvedConstraintToolbarService {
@@ -119,9 +138,8 @@ export class SolvedConstraintToolbarService {
   private handler: SketchHoverSelectHandler | null = null;
   private ghostGroup: Group | null = null;
   /** The dimension the open value input is creating — drives the preview
-   * leader line and survives re-renders (picks are entityId:role keyed).
-   * Angles carry their locked sector (roles are stable; geometry
-   * re-anchors). */
+   * and survives re-renders (picks are entityId:role keyed). Angles carry
+   * their locked sector (roles are stable; geometry re-anchors). */
   private pendingDimension: {
     picks: SolvedPick[];
     form: DimensionForm;
@@ -133,34 +151,23 @@ export class SolvedConstraintToolbarService {
     /** Identity of the ORIGINAL picks (pre center-substitution) — the
      * armed flow's retarget test keys on it. */
     rawKey?: string;
+    /** Where the dimension was placed, in its own frame — the commit writes
+     * it as `.labelAt()`. Absent for a dimension with nowhere to place a
+     * value, which opens on the automatic layout. */
+    label?: LabelCoords;
   } | null = null;
-  private previewGroup: Group | null = null;
-  /** Interactive angle placement (FreeCAD-style): the sector under the
-   * cursor previews live; a click locks it and opens the value input. */
-  private anglePlacement: {
-    picks: [SolvedPick, SolvedPick];
-    sector: AngleSector;
-    lastCursor: [number, number] | null;
-  } | null = null;
-  /** Interactive distance placement: the cursor's smart-dimension region
-   * picks the form — within the pair's x-range above/below → horizontal,
-   * within the y-range beside → vertical, else aligned — and a click locks
-   * it and opens the value input (mirrors the angle placement). */
-  private distancePlacement: {
-    /** Expanded original picks — the aligned region measures/emits these. */
-    rawPicks: SolvedPick[];
-    /** Center-substituted point pair — the axis regions measure/emit these. */
-    axisPicks: [SolvedPick, SolvedPick];
-    form: DimensionForm;
-    axis: 'x' | 'y' | undefined;
-  } | null = null;
-  private placementGroup: Group | null = null;
-  private placementTexture: { dispose(): void } | null = null;
+  private placement: DimensionPlacement | null = null;
   private placementDown: { x: number; y: number; onCanvas: boolean } | null = null;
+  /** The dimension being created, drawn the way the sketch will draw it. */
+  private preview: DimensionPreview;
+  private placer: DimensionLabelPlacer;
+  /** Where the pointer is over the canvas, client px; null while it is
+   * anywhere else. A placement that starts with the pointer on the sketch
+   * (the armed tool's last pick, the D key) begins under it. */
+  private pointer: { x: number; y: number } | null = null;
   private cachedVariables: VariableInfo[] = [];
   private boundKeyDown: (e: KeyboardEvent) => void;
-  private boundPlacementMove: (e: MouseEvent) => void;
-  private boundDistanceMove: (e: MouseEvent) => void;
+  private boundPointerMove: (e: MouseEvent) => void;
   private boundPlacementDown: (e: MouseEvent) => void;
   private boundPlacementUp: (e: MouseEvent) => void;
 
@@ -175,6 +182,8 @@ export class SolvedConstraintToolbarService {
   ) {
     this.view = new SolvedConstraintToolbar(container);
     this.valueInput = new ExpressionInput(container);
+    this.preview = new DimensionPreview(ctx);
+    this.placer = new DimensionLabelPlacer(ctx);
     this.view.onApply = (id) => void this.apply(id);
     // The chords live on the sketch-mode manager the drawing tools use, so
     // the two vocabularies cannot collide; each exists only while its button
@@ -187,8 +196,7 @@ export class SolvedConstraintToolbarService {
     this.view.onDelete = () => this.deletePicked();
     this.view.onHoverButton = (id) => this.updateGhost(id);
     this.boundKeyDown = this.handleKeyDown.bind(this);
-    this.boundPlacementMove = this.handlePlacementMove.bind(this);
-    this.boundDistanceMove = this.handleDistanceMove.bind(this);
+    this.boundPointerMove = this.handlePointerMove.bind(this);
     this.boundPlacementDown = this.handlePlacementDown.bind(this);
     this.boundPlacementUp = this.handlePlacementUp.bind(this);
   }
@@ -197,6 +205,7 @@ export class SolvedConstraintToolbarService {
     if (!this.view.isVisible) {
       this.view.show();
       window.addEventListener('keydown', this.boundKeyDown);
+      window.addEventListener('mousemove', this.boundPointerMove);
       void this.fetchVariables().then((variables) => {
         this.cachedVariables = variables;
         // A dimension typed before the read landed completes with it.
@@ -210,13 +219,14 @@ export class SolvedConstraintToolbarService {
   hide(): void {
     if (this.view.isVisible) {
       window.removeEventListener('keydown', this.boundKeyDown);
+      window.removeEventListener('mousemove', this.boundPointerMove);
     }
     this.view.hide();
     this.valueInput.hide();
     this.clearGhost();
+    this.cancelPlacement();
     this.clearDimensionPreview();
-    this.cancelAnglePlacement();
-    this.cancelDistancePlacement();
+    this.pointer = null;
     this.dimensionArmed = false;
     this.pickedConstraint = null;
     this.vertexCoincidents = [];
@@ -252,73 +262,44 @@ export class SolvedConstraintToolbarService {
         : null;
     }
     this.refreshPendingDimension();
-    this.refreshAnglePlacement();
-    this.refreshDistancePlacement();
+    this.refreshPlacement();
     this.refreshPicks(handler);
   }
 
-  /** A re-render landed during distance placement: redraw the preview
-   * against the fresh model (picks are entityId:role keyed — stable).
-   * Geometry gone ⇒ drawDistancePreview cancels itself. */
-  private refreshDistancePlacement(): void {
-    if (this.distancePlacement) {
-      this.drawDistancePreview();
-    }
-  }
-
-  /** A re-render landed during angle placement: re-anchor the sector
-   * preview against the fresh model (roles are the stable identity).
-   * Geometry gone ⇒ cancel. */
-  private refreshAnglePlacement(): void {
-    const p = this.anglePlacement;
-    const model = this.model;
-    if (!p) {
-      return;
-    }
-    const sector = model
-      ? angleSectorFor(model, p.picks[0], p.picks[1], p.sector.aRole, p.sector.bRole)
-      : null;
-    if (!sector || !sector.at) {
-      this.cancelAnglePlacement();
-      return;
-    }
-    p.sector = sector;
-    this.drawPlacementPreview(sector);
-  }
-
   /** A re-render landed while the value input is open: re-anchor the
-   * preview line and the input to the new model, and refresh the measured
-   * seed (updateValue respects typed text). Geometry gone ⇒ close. */
+   * preview and the input to the new model, and refresh the measured seed
+   * (updateValue respects typed text). The placement is in the dimension's
+   * own frame, so it follows the geometry. Geometry gone ⇒ close. */
   private refreshPendingDimension(): void {
-    if (!this.pendingDimension || !this.valueInput.isVisible) {
+    const pending = this.pendingDimension;
+    if (!pending || !this.valueInput.isVisible) {
       return;
     }
-    const { picks, form } = this.pendingDimension;
     const model = this.model;
     // Re-derive a locked angle sector against the fresh geometry (the roles
     // are its stable identity) and store it back: the commit reads the
     // stored sector, whose emission ORDER can legitimately flip when the
     // moving geometry carries the turn across 180°.
-    let sector = this.pendingDimension.sector;
-    if (sector && model) {
-      sector = angleSectorFor(model, picks[0], picks[1], sector.aRole, sector.bRole);
-      this.pendingDimension.sector = sector;
-      if (!sector) {
+    if (pending.sector && model) {
+      pending.sector = angleSectorFor(
+        model, pending.picks[0], pending.picks[1], pending.sector.aRole, pending.sector.bRole,
+      );
+      if (!pending.sector) {
         this.valueInput.hide();
         return;
       }
     }
-    const { tangency, axis } = this.pendingDimension;
-    const measured = model ? measureDimension(model, picks, form, axis, sector, tangency) : null;
-    if (!model || measured === null) {
+    const candidate = model
+      ? dimensionCandidate(model, pending.picks, pending.form, pending.axis, pending.sector, pending.tangency)
+      : null;
+    if (!model || !candidate || candidate.value === undefined) {
       this.valueInput.hide();
       return;
     }
-    const layout = dimensionPreviewLayout(model, picks, form, axis, sector, tangency);
-    this.drawDimensionPreview(layout);
-    const pos = this.inputPosition(model, layout);
-    this.valueInput.updatePosition(pos.clientX, pos.clientY);
-    this.valueInput.updateValue(measured);
+    this.drawPendingDimension(model, candidate, pending.label);
+    const at = this.inputPosition(model, candidate, pending.label);
+    this.valueInput.updatePosition(at.clientX, at.clientY);
+    this.valueInput.updateValue(candidate.value);
   }
 
   /** The shared selection changed under a click — recompute the pick list
@@ -338,10 +319,10 @@ export class SolvedConstraintToolbarService {
     this.vertexCoincidents = this.model ? coincidentsAtPicks(this.model, this.picks) : [];
     this.refreshDelete();
     // The armed dimension tool fires as soon as the picks form a legal
-    // dimension — the second pick opens the value input (locked plan §0.4).
-    // A further pick while the input is open RE-TARGETS it (a lone line's
-    // length upgrades to line–line when the second line lands), unless the
-    // user already typed a value.
+    // dimension — the pick that completes one puts it under the cursor to
+    // be placed (locked plan §0.4). A further pick while the input is open
+    // RE-TARGETS it (a lone line's length upgrades to line–line when the
+    // second line lands), unless the user already typed a value.
     if (this.dimensionArmed) {
       const picks = this.armedDimensionPicks();
       if (!picks) {
@@ -350,8 +331,8 @@ export class SolvedConstraintToolbarService {
       const key = picksKey(expandDimensionPicks(picks));
       // An active placement on the same picks stays as-is (re-renders and
       // selection echoes must not reset the cursor-chosen form).
-      const placing = this.distancePlacement !== null
-        && picksKey(this.distancePlacement.rawPicks) === key;
+      const placing = this.placement !== null
+        && picksKey(this.placement.rawPicks) === key;
       const retarget = this.valueInput.isVisible
         && !this.valueInput.isTyping
         && key !== (this.pendingDimension?.rawKey ?? '');
@@ -361,21 +342,12 @@ export class SolvedConstraintToolbarService {
     }
   }
 
-  /** Route a legal dimension pick set to its flow: axis-capable distances
-   * (point pairs, a lone line's length, circle/arc pairs and point–round
-   * via their centers) go through cursor placement — the mouse position
-   * picks aligned vs horizontal vs vertical before the value input opens;
-   * everything else opens the input directly. */
+  /** A legal dimension pick set goes under the cursor to be placed. */
   private beginDimension(picks: SolvedPick[]): void {
     const form = dimensionFormFor(picks);
-    if (!form) {
-      return;
+    if (form) {
+      this.startPlacement('dimension', picks, form);
     }
-    if (form.kind === 'distance' && form.axisChoice) {
-      this.startDistancePlacement(picks, form);
-      return;
-    }
-    this.openValueInput('dimension', picks);
   }
 
   /** The pick set the armed dimension tool dimensions: the full set when it
@@ -453,12 +425,8 @@ export class SolvedConstraintToolbarService {
       this.valueInput.hide();
       return true;
     }
-    if (this.anglePlacement) {
-      this.cancelAnglePlacement();
-      return true;
-    }
-    if (this.distancePlacement) {
-      this.cancelDistancePlacement();
+    if (this.placement) {
+      this.cancelPlacement();
       return true;
     }
     if (this.dimensionArmed) {
@@ -469,16 +437,28 @@ export class SolvedConstraintToolbarService {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
-    if (e.key !== 'Delete' && e.key !== 'Backspace' && e.key !== 'Escape') {
+    const startsValue = this.placement !== null && VALUE_START_KEY.test(e.key)
+      && !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (!startsValue && e.key !== 'Delete' && e.key !== 'Backspace' && e.key !== 'Escape') {
       return;
     }
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
       return;
     }
+    if (startsValue) {
+      // The value input takes the focus inside this keydown, so the
+      // character it types lands in the field, over the selected measure.
+      // Enter only opens the field: the measured value is still to confirm.
+      if (e.key === 'Enter') {
+        e.preventDefault();
+      }
+      this.typeThroughPlacement();
+      return;
+    }
     // The drawing-tool Esc ladder (sketch-toolbar) only fires while a
-    // drawing tool is armed — the solved flows (angle placement, armed
-    // dimension, open value input) own their Escape here.
+    // drawing tool is armed — the solved flows (a dimension being placed,
+    // armed dimension, open value input) own their Escape here.
     if (e.key === 'Escape') {
       if (this.handleEscape()) {
         e.preventDefault();
@@ -497,73 +477,193 @@ export class SolvedConstraintToolbarService {
     this.view.setDimensionArmed(armed);
   }
 
-  // -- interactive angle placement -------------------------------------------
+  // -- placing a dimension as it is drawn -------------------------------------
 
-  /** ∠ on two picked lines: preview the sector under the cursor (arc +
-   * live readout at the intersection, FreeCAD-style); a click locks the
-   * sector and opens the value input there. Near-parallel lines have no
-   * sectors to choose — skip straight to the input on the default sector. */
-  private startAnglePlacement(): void {
+  /**
+   * Put the dimension `picks` make under the cursor: its value follows the
+   * pointer and its dimension line, leader or arc trails along, drawn as the
+   * committed dimension will be. A click drops it there and opens the value
+   * input on the spot. Typing a value instead skips the placing: the input
+   * opens on the automatic layout, and no placement is written. Until the
+   * pointer reaches the sketch (the bar's button was clicked) the automatic
+   * layout is what shows. A dimension with nowhere to place a value (lines
+   * too near parallel to meet, a span of no length) skips straight to the
+   * input.
+   */
+  private startPlacement(id: 'dimension' | 'angle', picks: SolvedPick[], form: DimensionForm): void {
     const model = this.model;
-    if (!model || this.picks.length !== 2) {
+    if (!model) {
       return;
     }
     this.valueInput.hide();
-    const [a, b] = this.picks;
-    const sector = angleSectorAt(model, a, b, null);
-    if (!sector) {
-      return;
-    }
-    if (!sector.at) {
-      this.openValueInput('angle', [a, b], sector);
-      return;
-    }
-    this.anglePlacement = { picks: [a, b], sector, lastCursor: null };
-    this.drawPlacementPreview(sector);
-    this.ctx.renderer.domElement.addEventListener('mousemove', this.boundPlacementMove);
-    // Capture-phase on window: the commit click must not reach the hover
-    // handler's selection toggle; >4px travels (orbits) pass through.
+    this.cancelPlacement();
+    const rawPicks = id === 'dimension' ? expandDimensionPicks(picks) : [...picks];
+    // A lone ellipse dimensions ONE semi-radius: the axis its touch is
+    // nearer to (RX at the ends of the RX axis, RY at the ends of RY).
+    const ellipse = form.kind === 'radius' && rawPicks.length === 1 && rawPicks[0].kind === 'ellipse';
+    this.placement = {
+      id,
+      source: picks,
+      rawPicks,
+      axisPicks: this.axisPicksFor(model, picks, rawPicks, form),
+      form,
+      axis: ellipse ? ellipseRadiusAxis(model, rawPicks[0]) : undefined,
+      sector: null,
+      cursor: this.pointerOnSketch(model),
+      label: null,
+    };
+    // Capture-phase on window: the click that places must not reach the
+    // hover handler's selection toggle; >4px travels (orbits) pass through.
     window.addEventListener('mousedown', this.boundPlacementDown, true);
     window.addEventListener('mouseup', this.boundPlacementUp, true);
+    this.refreshPlacement();
   }
 
-  private cancelAnglePlacement(): void {
-    if (!this.anglePlacement) {
+  /**
+   * The point pair the cursor can measure horizontally or vertically, or
+   * null when the picks offer the aligned measure alone: no axis form at
+   * all, or a pair already lying along an axis — the one axis the cursor
+   * could pick measures what the aligned form measures.
+   */
+  private axisPicksFor(
+    model: SolvedSketchModel,
+    picks: SolvedPick[],
+    rawPicks: SolvedPick[],
+    form: DimensionForm,
+  ): [SolvedPick, SolvedPick] | null {
+    const axisPicks = form.kind === 'distance' && form.axisChoice ? axisDimensionPicks(picks) : null;
+    if (!axisPicks) {
+      return null;
+    }
+    const a = refPoint(model, pickRef(axisPicks[0]));
+    const b = refPoint(model, pickRef(axisPicks[1]));
+    return a && b && axisChoiceMoot(rawPicks, a, b) ? null : axisPicks;
+  }
+
+  private cancelPlacement(): void {
+    if (!this.placement) {
       return;
     }
-    this.anglePlacement = null;
+    this.placement = null;
     this.placementDown = null;
-    this.ctx.renderer.domElement.removeEventListener('mousemove', this.boundPlacementMove);
     window.removeEventListener('mousedown', this.boundPlacementDown, true);
     window.removeEventListener('mouseup', this.boundPlacementUp, true);
-    this.removePlacementPreview();
+    this.preview.clear();
   }
 
-  private handlePlacementMove(e: MouseEvent): void {
-    const p = this.anglePlacement;
+  /** The picks the placement's current form measures and emits. */
+  private placementPicks(p: DimensionPlacement): SolvedPick[] {
+    return p.axis !== undefined && p.axisPicks ? p.axisPicks : p.rawPicks;
+  }
+
+  /** The pointer on the sketch plane; null while it is off the canvas. */
+  private pointerOnSketch(model: SolvedSketchModel): Vec2 | null {
+    return this.pointer
+      ? projectToSketch(this.ctx, model.plane, this.pointer.x, this.pointer.y)
+      : null;
+  }
+
+  /**
+   * A value was typed while the dimension was still under the cursor: skip
+   * the placing click. What is measured stays what the preview showed (the
+   * cursor's form or sector); where its value goes is left to the automatic
+   * layout — a spot the cursor merely happened to be at is not a placement
+   * worth writing into the statement.
+   */
+  private typeThroughPlacement(): void {
+    const p = this.placement;
+    if (!p) {
+      return;
+    }
+    const picks = this.placementPicks(p);
+    this.cancelPlacement();
+    this.openValueInput(p.id, picks, p.sector, p.axis, picksKey(p.rawPicks));
+  }
+
+  /**
+   * Redraw the dimension being placed — the cursor moved, or a re-render
+   * brought a fresh model (picks are entityId:role keyed — stable). Returns
+   * whether it is still being placed: geometry that is gone cancels it, and
+   * a dimension with nowhere to place a value hands over to the value input.
+   */
+  private refreshPlacement(): boolean {
+    const p = this.placement;
+    if (!p) {
+      return false;
+    }
+    const outcome = this.drawPlacement(p);
+    if (outcome === 'placing') {
+      return true;
+    }
+    this.cancelPlacement();
+    if (outcome === 'unplaceable') {
+      this.openValueInput(p.id, this.placementPicks(p), p.sector, p.axis, picksKey(p.rawPicks));
+    }
+    return false;
+  }
+
+  private drawPlacement(p: DimensionPlacement): 'placing' | 'unplaceable' | 'gone' {
     const model = this.model;
-    if (!p || !model) {
+    if (!model) {
+      return 'gone';
+    }
+    if (p.id === 'angle') {
+      // Two crossing lines bound four sectors — the cursor's is dimensioned.
+      p.sector = angleSectorAt(model, p.rawPicks[0], p.rawPicks[1], p.cursor);
+      if (!p.sector) {
+        return 'gone';
+      }
+    } else if (p.axisPicks) {
+      // The smart-dimension regions around the measured pair: above or
+      // below it the horizontal measure, beside it the vertical one, inside
+      // or diagonal the aligned one.
+      const a = refPoint(model, pickRef(p.axisPicks[0]));
+      const b = refPoint(model, pickRef(p.axisPicks[1]));
+      p.axis = p.cursor && a && b ? axisFromCursor(a, b, p.cursor) : undefined;
+    }
+    const picks = this.placementPicks(p);
+    // Axis forms measure center-to-center — no tangency side exists.
+    const tangency = p.axis !== undefined ? undefined : inferTangency(model, picks, p.form);
+    const candidate = dimensionCandidate(model, picks, p.form, p.axis, p.sector, tangency);
+    if (!candidate) {
+      return 'gone';
+    }
+    const frame = dimensionFrame(model, candidate);
+    if (!frame) {
+      return 'unplaceable';
+    }
+    p.label = p.cursor
+      ? this.placer.coordsFor(
+        model.plane, frame, p.cursor, dimensionLabelBox(dimensionLabelText(model, candidate)),
+      )
+      : null;
+    this.preview.show(
+      model,
+      p.label ? { ...candidate, label: p.label } : candidate,
+      { value: true, inHand: p.label !== null },
+    );
+    return 'placing';
+  }
+
+  private handlePointerMove(e: MouseEvent): void {
+    // Only the canvas carries the value: over the bar or a panel the
+    // pointer is not on the sketch, whatever the plane behind it says.
+    const onCanvas = e.target === this.ctx.renderer.domElement;
+    this.pointer = onCanvas ? { x: e.clientX, y: e.clientY } : null;
+    const p = this.placement;
+    const model = this.model;
+    if (!p || !model || !onCanvas) {
       return;
     }
     const cursor = projectToSketch(this.ctx, model.plane, e.clientX, e.clientY);
-    if (!cursor) {
-      return;
-    }
-    p.lastCursor = cursor;
-    const sector = angleSectorAt(model, p.picks[0], p.picks[1], cursor);
-    if (!sector || !sector.at) {
-      return;
-    }
-    // Geometry is static during placement — only a sector CHANGE redraws.
-    const changed = sector.aRole !== p.sector.aRole || sector.bRole !== p.sector.bRole;
-    p.sector = sector;
-    if (changed) {
-      this.drawPlacementPreview(sector);
+    if (cursor) {
+      p.cursor = cursor;
+      this.refreshPlacement();
     }
   }
 
   private handlePlacementDown(e: MouseEvent): void {
-    if (!this.anglePlacement && !this.distancePlacement) {
+    if (!this.placement) {
       return;
     }
     this.placementDown = {
@@ -576,215 +676,71 @@ export class SolvedConstraintToolbarService {
   private handlePlacementUp(e: MouseEvent): void {
     const down = this.placementDown;
     this.placementDown = null;
-    if ((!this.anglePlacement && !this.distancePlacement) || !down || !down.onCanvas) {
+    const p = this.placement;
+    if (!p || !down || !down.onCanvas) {
       return;
     }
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_THRESHOLD_PX) {
       return;
     }
+    if (this.clickExtendsPicks(p)) {
+      // The click is a pick: the selection takes it, and the armed tool
+      // re-targets the dimension from the new pick set.
+      return;
+    }
     e.stopPropagation();
     e.preventDefault();
-    if (this.anglePlacement) {
-      const { picks, sector } = this.anglePlacement;
-      this.cancelAnglePlacement();
-      this.openValueInput('angle', picks, sector);
-      return;
-    }
-    const d = this.distancePlacement!;
-    const picks = d.axis !== undefined ? d.axisPicks : d.rawPicks;
-    const rawKey = picksKey(d.rawPicks);
-    const axis = d.axis;
-    this.cancelDistancePlacement();
-    this.openValueInput('dimension', picks, null, axis, rawKey);
-  }
-
-  private drawPlacementPreview(sector: AngleSector): void {
-    this.removePlacementPreview();
+    // The click IS the placement: the value lands exactly under it, even
+    // when no move event brought the cursor there first.
     const model = this.model;
-    if (!model || !sector.at) {
-      return;
+    const cursor = model ? projectToSketch(this.ctx, model.plane, e.clientX, e.clientY) : null;
+    if (cursor) {
+      p.cursor = cursor;
+      if (!this.refreshPlacement()) {
+        return;
+      }
     }
-    const visual = buildAngleArc(
-      sector.at,
-      sector.startAngle,
-      sector.sweep,
-      `${sector.valueDeg}°`,
-      model.plane,
-      model.plane.normal,
-      themeColors.constraintColor,
-      PLACEMENT_OPACITY,
-      sector.tails,
-    );
-    // World-scale dashed extensions ride OUTSIDE the screen-scaled arc
-    // group — a plain wrapper keeps one handle for add/dispose.
-    const wrapper = new Group();
-    wrapper.userData.isMetaShape = true;
-    wrapper.add(visual.group);
-    const ext = buildAngleExtensions(
-      sector.extensions, model.plane, themeColors.constraintColor, PLACEMENT_OPACITY,
-    );
-    if (ext) {
-      wrapper.add(ext);
-    }
-    this.ctx.scene.add(wrapper);
-    this.placementGroup = wrapper;
-    this.placementTexture = visual.ownedTexture;
-    this.ctx.requestRender();
+    const picks = this.placementPicks(p);
+    const { id, sector, axis, label } = p;
+    const rawKey = picksKey(p.rawPicks);
+    this.cancelPlacement();
+    this.openValueInput(id, picks, sector, axis, rawKey, label ?? undefined);
   }
 
-  private removePlacementPreview(): void {
-    if (!this.placementGroup) {
-      return;
+  /**
+   * Does a click right now add a pick instead of dropping the dimension?
+   * Only while the armed tool is placing a ONE-pick dimension (a line's
+   * length, a circle's diameter, an arc's radius) and the cursor is on
+   * geometry that makes a two-pick dimension with it: the line's length
+   * becomes the distance to the second line. A dimension that already has
+   * its two picks is complete — every click places it, wherever it lands.
+   */
+  private clickExtendsPicks(p: DimensionPlacement): boolean {
+    if (!this.dimensionArmed || p.id !== 'dimension' || p.source.length !== 1) {
+      return false;
     }
-    this.ctx.scene.remove(this.placementGroup);
-    this.placementGroup.traverse((child) => {
-      const mesh = child as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
-      mesh.geometry?.dispose?.();
-      mesh.material?.dispose?.();
-    });
-    this.placementTexture?.dispose();
-    this.placementTexture = null;
-    this.placementGroup = null;
-    this.ctx.requestRender();
-  }
-
-  // -- interactive distance placement -----------------------------------------
-
-  /** Axis-capable distance picks: preview the form the cursor's region
-   * selects (aligned / horizontal / vertical, with a live readout); a click
-   * locks it and opens the value input. Picks without an axis form fall
-   * back to the direct input. */
-  private startDistancePlacement(dimPicks: SolvedPick[], form: DimensionForm): void {
-    const axisPicks = axisDimensionPicks(dimPicks);
-    if (!this.model || !axisPicks) {
-      this.openValueInput('dimension', dimPicks);
-      return;
-    }
-    // An axis-aligned point pair has no placement choice — the one axis the
-    // cursor could pick measures what the aligned form measures. Straight
-    // to the value input.
-    const rawPicks = expandDimensionPicks(dimPicks);
-    const a = refPoint(this.model, pickRef(axisPicks[0]));
-    const b = refPoint(this.model, pickRef(axisPicks[1]));
-    if (a && b && distancePlacementMoot(rawPicks, a, b)) {
-      this.openValueInput('dimension', dimPicks);
-      return;
-    }
-    this.valueInput.hide();
-    this.cancelDistancePlacement();
-    this.distancePlacement = {
-      rawPicks,
-      axisPicks,
-      form,
-      axis: undefined,
-    };
-    this.drawDistancePreview();
-    if (!this.distancePlacement) {
-      // The preview couldn't resolve its anchors — drawDistancePreview
-      // cancelled the placement (listeners were never installed).
-      return;
-    }
-    this.ctx.renderer.domElement.addEventListener('mousemove', this.boundDistanceMove);
-    // Capture-phase on window, like the angle placement: the commit click
-    // must not reach the hover handler's selection toggle.
-    window.addEventListener('mousedown', this.boundPlacementDown, true);
-    window.addEventListener('mouseup', this.boundPlacementUp, true);
-  }
-
-  private cancelDistancePlacement(): void {
-    if (!this.distancePlacement) {
-      return;
-    }
-    this.distancePlacement = null;
-    this.placementDown = null;
-    this.ctx.renderer.domElement.removeEventListener('mousemove', this.boundDistanceMove);
-    window.removeEventListener('mousedown', this.boundPlacementDown, true);
-    window.removeEventListener('mouseup', this.boundPlacementUp, true);
-    this.removePlacementPreview();
-  }
-
-  private handleDistanceMove(e: MouseEvent): void {
-    const p = this.distancePlacement;
-    const model = this.model;
-    if (!p || !model) {
-      return;
-    }
-    const cursor = projectToSketch(this.ctx, model.plane, e.clientX, e.clientY);
-    const a = refPoint(model, pickRef(p.axisPicks[0]));
-    const b = refPoint(model, pickRef(p.axisPicks[1]));
-    if (!cursor || !a || !b) {
-      return;
-    }
-    const axis = axisFromCursor(a, b, cursor);
-    // Geometry is static during placement — only a region CHANGE redraws.
-    if (axis === p.axis) {
-      return;
-    }
-    p.axis = axis;
-    this.drawDistancePreview();
-  }
-
-  /** The leader of the form the current region selects (exactly where the
-   * committed glyph will land) plus a live value readout offset from its
-   * midpoint. Anchors gone (deleted under a re-render) ⇒ cancel. */
-  private drawDistancePreview(): void {
-    this.removePlacementPreview();
-    const p = this.distancePlacement;
-    const model = this.model;
-    if (!p || !model) {
-      return;
-    }
-    const axisForm = p.axis !== undefined;
-    const picks = axisForm ? p.axisPicks : p.rawPicks;
-    const tangency = axisForm ? undefined : inferTangency(model, p.rawPicks, p.form);
-    const measured = measureDimension(model, picks, p.form, p.axis, null, tangency);
-    const layout = dimensionPreviewLayout(model, picks, p.form, p.axis, null, tangency);
-    if (measured === null || !layout?.line) {
-      this.cancelDistancePlacement();
-      return;
-    }
-    const wrapper = new Group();
-    wrapper.userData.isMetaShape = true;
-    wrapper.add(this.buildLeaderGroup(layout.line, model, PLACEMENT_OPACITY, layout.arrows));
-    // Dashed witness extensions to anchors the axis leader doesn't reach.
-    const ext = buildAngleExtensions(
-      layout.extensions ?? [], model.plane, themeColors.constraintColor, PLACEMENT_OPACITY,
-    );
-    if (ext) {
-      wrapper.add(ext);
-    }
-    // Readout offset perpendicular to the leader, like the committed label.
-    const dx = layout.line[1][0] - layout.line[0][0];
-    const dy = layout.line[1][1] - layout.line[0][1];
-    const len = Math.hypot(dx, dy);
-    const offsetDir: Vec2 = len < 1e-9 ? [0, 1] : [-dy / len, dx / len];
-    const label = p.axis === 'x' ? `H ${measured}` : p.axis === 'y' ? `V ${measured}` : String(measured);
-    const readout = buildDimensionReadout(
-      layout.at, label, offsetDir, model.plane, model.plane.normal,
-      themeColors.constraintColor, PLACEMENT_OPACITY,
-    );
-    wrapper.add(readout.group);
-    this.ctx.scene.add(wrapper);
-    this.placementGroup = wrapper;
-    this.placementTexture = readout.ownedTexture;
-    this.ctx.requestRender();
+    const extra = this.handler?.hoverPick() ?? null;
+    return extra !== null && dimensionFormFor([p.source[0], extra]) !== null;
   }
 
   private async apply(id: ConstraintButtonId): Promise<void> {
     if (this.busy || !this.model || !this.sketchInfo) {
       return;
     }
-    this.cancelAnglePlacement();
-    this.cancelDistancePlacement();
+    this.cancelPlacement();
 
     if (id === 'dimension' && !dimensionFormFor(this.picks)) {
-      // Arm the two-pick flow: the next legal pick pair opens the value input.
+      // Arm the two-pick flow: the next legal pick set goes under the cursor.
       this.setDimensionArmed(!this.dimensionArmed);
       return;
     }
 
     if (id === 'angle') {
-      this.startAnglePlacement();
+      // ∠ on two picked lines: the sector under the cursor is dimensioned,
+      // its arc drawn through the cursor.
+      if (this.picks.length === 2) {
+        this.startPlacement('angle', this.picks, ANGLE_FORM);
+      }
       return;
     }
 
@@ -836,20 +792,25 @@ export class SolvedConstraintToolbarService {
     return this.picks;
   }
 
+  /**
+   * Open the value input on a dimension. `label` is where it was placed (in
+   * its own frame): the input opens centered on that spot and the commit
+   * writes the placement with the statement. Without one the dimension sits
+   * where the automatic layout puts it.
+   */
   private openValueInput(
     id: 'dimension' | 'angle',
     dimPicks: SolvedPick[],
     sector?: AngleSector | null,
     axis?: 'x' | 'y',
     rawKey?: string,
+    label?: LabelCoords,
   ): void {
     const model = this.model;
     if (!model) {
       return;
     }
-    const form = id === 'angle'
-      ? { kind: 'angle' as const, axisChoice: false, tangencyChoice: false }
-      : dimensionFormFor(dimPicks);
+    const form = id === 'angle' ? ANGLE_FORM : dimensionFormFor(dimPicks);
     if (!form) {
       return;
     }
@@ -874,23 +835,23 @@ export class SolvedConstraintToolbarService {
     // The timeline row's "Use min/max tangent" flips a committed statement.
     // Axis forms measure center-to-center — no tangency side exists.
     const tangency = axis !== undefined ? undefined : inferTangency(model, picks, form);
-    const measured = measureDimension(model, picks, form, axis, angleSector, tangency);
-    if (measured === null) {
+    const candidate = dimensionCandidate(model, picks, form, axis, angleSector, tangency);
+    if (!candidate || candidate.value === undefined) {
       return;
     }
-    // The input opens at the label spot of the dimension it will create,
-    // with the leader line previewed between the anchors (drawn after
-    // show() — a re-targeting show() runs the previous cycle's onHide).
-    const layout = dimensionPreviewLayout(model, picks, form, axis, angleSector, tangency);
-    const { clientX, clientY } = this.inputPosition(model, layout);
+    // The input opens where the dimension's value will be drawn, with the
+    // rest of the dimension previewed around it (drawn after show() — a
+    // re-targeting show() runs the previous cycle's onHide).
+    const { clientX, clientY } = this.inputPosition(model, candidate, label);
     this.valueInput.show({
       label: form.kind === 'angle' ? '∠'
         : form.kind === 'radius' ? (picks[0]?.kind === 'ellipse' ? (axis === 'y' ? 'RY' : 'RX') : 'R')
           : form.kind === 'diameter' ? '⌀'
             : axis === 'x' ? 'H' : axis === 'y' ? 'V' : 'D',
-      value: String(measured),
+      value: String(candidate.value),
       clientX,
       clientY,
+      centered: label !== undefined,
       variables: this.cachedVariables,
       onHide: () => this.clearDimensionPreview(),
       // There are no negative angles — a sector's angle is its own positive
@@ -930,157 +891,80 @@ export class SolvedConstraintToolbarService {
           kind as ConstraintButtonId, emitPicks, finalExpr, axis,
           tangency === 'max' ? 'max' : undefined,
           newVariable ? [newVariable] : undefined,
+          // Rounded like a dragged label: what is written is a number a
+          // person can read back.
+          label ? [
+            roundToUnitDecimals(label[0], sceneUnit.current),
+            roundToUnitDecimals(label[1], sceneUnit.current),
+          ] : undefined,
         );
       },
     });
     this.pendingDimension = {
       picks, form, sector: angleSector, tangency, axis,
       rawKey: rawKey ?? picksKey(picks),
+      ...(label ? { label } : {}),
     };
-    this.drawDimensionPreview(layout);
+    this.drawPendingDimension(model, candidate, label);
   }
 
-  /** The value input sits at the preview's label anchor, clamped into the
-   * viewport; without an anchor it falls back to the under-toolbar spot. */
+  /**
+   * Where the value input opens, client px: on the dimension's value. A
+   * placed dimension gives the center of its text (the input opens centered
+   * there); an automatic one the spot its label is laid out from. Clamped
+   * into the viewport; with no spot at all it falls back to under the bar.
+   */
   private inputPosition(
     model: SolvedSketchModel,
-    layout: DimensionPreviewLayout | null,
+    candidate: SolvedConstraintView,
+    label: LabelCoords | undefined,
   ): { clientX: number; clientY: number } {
     const rect = this.container.getBoundingClientRect();
-    if (!layout) {
+    const frame = label ? dimensionFrame(model, candidate) : null;
+    const center = frame && label
+      ? this.placer.centerOf(
+        model.plane, frame, label, dimensionLabelBox(dimensionLabelText(model, candidate)),
+      )
+      : null;
+    if (center) {
+      const at = sketchToClient(this.ctx, model.plane, center);
+      return {
+        clientX: Math.min(
+          Math.max(at.clientX, rect.left + CENTERED_INPUT_HALF_WIDTH_PX),
+          rect.right - CENTERED_INPUT_HALF_WIDTH_PX,
+        ),
+        clientY: Math.min(
+          Math.max(at.clientY, rect.top + CENTERED_INPUT_HALF_HEIGHT_PX),
+          rect.bottom - CENTERED_INPUT_HALF_HEIGHT_PX,
+        ),
+      };
+    }
+    const value = layoutConstraintGlyphs({ ...model, constraints: [candidate] })
+      .find(glyph => glyph.type === 'text' || glyph.type === 'angle-arc');
+    if (!value || !('at' in value)) {
       return { clientX: rect.left + rect.width / 2 - 60, clientY: rect.top + 190 };
     }
-    let { clientX, clientY } = sketchToClient(this.ctx, model.plane, layout.at);
-    if (layout.arc) {
-      // Sit at the arc's label spot — the same adaptive placement the
-      // committed readout uses, so a thin wedge pushes the input out (or
-      // beside the arc) instead of parking it on both rays at once. The
-      // input's box stands in for the label's.
-      const placed = angleInputPlacement(layout.arc);
-      const probe = sketchToClient(this.ctx, model.plane, [
-        layout.at[0] + Math.cos(placed.angle),
-        layout.at[1] + Math.sin(placed.angle),
-      ]);
-      const dx = probe.clientX - clientX;
-      const dy = probe.clientY - clientY;
-      const len = Math.hypot(dx, dy) || 1;
-      clientX += (dx / len) * placed.radiusPx;
-      clientY += (dy / len) * placed.radiusPx;
-    }
+    const at = sketchToClient(this.ctx, model.plane, value.at);
     return {
-      clientX: Math.min(Math.max(clientX, rect.left + 8), rect.right - 180),
-      clientY: Math.min(Math.max(clientY, rect.top + 60), rect.bottom - 24),
+      clientX: Math.min(Math.max(at.clientX, rect.left + 8), rect.right - 180),
+      clientY: Math.min(Math.max(at.clientY, rect.top + 60), rect.bottom - 24),
     };
   }
 
-  /** Leader line between the dimension's anchors while the value input is
-   * open — same styling as the committed glyph's leader, so commit only
-   * swaps in the label. */
-  private drawDimensionPreview(layout: DimensionPreviewLayout | null): void {
-    this.removePreviewLine();
-    const model = this.model;
-    if (!layout || !model) {
-      return;
-    }
-    if (layout.arc) {
-      // Label-less sector arc — the open value input IS the readout, so the
-      // arc trails out to wherever the adaptive placement parks the input.
-      const visual = buildAngleArc(
-        layout.at,
-        layout.arc.startAngle,
-        layout.arc.sweep,
-        null,
-        model.plane,
-        model.plane.normal,
-        themeColors.constraintColor,
-        PREVIEW_LEADER_OPACITY,
-        layout.arc.tails,
-        angleInputPlacement(layout.arc).arcRadiusPx,
-      );
-      const wrapper = new Group();
-      wrapper.userData.isMetaShape = true;
-      wrapper.add(visual.group);
-      const ext = buildAngleExtensions(
-        layout.arc.extensions, model.plane, themeColors.constraintColor,
-      );
-      if (ext) {
-        wrapper.add(ext);
-      }
-      this.ctx.scene.add(wrapper);
-      this.previewGroup = wrapper;
-      this.ctx.requestRender();
-      return;
-    }
-    if (!layout.line) {
-      return;
-    }
-    const group = this.buildLeaderGroup(layout.line, model, PREVIEW_LEADER_OPACITY, layout.arrows);
-    group.userData.isMetaShape = true;
-    const ext = buildAngleExtensions(
-      layout.extensions ?? [], model.plane, themeColors.constraintColor, PREVIEW_LEADER_OPACITY,
-    );
-    if (ext) {
-      group.add(ext);
-    }
-    this.ctx.scene.add(group);
-    this.previewGroup = group;
-    this.ctx.requestRender();
-  }
-
-  /** One world-scale leader segment, styled like the committed glyph's —
-   * arrowheads included, so committing only swaps in the label. */
-  private buildLeaderGroup(
-    seg: [Vec2, Vec2],
+  /** The dimension around the open value input: its line, leader or arc
+   * where the commit will draw them — the input itself stands in for the
+   * value. */
+  private drawPendingDimension(
     model: SolvedSketchModel,
-    opacity: number,
-    arrows?: ArrowEnds,
-  ): Group {
-    const from = localToWorld(seg[0], model.plane);
-    const to = localToWorld(seg[1], model.plane);
-    const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new Float32BufferAttribute([
-      from.x, from.y, from.z,
-      to.x, to.y, to.z,
-    ], 3));
-    const material = new LineBasicMaterial({
-      color: themeColors.constraintColor,
-      transparent: true,
-      opacity,
-      depthTest: false,
-    });
-    const line = new Line(geometry, material);
-    line.renderOrder = 2;
-    const group = new Group();
-    group.renderOrder = 2;
-    group.add(line);
-    if (arrows) {
-      const heads = buildDimensionArrows(
-        seg, model.plane, model.plane.normal, themeColors.constraintColor, opacity, 2, arrows,
-      );
-      if (heads) {
-        group.add(heads);
-      }
-    }
-    return group;
-  }
-
-  private removePreviewLine(): void {
-    if (!this.previewGroup) {
-      return;
-    }
-    this.ctx.scene.remove(this.previewGroup);
-    this.previewGroup.traverse((child) => {
-      const mesh = child as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
-      mesh.geometry?.dispose?.();
-      mesh.material?.dispose?.();
-    });
-    this.previewGroup = null;
-    this.ctx.requestRender();
+    candidate: SolvedConstraintView,
+    label: LabelCoords | undefined,
+  ): void {
+    this.preview.show(model, label ? { ...candidate, label } : candidate, { value: false });
   }
 
   private clearDimensionPreview(): void {
     this.pendingDimension = null;
-    this.removePreviewLine();
+    this.preview.clear();
   }
 
   private async emit(
@@ -1090,6 +974,8 @@ export class SolvedConstraintToolbarService {
     axis: 'x' | 'y' | undefined,
     tangency?: 'max',
     newVariables?: { name: string; initializer: string }[],
+    /** A dimension placed as it was drawn: its `.labelAt()` position. */
+    label?: LabelCoords,
   ): Promise<void> {
     const info = this.sketchInfo;
     if (!info) {
@@ -1141,6 +1027,7 @@ export class SolvedConstraintToolbarService {
       ...(valueExpr !== undefined ? { valueExpr } : {}),
       ...(axis !== undefined ? { axis } : {}),
       ...(tangency !== undefined ? { tangency } : {}),
+      ...(label !== undefined ? { label } : {}),
       ...(newVariables !== undefined ? { newVariables } : {}),
     });
     this.busy = false;
@@ -1214,7 +1101,7 @@ export class SolvedConstraintToolbarService {
     let value: number | undefined;
     let sector: AngleSector | null = null;
     if (id === 'dimension' || id === 'angle') {
-      const form = id === 'angle' ? { kind: 'angle' as const, axisChoice: false, tangencyChoice: false } : dimensionFormFor(this.picks);
+      const form = id === 'angle' ? ANGLE_FORM : dimensionFormFor(this.picks);
       if (id === 'angle' && this.picks.length === 2) {
         sector = angleSectorAt(model, this.picks[0], this.picks[1], null);
       }

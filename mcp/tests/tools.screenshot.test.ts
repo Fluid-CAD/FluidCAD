@@ -439,6 +439,40 @@ describe('screenshot overlays', () => {
     });
   });
 
+  it('the screenshot tools take a colour per highlight entry and post it through; a bad one is refused', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const server = buildServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(clientTransport);
+    try {
+      const highlight = [
+        { shapeId: 'sh-1', kind: 'edge', index: 2, color: '#e5484d' },
+        { expression: 'face().onPlane("xy", 5)', color: '#2f6ff0' },
+        { shapeId: 'sh-1', kind: 'face', index: 0 },
+      ];
+      for (const [name, extra] of [['screenshot', {}], ['screenshot_multi', {}], ['screenshot_shape', { shapeId: 'sh-1' }]] as const) {
+        const result = await client.callTool({ name, arguments: { ...extra, highlight, fitTo: 'highlight' } });
+        expect((result as any).isError).toBeFalsy();
+        expect(JSON.parse(lastRequest!.body).highlight).toEqual(highlight);
+      }
+      const bad = await client.callTool({ name: 'screenshot', arguments: { highlight: [{ shapeId: 'sh-1', kind: 'edge', index: 2, color: 'red' }] } });
+      expect((bad as any).isError).toBe(true);
+      const { tools } = await client.listTools();
+      const schema = (tools.find((t) => t.name === 'screenshot')!.inputSchema as any).properties.highlight;
+      expect(JSON.stringify(schema.items)).toContain('"color"');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+    // The function form checks it too, naming the entry.
+    const direct = await screenshot({ highlight: [{ shapeId: 'sh-1', kind: 'face', index: 0, color: '#12' }] });
+    expect(direct.ok).toBe(false);
+    expect((direct as any).message).toContain('highlight[0].color');
+  });
+
   it('screenshot and screenshot_multi post a shape fit through to the server, no highlight needed', async () => {
     fakePort = await pngServer();
     writeRegistry([entry()]);

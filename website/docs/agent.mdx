@@ -1,0 +1,205 @@
+---
+sidebar_label: "Agent"
+title: "Agent"
+---
+
+# Agent
+
+The **Agent** button, last on the left rail, opens a chat beside the model. You ask a question or describe a change, and an AI agent answers by working on the open project: it reads the code and the scene, measures, takes screenshots and edits the model files. The agent is Claude Code (on your Claude subscription) or Codex, installed on your computer and signed in with your own account. FluidCAD runs it; it does not include it, and it never sees your sign-in. Without either, the agent can also run on your own API key or on a local model (see [On an API key or a local model](#on-an-api-key-or-a-local-model)).
+
+The panel shares the left slot with the code editor and the Hub panel: opening one closes the others.
+
+## What you need
+
+One of these, installed on the computer that runs FluidCAD:
+
+| Agent | Version | Install |
+|-------|---------|---------|
+| Claude Code | 2.1.259 or later | [Claude Code setup](https://code.claude.com/docs/en/setup) |
+| Codex | 0.162.0 or later | [Codex on GitHub](https://github.com/openai/codex) |
+
+FluidCAD looks for the program on your `PATH` and in the usual install folders (`~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, `~/.npm-global/bin`, and on Windows the npm and per-user program folders). When it finds neither, the panel says so, links to the install pages, offers **Add an API key** for the other way to run it, and offers **Check again**. A new chat's agent chip lists Claude Code and Codex first, then the API providers (see [Chats](#chats)).
+
+## Signing in
+
+You sign in to the agent, not to FluidCAD. Sign-in goes through the vendor's own flow; FluidCAD does not read, store or pass on your credentials. It asks the program whether it is signed in and, to show it next to the agent's name, the email of the account it is signed in with; nothing else about the account is read, and the email stays on your computer.
+
+- **Codex**: when Codex is not signed in, the panel offers **Sign in to Codex**. Your browser opens the ChatGPT sign-in page; finish there, and the panel notices by itself and shows the message box. **Open the page again** reopens the page if the browser blocked or lost it, and **Cancel** stops waiting. The terminal command below works too.
+- **Claude Code**: run the command in a terminal and finish the sign-in in your browser with your Claude account. FluidCAD runs Claude Code on a Claude subscription only (see below).
+
+```bash
+claude auth login   # Claude Code
+codex login         # Codex
+```
+
+Then click **Check again** in the panel. When the sign-in is missing or expired, the panel shows the command to run, with a copy button.
+
+### Claude Code runs on your Claude subscription
+
+FluidCAD runs Claude Code on a Claude subscription only. If `ANTHROPIC_API_KEY` is set in the environment FluidCAD was started from, FluidCAD leaves it out of Claude Code's environment, so Claude Code never bills that key. A Claude Code signed in some other way than a subscription (for example with an API key stored by Claude Code) shows as not signed in: run `claude auth login` and sign in with your Claude account.
+
+To run the agent on an Anthropic API key, choose **Anthropic API** in the agent chip's menu instead (see [On an API key or a local model](#on-an-api-key-or-a-local-model)). It uses `ANTHROPIC_API_KEY`, or a key saved in Settings › Agent.
+
+## On an API key or a local model
+
+Without Claude Code or Codex, the agent can run on a model provider you have an API key for (Anthropic, OpenAI or OpenRouter), or on a model running on your own computer, served by Ollama, LM Studio or any OpenAI-compatible server. FluidCAD then runs the agent itself, with the same tools, approvals and reverting as above.
+
+**API keys.** In Settings › Agent, open **API keys** (or pick **Manage** at the bottom of the agent chip's menu), paste the key next to the provider and click **Save**. The key is stored on this computer, in `agent-credentials.json` in FluidCAD's home folder (`~/.fluidcad`), readable only by your user. The page never shows it again, only its first few characters so you can tell which key it is. **Edit** replaces it and **Remove** deletes it.
+
+- A key in the environment FluidCAD was started from wins: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` or `OPENROUTER_API_KEY`. The row then shows its first characters and **Set by** the variable, with no field.
+- A key saved here, or set in the environment, is used by this agent only. It is never given to Claude Code or Codex.
+
+**Local models.** Under **Local models**, click **Add Ollama**, **Add LM Studio** or **Add other server**, check the base URL (Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`), and click **Save**. A server may also take a key, a context window (what you set the server to, in tokens; FluidCAD warns when it is too small for the agent), and **Send images**, off by default: turn it on for a model that reads images.
+
+In the panel, each provider that is ready is an entry of the agent chip's menu, after Claude Code and Codex: **Anthropic API**, **OpenAI API**, **OpenRouter**, then your local models by name. A chat stays on the provider it was started with. Its model chip lists that provider's models; a long list, such as OpenRouter's, has a search field at its top that matches the model's name or id. **Other model…** takes any model name the provider accepts, starting from what you searched for. The effort chip shows when the model offers levels. A new chat starts on the provider and model you used last.
+
+Each message is billed to your key by the provider, like any other use of it; the line under each answer shows the cost when the provider reports it. A local model costs nothing.
+
+## What the agent can touch
+
+The agent works on the project only through FluidCAD's own tools, the same ones the [MCP server](/docs/cli#fluidcad-mcp) offers to external agents. They are tied to the project open in this window:
+
+- **Read**: the docs and the API, the scene (features, shapes, faces, edges, measurements, interference), screenshots of the view, the project's files, the packages installed on this computer, and the [FluidCAD hub](#packages-from-the-hub): it can search for packages and read what one offers.
+- **Change**: write or edit a project file, recompute, roll the timeline back, set breakpoints, pick a configuration.
+- **Outside the project**: export a file, pack the project, import a STEP file, install a package from the hub.
+
+Everything else is switched off for the chat:
+
+- No shell commands, and no writing files except through FluidCAD's tools.
+- Claude Code and Codex can search the web with their own web search tool, for example to look up a standard part's dimensions. Each search shows in the chat as a card with its query. The agents on an API key have no web search; they reach the hub FluidCAD is set to and nothing else.
+- Claude Code keeps its read-only file tools (Read, Glob, Grep), confined to the project folder. Codex runs in its read-only sandbox and reads files through FluidCAD's tools.
+- Your other MCP servers are not loaded into the chat, and Claude Code does not load your settings files or hooks. Your own configuration files are not changed.
+
+## Approving changes
+
+By default the agent asks before every change. A change shows as a card in the transcript: for a file edit, the diff; for anything else, what the agent wants to run. The card offers:
+
+| Button | Effect |
+|--------|--------|
+| **Allow** | Runs this call. |
+| **Allow for this session** | Runs this call, and later calls of the same tool in this chat without asking. |
+| **Deny** | Does not run it. The agent is told you declined. |
+
+The mode chip under the message box switches between **Ask before edits** and **Apply edits automatically**. In the second mode changes to the project run without asking; their cards still show what was done. Exporting, packing, importing a STEP file and installing a package reach outside the project, so they always ask, in either mode, and never offer **Allow for this session**. The mode is saved with your settings.
+
+A card left unanswered for an hour times out, and the call is not run. **Stop** (or Escape in the message box) ends the turn and declines anything still waiting.
+
+### Unsaved changes in the editor
+
+The agent never overwrites a file that has unsaved changes in the code editor. Its write is refused, and a card names the file. Save the file, then ask again. Unsaved changes in a browser tab you have closed no longer count: they went with the tab.
+
+### Reverting a turn
+
+Before a turn first changes a file, FluidCAD keeps a copy of it. Under a message whose turn changed files, **Revert this turn** puts those files back as they were before it, after a confirmation that lists them. A file the turn created is deleted. Later turns that changed files are reverted with it, so the files never end up in a mix of states. The conversation stays as it is; the turn is marked **Reverted**, and the agent is told with your next message which files went back.
+
+Reverting covers project files the agent wrote. It does not undo an export, a pack or a STEP import. Reverting a turn that installed a package puts `fluidcad.json` back, so the project no longer uses the package; the package itself stays in your library.
+
+## Packages from the hub
+
+The agent can look for a [package](/docs/packages) instead of modeling a standard part or writing a feature from scratch. Ask for it ("find a standoff package and use it on this plate"), or it may look on its own.
+
+- **Searching and reading never ask.** The agent searches the hub, reads a package's description, features, parts, README and doc pages, and sees which packages your project uses and which your library holds. Searches are sent to the hub signed out, as the Hub panel's are.
+- **Installing always asks.** The card names the package, the version when the agent chose one, and reads *A package's code runs in FluidCAD with your permissions. Install it?* A package's code runs in the FluidCAD engine with your permissions, so allow an install only for a package and publisher you trust. The [Hub panel](/docs/packages#installing-a-package) shows the same package, with its publisher, screenshots and README, if you want to look first. **Deny** installs nothing.
+- An allowed install does what the Hub panel's **Install** does: FluidCAD downloads the package, checks that its files are the ones the hub lists, installs it where **New packages go to** says, and records it in `fluidcad.json`. A package already in your library is used without a download. The toolbar's **Custom** dropdown and the **Packages** dialog show it right away.
+- The agent can't move your project to another version of a package it already uses unless it asks for an upgrade, which the card says (**Upgrade to …**). It can't replace an installed version, remove a package, publish, or sign in to the hub.
+
+What a package says about itself (its description, README and doc pages) is written by its publisher. The agent is told to read it as reference material and not as instructions, and it can't install anything without your approval whatever a package's text says.
+
+## Pointing at geometry
+
+With the panel open, select faces or edges in the viewport. The selection is attached to your next message by itself: a chip above the message box shows it, for example "[1] 4 edges" with its colour. The chip follows the selection while you change it, and goes away when you clear it. The whole selection is one reference, described by the same selector code a feature dialog writes for a pick.
+
+To point at it in your message, type its number, `[1]`, or click the chip's label to put `[1]` where the cursor was. Nothing is typed for you.
+
+To tell several things apart ("fillet [1] by 2 mm and chamfer [2] by 1 mm"), click the pin on the chip (**Keep this and select more**). The chip stays, the selection in the viewport clears, and the next thing you select becomes `[2]` in the next colour.
+
+When you send, the kept chips and the selection's chip go with the message. Your message shows them, and it carries an image of the current view, framed to the references, with each one drawn in its own colour. For each reference the agent gets the selector code that finds that geometry in the file, the features it comes from, the imports it needs, and its size and position. The chips and the selection then clear. While the agent is working you can already select for your next message.
+
+The **×** on the selection's chip clears the selection. The **×** on a kept chip removes it and frees its number and colour for the next one; the other chips keep their numbers, and your text is left as you typed it.
+
+A message holds up to eight references, the selection's included; at eight, the selection's chip says so instead of attaching. If the model re-renders before you send, the kept chips are dropped with "The model changed — select again.", since they no longer match the model.
+
+When FluidCAD cannot write a selector for a selection, the chip says why, and the selection is not sent. For a selection of several faces or edges the chip then offers **One at a time**: each one that can be described is kept as a reference of its own, and a note says how many could not be attached and why.
+
+A selector describes the model as it was when you sent the message. An edit can change or consume the geometry it names: after a fillet, for example, the faces it rounded off are gone. To point at geometry again after such an edit, select it again.
+
+References are not available:
+
+- for faces and edges of parts inserted in an assembly: open the part file and select them there,
+- for sketch entities, constraints, dimensions and vertices: a reference is made of faces and edges only,
+- while the timeline is rolled back: the chip asks you to roll the timeline forward to the last feature.
+
+## Attaching images
+
+A message can carry images of your own: a dimensioned drawing to model, a photo of a part, a screenshot. Attach one in any of three ways:
+
+- click the paperclip at the bottom left of the message box and pick the files,
+- paste an image from the clipboard into the message box,
+- drop image files anywhere on the panel.
+
+Each image shows as a thumbnail above the message box, with a **×** to take it away. A message takes up to eight images, and can be sent with images and no text.
+
+PNG, JPEG, WebP and GIF files are sent as they are when their longest edge is 2000 pixels or less. A larger image is scaled down to 2000 pixels first, and an image in another format your browser can show (SVG, BMP, AVIF) is converted to PNG. A file that is not an image, or one that cannot be read, is left out, and a line under the thumbnails says so.
+
+When you send, your message shows the images; click one to see it in full size. The agent gets them in the order you attached them, with their file names, so you can refer to "the second image" or to a file by name. Images are stored with the chat (see [Chats](#chats)).
+
+A model that does not read images gets the message without them; a line under the thumbnails warns you before you send. This applies to a local model whose server has **Send images** off, and to the models a provider lists as text-only.
+
+## Chats
+
+The title in the panel header opens the list of this project's chats, newest first. Each row shows the chat's title, its agent, when it last changed, and what it is doing when it is not idle (Working, Waiting for you, Interrupted, Limit reached, Error). Pick a row to reopen the chat, or start a **New chat**.
+
+Point at a row to rename or delete it:
+
+- The pencil renames the chat in place: type the new title and press Enter, or Escape to keep the old one. A new chat takes its title from your first message until you rename it.
+- The bin deletes the chat after you confirm: its conversation, images and the copies kept for reverting are removed, and a turn it was running stops. Files the agent changed stay as they are. Deleting the chat that is open starts a new chat.
+
+A chat stays with the agent it was started with; a new chat's agent chip picks it. Its menu lists **Claude Code** and **Codex** first, each with the account it is signed in with, for example **Claude Code (you@example.com)**, then the API providers that are ready, then **Manage**. When Claude Code or Codex cannot run, its row is greyed out and says why: **Not installed**, **Update needed** or **Not signed in**; point at it for what to do, or pick **Manage**. The model and the effort can be changed between messages from their chips under the message box. The last model and effort you picked for an agent are remembered, and its new chats start with them:
+
+- **Model**: **Default** uses the program's own default, and **Other model…** takes any model name the program accepts.
+- **Effort**: how hard the model thinks before it answers. **Default effort** leaves it to the program. Claude Code offers Low, Medium, High, Extra high and Max. Codex offers the levels the chosen model lists (for example up to Max, or Ultra on some models); switching to a model without the chosen level goes back to its default. Higher effort takes longer and uses more of your plan.
+
+Chats are stored in the project, under `.fluidcad/agent/sessions/`: the conversation, images, and the copies of files kept for reverting. A new project's `.gitignore` already ignores `.fluidcad/`, so chats stay out of git. Claude Code and Codex also keep their own record of the conversation in their own folders, as they do for any session.
+
+If FluidCAD stopped while the agent was working, the chat reopens with a notice and **Continue**. The last tool call may or may not have run. Continuing tells the agent what you had asked and how each of its tool calls in that turn ended (done, failed, declined, waiting for your approval, or result unknown), so it can check the files and the model and carry on.
+
+## Usage
+
+Every message is run by your own Claude Code or Codex, on your own account, or on your own API key or local model. It counts against your Claude or ChatGPT plan, or is billed to your API key, exactly as if you had used the program or the key directly. FluidCAD does not meter or charge for it.
+
+Under each answer a small line shows what the turn used, as the program reported it: tokens in (including the context it re-read) and tokens out, for example "23k in · 512 out". Point at it for the exact counts. Claude Code and Codex run on your plan, so the cost Claude Code reports is only what the tokens would cost at API prices: it appears in the tooltip, not on the line.
+
+When your plan's limit is reached, or nearly reached, a notice says so, with when it resets in your own time, for example "It resets in 3 h, at 17:00."
+
+## Settings
+
+Settings › Agent holds:
+
+| Setting | What it does |
+|---------|--------------|
+| Agent for new chats | Claude Code, Codex, an API key or local model (the provider used last), or the first one ready. |
+| Edits | **Ask before edits** or **Apply edits automatically**: the same switch as the mode chip under the message box. |
+| API keys | A key for Anthropic, OpenAI and OpenRouter, each saved by its own **Save**, then shown by its first characters with **Edit** and **Remove**. See [On an API key or a local model](#on-an-api-key-or-a-local-model). |
+| Local models | Your Ollama, LM Studio or other OpenAI-compatible servers. |
+
+The tab folds these into sections: **General** (the first two), **API keys**, **Local models** and **Detected Agents**. **Manage**, at the bottom of the agent chip's menu in a new chat, opens it on **API keys**.
+
+**Detected Agents** lists each program with its version, path, state (Ready, Not signed in, Too old, Not found) and the account it is signed in with, and each API provider and local model with whether it is ready, and **Check again**.
+
+The model and the effort are not in Settings: pick them with the chips under the message box (see [Chats](#chats)).
+
+## Troubleshooting
+
+| What you see | What to do |
+|--------------|------------|
+| The panel says the program was not found | Install it, then **Check again**. FluidCAD looks on your `PATH` and in the usual install folders (see [What you need](#what-you-need)). On macOS an app started from the Dock does not see your shell's `PATH`, so install the program in one of those folders. |
+| The program needs an update | Run `claude update`, or update Codex the way you installed it (`npm install -g @openai/codex` for an npm install), then **Check again**. |
+| Not signed in, or the login expired | For Codex, click **Sign in to Codex** in the panel. Otherwise run `claude auth login` or `codex login` in a terminal, then **Check again**. |
+| An API key was refused, or a provider is not ready | Check or replace the key in Settings › Agent › **API keys**. For a local model, make sure its server is running at the base URL shown there. |
+| Claude Code shows as not signed in although `ANTHROPIC_API_KEY` is set | Claude Code runs on a Claude subscription only. Run `claude auth login` in a terminal and sign in with your Claude account, then **Check again**; or choose **Anthropic API** in the agent chip's menu to use the key. |
+| A usage-limit or credits message | Your plan's limit was reached. The message is the vendor's, with when it resets in your local time when the vendor gives it. Wait for the reset or change your plan with the vendor; FluidCAD cannot lift it. |
+| "FluidCAD's tools did not connect" | The program started but could not reach FluidCAD. Send the message again; if it keeps happening, restart FluidCAD. |
+| The program exited | The error shows the last lines it printed. The next message starts it again and resumes the conversation. |
+| A write refused for unsaved changes | Save the file in the editor, then ask again. |
+| A reference does not point where you expect after an edit | A selector describes the model as it was when you sent it. Select the geometry again. |
+| No **Agent** button on the rail | The button appears once the project's engine answers for the agent. An engine pinned to an older FluidCAD version does not have it. |

@@ -76,11 +76,28 @@ export const innerWidth = width - 2 * wall;   // derived, edited here, not in th
 
 ```js
 // bracket.part.js
-import { part, sketch, rect, extrude } from "fluidcad/core";
+import { part, sketch, line, extrude } from "fluidcad/core";
+import { coincident, horizontal, vertical, fix, distance } from "fluidcad/constraints";
 import { wall, innerWidth } from "./project.params.js";
 
 export const bracket = part("Bracket", () => {
-  sketch("xy", () => { rect([0, 0], innerWidth, 40); });
+  sketch("xy", () => {
+    const b = line([0, 0], [innerWidth, 0]);
+    const r = line([innerWidth, 0], [innerWidth, 40]);
+    const t = line([innerWidth, 40], [0, 40]);
+    const l = line([0, 40], [0, 0]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [0, 0]);
+    distance(b.start(), b.end(), innerWidth);
+    distance(r.start(), r.end(), 40);
+  });
   extrude(wall);
 });
 ```

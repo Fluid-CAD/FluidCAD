@@ -109,9 +109,7 @@ export function getTextTexture(text: string, colorHex: string): IconTexture {
   return entry;
 }
 
-/** Uncached text texture — for labels that change every frame (the angle
- * placement preview's live readout); the caller owns disposal. */
-export function createTextTexture(text: string, colorHex: string): IconTexture {
+function createTextTexture(text: string, colorHex: string): IconTexture {
   const font = `${CANVAS_SIZE * 0.7}px sans-serif`;
   const canvas = document.createElement('canvas');
   const measure = canvas.getContext('2d')!;

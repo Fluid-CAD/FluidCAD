@@ -175,3 +175,35 @@ describe('the Hub button (H11)', () => {
     expect(h.buttons().map((b) => b.getAttribute('aria-label'))).toEqual(['Feature tree', 'FluidCAD Hub']);
   });
 });
+
+describe('the Agent button (agent-chat-plan §10.1)', () => {
+  it('sits last, below the Hub button, says "Agent", toggles the panel and latches', () => {
+    let open = false;
+    const onToggleAgent = vi.fn(() => { open = !open; });
+    const h = mount({ onToggleHub: () => undefined, isHubOpen: () => false, onToggleAgent, isAgentOpen: () => open });
+    expect(h.buttons().map((b) => b.getAttribute('aria-label'))).toEqual(['Feature tree', 'Code editor', 'FluidCAD Hub', 'Agent']);
+    const agent = h.button('Agent');
+    expect(agent.parentElement!.dataset.tip).toBe('Agent');
+    agent.click();
+    expect(onToggleAgent).toHaveBeenCalledTimes(1);
+    expect(agent.getAttribute('aria-pressed')).toBe('true');
+    // Closed from elsewhere (its own close button, another panel taking the slot): sync follows.
+    open = false;
+    h.rail.sync();
+    expect(agent.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('shows only once the engine answered for an agent runtime', () => {
+    let available = false;
+    const h = mount({ onToggleAgent: () => undefined, isAgentOpen: () => false, isAgentAvailable: () => available });
+    expect(h.button('Agent').parentElement!.classList.contains('hidden')).toBe(true);
+    available = true;
+    h.rail.sync();
+    expect(h.button('Agent').parentElement!.classList.contains('hidden')).toBe(false);
+  });
+
+  it('is absent without its handlers', () => {
+    const h = mount();
+    expect(h.buttons().map((b) => b.getAttribute('aria-label'))).not.toContain('Agent');
+  });
+});

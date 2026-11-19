@@ -1,11 +1,15 @@
 // The annotation declutterer (sketch-rewrite P5.5).
 //
-// FluidCAD is code-first: there is no "drag the dimension where you want it"
-// escape hatch, so annotation layout has to be right by construction. This
-// pass decides, per zoom step, where every badge and dimension label sits and
-// which badges collapse behind a read-only `+N` pill.
+// FluidCAD is code-first: most dimensions are never placed by hand, so the
+// automatic layout has to be right by construction. This pass decides, per
+// zoom step, where every badge and dimension label sits and which badges
+// collapse behind a read-only `+N` pill. A dimension somebody DID place — the
+// statement's `.labelAt()`, written by dragging it — is not this pass's to
+// move: it is reserved exactly where it was parked and everything else is
+// laid out around it.
 //
 // Priority order, highest first:
+//   0. PLACED DIMENSION LABELS — parked by the user, fixed.
 //   1. DIMENSION LABELS — they carry values. Never hidden: a dimension that
 //      cannot find clear space is drawn at its least-bad candidate rather
 //      than dropped, because a missing number misleads where an overlapping
@@ -112,6 +116,12 @@ export type DimensionItem = BoxSize & {
    * leader does not score as clutter against it (see GeometryIndex). */
   lineOwner?: number;
   order: number;
+  /**
+   * The user parked this label (the statement's `.labelAt()`): its screen
+   * offset from `anchor`, taken as given. No candidates, no scoring — it is
+   * reserved before any other label picks, so the rest route around it.
+   */
+  fixed?: Pt;
 };
 
 /** A collapsed group's read-only counter. */
@@ -218,10 +228,22 @@ function placeDimensions(
   opts: DeclutterOptions,
 ): Placement[] {
   const placements = items.map(() => hiddenPlacement());
+  // Parked labels first, all of them, before anybody searches: a label that
+  // picked its spot earlier must not be sitting where a parked one lands.
+  // Two parked labels may overlap — that is the user's call, not a conflict
+  // to resolve.
+  items.forEach((item, index) => {
+    if (!item.fixed) {
+      return;
+    }
+    occ.add(boxAt(step(item.anchor, item.fixed, 1), item));
+    placements[index] = { visible: true, dx: item.fixed.x, dy: item.fixed.y };
+  });
   // Most-constrained-first: a short dimension line has the least room to
   // slide, so it picks before the long ones that can dodge around it.
   const order = items
     .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !item.fixed)
     .sort((a, b) => a.item.slideRangePx - b.item.slideRangePx || a.item.order - b.item.order);
 
   for (const { item, index } of order) {

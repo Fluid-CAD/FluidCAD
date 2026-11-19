@@ -1,0 +1,207 @@
+{
+ "initial": {
+  "id": "662e7ee3-6188-468a-bbb0-2431364076e4",
+  "title": "New chat",
+  "agent": "claude",
+  "createdAt": "2026-11-17T14:35:52.310Z",
+  "updatedAt": "2026-11-17T14:35:52.310Z",
+  "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+  "seq": 0,
+  "status": {
+   "state": "idle"
+  },
+  "messages": [],
+  "turns": [],
+  "model": null
+ },
+ "events": [
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 1,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "b07073fd-b15e-45ca-8a25-5df6b3f1da42",
+     "role": "user",
+     "turnId": "2be190fd-f67c-4fd5-b81a-41558e282d74",
+     "createdAt": "2026-11-17T14:35:52.312Z"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 2,
+   "event": {
+    "type": "part-start",
+    "messageId": "b07073fd-b15e-45ca-8a25-5df6b3f1da42",
+    "part": {
+     "type": "text",
+     "id": "d4e00525-f486-42f3-aa27-c49acd3ad2d1",
+     "text": "slow: think about it"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 3,
+   "event": {
+    "type": "message-end",
+    "messageId": "b07073fd-b15e-45ca-8a25-5df6b3f1da42"
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 4,
+   "event": {
+    "type": "title",
+    "title": "slow: think about it"
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 5,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "starting",
+     "turnId": "2be190fd-f67c-4fd5-b81a-41558e282d74"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 6,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "running",
+     "turnId": "2be190fd-f67c-4fd5-b81a-41558e282d74"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 7,
+   "event": {
+    "type": "message-start",
+    "message": {
+     "id": "129172f3-46d3-4125-b9bb-13b8245781ec",
+     "role": "assistant",
+     "turnId": "2be190fd-f67c-4fd5-b81a-41558e282d74",
+     "createdAt": "2026-11-17T14:35:52.312Z"
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 8,
+   "event": {
+    "type": "part-start",
+    "messageId": "129172f3-46d3-4125-b9bb-13b8245781ec",
+    "part": {
+     "type": "text",
+     "id": "text-b0",
+     "text": ""
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 9,
+   "event": {
+    "type": "part-delta",
+    "messageId": "129172f3-46d3-4125-b9bb-13b8245781ec",
+    "partId": "text-b0",
+    "text": "working…"
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 10,
+   "event": {
+    "type": "part-start",
+    "messageId": "129172f3-46d3-4125-b9bb-13b8245781ec",
+    "part": {
+     "type": "notice",
+     "id": "04f029d7-b169-4e67-b958-eb87d239602a",
+     "level": "info",
+     "text": "Stopped."
+    }
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 11,
+   "event": {
+    "type": "message-end",
+    "messageId": "129172f3-46d3-4125-b9bb-13b8245781ec"
+   }
+  },
+  {
+   "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+   "seq": 12,
+   "event": {
+    "type": "status",
+    "status": {
+     "state": "idle"
+    }
+   }
+  }
+ ],
+ "final": {
+  "id": "662e7ee3-6188-468a-bbb0-2431364076e4",
+  "title": "slow: think about it",
+  "agent": "claude",
+  "createdAt": "2026-11-17T14:35:52.310Z",
+  "updatedAt": "2026-11-17T14:35:52.413Z",
+  "epoch": "4b372990-ee98-4b02-965a-267f330ce18d",
+  "seq": 12,
+  "status": {
+   "state": "idle"
+  },
+  "messages": [
+   {
+    "id": "b07073fd-b15e-45ca-8a25-5df6b3f1da42",
+    "role": "user",
+    "turnId": "2be190fd-f67c-4fd5-b81a-41558e282d74",
+    "createdAt": "2026-11-17T14:35:52.312Z",
+    "parts": [
+     {
+      "type": "text",
+      "id": "d4e00525-f486-42f3-aa27-c49acd3ad2d1",
+      "text": "slow: think about it"
+     }
+    ]
+   },
+   {
+    "id": "129172f3-46d3-4125-b9bb-13b8245781ec",
+    "role": "assistant",
+    "turnId": "2be190fd-f67c-4fd5-b81a-41558e282d74",
+    "createdAt": "2026-11-17T14:35:52.312Z",
+    "parts": [
+     {
+      "type": "text",
+      "id": "text-b0",
+      "text": "working…"
+     },
+     {
+      "type": "notice",
+      "id": "04f029d7-b169-4e67-b958-eb87d239602a",
+      "level": "info",
+      "text": "Stopped."
+     }
+    ]
+   }
+  ],
+  "turns": [
+   {
+    "id": "2be190fd-f67c-4fd5-b81a-41558e282d74",
+    "userMessageId": "b07073fd-b15e-45ca-8a25-5df6b3f1da42",
+    "revertible": false,
+    "endedAt": "2026-11-17T14:35:52.413Z",
+    "endReason": "interrupted"
+   }
+  ],
+  "model": "haiku"
+ }
+}

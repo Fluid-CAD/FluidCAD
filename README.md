@@ -95,6 +95,10 @@ Its features appear in the toolbar's **Custom** menu, and its parts in an assemb
   </a>
 </p>
 
+### An agent beside the model
+
+Open the Agent panel and ask about the model or describe a change. It runs your own Claude Code or Codex, signed in with your account, and works only through FluidCAD's tools. Each edit waits for your approval as a diff, unless you let it apply edits automatically, and a turn's changes can be reverted. [Explore the Agent →](https://fluidcad.io/docs/agent)
+
 ### From everyday objects to mechanical parts
 
 Build a lantern, a tray, or a mechanical part by following a complete tutorial. Each takes you from the first sketch to the finished model.

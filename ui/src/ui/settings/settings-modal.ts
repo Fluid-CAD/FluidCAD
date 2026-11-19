@@ -1,6 +1,7 @@
 import type { Material, UserPreferences } from '../../api';
 import { ICON_CLOSE } from '../icons';
 import { AdvancedTab } from './advanced-tab';
+import { AgentTab, type AgentTabDeps } from './agent-tab';
 import { AppearanceTab } from './appearance-tab';
 import { EditorTab } from './editor-tab';
 import { MaterialsTab } from './materials-tab';
@@ -21,6 +22,8 @@ export interface SettingsModalHandlers {
   loadMaterials?(): Promise<Material[] | null>;
   /** The package state the Packages tab lists the library from. Optional. */
   packages?: PackagesTabDeps;
+  /** Detection and saving for the Agent tab. Optional: without it the tab says no agent runtime is reachable. */
+  agent?: AgentTabDeps;
 }
 
 const TAB_BTN = 'flex items-center gap-2 w-full text-left px-3 py-1.5 rounded text-[13px] whitespace-nowrap';
@@ -45,6 +48,7 @@ export class SettingsModal {
   private readonly tabButtons = new Map<string, HTMLButtonElement>();
   private readonly tabDots = new Map<string, HTMLSpanElement>();
   private readonly tabPanels = new Map<string, HTMLDivElement>();
+  private readonly tabsById = new Map<string, SettingsTab>();
   private readonly saveBtn: HTMLButtonElement;
   private readonly tabs: SettingsTab[];
   private activeId: string;
@@ -59,6 +63,7 @@ export class SettingsModal {
       new UnitsTab(),
       new MaterialsTab(handlers.loadMaterials ? () => handlers.loadMaterials!() : null),
       new PackagesTab(handlers.packages ?? null),
+      new AgentTab(handlers.agent ?? null),
       new AdvancedTab(),
     ];
     this.activeId = this.tabs[0].id;
@@ -98,6 +103,7 @@ export class SettingsModal {
     const nav = this.overlay.querySelector<HTMLElement>('[data-ref="tabs"]')!;
     const panels = this.overlay.querySelector<HTMLElement>('[data-ref="panels"]')!;
     for (const tab of this.tabs) {
+      this.tabsById.set(tab.id, tab);
       const button = document.createElement('button');
       button.type = 'button';
       button.dataset.tab = tab.id;
@@ -138,21 +144,29 @@ export class SettingsModal {
     // Escape must not reach the feature dialog or sketch underneath.
     document.addEventListener('keydown', (e) => {
       // A modal that has left the document keeps no hold on the keyboard.
-      if (e.key === 'Escape' && this.overlay.isConnected && this.isOpen()) {
+      // A control marked `data-own-escape` takes Escape itself (a key being edited goes back to the saved one).
+      const own = e.target instanceof Element && e.target.closest('[data-own-escape]') !== null;
+      if (e.key === 'Escape' && !own && this.overlay.isConnected && this.isOpen()) {
         e.stopPropagation();
         this.hide();
       }
     }, true);
   }
 
-  /** Open on `tabId`, or on the tab that was last showing, with every draft reloaded from the app. */
-  show(tabId?: string): void {
+  /**
+   * Open on `tabId`, or on the tab that was last showing, with every draft
+   * reloaded from the app; with its `section` unfolded when given.
+   */
+  show(tabId?: string, section?: string): void {
     if (tabId && this.tabPanels.has(tabId)) {
       this.activate(tabId);
     }
     this.syncAll();
     this.overlay.classList.remove('hidden');
     this.tabButtons.get(this.activeId)?.focus();
+    if (section) {
+      this.tabsById.get(this.activeId)?.reveal?.(section);
+    }
   }
 
   /** Close and drop unsaved edits. */

@@ -417,11 +417,7 @@ export class SketchHoverSelectHandler {
       if (key.startsWith('d:')) {
         const datum = key.slice(2) as SketchDatumName;
         if (this.selectedDatums.has(datum) && model.hasDatums) {
-          picks.push({
-            entityId: datum === 'origin' ? -1 : datum === 'x-axis' ? -2 : -3,
-            kind: datum === 'origin' ? 'point' : 'line',
-            datum,
-          });
+          picks.push(SketchHoverSelectHandler.datumPick(datum));
         }
         continue;
       }
@@ -429,35 +425,89 @@ export class SketchHoverSelectHandler {
         const pick = this.selectedVertexPicks.get(key.slice(2));
         const e = pick ? model.entities.get(pick.entityId) : undefined;
         if (pick && e) {
-          picks.push({
-            entityId: pick.entityId,
-            kind: e.kind,
-            role: pick.role,
-            sourceLocation: e.obj.sourceLocation,
-            ...entityPickAddress(model, e),
-          });
+          picks.push(SketchHoverSelectHandler.vertexPick(model, e, pick.role));
         }
       } else {
         const shapeId = key.slice(2);
         const entityId = shapeToEntity.get(shapeId);
         const e = entityId !== undefined ? model.entities.get(entityId) : undefined;
         if (e) {
-          const at = this.edgePickAt.get(shapeId);
-          picks.push({
-            entityId: e.entityId,
-            kind: e.kind,
-            sourceLocation: e.obj.sourceLocation,
-            shapeId,
-            ...(at ? { at } : {}),
-            // An anchor statement's edges (text glyphs) resolve to its
-            // anchor POINT — the only solver entity it has, so an edge click
-            // means "constrain its position" (P8).
-            ...entityPickAddress(model, e),
-          });
+          picks.push(SketchHoverSelectHandler.edgePick(model, e, shapeId, this.edgePickAt.get(shapeId)));
         }
       }
     }
     return picks;
+  }
+
+  /**
+   * The pick a click would add right now — the vertex, datum or edge the
+   * cursor is hovering — or null over empty space, a constraint glyph, or
+   * an edge no solver entity owns. The same hover the click itself reads,
+   * so a caller deciding what the next click means (the dimension being
+   * placed: extend it, or drop it here?) sees exactly what that click picks.
+   * An edge pick carries no touch point: nothing was touched yet.
+   */
+  hoverPick(): SolvedPick | null {
+    const model = this.solvedModel;
+    if (!model || this.hoveredBadge) {
+      return null;
+    }
+    if (this.hoveredVertex) {
+      const e = model.entities.get(this.hoveredVertex.entityId);
+      return e ? SketchHoverSelectHandler.vertexPick(model, e, this.hoveredVertex.role) : null;
+    }
+    if (this.hoveredDatum) {
+      return model.hasDatums ? SketchHoverSelectHandler.datumPick(this.hoveredDatum.datum) : null;
+    }
+    if (this.hoveredShapeId) {
+      const e = this.entityOfShape(this.hoveredShapeId);
+      return e ? SketchHoverSelectHandler.edgePick(model, e, this.hoveredShapeId) : null;
+    }
+    return null;
+  }
+
+  /** An implicit datum (origin / axis) as a pick — reserved negative ids. */
+  private static datumPick(datum: SketchDatumName): SolvedPick {
+    return {
+      entityId: datum === 'origin' ? -1 : datum === 'x-axis' ? -2 : -3,
+      kind: datum === 'origin' ? 'point' : 'line',
+      datum,
+    };
+  }
+
+  /** One of an entity's named points (or a point entity's own) as a pick. */
+  private static vertexPick(
+    model: SolvedSketchModel,
+    e: SolvedEntityView,
+    role: 'start' | 'end' | 'center' | null,
+  ): SolvedPick {
+    return {
+      entityId: e.entityId,
+      kind: e.kind,
+      role,
+      sourceLocation: e.obj.sourceLocation,
+      ...entityPickAddress(model, e),
+    };
+  }
+
+  /** A whole entity, picked by one of its edges, as a pick. */
+  private static edgePick(
+    model: SolvedSketchModel,
+    e: SolvedEntityView,
+    shapeId: string,
+    at?: [number, number],
+  ): SolvedPick {
+    return {
+      entityId: e.entityId,
+      kind: e.kind,
+      sourceLocation: e.obj.sourceLocation,
+      shapeId,
+      ...(at ? { at } : {}),
+      // An anchor statement's edges (text glyphs) resolve to its anchor
+      // POINT — the only solver entity it has, so an edge click means
+      // "constrain its position" (P8).
+      ...entityPickAddress(model, e),
+    };
   }
 
   get selectedIds(): ReadonlySet<string> {
@@ -1269,6 +1319,26 @@ export class SketchHoverSelectHandler {
    * handler consults this before claiming a pointerdown (P4). */
   hasBadgeAt(clientX: number, clientY: number): boolean {
     return this.findBadgeAt(clientX, clientY) !== null;
+  }
+
+  /** The badge or dimension label under the cursor — the same pick the
+   * hover, the click and the double-click make, for the label drag to
+   * grab. */
+  glyphAt(clientX: number, clientY: number): BadgeHitTarget | null {
+    return this.findBadgeAt(clientX, clientY);
+  }
+
+  /**
+   * The active sketch's annotations were rebuilt outside a render (a live
+   * label drag, a preview put back): its mesh now carries NEW pick targets,
+   * and the ones held here point at disposed materials and placements the
+   * layout no longer drives. Re-read them, dropping the hover on a target
+   * that no longer exists; pinned statements take their tint back.
+   */
+  refreshBadgeTargets(): void {
+    this.clearBadgeHover();
+    this.badgeTargets = this.collectBadgeTargets(this.sketchId);
+    this.applyPinnedTint();
   }
 
   private handleDoubleClick(e: MouseEvent): void {

@@ -54,6 +54,8 @@ export type ScreenshotOverlayValidation =
 export class ScreenshotRequests {
 
   static readonly MAX_HIGHLIGHT = 64;
+  /** A highlight entry's `color`. */
+  static readonly HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
   static readonly MAX_IDS = 64;
   /** `fitTo.margin` range: 1 is flush with the frame edge, 10 leaves the shapes a tenth of it. */
   static readonly MIN_FIT_MARGIN = 1;
@@ -276,8 +278,12 @@ export class ScreenshotRequests {
       }
     }
     const entities = raw as MeasureEntity[];
+    // Each entry's colour, carried onto every entity it resolves to.
+    const colors = (raw as { color?: string }[]).map((entry) => entry.color);
+    const withColor = (ref: ScreenshotHighlightRef, source: number): ScreenshotHighlightRef =>
+      colors[source] !== undefined ? { ...ref, color: colors[source] } : ref;
     if (!entities.some(MeasureEntityResolver.isFilterEntity)) {
-      return { ok: true, options: { highlight: entities.map(ScreenshotRequests.stripPose) } };
+      return { ok: true, options: { highlight: entities.map((e, i) => withColor(ScreenshotRequests.stripPose(e), i)) } };
     }
     if (!resolveSelection) {
       return ScreenshotRequests.refuse(501, 'highlight expressions cannot be resolved on this server.');
@@ -292,16 +298,24 @@ export class ScreenshotRequests {
         ...(resolved.candidates ? { candidates: resolved.candidates } : {}),
       };
     }
-    return { ok: true, options: { highlight: resolved.refs.map(ScreenshotRequests.stripPose) } };
+    return {
+      ok: true,
+      options: { highlight: resolved.refs.map((ref, k) => withColor(ScreenshotRequests.stripPose(ref), resolved.sources[k])) },
+    };
   }
 
   /** The page looks entities up in the live scene graph; a pose has no meaning for it. */
   private static stripPose(ref: MeasureEntity): ScreenshotHighlightRef {
+    // `color` is put back by the caller, per entry (a filter's matches share it).
     const { shapeId, kind, index, instanceId } = ref as ScreenshotHighlightRef;
     return { shapeId, kind, index, ...(instanceId !== undefined ? { instanceId } : {}) };
   }
 
   private static entityError(entity: unknown, label: string): string | null {
+    const color = (entity as { color?: unknown } | null)?.color;
+    if (color !== undefined && (typeof color !== 'string' || !ScreenshotRequests.HEX_COLOR.test(color))) {
+      return `${label}.color must be a CSS hex colour (#rgb or #rrggbb).`;
+    }
     if (MeasureEntityResolver.isFilterEntity(entity)) {
       return SelectionRequests.expressionError(entity.expression, `${label}.expression`)
         ?? SelectionRequests.scopeError(entity.scope, `${label}.scope`);

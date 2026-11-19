@@ -1,4 +1,4 @@
-import { ICON_CODE, ICON_LIST_TREE, ICON_SLIDERS } from './icons';
+import { ICON_AGENT, ICON_CODE, ICON_LIST_TREE, ICON_SLIDERS } from './icons';
 import { HubIcons } from './hub/hub-icons';
 
 /**
@@ -79,13 +79,25 @@ export interface PanelRailHandlers {
    */
   onToggleHub?: () => void;
   isHubOpen?: () => boolean;
+  /**
+   * Toggle the Agent panel (docs/agent-chat-plan.md §10.1). Its button sits
+   * last, below the Hub's; absent, there is no button.
+   */
+  onToggleAgent?: () => void;
+  isAgentOpen?: () => boolean;
+  /**
+   * Whether the Agent button shows: only once the engine answered for an
+   * agent runtime (`GET api/agent/agents`). Polled on {@link PanelRail.sync};
+   * absent means shown.
+   */
+  isAgentAvailable?: () => boolean;
 }
 
 /**
  * The panel rail: a full-height vertical bar pinned to the window's left edge,
  * holding one latch button per surface it opens — the feature tree (timeline)
  * on top, the code-editor pane beneath it, the project Parameters column
- * under that, the Hub panel (H11) last. It replaces the top bar's hamburger
+ * under that, the Hub panel (H11), the Agent panel last. It replaces the top bar's hamburger
  * menu, which hid the
  * toggles behind a click and gave no sign of what was open.
  *
@@ -109,6 +121,7 @@ export class PanelRail {
   private readonly el: HTMLDivElement;
   private readonly editorBtn: RailButton | null;
   private readonly hubBtn: RailButton | null;
+  private readonly agentBtn: RailButton | null;
   private readonly treeBtn: RailButton;
   private readonly globalParamsBtn: RailButton | null;
   private readonly floatQuery: MediaQueryList | null;
@@ -126,7 +139,7 @@ export class PanelRail {
     container.appendChild(this.el);
     document.documentElement.style.setProperty(RAIL_WIDTH_VARIABLE, RAIL_WIDTH);
 
-    // Tree (timeline) first, editor beneath it, project parameters, the Hub last.
+    // Tree (timeline) first, editor beneath it, project parameters, the Hub, the Agent last.
     this.treeBtn = this.addButton(ICON_LIST_TREE, handlers.onToggleTree);
     this.editorBtn = handlers.onToggleEditor
       ? this.addButton(ICON_CODE, handlers.onToggleEditor)
@@ -136,6 +149,9 @@ export class PanelRail {
       : null;
     this.hubBtn = handlers.onToggleHub
       ? this.addButton(HubIcons.PACKAGES, handlers.onToggleHub)
+      : null;
+    this.agentBtn = handlers.onToggleAgent
+      ? this.addButton(ICON_AGENT, handlers.onToggleAgent)
       : null;
 
     this.floatQuery = window.matchMedia?.(FLOAT_QUERY) ?? null;
@@ -180,6 +196,10 @@ export class PanelRail {
     }
     if (this.hubBtn) {
       this.setState(this.hubBtn, this.handlers.isHubOpen?.() === true, 'FluidCAD Hub');
+    }
+    if (this.agentBtn) {
+      this.setState(this.agentBtn, this.handlers.isAgentOpen?.() === true, 'Agent');
+      this.agentBtn.wrap.classList.toggle('hidden', this.handlers.isAgentAvailable?.() === false);
     }
   }
 

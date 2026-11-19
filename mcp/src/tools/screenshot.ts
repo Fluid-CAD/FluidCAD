@@ -36,9 +36,16 @@ export type ScreenshotShapeFitInput = {
   margin?: number;
 };
 
+/**
+ * A highlight entry: a `measure` entity, optionally drawn in its own colour
+ * (a CSS hex) instead of the theme's highlight colour. A filter's matches
+ * all take its colour.
+ */
+export type HighlightEntityInput = MeasureEntityInput & { color?: string };
+
 /** The overlay options every screenshot tool accepts. */
 export type ScreenshotOverlayInput = {
-  highlight?: MeasureEntityInput[];
+  highlight?: HighlightEntityInput[];
   hide?: string[];
   focus?: string[];
   annotations?: ScreenshotAnnotationInput[];
@@ -261,7 +268,7 @@ export async function getCameraState(input: WorkspaceArg): Promise<ToolResult<Ca
 // ---------------------------------------------------------------------------
 
 export type ValidatedOverlays = {
-  highlight?: MeasureEntityInput[];
+  highlight?: HighlightEntityInput[];
   hide?: string[];
   focus?: string[];
   annotations?: ScreenshotAnnotationInput[];
@@ -280,10 +287,22 @@ export class ScreenshotOverlayInputs {
   static readonly MAX_HIGHLIGHT = 64;
   static readonly MAX_IDS = 64;
   static readonly MAX_ANNOTATIONS = 32;
+  /** A highlight entry's `color`, as the server accepts it. */
+  static readonly HEX_COLOR = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
   static readonly MAX_LABEL_LENGTH = 200;
   /** A shape fit's margin range: 1 is flush with the frame edge. */
   static readonly MIN_FIT_MARGIN = 1;
   static readonly MAX_FIT_MARGIN = 10;
+
+  static colorError(highlight: HighlightEntityInput[]): string | null {
+    for (let i = 0; i < highlight.length; i++) {
+      const color = highlight[i].color;
+      if (color !== undefined && (typeof color !== 'string' || !ScreenshotOverlayInputs.HEX_COLOR.test(color))) {
+        return `\`highlight[${i}].color\` must be a CSS hex colour (#rgb or #rrggbb).`;
+      }
+    }
+    return null;
+  }
 
   static validate(input: ScreenshotOverlayInput): ToolResult<ValidatedOverlays> {
     const out: ValidatedOverlays = {};
@@ -304,7 +323,8 @@ export class ScreenshotOverlayInputs {
     }
 
     if (highlight !== undefined) {
-      const problem = MeasureEntityInputs.error(highlight, { min: 1, max: ScreenshotOverlayInputs.MAX_HIGHLIGHT, label: 'highlight' });
+      const problem = MeasureEntityInputs.error(highlight, { min: 1, max: ScreenshotOverlayInputs.MAX_HIGHLIGHT, label: 'highlight' })
+        ?? ScreenshotOverlayInputs.colorError(highlight);
       if (problem) {
         return err('invalid-input', problem);
       }

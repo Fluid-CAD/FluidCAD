@@ -92,6 +92,299 @@ export interface Preferences {
    * new default reaches a user who never touched the pins.
    */
   quickFindPins: string[] | null;
+  /** The in-app agent panel (Settings → Agent). */
+  agent: AgentPreferences;
+}
+
+export const AGENT_KINDS = ['claude', 'codex', 'api'] as const;
+export type AgentKindPreference = (typeof AGENT_KINDS)[number];
+/** The efforts the older single `effort` field took; both agents accept them. */
+export const AGENT_EFFORTS = ['low', 'medium', 'high'] as const;
+/** Claude Code's `--effort` choices (`claude --help`, 2.1.326). */
+export const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+/**
+ * A Codex reasoning effort: Codex types it as a string, and each model lists
+ * its own (`model/list` → `supportedReasoningEfforts`: low … max, ultra).
+ */
+export const AGENT_EFFORT_PATTERN = /^[a-z][a-z0-9-]{0,23}$/;
+export const AGENT_PERMISSION_MODES = ['ask', 'auto-edits'] as const;
+
+export interface AgentPreferences {
+  /** The agent a new chat starts with; null until the user picks one. */
+  defaultAgent: AgentKindPreference | null;
+  /** Absolute path to the `claude` binary, overriding detection. */
+  claudePath?: string;
+  /** Absolute path to the `codex` binary, overriding detection. */
+  codexPath?: string;
+  /** Claude Code model (alias or full name); absent means Claude Code's own default. */
+  claudeModel?: string;
+  /** Codex model id; absent means Codex's own default. */
+  codexModel?: string;
+  /** Before per-agent efforts: one effort for both. Read when the agent's own is absent. */
+  effort?: (typeof AGENT_EFFORTS)[number];
+  /** Claude Code's `--effort`; absent means Claude Code's own default. */
+  claudeEffort?: (typeof CLAUDE_EFFORTS)[number];
+  /** Codex's reasoning effort; absent means the model's default. */
+  codexEffort?: string;
+  /** Ask before every edit (default), or apply workspace edits without asking. */
+  permissionMode: (typeof AGENT_PERMISSION_MODES)[number];
+  /**
+   * The API agent's model, provider-qualified (`<providerId>/<model>`, e.g.
+   * `anthropic/claude-opus-5-5`, `ollama/qwen3-vl:4b`): the last one used.
+   */
+  apiModel?: string;
+  /** The API agent's effort; absent means the model's default. */
+  apiEffort?: string;
+  /**
+   * The API agent's custom model providers (OpenAI-compatible servers such
+   * as Ollama or LM Studio). The built-in providers (Anthropic, OpenAI,
+   * OpenRouter) are implicit and never listed here. Keys are not
+   * preferences: they live in `agent-credentials.json`.
+   */
+  providers?: AgentProviderConfig[];
+}
+
+/** The model providers the API agent always has; a custom entry may not take their ids. */
+export const BUILT_IN_AGENT_PROVIDER_IDS = ['anthropic', 'openai', 'openrouter'] as const;
+export type AgentProviderKind = 'anthropic' | 'openai' | 'openrouter' | 'openai-compatible';
+
+/** A custom model provider of the API agent (docs/agent-chat-plan.md §20.2, Appendix A.3). */
+export type AgentProviderConfig = {
+  /** A slug (`^[a-z0-9][a-z0-9-]{0,31}$`), not a built-in id: the `<providerId>` of its model ids. */
+  id: string;
+  /** Custom entries are OpenAI-compatible servers. */
+  kind: 'openai-compatible';
+  label: string;
+  /** http or https, e.g. Ollama `http://localhost:11434/v1`, LM Studio `http://localhost:1234/v1`. */
+  baseURL: string;
+  /** Models to offer when the server's model list cannot be read. */
+  models?: string[];
+  /** The context the server runs its models with, in tokens (what the user configured there). */
+  contextWindow?: number;
+  /** Whether images are sent to its models; default false. */
+  images?: boolean;
+};
+
+/** A provider id: built-in names and custom slugs. */
+export const AGENT_PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const MAX_AGENT_PROVIDERS = 16;
+const MAX_PROVIDER_LABEL_CHARS = 60;
+const MAX_PROVIDER_URL_CHARS = 512;
+const MAX_PROVIDER_MODELS = 200;
+/** The context-window bounds a custom entry may give, in tokens. */
+export const AGENT_CONTEXT_WINDOW_RANGE: [number, number] = [1024, 10_000_000];
+
+/**
+ * One custom provider entry, checked: the entry as stored, or why it is
+ * refused (`index` is its place in the list, for the message).
+ */
+function parseAgentProvider(value: unknown, index: number): { provider: AgentProviderConfig } | { error: string } {
+  const where = `Provider ${index + 1}`;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: `${where} is not an object.` };
+  }
+  const v = value as Record<string, unknown>;
+  const id = typeof v.id === 'string' ? v.id.trim() : '';
+  if (!AGENT_PROVIDER_ID_PATTERN.test(id)) {
+    return { error: `${where}: the id must be lowercase letters, digits and dashes (at most 32), starting with a letter or digit.` };
+  }
+  if ((BUILT_IN_AGENT_PROVIDER_IDS as readonly string[]).includes(id)) {
+    return { error: `${where}: "${id}" is a built-in provider's id.` };
+  }
+  if (v.kind !== undefined && v.kind !== 'openai-compatible') {
+    return { error: `${where}: a custom provider is an OpenAI-compatible server (kind "openai-compatible").` };
+  }
+  const label = typeof v.label === 'string' ? v.label.trim() : '';
+  if (label === '' || label.length > MAX_PROVIDER_LABEL_CHARS || /[\u0000-\u001f\u007f]/.test(label)) {
+    return { error: `${where}: the name must be one line of at most ${MAX_PROVIDER_LABEL_CHARS} characters.` };
+  }
+  const baseURL = parseProviderUrl(v.baseURL);
+  if (!baseURL) {
+    return { error: `${where}: the base URL must be an http or https URL (e.g. http://localhost:11434/v1).` };
+  }
+  const provider: AgentProviderConfig = { id, kind: 'openai-compatible', label, baseURL };
+  if (v.models !== undefined && v.models !== null) {
+    if (!Array.isArray(v.models) || v.models.length > MAX_PROVIDER_MODELS) {
+      return { error: `${where}: models must be a list of at most ${MAX_PROVIDER_MODELS} model names.` };
+    }
+    const models: string[] = [];
+    for (const raw of v.models) {
+      const model = typeof raw === 'string' ? raw.trim() : '';
+      if (model === '' || model.length > MAX_AGENT_MODEL_CHARS || !AGENT_MODEL_PATTERN.test(model)) {
+        return { error: `${where}: "${String(raw).slice(0, 40)}" is not a model name.` };
+      }
+      if (!models.includes(model)) {
+        models.push(model);
+      }
+    }
+    if (models.length > 0) {
+      provider.models = models;
+    }
+  }
+  if (v.contextWindow !== undefined && v.contextWindow !== null) {
+    const n = v.contextWindow;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < AGENT_CONTEXT_WINDOW_RANGE[0] || n > AGENT_CONTEXT_WINDOW_RANGE[1]) {
+      return { error: `${where}: the context window must be a whole number of tokens from ${AGENT_CONTEXT_WINDOW_RANGE[0]} to ${AGENT_CONTEXT_WINDOW_RANGE[1]}.` };
+    }
+    provider.contextWindow = n;
+  }
+  if (v.images !== undefined && v.images !== null) {
+    if (typeof v.images !== 'boolean') {
+      return { error: `${where}: images must be true or false.` };
+    }
+    provider.images = v.images;
+  }
+  return { provider };
+}
+
+/** An http(s) URL without credentials or a fragment, without its trailing slash; null otherwise. */
+function parseProviderUrl(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const text = value.trim();
+  if (text === '' || text.length > MAX_PROVIDER_URL_CHARS) {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return null;
+  }
+  if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username !== '' || url.password !== '' || url.hash !== '') {
+    return null;
+  }
+  return text.replace(/\/+$/, '');
+}
+
+/**
+ * The custom provider list `value` as stored, or why it is refused (the
+ * first bad entry; ids must be unique). For a POST: nothing is saved when
+ * one entry is wrong.
+ */
+export function parseAgentProviders(value: unknown): { providers: AgentProviderConfig[] } | { error: string } {
+  if (!Array.isArray(value)) {
+    return { error: '`agent.providers` must be a list.' };
+  }
+  if (value.length > MAX_AGENT_PROVIDERS) {
+    return { error: `At most ${MAX_AGENT_PROVIDERS} custom providers.` };
+  }
+  const providers: AgentProviderConfig[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const parsed = parseAgentProvider(value[i], i);
+    if ('error' in parsed) {
+      return parsed;
+    }
+    if (providers.some((p) => p.id === parsed.provider.id)) {
+      return { error: `Two providers have the id "${parsed.provider.id}".` };
+    }
+    providers.push(parsed.provider);
+  }
+  return { providers };
+}
+
+/** The entries of `value` that pass (a hand-edited file keeps its good entries), unique by id. */
+function filterAgentProviders(value: unknown): AgentProviderConfig[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const providers: AgentProviderConfig[] = [];
+  for (let i = 0; i < value.length && providers.length < MAX_AGENT_PROVIDERS; i++) {
+    const parsed = parseAgentProvider(value[i], i);
+    if ('provider' in parsed && !providers.some((p) => p.id === parsed.provider.id)) {
+      providers.push(parsed.provider);
+    }
+  }
+  return providers;
+}
+
+/** A provider-qualified model id of the API agent: `<providerId>/<model>`. */
+export function isApiModelId(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > MAX_AGENT_MODEL_CHARS || !AGENT_MODEL_PATTERN.test(value)) {
+    return false;
+  }
+  const slash = value.indexOf('/');
+  return slash > 0 && slash < value.length - 1 && AGENT_PROVIDER_ID_PATTERN.test(value.slice(0, slash));
+}
+
+const MAX_AGENT_PATH_CHARS = 1024;
+const MAX_AGENT_MODEL_CHARS = 200;
+/** A model alias or full model name: no spaces, nothing a shell or a flag parser reads specially. */
+export const AGENT_MODEL_PATTERN = /^[A-Za-z0-9][\w.:@\/\[\]-]*$/;
+
+/**
+ * The agent preferences in `value` merged over `base`: each field is taken
+ * when valid and ignored otherwise; an empty string or null clears an
+ * optional field. Used for the stored file and for a POST alike.
+ */
+export function mergeAgentPreferences(base: AgentPreferences, value: unknown): AgentPreferences {
+  const out: AgentPreferences = { ...base };
+  // Gone: Claude Code runs on the subscription only, so there is no API-key choice to keep.
+  delete (out as unknown as Record<string, unknown>).claudeIgnoreApiKey;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return out;
+  }
+  const v = value as Record<string, unknown>;
+  if (v.defaultAgent === null || AGENT_KINDS.includes(v.defaultAgent as AgentKindPreference)) {
+    out.defaultAgent = v.defaultAgent as AgentKindPreference | null;
+  }
+  for (const key of ['claudePath', 'codexPath'] as const) {
+    const raw = v[key];
+    if (raw === null || raw === '') {
+      delete out[key];
+    } else if (typeof raw === 'string' && raw.length <= MAX_AGENT_PATH_CHARS && !raw.includes('\0')) {
+      out[key] = raw.trim();
+    }
+  }
+  for (const key of ['claudeModel', 'codexModel'] as const) {
+    const raw = v[key];
+    if (raw === null || raw === '') {
+      delete out[key];
+    } else if (typeof raw === 'string' && raw.length <= MAX_AGENT_MODEL_CHARS && AGENT_MODEL_PATTERN.test(raw.trim())) {
+      out[key] = raw.trim();
+    }
+  }
+  if (v.effort === null || v.effort === '') {
+    delete out.effort;
+  } else if (AGENT_EFFORTS.includes(v.effort as any)) {
+    out.effort = v.effort as AgentPreferences['effort'];
+  }
+  if (v.claudeEffort === null || v.claudeEffort === '') {
+    delete out.claudeEffort;
+  } else if (CLAUDE_EFFORTS.includes(v.claudeEffort as any)) {
+    out.claudeEffort = v.claudeEffort as AgentPreferences['claudeEffort'];
+  }
+  if (v.codexEffort === null || v.codexEffort === '') {
+    delete out.codexEffort;
+  } else if (typeof v.codexEffort === 'string' && AGENT_EFFORT_PATTERN.test(v.codexEffort)) {
+    out.codexEffort = v.codexEffort;
+  }
+  if (AGENT_PERMISSION_MODES.includes(v.permissionMode as any)) {
+    out.permissionMode = v.permissionMode as AgentPreferences['permissionMode'];
+  }
+  if (v.apiModel === null || v.apiModel === '') {
+    delete out.apiModel;
+  } else if (typeof v.apiModel === 'string' && isApiModelId(v.apiModel.trim())) {
+    out.apiModel = v.apiModel.trim();
+  }
+  if (v.apiEffort === null || v.apiEffort === '') {
+    delete out.apiEffort;
+  } else if (typeof v.apiEffort === 'string' && AGENT_EFFORT_PATTERN.test(v.apiEffort)) {
+    out.apiEffort = v.apiEffort;
+  }
+  // The whole list, as Settings holds it (an empty one removes every entry).
+  if (v.providers === null) {
+    delete out.providers;
+  } else if (v.providers !== undefined) {
+    const providers = filterAgentProviders(v.providers);
+    if (providers.length > 0) {
+      out.providers = providers;
+    } else {
+      delete out.providers;
+    }
+  }
+  return out;
 }
 
 export const PACKAGE_INSTALL_TARGETS = ['library', 'project'] as const;
@@ -169,11 +462,19 @@ const DEFAULTS: Preferences = {
   packageInstallTarget: 'library',
   toolbarPackages: [],
   quickFindPins: null,
+  agent: { defaultAgent: null, permissionMode: 'ask' },
 };
 
 /** A fresh copy of the defaults — what "Reset all to defaults" writes. */
 export function defaultPreferences(): Preferences {
-  return { ...DEFAULTS, gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing }, materials: {}, toolbarPackages: [], quickFindPins: null };
+  return {
+    ...DEFAULTS,
+    gridFixedSpacing: { ...DEFAULTS.gridFixedSpacing },
+    materials: {},
+    toolbarPackages: [],
+    quickFindPins: null,
+    agent: { ...DEFAULTS.agent },
+  };
 }
 
 function getConfigDir(): string {
@@ -228,6 +529,7 @@ function parsePreferences(data: string): Preferences {
     materials: 'materials' in materials ? materials.materials : {},
     toolbarPackages: parseToolbarPackages(parsed.toolbarPackages) ?? [],
     quickFindPins: parseQuickFindPins(parsed.quickFindPins) ?? null,
+    agent: mergeAgentPreferences({ ...DEFAULTS.agent }, parsed.agent),
   };
 }
 

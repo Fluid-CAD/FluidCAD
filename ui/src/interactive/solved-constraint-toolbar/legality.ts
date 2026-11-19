@@ -5,11 +5,10 @@
 
 import type { ConstraintSpec, SolverRef } from '../../../../lib/sketch-solver/types.js';
 import type { SolvedPick } from '../sketch-hover-select-handler';
-import type { ArrowEnds, SolvedConstraintView, SolvedSketchModel } from '../../sketch-solver-client';
-import { diameterChord, distanceLeaderLayout } from '../../sketch-solver-client';
+import type { SceneObjectRender } from '../../types';
+import type { SolvedConstraintView, SolvedSketchModel } from '../../sketch-solver-client';
 import {
   Vec2,
-  entityAnchor,
   dist,
   entityFor,
   footOnLine,
@@ -196,14 +195,15 @@ export function axisFromCursor(a: Vec2, b: Vec2, cursor: Vec2): 'x' | 'y' | unde
   return undefined;
 }
 
-/** True when the placement stage has no real choice to offer: a pure point
+/** True when the cursor has no real measure to choose between: a pure point
  * pair that is already axis-aligned. The zero-measure axis is never
  * offered, and the surviving one measures exactly what the aligned form
- * measures — so the caller skips placement and opens the value input
- * directly on the aligned form. Round picks always place: their aligned
- * form measures to the CIRCUMFERENCE while the axis forms measure the
- * centers, a real choice even when the centers line up. */
-export function distancePlacementMoot(rawPicks: SolvedPick[], a: Vec2, b: Vec2): boolean {
+ * measures — so the placement offers the aligned form alone, and a line
+ * lying along an axis is dimensioned by its length, not by one component of
+ * it. Round picks always keep the choice: their aligned form measures to
+ * the CIRCUMFERENCE while the axis forms measure the centers, a real choice
+ * even when the centers line up. */
+export function axisChoiceMoot(rawPicks: SolvedPick[], a: Vec2, b: Vec2): boolean {
   return rawPicks.every(isPointPick)
     && (Math.abs(b[0] - a[0]) < ZERO_2DP || Math.abs(b[1] - a[1]) < ZERO_2DP);
 }
@@ -668,123 +668,37 @@ export function candidateSpec(
   }
 }
 
-export type DimensionPreviewLayout = {
-  /** Leader endpoints in sketch coords; null = no leader (angle). */
-  line: [Vec2, Vec2] | null;
-  /** Dashed witness leaders from a synthetic leader end to the real
-   * anchor (axis forms — the committed glyph draws the same). */
-  extensions?: [Vec2, Vec2][];
-  /** Arrowheads on the leader's ends — set the way the committed glyph
-   * sets them, so the preview is the same line. */
-  arrows?: ArrowEnds;
-  /** Where the value input anchors — the committed glyph's label spot. */
-  at: Vec2;
-  /** Angle only: the sector arc around `at` (screen-constant radius, same
-   * as the committed glyph), plus dashed extension leaders for segments
-   * that don't reach the intersection and the tail-stub ray angles that
-   * make the arc's ends touch them. Absent for near-parallel lines. */
-  arc?: {
-    startAngle: number;
-    sweep: number;
-    extensions: [Vec2, Vec2][];
-    tails: number[];
-  };
-};
+/** The statement behind a dimension nobody has written yet: no id, no
+ * source line — only what the glyph pass reads off a scene object. */
+const UNWRITTEN_STATEMENT: SceneObjectRender = { sceneShapes: [], ownShapes: [] };
 
-/** Where the dimension a pick set would create will sit: the same anchors
- * the committed glyph's leader uses (distanceLeaderLayout — the preview
- * lands exactly where the real dimension will render), with the value
- * input anchored at the label position. Angles preview the given sector
- * (default: between the start→end directions). */
-export function dimensionPreviewLayout(
+/**
+ * The dimension a pick set would create, as the constraint a render would
+ * bring back for it — so the glyph pass draws it, and `dimensionFrame`
+ * places its value, exactly as it will the committed statement. The value
+ * is the measured one: the dimension as it reads before anything is typed.
+ * `picks` are the picks the statement would name (`form` the form they
+ * select); an angle needs its `sector`. Null when the picks measure nothing
+ * right now.
+ */
+export function dimensionCandidate(
   model: SolvedSketchModel,
-  rawPicks: SolvedPick[],
+  picks: SolvedPick[],
   form: DimensionForm,
   axis?: 'x' | 'y',
   sector?: AngleSector | null,
   tangency?: 'min' | 'max',
-): DimensionPreviewLayout | null {
-  const picks = normalizeDistancePicks(expandDimensionPicks(rawPicks));
-  if (form.kind === 'radius' || form.kind === 'diameter') {
-    const e = entityFor(model, pickRef(picks[0]));
-    if (!e || !e.center) {
-      return null;
-    }
-    if (e.kind === 'ellipse' && e.radii) {
-      // Center → the end of the dimensioned semi-axis, riding the line.
-      const c = Math.cos(e.theta ?? 0);
-      const s = Math.sin(e.theta ?? 0);
-      const end: Vec2 = axis === 'y'
-        ? [e.center[0] - e.radii[1] * s, e.center[1] + e.radii[1] * c]
-        : [e.center[0] + e.radii[0] * c, e.center[1] + e.radii[0] * s];
-      return { line: [e.center, end], at: mid(e.center, end), arrows: 'end' };
-    }
-    if (form.kind === 'diameter') {
-      // Rim to rim through the center — the chord the committed glyph will
-      // draw, with the value input opening on its label spot.
-      const chord = diameterChord(model, e);
-      return chord ? { line: chord, at: mid(chord[0], chord[1]), arrows: 'both' } : null;
-    }
-    const rim = entityAnchor(e);
-    // Rim end only — the center end of a radius leader measures nothing.
-    // The input opens where the committed label lands: halfway along the
-    // radius, riding the line.
-    return rim
-      ? { line: [e.center, rim], at: mid(e.center, rim), arrows: 'end' }
-      : null;
-  }
-  if (form.kind === 'angle') {
-    if (!picks[1]) {
-      return null;
-    }
-    const s = sector
-      ? angleSectorFor(model, picks[0], picks[1], sector.aRole, sector.bRole)
-      : angleSectorAt(model, picks[0], picks[1], null);
-    if (!s) {
-      return null;
-    }
-    if (s.at) {
-      return {
-        line: null,
-        at: s.at,
-        arc: {
-          startAngle: s.startAngle,
-          sweep: s.sweep,
-          extensions: s.extensions,
-          tails: s.tails,
-        },
-      };
-    }
-    // Near-parallel lines have no usable intersection — anchor between
-    // the two midpoints, like the committed glyph's fallback readout.
-    const a = entityFor(model, pickRef(picks[0]));
-    const b = entityFor(model, pickRef(picks[1]));
-    const ma = a ? lineMid(a) : null;
-    const mb = b ? lineMid(b) : null;
-    return ma && mb ? { line: null, at: mid(ma, mb) } : null;
-  }
-  if (picks.length !== 2) {
+): SolvedConstraintView | null {
+  const measured = measureDimension(model, picks, form, axis, sector, tangency);
+  if (measured === null) {
     return null;
   }
-  const spec: Extract<ConstraintSpec, { kind: 'distance' }> = {
-    kind: 'distance', a: pickRef(picks[0]), b: pickRef(picks[1]), value: 0,
-  };
-  if (axis !== undefined) {
-    spec.axis = axis;
-  }
-  if (tangency === 'max' && form.tangencyChoice) {
-    spec.tangency = 'max';
-  }
-  const layout = distanceLeaderLayout(model, spec);
-  if (!layout) {
-    return null;
-  }
-  return {
-    line: [layout.from, layout.to],
-    at: mid(layout.from, layout.to),
-    arrows: 'both',
-    ...(layout.extensions.length > 0 ? { extensions: layout.extensions } : {}),
-  };
+  const spec = candidateSpec(
+    form.kind === 'angle' ? 'angle' : 'dimension', picks, measured, axis, sector, tangency,
+  );
+  return spec
+    ? { obj: UNWRITTEN_STATEMENT, kind: spec.kind, spec, value: measured, status: 'ok' }
+    : null;
 }
 
 // -- coincident removal from a vertex pick ------------------------------------

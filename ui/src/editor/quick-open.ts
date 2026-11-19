@@ -1,5 +1,6 @@
 import { ICON_CUBE, ICON_FILE_CODE, ICON_FOLDER, ICON_PUZZLE, ICON_SLIDERS } from '../ui/icons';
 import { listWorkspaceFiles, type FileKind, type WorkspaceFileEntry } from './editor-api';
+import { fuzzyScore } from './fuzzy-score';
 import { ASSEMBLY_ACCENT, splitModelName } from './model-name';
 
 /**
@@ -51,37 +52,6 @@ const FEATURE_SUFFIX = '.feature.js';
 
 /** A global params file (`*.params.js`), the Parameters column's sliders. */
 const PARAMS_SUFFIX = '.params.js';
-
-/** Subsequence match — the same shape of matching every quick-open uses. */
-function fuzzyScore(candidate: string, query: string): number | null {
-  if (query === '') {
-    return 0;
-  }
-  const haystack = candidate.toLowerCase();
-  const needle = query.toLowerCase();
-
-  let score = 0;
-  let from = 0;
-  let previous = -2;
-  for (const char of needle) {
-    const at = haystack.indexOf(char, from);
-    if (at === -1) {
-      return null;
-    }
-    // Adjacent characters, and matches right after a path separator, are what
-    // the user was actually aiming at.
-    if (at === previous + 1) {
-      score -= 2;
-    }
-    if (at === 0 || haystack[at - 1] === '/' || haystack[at - 1] === '.') {
-      score -= 3;
-    }
-    score += at - from;
-    previous = at;
-    from = at + 1;
-  }
-  return score;
-}
 
 const MAX_RESULTS = 12;
 

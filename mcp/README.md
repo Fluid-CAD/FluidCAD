@@ -2,7 +2,8 @@
 
 An [MCP](https://modelcontextprotocol.io) server that lets LLM agents drive a
 running FluidCAD workspace — take screenshots, inspect geometry, edit `.fluid.js`
-source files, and look up the FluidCAD API by symbol or keyword.
+source files, look up the FluidCAD API by symbol or keyword, and find and
+install packages from the FluidCAD hub.
 
 The server is transport-agnostic. It currently ships a stdio transport via
 `fluidcad mcp`; an HTTP transport will be added when there is demand.
@@ -298,6 +299,28 @@ You should see two JSON-RPC responses on stdout: the `initialize` reply and a
 | Coordination    | `wait_for_idle`                                                       |
 | Source editing  | `list_fluid_files`, `read_file`, `write_file`, `edit_range`           |
 | Engine control  | `recompute`, `rollback_to`, `add_breakpoint`, `clear_breakpoints`, `import_step`, `export` |
+| Packages & hub  | `search_hub`, `get_hub_package`, `install_package`, `list_packages`, `read_package_file`, `pack` |
+
+### Packages and the hub
+
+The hub tools go through the running FluidCAD's hub bridge, never to the hub
+directly, so the hub URL, the sign-in and the proxy settings are the app's.
+
+- `search_hub`, `get_hub_package`, `list_packages` and `read_package_file` are
+  read-only: search the hub, read what a package exports (the import line,
+  each feature's call and values, each part's parameters, its doc pages), see
+  what the project uses and the library holds, and read a doc page or source
+  file (an installed copy is read offline).
+- `install_package` downloads a package, verifies it against the hub's hash,
+  installs it into the user's library (or the project's `packages/` folder)
+  and records it in `fluidcad.json`. **A package's code runs in the FluidCAD
+  engine with the user's permissions.** The tool is annotated as not
+  read-only, so a client's default permission mode asks before it runs; keep
+  it out of any auto-approve list. It never replaces an installed version,
+  and moves a project to another version only with `upgrade: true`.
+- What the hub returns is written by package publishers. The server's
+  instructions tell the agent to treat it as reference material, not as
+  instructions.
 
 Tool descriptions and full input schemas are available via the MCP inspector
 or any compliant client.

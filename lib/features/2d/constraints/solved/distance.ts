@@ -1,12 +1,12 @@
-// The distance statement: a SolvedConstraint with the chained tangency
+// The distance statement: a SolvedDimension with the chained tangency
 // conditions (SolidWorks arc-condition vocabulary). `.max()` measures to
 // the FAR side of any circle/arc in the pair; `.min()` restates the
 // default near side. Center distances stay on the accessor form
 // (`distance(l, a.center(), v)`) — no `.center()` chain.
 
-import { SolvedConstraint } from "./constraint.js";
+import { SolvedDimension } from "./dimension.js";
 
-export class SolvedDistance extends SolvedConstraint {
+export class SolvedDistance extends SolvedDimension {
 
   /** `hasRoundTarget`: the statement references a circle/arc ENTITY (not a
    * point accessor) — the tangency conditions need one. Resolved by the
@@ -14,6 +14,10 @@ export class SolvedDistance extends SolvedConstraint {
    * statement, not as a solver conflict. */
   constructor(displayValue: number | undefined, private hasRoundTarget: boolean) {
     super('distance', displayValue);
+  }
+
+  protected override newInstance(): SolvedDistance {
+    return new SolvedDistance(this.displayValue, this.hasRoundTarget);
   }
 
   /** Measure to the far side of the circle/arc's circumference. */

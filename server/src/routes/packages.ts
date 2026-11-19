@@ -1,9 +1,13 @@
+import fs from 'fs';
+import path from 'path';
 import { Router, type Response } from 'express';
 import { ImageAssets } from '../files/image-assets.ts';
 import { loadPreferences } from '../preferences.ts';
 import { PackageArchive, PackageArchiveError } from '../packages/package-archive.ts';
 import { PackageInstallError, PackageInstaller } from '../packages/package-installer.ts';
 import { LibraryMove } from '../packages/library-move.ts';
+import { PackageLayout } from '../packages/package-manifest.ts';
+import { PackageManifests } from '../packages/package-manifests.ts';
 import { PackageName } from '../packages/package-name.ts';
 import { PackagePinError, PackagePins } from '../packages/package-pins.ts';
 import { PackageRoots, type PackageTarget } from '../packages/package-roots.ts';
@@ -49,6 +53,14 @@ export type PackagesRouterOptions = {
  *   (the version may be left out when only one is installed).
  * - `GET /api/packages/types`: the pinned packages' sources, for the
  *   in-page editor's language service (`PackageTypeLibs`).
+ * - `GET /api/packages/file/@scope/name/<version>/<path…>`: a text file of
+ *   an installed package (the project copy first, then the library), for an
+ *   agent reading its docs, README or sources through the MCP tool
+ *   `read_package_file`: the library lies outside the workspace its file
+ *   tools read. Answers `{ name, version, path, target, content }`. Only a
+ *   file the package's manifest lists (or `manifest.json`), of at most
+ *   {@link MAX_PACKAGE_FILE_BYTES}, that is text: 404 `not-installed` or
+ *   `not-found`, 413 `too-large`, 415 `not-text`.
  * - `POST /api/packages/library-offer`: copy what the folder the library was
  *   in before the last Settings change holds into the library;
  *   `DELETE /api/packages/library-offer` declines that (`GET` shows the offer
@@ -57,6 +69,9 @@ export type PackagesRouterOptions = {
  * A refusal is a 4xx whose `error` is the sentence the CLI prints, with its
  * `code`; a pin that would change is a 409 and leaves everything as it was.
  */
+/** The largest file `GET /api/packages/file/…` answers. */
+export const MAX_PACKAGE_FILE_BYTES = 512 * 1024;
+
 export function createPackagesRouter(options: PackagesRouterOptions): Router {
   const router = Router();
   const project = options.workspacePath || null;
@@ -137,6 +152,60 @@ export function createPackagesRouter(options: PackagesRouterOptions): Router {
       res.setHeader('Cache-Control', 'no-cache');
       res.json(PackageTypeLibs.of(project));
     } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
+
+  router.get('/packages/file/:scope/:name/:version/*path', async (req, res) => {
+    const name = `${req.params.scope}/${req.params.name}`;
+    const version = req.params.version;
+    const segments: string[] = Array.isArray(req.params.path) ? req.params.path : [String(req.params.path ?? '')];
+    const relative = segments.join('/');
+    const badPath = segments.some((part) => part === '' || part === '.' || part === '..' || part.includes('/') || part.includes('\\'));
+    if (!PackageName.isValid(name) || !Semver.isValid(version) || badPath) {
+      res.status(400).json({ error: 'Expected GET /api/packages/file/@scope/name/<version>/<path inside the package>.', code: 'bad-request' });
+      return;
+    }
+    const location = PackageRoots.locate(name, version, project);
+    if (!location) {
+      res.status(404).json({ error: `${name} ${version} isn't installed here.`, code: 'not-installed' });
+      return;
+    }
+    const manifest = PackageManifests.of(location.directory);
+    if (relative !== PackageLayout.MANIFEST && !(manifest?.files ?? []).includes(relative)) {
+      res.status(404).json({ error: `${name} ${version} has no file ${JSON.stringify(relative)}.`, code: 'not-found' });
+      return;
+    }
+    try {
+      const file = path.join(location.directory, ...segments);
+      // A link out of the package is never followed.
+      const real = await fs.promises.realpath(file);
+      const root = await fs.promises.realpath(location.directory);
+      if (real !== root && !real.startsWith(root + path.sep)) {
+        res.status(404).json({ error: `${name} ${version} has no file ${JSON.stringify(relative)}.`, code: 'not-found' });
+        return;
+      }
+      const stat = await fs.promises.stat(real);
+      if (!stat.isFile()) {
+        res.status(404).json({ error: `${name} ${version} has no file ${JSON.stringify(relative)}.`, code: 'not-found' });
+        return;
+      }
+      if (stat.size > MAX_PACKAGE_FILE_BYTES) {
+        res.status(413).json({ error: `${relative} is ${stat.size} bytes, over the ${MAX_PACKAGE_FILE_BYTES / 1024} kB this route reads.`, code: 'too-large' });
+        return;
+      }
+      const bytes = await fs.promises.readFile(real);
+      if (bytes.includes(0)) {
+        res.status(415).json({ error: `${relative} is not a text file.`, code: 'not-text' });
+        return;
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ name, version, path: relative, target: location.target, content: bytes.toString('utf8') });
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        res.status(404).json({ error: `${name} ${version} has no file ${JSON.stringify(relative)}.`, code: 'not-found' });
+        return;
+      }
       res.status(500).json({ error: err?.message ?? String(err) });
     }
   });

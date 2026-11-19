@@ -27,6 +27,8 @@ export interface SettingsTab {
   isDirty(): boolean;
   /** Apply the draft to the app and persist what changed. */
   save(persist: PersistPreference): void;
+  /** Bring one of the tab's sections into view (unfolded), when the dialog is opened on it. */
+  reveal?(section: string): void;
 }
 
 // Shared control chrome, so the five tabs read as one dialog.

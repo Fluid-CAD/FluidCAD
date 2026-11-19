@@ -1,5 +1,5 @@
 // Public surface of the solved-sketch emission editor: constraint and geometry statements
-// emitted into a fully constrained sketch, plus the distance-tangency toggle.
+// emitted into a fully constrained sketch, plus the distance-tangency toggle and the dimension label placement.
 
 export type { SolvedEmissionRole, SolvedEmissionTarget } from '../../../lib/dist/selection/sketch-target.js';
 export {
@@ -20,4 +20,5 @@ export {
   hoistSolvedStatement,
 } from './ast.ts';
 export { applyDistanceTangency, type DistanceTangencySpec } from './distance-tangency.ts';
+export { DimensionLabel, type DimensionLabelSpec } from './dimension-label.ts';
 export { applySolvedEmission } from './apply-emission.ts';

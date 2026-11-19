@@ -33,6 +33,7 @@ import {
 } from './emission-spec.ts';
 import { DATUM_COMMANDS, solvedTargetCallee, targetError } from './emission-targets.ts';
 import { settleSketchPositions } from '../sketch-entity-rewrite.ts';
+import { DimensionLabel } from './dimension-label.ts';
 
 export async function applySolvedEmission(
   code: string,
@@ -74,6 +75,14 @@ export async function applySolvedEmission(
     }
     if (c.valueExpr !== undefined && !isExpressionText(c.valueExpr)) {
       return refuse(code, 'invalid value expression');
+    }
+    if (c.label !== undefined) {
+      if (!DimensionLabel.CALLEES.has(c.kind)) {
+        return refuse(code, `${c.kind} is not a dimension — it has no label to place`);
+      }
+      if (!DimensionLabel.isPosition(c.label)) {
+        return refuse(code, 'the label position must be two finite numbers');
+      }
     }
     for (const t of c.targets) {
       const error = targetError(t, spec.geometry, false);
@@ -232,7 +241,10 @@ export async function applySolvedEmission(
     if (c.axis !== undefined) {
       args.push(`'${c.axis}'`);
     }
-    const suffix = c.tangency === 'max' ? '.max()' : '';
+    // Chained refinements, in the order a statement reads: what is measured
+    // first, where its value is drawn last.
+    const suffix = (c.tangency === 'max' ? '.max()' : '')
+      + (c.label !== undefined ? DimensionLabel.chain(c.label) : '');
     constraintTexts.push(`${c.kind}(${args.join(', ')})${suffix};`);
   }
 

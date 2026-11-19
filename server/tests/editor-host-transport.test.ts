@@ -180,6 +180,40 @@ describe('in-page editor host transport', () => {
     expect((await res.json() as any[]).map((e) => e.path)).toEqual(['/ws/a.fluid.js']);
   });
 
+  it('forgets the unsaved files of a page whose tab closed, and only those', async () => {
+    const until = async (check: () => boolean) => {
+      for (let i = 0; i < 200 && !check(); i++) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(check()).toBe(true);
+    };
+    const tabA = await connect();
+    const tabB = await connect();
+    tabA.ws.send(JSON.stringify({ type: 'editor-dirty-state', dirtyFiles: ['/ws/a.fluid.js', '/ws/shared.fluid.js'] }));
+    tabB.ws.send(JSON.stringify({ type: 'editor-dirty-state', dirtyFiles: ['/ws/b.fluid.js', '/ws/shared.fluid.js'] }));
+    // The IPC editor's own report is a third set.
+    dirtyBufferState.setDirtyFiles(['/ws/ipc.fluid.js']);
+    await until(() => dirtyBufferState.isDirty('/ws/a.fluid.js') && dirtyBufferState.isDirty('/ws/b.fluid.js'));
+    // One tab's report does not replace the other's.
+    tabB.ws.send(JSON.stringify({ type: 'editor-dirty-state', dirtyFiles: ['/ws/b.fluid.js', '/ws/shared.fluid.js'] }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(dirtyBufferState.isDirty('/ws/a.fluid.js')).toBe(true);
+
+    tabA.ws.close();
+    await until(() => !dirtyBufferState.isDirty('/ws/a.fluid.js'));
+    // Tab B still has its unsaved files, the shared one included; the IPC editor's stay.
+    expect(dirtyBufferState.isDirty('/ws/b.fluid.js')).toBe(true);
+    expect(dirtyBufferState.isDirty('/ws/shared.fluid.js')).toBe(true);
+    expect(dirtyBufferState.isDirty('/ws/ipc.fluid.js')).toBe(true);
+    const res = await fetch(`${baseUrl}/api/editor/dirty-files`);
+    expect((await res.json() as any[]).map((e) => e.path).sort()).toEqual(['/ws/b.fluid.js', '/ws/ipc.fluid.js', '/ws/shared.fluid.js']);
+
+    // Tab B saved everything: its report is empty.
+    tabB.ws.send(JSON.stringify({ type: 'editor-dirty-state', dirtyFiles: [] }));
+    await until(() => !dirtyBufferState.isDirty('/ws/b.fluid.js'));
+    expect(dirtyBufferState.list().map((e) => e.path)).toEqual(['/ws/ipc.fluid.js']);
+  });
+
   it('sends edits to the IPC host, not the page, when an extension is attached', async () => {
     ipcAttached = true;
     hosts.announce('ipc', { undoRedo: true }); // what the extension's IPC hello does

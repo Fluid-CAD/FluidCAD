@@ -6,6 +6,7 @@ import http from 'node:http';
 import express from 'express';
 import { loadPreferences, preferredNewProjectUnit, resetPreferences, savePreferences, type Preferences } from '../src/preferences.ts';
 import { createPreferencesRouter } from '../src/routes/preferences.ts';
+import { AgentCredentials } from '../src/agent-credentials.ts';
 
 // The preferences file lives under the platform config dir; on Linux that is
 // $XDG_CONFIG_HOME, so each test gets a fresh temp dir and touches nothing
@@ -13,11 +14,15 @@ import { createPreferencesRouter } from '../src/routes/preferences.ts';
 
 let tmp: string;
 let savedXdg: string | undefined;
+let savedHome: string | undefined;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-prefs-'));
   savedXdg = process.env.XDG_CONFIG_HOME;
   process.env.XDG_CONFIG_HOME = tmp;
+  // The agent's key store ($FLUIDCAD_HOME/agent-credentials.json) too.
+  savedHome = process.env.FLUIDCAD_HOME;
+  process.env.FLUIDCAD_HOME = path.join(tmp, 'home');
 });
 
 afterEach(() => {
@@ -25,6 +30,11 @@ afterEach(() => {
     delete process.env.XDG_CONFIG_HOME;
   } else {
     process.env.XDG_CONFIG_HOME = savedXdg;
+  }
+  if (savedHome === undefined) {
+    delete process.env.FLUIDCAD_HOME;
+  } else {
+    process.env.FLUIDCAD_HOME = savedHome;
   }
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -48,6 +58,11 @@ async function withServer<T>(run: (base: string) => Promise<T>, onSaved?: (prefs
 async function post(url: string, body: unknown): Promise<any> {
   const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return res.json();
+}
+
+async function postStatus(url: string, body: unknown): Promise<{ status: number; body: any }> {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return { status: res.status, body: await res.json() };
 }
 
 describe.runIf(onLinux)('preferences — the global materials list', () => {
@@ -176,5 +191,140 @@ describe.runIf(onLinux)('preferences — the Settings dialog keys', () => {
     expect(await preferredNewProjectUnit()).toBe('in');
     await resetPreferences();
     expect(await preferredNewProjectUnit()).toBeNull();
+  });
+});
+
+describe.runIf(onLinux)('preferences — the agent panel', () => {
+  it('defaults to no agent and asking before edits, and merges valid fields one by one', async () => {
+    expect((await loadPreferences()).agent).toEqual({ defaultAgent: null, permissionMode: 'ask' });
+    await withServer(async (base) => {
+      let prefs = await post(`${base}/preferences`, {
+        agent: { defaultAgent: 'claude', claudePath: ' /opt/claude/bin/claude ', claudeModel: 'sonnet', effort: 'high' },
+      });
+      expect(prefs.agent).toEqual({
+        defaultAgent: 'claude',
+        claudePath: '/opt/claude/bin/claude',
+        claudeModel: 'sonnet',
+        effort: 'high',
+        permissionMode: 'ask',
+      });
+      // Invalid values are ignored; the rest of the stored key stays.
+      prefs = await post(`${base}/preferences`, {
+        agent: { defaultAgent: 'gpt', claudeModel: '--evil flag', effort: 'max', permissionMode: 'yolo' },
+      });
+      expect(prefs.agent).toMatchObject({ defaultAgent: 'claude', claudeModel: 'sonnet', effort: 'high', permissionMode: 'ask' });
+      // Empty or null clears an optional field.
+      prefs = await post(`${base}/preferences`, { agent: { claudePath: '', claudeModel: null, effort: null, permissionMode: 'auto-edits' } });
+      expect(prefs.agent).toEqual({ defaultAgent: 'claude', permissionMode: 'auto-edits' });
+      expect((await loadPreferences()).agent).toEqual(prefs.agent);
+
+      // Each agent's own effort: Claude Code's `--effort` choices, and any
+      // reasoning effort word for Codex (each model lists its own).
+      prefs = await post(`${base}/preferences`, { agent: { claudeEffort: 'max', codexEffort: 'ultra' } });
+      expect(prefs.agent).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra' });
+      prefs = await post(`${base}/preferences`, { agent: { claudeEffort: 'ultra', codexEffort: '--model x' } });
+      expect(prefs.agent).toMatchObject({ claudeEffort: 'max', codexEffort: 'ultra' });
+      prefs = await post(`${base}/preferences`, { agent: { claudeEffort: 'xhigh', codexEffort: '' } });
+      expect(prefs.agent.claudeEffort).toBe('xhigh');
+      expect(prefs.agent.codexEffort).toBeUndefined();
+      const reset = await post(`${base}/preferences/reset`, {});
+      expect(reset.agent).toEqual({ defaultAgent: null, permissionMode: 'ask' });
+    });
+  });
+
+  it('drops the old API-key choice (Claude Code runs on the subscription only)', async () => {
+    await withServer(async (base) => {
+      const prefs = await post(`${base}/preferences`, { agent: { claudeIgnoreApiKey: true } });
+      expect('claudeIgnoreApiKey' in prefs.agent).toBe(false);
+      expect('claudeIgnoreApiKey' in (await loadPreferences()).agent).toBe(false);
+    });
+  });
+});
+
+describe.runIf(onLinux)('preferences — the API agent', () => {
+  const ollama = { id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: 'http://localhost:11434/v1/', models: ['qwen3-vl:4b'], contextWindow: 32768 };
+
+  it('takes the api agent, a provider-qualified model and an effort, and clears them on null', async () => {
+    await withServer(async (base) => {
+      let prefs = await post(`${base}/preferences`, { agent: { defaultAgent: 'api', apiModel: 'anthropic/claude-opus-5-5', apiEffort: 'high' } });
+      expect(prefs.agent).toMatchObject({ defaultAgent: 'api', apiModel: 'anthropic/claude-opus-5-5', apiEffort: 'high' });
+      // A model without its provider, a bad provider slug, or a bad effort is ignored.
+      prefs = await post(`${base}/preferences`, { agent: { apiModel: 'claude-opus-5-5', apiEffort: '--x' } });
+      expect(prefs.agent).toMatchObject({ apiModel: 'anthropic/claude-opus-5-5', apiEffort: 'high' });
+      prefs = await post(`${base}/preferences`, { agent: { apiModel: 'Bad_Provider/m' } });
+      expect(prefs.agent.apiModel).toBe('anthropic/claude-opus-5-5');
+      prefs = await post(`${base}/preferences`, { agent: { apiModel: 'openrouter/anthropic/claude-sonnet-5-5' } });
+      expect(prefs.agent.apiModel).toBe('openrouter/anthropic/claude-sonnet-5-5');
+      prefs = await post(`${base}/preferences`, { agent: { apiModel: null, apiEffort: '' } });
+      expect('apiModel' in prefs.agent).toBe(false);
+      expect('apiEffort' in prefs.agent).toBe(false);
+    });
+  });
+
+  it('saves custom providers as one list, normalised, and refuses a bad one out loud with nothing saved', async () => {
+    await withServer(async (base) => {
+      let res = await postStatus(`${base}/preferences`, { agent: { providers: [ollama, { id: 'lmstudio', label: 'LM Studio', baseURL: 'http://localhost:1234/v1', images: true }] } });
+      expect(res.status).toBe(200);
+      expect(res.body.agent.providers).toEqual([
+        { id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: 'http://localhost:11434/v1', models: ['qwen3-vl:4b'], contextWindow: 32768 },
+        { id: 'lmstudio', kind: 'openai-compatible', label: 'LM Studio', baseURL: 'http://localhost:1234/v1', images: true },
+      ]);
+      const refused: [unknown, string][] = [
+        [[{ ...ollama, id: 'openai' }], 'built-in'],
+        [[{ ...ollama, id: 'Ollama' }], 'the id must'],
+        [[{ ...ollama, baseURL: 'file:///etc/passwd' }], 'http or https'],
+        [[{ ...ollama, baseURL: 'javascript:alert(1)' }], 'http or https'],
+        [[{ ...ollama, baseURL: 'http://user:pw@host/v1' }], 'http or https'],
+        [[{ ...ollama, kind: 'anthropic' }], 'OpenAI-compatible'],
+        [[{ ...ollama, label: '' }], 'the name'],
+        [[{ ...ollama, label: 'x'.repeat(61) }], 'the name'],
+        [[{ ...ollama, contextWindow: 10 }], 'context window'],
+        [[{ ...ollama, models: ['--evil flag'] }], 'not a model name'],
+        [[{ ...ollama, images: 'yes' }], 'images'],
+        [[ollama, { ...ollama }], 'Two providers'],
+        ['ollama', 'must be a list'],
+        [Array.from({ length: 17 }, (_, i) => ({ ...ollama, id: `p${i}` })), 'At most 16'],
+      ];
+      for (const [providers, message] of refused) {
+        res = await postStatus(`${base}/preferences`, { agent: { providers, apiEffort: 'low' } });
+        expect(res.status, JSON.stringify(providers).slice(0, 80)).toBe(400);
+        expect(res.body.key).toBe('agent.providers');
+        expect(res.body.error).toContain(message);
+      }
+      // Nothing of a refused POST was saved.
+      const stored = (await loadPreferences()).agent;
+      expect(stored.providers?.map((p) => p.id)).toEqual(['ollama', 'lmstudio']);
+      expect(stored.apiEffort).toBeUndefined();
+      // An empty list removes every entry.
+      res = await postStatus(`${base}/preferences`, { agent: { providers: [] } });
+      expect('providers' in res.body.agent).toBe(false);
+    });
+  });
+
+  it('keeps the good entries of a hand-edited file', async () => {
+    const dir = path.join(tmp, 'fluidcad');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'preferences.json'), JSON.stringify({ agent: { providers: [ollama, { id: 'anthropic', label: 'x', baseURL: 'http://x' }, { id: 'bad', label: 'Bad', baseURL: 'ftp://x' }] } }));
+    expect((await loadPreferences()).agent.providers?.map((p) => p.id)).toEqual(['ollama']);
+  });
+
+  it('deletes the stored key of an entry that is removed, and of every entry on reset', async () => {
+    const credentials = new AgentCredentials();
+    await withServer(async (base) => {
+      await post(`${base}/preferences`, { agent: { providers: [ollama, { ...ollama, id: 'lmstudio', label: 'LM Studio' }] } });
+      credentials.write('ollama', 'local-1');
+      credentials.write('lmstudio', 'local-2');
+      credentials.write('anthropic', 'sk-ant-kept');
+      await post(`${base}/preferences`, { agent: { providers: [{ ...ollama, id: 'lmstudio', label: 'LM Studio' }] } });
+      expect(credentials.stored('ollama')).toBeNull();
+      expect(credentials.stored('lmstudio')).toBe('local-2');
+      // A save that does not name the list leaves it and its keys alone.
+      await post(`${base}/preferences`, { agent: { apiEffort: 'low' } });
+      expect(credentials.stored('lmstudio')).toBe('local-2');
+      await post(`${base}/preferences/reset`, {});
+      expect(credentials.stored('lmstudio')).toBeNull();
+      // Built-in providers' keys are not preferences: a reset keeps them.
+      expect(credentials.stored('anthropic')).toBe('sk-ant-kept');
+    });
   });
 });

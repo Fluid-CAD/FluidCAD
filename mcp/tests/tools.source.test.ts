@@ -8,8 +8,10 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer } from '../src/server.ts';
 import { registryFilePath } from '../src/discovery.ts';
 import {
+  applyRangeEdit,
   editRange,
   listFluidFiles,
+  previewSourceEdit,
   readFile,
   writeFile,
 } from '../src/tools/source.ts';
@@ -836,6 +838,48 @@ describe('edit_range', () => {
     expect(result.message).toContain('line 1:');
     expect(fs.readFileSync(target, 'utf8')).toBe(original);
     expect(renderRequests).toHaveLength(0);
+  });
+});
+
+describe('previewSourceEdit', () => {
+  it('computes what edit_range writes, without writing or asking the engine', async () => {
+    const target = path.join(workspace, 'edit.fluid.js');
+    fs.writeFileSync(target, 'line one\nline two\n');
+    const input = { pinnedWorkspace: entry(), path: 'edit.fluid.js', start: { line: 1, column: 5 }, end: { line: 1, column: 999 }, newText: '2' };
+    const preview = await previewSourceEdit('edit_range', input);
+    expect(preview).toEqual({ ok: true, data: { absPath: target, existed: true, before: 'line one\nline two\n', after: 'line one\nline 2\n' } });
+    expect(fs.readFileSync(target, 'utf8')).toBe('line one\nline two\n');
+    expect(renderRequests).toHaveLength(0);
+    expect(lintRequests).toHaveLength(0);
+    // The tool writes exactly the preview.
+    await editRange(input);
+    expect(fs.readFileSync(target, 'utf8')).toBe(preview.ok ? preview.data.after : '');
+    expect(applyRangeEdit('ab\ncd', { line: 1, column: 1 }, { line: 9, column: 0 }, 'X')).toBe('ab\ncX');
+  });
+
+  it('reports a file write_file would create, and refuses what the tools refuse', async () => {
+    expect(await previewSourceEdit('write_file', { pinnedWorkspace: entry(), path: 'sub/new.fluid.js', content: 'x' })).toEqual({
+      ok: true,
+      data: { absPath: path.join(workspace, 'sub', 'new.fluid.js'), existed: false, before: '', after: 'x' },
+    });
+    const escape = await previewSourceEdit('write_file', { pinnedWorkspace: entry(), path: '../outside.fluid.js', content: 'x' });
+    expect(escape).toMatchObject({ ok: false, code: 'invalid-input' });
+    const missing = await previewSourceEdit('edit_range', {
+      pinnedWorkspace: entry(),
+      path: 'nope.fluid.js',
+      start: { line: 0, column: 0 },
+      end: { line: 0, column: 0 },
+      newText: '',
+    });
+    expect(missing).toMatchObject({ ok: false, code: 'invalid-input' });
+    const backwards = await previewSourceEdit('edit_range', {
+      pinnedWorkspace: entry(),
+      path: 'nope.fluid.js',
+      start: { line: 2, column: 0 },
+      end: { line: 0, column: 0 },
+      newText: '',
+    });
+    expect(backwards).toMatchObject({ ok: false, code: 'invalid-input' });
   });
 });
 

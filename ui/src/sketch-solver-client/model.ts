@@ -100,6 +100,11 @@ export type SolvedConstraintView = {
   spec: ConstraintSpec;
   /** Dimension value in display units (degrees for `angle`). */
   value?: number;
+  /** Where the statement's `.labelAt(u, v)` parks the dimension's value, in
+   * the dimension's own frame (see dimension-label.ts); absent while the
+   * value is laid out automatically. A live label drag rewrites it in place
+   * on the mesh's model — the next render replaces the model wholesale. */
+  label?: [number, number];
   status: ConstraintStatus;
 };
 
@@ -138,6 +143,12 @@ export type SolvedCurveView = {
   points: [number, number][];
   sources: CurveControlSource[];
 };
+
+/** A payload value that is a usable `.labelAt()` pair. */
+function isLabelPosition(value: unknown): value is [number, number] {
+  return Array.isArray(value) && value.length === 2
+    && value.every(n => typeof n === 'number' && Number.isFinite(n));
+}
 
 export type SolvedSketchModel = {
   sketch: SceneObjectRender;
@@ -637,6 +648,7 @@ export function buildSolvedSketchModel(
         kind: obj.object.kind ?? obj.uniqueType.slice('constraint-'.length),
         spec: obj.object.spec as ConstraintSpec,
         value: typeof obj.object.value === 'number' ? obj.object.value : undefined,
+        ...(isLabelPosition(obj.object.label) ? { label: [obj.object.label[0], obj.object.label[1]] } : {}),
         status,
       });
     }

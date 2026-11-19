@@ -17,6 +17,7 @@ import { TextTool } from './tools/text-tool';
 import { ReferenceImageTool } from './tools/reference-image-tool';
 import { ReferenceImageController } from '../scene/reference-image-controller';
 import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
+import { DimensionLabelDragHandler } from './drag-move-handler/dimension-label-drag-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
@@ -136,6 +137,9 @@ export class SketchToolbarService {
   private imageEditPending = false;
   /** Solver-driven drag (P4). */
   private activeSolvedDragHandler: SolvedDragHandler | null = null;
+  /** Drags a dimension's value to a new spot (`.labelAt()`); lives and dies
+   * with the geometry drag handler. */
+  private activeLabelDragHandler: DimensionLabelDragHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
   private shortcuts: ShortcutManager;
   private opMessageToast: HTMLDivElement | null = null;
@@ -637,6 +641,10 @@ export class SketchToolbarService {
         snapCtrl.snapToGrid = this.snapToGrid;
         dragHandler.updateSnapController(snapCtrl);
         dragHandler.updateSceneData(sceneObjects, lastRoot.id);
+        if (this.activeLabelDragHandler) {
+          this.activeLabelDragHandler.updatePlane(plane);
+          this.activeLabelDragHandler.updateSceneData(lastRoot.id);
+        }
         if (this.activeHoverSelectHandler) {
           this.activeHoverSelectHandler.updatePlane(plane);
           this.activeHoverSelectHandler.updateSceneData(sceneObjects, lastRoot.id);
@@ -956,7 +964,10 @@ export class SketchToolbarService {
     this.activeHoverSelectHandler = new SketchHoverSelectHandler(
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,
-      () => this.activeSolvedDragHandler?.isResizing ?? false,
+      // Either drag owns the cursor while it runs: geometry, or a dimension
+      // label on its way to a new spot.
+      () => (this.activeSolvedDragHandler?.isResizing ?? false)
+        || (this.activeLabelDragHandler?.isDragging ?? false),
       // The copy, mirror and fillet dialogs' picks accumulate like the 3D
       // dialogs': every click toggles a target in or out and an empty-space
       // click keeps the list — a multi-pick dialog's set must not vanish
@@ -992,6 +1003,20 @@ export class SketchToolbarService {
     };
     this.activeHoverSelectHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
     this.activeHoverSelectHandler.activate();
+
+    // Dimension labels drag to where they read best. The grab is the hover
+    // handler's own pick, so a press moves exactly what the hover lit; every
+    // preview frame rebuilds the annotations, and the hover handler re-reads
+    // its pick targets from them.
+    this.activeLabelDragHandler = new DimensionLabelDragHandler(
+      this.viewer.sceneContext,
+      this.activeSketchInfo.plane,
+      (x, y) => this.activeHoverSelectHandler?.glyphAt(x, y) ?? null,
+      () => this.activeHoverSelectHandler?.refreshBadgeTargets(),
+      (message) => this.showOpMessage(message),
+    );
+    this.activeLabelDragHandler.updateSceneData(this.activeSketchInfo.sketchObj.id!);
+    this.activeLabelDragHandler.activate();
   }
 
   /**
@@ -1100,6 +1125,10 @@ export class SketchToolbarService {
     if (this.activeSolvedDragHandler) {
       this.activeSolvedDragHandler.deactivate();
       this.activeSolvedDragHandler = null;
+    }
+    if (this.activeLabelDragHandler) {
+      this.activeLabelDragHandler.deactivate();
+      this.activeLabelDragHandler = null;
     }
   }
 

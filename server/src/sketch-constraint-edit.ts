@@ -61,6 +61,9 @@ export type SketchConstraintEditSpec = {
   axis?: 'x' | 'y';
   /** distance only: far-side circle/arc measurement — renders `.max()`. */
   tangency?: 'max';
+  /** Dimensions only: where the value was placed as the dimension was drawn,
+   * in the dimension's own frame — renders a chained `.labelAt(u, v)`. */
+  label?: [number, number];
   /** `const name = init;` declarations riding the commit — a `param(…)`
    * initializer lands at the top of the enclosing part body, a plain value
    * at the top of the sketch body; `valueExpr` then names the variable. */
@@ -80,6 +83,7 @@ export async function applySketchConstraint(
       ...(spec.valueExpr !== undefined ? { valueExpr: spec.valueExpr } : {}),
       ...(spec.axis !== undefined ? { axis: spec.axis } : {}),
       ...(spec.tangency !== undefined ? { tangency: spec.tangency } : {}),
+      ...(spec.label !== undefined ? { label: spec.label } : {}),
     }],
     ...(spec.newVariables !== undefined ? { newVariables: spec.newVariables } : {}),
   });

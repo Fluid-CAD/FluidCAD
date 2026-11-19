@@ -1,5 +1,5 @@
 import type { ObjectBuildWarning, SceneObjectRender } from '../types';
-import { setDistanceTangency, type PauseAfterResult } from '../api';
+import { setDimensionLabel, setDistanceTangency, type PauseAfterResult } from '../api';
 import { SceneIndex } from '../helpers/scene-index';
 import { TimelineView } from '../helpers/timeline-view';
 import type { TimelineEntry } from '../../../lib/dist/common/timeline';
@@ -1965,6 +1965,14 @@ export class TimelinePanel {
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_REFRESH}</span>
           <span>${tangencyAction.label}</span>
         </button></li>`;
+    // A dimension somebody dragged keeps its place until told otherwise:
+    // this hands its value back to the automatic layout.
+    const resetLabel = this.hasPlacedLabel(obj);
+    const resetLabelItem = !resetLabel ? '' : `
+        <li><button data-action="reset-label" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_REFRESH}</span>
+          <span>Reset label position</span>
+        </button></li>`;
     // A part's material is set here and nowhere else: the Shape Properties
     // panel only reads it, and an assembly instance shows its part's.
     const materialItem = obj.type !== 'part' ? '' : `
@@ -1984,7 +1992,7 @@ export class TimelinePanel {
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>${editItem}${materialItem}${appearanceItem}${copyConnectorItem}${tangencyItem}${breakpointItem}
+        </button></li>${editItem}${materialItem}${appearanceItem}${copyConnectorItem}${tangencyItem}${resetLabelItem}${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -2038,6 +2046,15 @@ export class TimelinePanel {
         line: obj.sourceLocation!.line,
         filePath: obj.sourceLocation!.filePath,
         tangency: tangencyAction!.tangency,
+      });
+    });
+
+    dropdown.querySelector('[data-action="reset-label"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      void setDimensionLabel({
+        line: obj.sourceLocation!.line,
+        filePath: obj.sourceLocation!.filePath,
+        position: null,
       });
     });
 
@@ -2098,6 +2115,17 @@ export class TimelinePanel {
   /** "From @acme/gears 1.2.0. Packages are read-only: …" — the badge's tooltip and the row menu's line. */
   static packageNote(pkg: { name: string; version: string }): string {
     return `From ${pkg.name} ${pkg.version}. Installed packages are read-only, so this row can't be edited, renamed or removed.`;
+  }
+
+  /**
+   * Whether the row is a dimension whose statement placed its value
+   * (`.labelAt()`, written by dragging it in the sketcher) — the rows that
+   * offer "Reset label position".
+   */
+  private hasPlacedLabel(obj: SceneObjectRender): boolean {
+    return obj.uniqueType?.startsWith('constraint-') === true
+      && Array.isArray(obj.object?.label)
+      && !!obj.sourceLocation;
   }
 
   /**

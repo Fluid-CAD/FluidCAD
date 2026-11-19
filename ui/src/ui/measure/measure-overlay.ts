@@ -73,6 +73,13 @@ export class MeasureOverlay {
     this.ctx.requestRender();
   }
 
+  /** Keep the overlay but leave it out of the frame (a capture), or bring it back. */
+  setHidden(hidden: boolean): void {
+    if (this.group) {
+      this.group.visible = !hidden;
+    }
+  }
+
   clear(): void {
     if (!this.group) {
       return;

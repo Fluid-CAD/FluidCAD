@@ -56,6 +56,8 @@ import { createFeatureGhostRouter } from './routes/feature-ghost/index.ts';
 import { createFilesRouter } from './routes/files.ts';
 import { createEngineTypesRouter } from './routes/engine-types.ts';
 import { createWorkspaceStateRouter } from './routes/workspace-state.ts';
+import { createAgentRoutes } from './routes/agent.ts';
+import type { AgentRenderState } from './agent-host.ts';
 import { createUnitRouter } from './routes/unit.ts';
 import { createGlobalParamsRouter, type GlobalParamsRouterDeps } from './routes/global-params.ts';
 import { GlobalParamCatalog } from './global-params/catalog.ts';
@@ -375,7 +377,25 @@ app.use('/api', createUnitRouter({
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createPublishRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION, engine: fluidCadServer }));
 app.use('/api', createPackagesRouter({ workspacePath: WORKSPACE_PATH, releases: new HubReleases({ engineVersion: PACKAGE_VERSION }) }));
-app.use('/api', createHubRouter({ workspacePath: WORKSPACE_PATH, engineVersion: PACKAGE_VERSION }));
+app.use('/api', createHubRouter({
+  workspacePath: WORKSPACE_PATH,
+  engineVersion: PACKAGE_VERSION,
+  // An agent installed or pinned a package (`POST /api/hub/install`). The
+  // page didn't do it, so it is told what it tells itself after its own
+  // install: the toolbar's catalog, the Packages dialog and the editors'
+  // package types follow. A pin written to fluidcad.json reaches the
+  // watcher as well; this also covers an install that left the pin alone
+  // (a missing package downloaded) and a project the watcher doesn't cover.
+  onInstalled: () => {
+    if (!WORKSPACE_PATH) {
+      return;
+    }
+    const config = `${normalizePath(WORKSPACE_PATH)}/${PROJECT_CONFIG_FILENAME}`;
+    featureCatalog.noteFileChange(config);
+    fluidCadServer.refreshEditorTypes();
+    broadcastToUI({ type: 'features-changed', absPath: config });
+  },
+}));
 app.use('/api', createHostActionsRouter({ send: sendToHost, hasHost: () => hosts.effectiveCapabilities() !== null }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
@@ -386,8 +406,33 @@ app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher, feature
 app.use('/api', createAssemblyReplicateRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyPreviewRouter(previews));
+// The in-app agent (agent/), loaded on its first request.
+app.use('/api', createAgentRoutes({
+  workspacePath: WORKSPACE_PATH,
+  port: PORT,
+  version: PACKAGE_VERSION,
+  startedAt: STARTED_AT,
+  currentFile: () => fluidCadServer.getCurrentFileName() || null,
+  renderState: agentRenderState,
+  unit: projectUnitNow,
+  loadPreferences,
+}));
 app.use('/api', MeshesRoute.router(core.meshes));
 app.use('/api', PackageEditGuard.errorHandler());
+
+/** How the open model's last render went, as the agent is told each turn (§7.2). */
+function agentRenderState(): AgentRenderState {
+  const compileError = fluidCadServer.getCompileError();
+  if (compileError) {
+    return { state: 'compile-error', message: compileError.message };
+  }
+  const summary = fluidCadServer.getSceneSummary();
+  if (!summary) {
+    return { state: 'none' };
+  }
+  const failed = summary.objects.find((o) => o.hasError);
+  return failed ? { state: 'build-error', message: failed.errorMessage || 'A feature failed to build.' } : { state: 'rendered' };
+}
 
 // Static files — serve UI build, with SPA fallback. index.html goes through
 // sendIndexHtml so the saved theme is on <html> before the first paint — the

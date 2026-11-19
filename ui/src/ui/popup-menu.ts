@@ -7,7 +7,7 @@
  */
 
 import { MENU_CLASS as MENU, MENU_ROW_CLASS as ROW } from './menu-styles';
-import { ICON_SUBMENU } from './icons';
+import { ICON_SEARCH, ICON_SUBMENU } from './icons';
 
 export type PopupMenuItem = {
   icon: string;
@@ -23,6 +23,12 @@ export type PopupMenuItem = {
   /** Shown but not pickable; `title` then says why. */
   disabled?: boolean;
   title?: string;
+  /** With {@link PopupMenuOptions.search}: more text the filter matches besides the label (a model's id). */
+  keywords?: string;
+  /** With {@link PopupMenuOptions.search}: kept under the list whatever is typed ("Other model…"). */
+  pinned?: boolean;
+  /** With {@link PopupMenuOptions.search}: the row the list scrolls to when it opens (the current choice). */
+  selected?: boolean;
 };
 
 export type PopupMenuOptions = {
@@ -30,7 +36,30 @@ export type PopupMenuOptions = {
   align?: 'start' | 'end';
   /** Put keyboard focus on the first row, for a menu opened from a button. */
   focusFirst?: boolean;
+  /**
+   * `above`: the menu's bottom edge sits at the position (a dropup, for a
+   * button near the window's bottom such as the Agent panel's composer chips).
+   */
+  placement?: 'below' | 'above';
+  /**
+   * A filter field above the rows, and the rows in a list that scrolls: for
+   * a long menu (the Agent panel's model chip on OpenRouter). The field takes
+   * the focus; every word typed must appear in a row's label or keywords.
+   * Rows with submenus are not supported here.
+   */
+  search?: { placeholder: string; empty?: string };
 };
+
+/** A searchable menu is never taller than this, nor than the room the window leaves. */
+const SEARCH_MAX_HEIGHT = 420;
+// A searchable menu's parts, in Quick Find's look (quick-find-popover.ts): a
+// borderless field row with the search icon over a rule, the rows under it
+// with the menu's own inset, and the pinned rows under a rule of their own.
+const SEARCH_FIELD_ROW = 'flex items-center gap-2 h-10 px-3 border-b border-base-content/10 shrink-0 cursor-text';
+const SEARCH_FIELD = 'grow min-w-0 bg-transparent outline-none text-[13px] text-base-content placeholder:text-base-content/40';
+const SEARCH_LIST = 'flex-1 min-h-0 overflow-y-auto p-1';
+const SEARCH_FOOTER = 'shrink-0 p-1 border-t border-base-content/10';
+const SEARCH_EMPTY = 'hidden px-2 py-2 text-[12px] leading-snug text-base-content/55';
 
 /** Keep the menu clear of the viewport's edges by at least this much. */
 const EDGE_MARGIN = 8;
@@ -66,7 +95,15 @@ export function showPopupMenu(
   menu.className = MENU;
   menu.setAttribute('role', 'menu');
   // `close` is assigned below; a row only calls it once the menu is showing.
-  fillMenu(menu, items, () => close());
+  const search = options.search ? fillSearchMenu(menu, items, options.search, () => close()) : null;
+  if (!search) {
+    fillMenu(menu, items, () => close());
+  }
+  if (search) {
+    // Room above the chip (a dropup) or below the click, whichever way it opens.
+    const room = options.placement === 'above' ? position.clientY - EDGE_MARGIN : window.innerHeight - position.clientY - EDGE_MARGIN;
+    menu.style.maxHeight = `${Math.max(160, Math.min(SEARCH_MAX_HEIGHT, room))}px`;
+  }
 
   const hostRect = host.getBoundingClientRect();
   let left = position.clientX - hostRect.left;
@@ -78,6 +115,11 @@ export function showPopupMenu(
     // Right edge on the position, but never past the window's left edge.
     left = Math.max(EDGE_MARGIN - hostRect.left, left - menu.getBoundingClientRect().width);
     menu.style.left = `${left}px`;
+  }
+
+  if (options.placement === 'above') {
+    const height = menu.getBoundingClientRect().height;
+    menu.style.top = `${Math.max(EDGE_MARGIN - hostRect.top, position.clientY - hostRect.top - height)}px`;
   }
 
   // Pull the menu back inside the window if the click was near an edge.
@@ -124,10 +166,125 @@ export function showPopupMenu(
     }
   };
   open = { el: menu, close };
-  if (options.focusFirst) {
+  if (search) {
+    // The height it opened with stays while filtering: the field does not move under the typing.
+    menu.style.height = `${menu.getBoundingClientRect().height}px`;
+    search.input.focus();
+    search.list.querySelector<HTMLElement>('[data-selected]')?.scrollIntoView?.({ block: 'nearest' });
+  } else if (options.focusFirst) {
     menu.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
   }
   return menu;
+}
+
+/**
+ * A searchable menu's parts: the filter field, the scrolling list of the
+ * rows it filters, then the pinned rows. Arrow keys move between the field
+ * and the rows shown; Enter in the field picks the first row shown; typing
+ * on a row goes on in the field.
+ */
+function fillSearchMenu(
+  menu: HTMLElement,
+  items: PopupMenuItem[],
+  options: { placeholder: string; empty?: string },
+  close: () => void,
+): { input: HTMLInputElement; list: HTMLElement } {
+  // The parts carry their own insets: the field row and the rules run edge to edge.
+  menu.classList.remove('p-1');
+  menu.classList.add('flex', 'flex-col', 'w-[300px]', 'overflow-hidden');
+  const field = document.createElement('label');
+  field.className = SEARCH_FIELD_ROW;
+  const icon = document.createElement('span');
+  icon.className = 'flex shrink-0 text-base-content/45 [&>svg]:size-4';
+  icon.innerHTML = ICON_SEARCH;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.dataset.ref = 'menu-search';
+  input.className = SEARCH_FIELD;
+  input.placeholder = options.placeholder;
+  input.setAttribute('aria-label', options.placeholder);
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  field.append(icon, input);
+  const list = document.createElement('div');
+  list.dataset.ref = 'menu-list';
+  list.className = SEARCH_LIST;
+  const empty = document.createElement('div');
+  empty.dataset.ref = 'menu-empty';
+  empty.className = SEARCH_EMPTY;
+  empty.textContent = options.empty ?? 'No matches';
+  const footer = document.createElement('div');
+  footer.className = SEARCH_FOOTER;
+
+  const rows: { row: HTMLButtonElement; text: string }[] = [];
+  for (const item of items) {
+    const row = buildRow(item);
+    // One line per row, the whole name on hover.
+    row.querySelector('span:last-child')?.classList.add('truncate', 'min-w-0');
+    row.title ||= item.label;
+    row.addEventListener('click', () => {
+      close();
+      item.onSelect?.();
+    });
+    if (item.pinned) {
+      // The footer's own rule sets the pinned rows apart.
+      footer.appendChild(row);
+      continue;
+    }
+    if (item.selected) {
+      row.dataset.selected = '';
+    }
+    rows.push({ row, text: `${item.label} ${item.keywords ?? ''}`.toLowerCase() });
+    list.appendChild(row);
+  }
+  list.appendChild(empty);
+
+  const shown = () => rows.filter((r) => !r.row.classList.contains('hidden')).map((r) => r.row);
+  input.addEventListener('input', () => {
+    const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+    let any = false;
+    for (const { row, text } of rows) {
+      const match = words.every((w) => text.includes(w));
+      row.classList.toggle('hidden', !match);
+      any ||= match;
+    }
+    empty.classList.toggle('hidden', any || rows.length === 0);
+    list.scrollTop = 0;
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      shown()[0]?.focus();
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      shown()[0]?.click();
+    }
+  });
+  list.addEventListener('keydown', (event) => {
+    const visible = shown();
+    const at = visible.indexOf(event.target as HTMLButtonElement);
+    if (at < 0) {
+      return;
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      visible[Math.min(visible.length - 1, at + 1)].focus();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      (at === 0 ? input : visible[at - 1]).focus();
+    } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      // Typing on a row filters on.
+      event.preventDefault();
+      input.focus();
+      input.value += event.key;
+      input.dispatchEvent(new Event('input'));
+    }
+  });
+  menu.append(field, list);
+  if (footer.childElementCount > 0) {
+    menu.appendChild(footer);
+  }
+  return { input, list };
 }
 
 /**

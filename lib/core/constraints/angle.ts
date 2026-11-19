@@ -1,6 +1,7 @@
 import { SceneParserContext, registerBuilder } from "../../index.js";
 import { rad } from "../../helpers/math-helpers.js";
-import { ISceneObject } from "../interfaces.js";
+import { IDimension } from "../interfaces.js";
+import { SolvedDimension } from "../../features/2d/constraints/solved/dimension.js";
 import { type NumberParam, resolveParam } from "../param.js";
 import { ConstraintTarget, emitConstraint, requireValue, toRef } from "./common.js";
 import type { ConstraintSpec } from "../../sketch-solver/index.js";
@@ -17,7 +18,7 @@ import type { ConstraintSpec } from "../../sketch-solver/index.js";
  * @param degrees - The angle in degrees, 0 (inclusive) to 360 (exclusive)
  */
 function build(context: SceneParserContext) {
-  return function angle(a: ConstraintTarget, b: ConstraintTarget, degrees: NumberParam): ISceneObject {
+  return function angle(a: ConstraintTarget, b: ConstraintTarget, degrees: NumberParam): IDimension {
     const value = resolveParam(degrees);
     return emitConstraint(context, 'angle', value, (): ConstraintSpec => {
       const deg = requireValue(value, 'angle');
@@ -36,7 +37,7 @@ function build(context: SceneParserContext) {
         b: toRef(b, 'angle'),
         value: rad(deg),
       };
-    }, [a, b]);
+    }, [a, b], new SolvedDimension('angle', value)) as IDimension;
   };
 }
 

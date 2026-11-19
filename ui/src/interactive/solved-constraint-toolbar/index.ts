@@ -4,7 +4,6 @@ export {
   candidateSpec,
   constraintOptions,
   dimensionFormFor,
-  dimensionPreviewLayout,
   expandDimensionPicks,
   isPointPick,
   measureDimension,
@@ -14,5 +13,4 @@ export type {
   ConstraintButtonId,
   ConstraintOption,
   DimensionForm,
-  DimensionPreviewLayout,
 } from './legality';

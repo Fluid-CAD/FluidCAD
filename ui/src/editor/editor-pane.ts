@@ -1,5 +1,6 @@
 import { setupMonaco, EDITOR_OPTIONS, monaco } from './monaco-setup';
 import { editorPrefOptions, editorPrefs } from './editor-prefs';
+import type { LeftSlot, LeftSlotOccupant } from '../ui/left-slot';
 
 /**
  * The code editor's surface: a pane docked to the left of the scene, hidden by
@@ -9,28 +10,28 @@ import { editorPrefOptions, editorPrefs } from './editor-prefs';
  *
  * The resize is free. `SceneContext` already runs a `ResizeObserver` on
  * `#fluidcad-scene`, and `styles.css` insets that element by
- * `--fluidcad-scene-left`, which this pane's own width feeds — so the pane
- * only has to set one custom property and the viewport re-renders itself at
- * the new size, correctly, with no viewer changes at all. `setViewOffset` is
- * deliberately *not* used: that is for overlays occluding a full-size canvas,
- * and this genuinely takes room.
+ * `--fluidcad-scene-left`, which the left slot's width feeds — so the pane
+ * only has to take the slot ({@link LeftSlot} sets that one custom property)
+ * and the viewport re-renders itself at the new size, correctly, with no
+ * viewer changes at all. `setViewOffset` is deliberately *not* used: that is
+ * for overlays occluding a full-size canvas, and this genuinely takes room.
  */
 
-const WIDTH_VARIABLE = '--fluidcad-editor-width';
 const MIN_WIDTH = 240;
-const DEFAULT_WIDTH = 420;
-/** Leave at least this much scene visible, however hard the divider is dragged. */
-const MIN_SCENE_WIDTH = 280;
-/** Below this the split stops making sense and the pane covers the scene instead. */
-const MOBILE_BREAKPOINT = 640;
 
 export interface EditorPaneOptions {
   /** `#fluidcad-viewer` — the positioning context every overlay shares. */
   container: HTMLElement;
-  initialWidth?: number;
+  /** The left slot the pane shares with the Hub panel, and its width. */
+  slot: LeftSlot;
+  /**
+   * The editor's place in the slot. The page registers it before the editor
+   * has loaded, so a panel taking the slot meanwhile can cancel an open that
+   * was asked for; its `close()` closes this pane.
+   */
+  occupant: LeftSlotOccupant;
   initialOpen?: boolean;
   onOpenChange?(open: boolean): void;
-  onWidthChange?(width: number): void;
 }
 
 export class EditorPane {
@@ -38,12 +39,10 @@ export class EditorPane {
   private readonly editorHost: HTMLDivElement;
   private readonly options: EditorPaneOptions;
   private editor: monaco.editor.IStandaloneCodeEditor | null = null;
-  private width: number;
   private open = false;
 
   constructor(options: EditorPaneOptions) {
     this.options = options;
-    this.width = clampWidth(options.initialWidth ?? DEFAULT_WIDTH);
 
     this.el = document.createElement('div');
     // Docked against the panel rail rather than the window edge — the rail is
@@ -52,13 +51,12 @@ export class EditorPane {
     this.el.className =
       'absolute left-[var(--fluidcad-rail-width,0px)] top-[var(--fluidcad-chrome-top,104px)] bottom-0 z-[115] ' +
       'flex flex-col bg-base-100 border-r border-base-content/10 hidden';
-    this.el.style.width = `${this.width}px`;
 
     this.editorHost = document.createElement('div');
     this.editorHost.className = 'flex-1 min-h-0';
     this.el.appendChild(this.editorHost);
 
-    this.el.appendChild(this.buildResizeHandle());
+    this.el.appendChild(options.slot.resizeHandle());
     options.container.appendChild(this.el);
 
     if (options.initialOpen) {
@@ -95,10 +93,6 @@ export class EditorPane {
     return this.open;
   }
 
-  getWidth(): number {
-    return this.width;
-  }
-
   toggle(): void {
     this.setOpen(!this.open);
   }
@@ -112,86 +106,18 @@ export class EditorPane {
 
     if (open) {
       this.ensureEditor();
-      this.applyWidth(true);
+      // Whatever held the slot (the Hub panel) closes, and the pane takes the
+      // shared width — or covers the scene on a phone, the one documented
+      // exception to "pushes, never overlays".
+      this.options.slot.take(this.options.occupant, { el: this.el, minWidth: MIN_WIDTH });
       // Monaco measures its container on create; if that happened while the
       // pane was still `hidden` it measured zero.
       this.editor?.layout();
       this.editor?.focus();
     } else {
-      this.setWidthVariable(0, true);
+      this.options.slot.release(this.options.occupant);
     }
     this.options.onOpenChange?.(open);
-  }
-
-  setWidth(width: number): void {
-    this.width = clampWidth(width);
-    this.el.style.width = `${this.width}px`;
-    if (this.open) {
-      this.applyWidth(false);
-    }
-    this.options.onWidthChange?.(this.width);
-  }
-
-  /**
-   * On a phone there isn't enough width to split, so the pane covers the scene
-   * instead — the one documented exception to "pushes, never overlays".
-   */
-  private isMobile(): boolean {
-    return window.innerWidth < MOBILE_BREAKPOINT;
-  }
-
-  private applyWidth(animate: boolean): void {
-    if (this.isMobile()) {
-      // Everything the rail hasn't taken — `100%` would hang off the right
-      // edge by exactly the rail's width.
-      this.el.style.width = 'calc(100% - var(--fluidcad-rail-width, 0px))';
-      this.setWidthVariable(0, animate);
-      return;
-    }
-    this.el.style.width = `${this.width}px`;
-    this.setWidthVariable(this.width, animate);
-  }
-
-  /**
-   * The whole geometry mechanism, in one line. Animated on open/close and
-   * instant while dragging, because a transition mid-drag lags the pointer.
-   */
-  private setWidthVariable(value: number, animate: boolean): void {
-    const root = document.documentElement;
-    root.classList.toggle('fluidcad-editor-animating', animate);
-    root.style.setProperty(WIDTH_VARIABLE, `${value}px`);
-    if (animate) {
-      window.setTimeout(() => root.classList.remove('fluidcad-editor-animating'), 220);
-    }
-  }
-
-  private buildResizeHandle(): HTMLElement {
-    const handle = document.createElement('div');
-    handle.className =
-      'absolute top-0 right-0 bottom-0 w-1 cursor-col-resize ' +
-      'hover:bg-primary/40 active:bg-primary/60 transition-colors';
-    handle.title = 'Drag to resize';
-
-    handle.addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      handle.setPointerCapture(event.pointerId);
-      const startX = event.clientX;
-      const startWidth = this.width;
-
-      const onMove = (move: PointerEvent) => {
-        this.setWidth(startWidth + (move.clientX - startX));
-      };
-      const onUp = () => {
-        handle.removeEventListener('pointermove', onMove);
-        handle.removeEventListener('pointerup', onUp);
-        handle.removeEventListener('pointercancel', onUp);
-      };
-      handle.addEventListener('pointermove', onMove);
-      handle.addEventListener('pointerup', onUp);
-      handle.addEventListener('pointercancel', onUp);
-    });
-
-    return handle;
   }
 }
 
@@ -218,14 +144,4 @@ function overflowWidgetsHost(): HTMLDivElement {
     document.body.appendChild(overflowHost);
   }
   return overflowHost;
-}
-
-function clampWidth(width: number): number {
-  // The rail is chrome the pane can never borrow from, so it comes off the
-  // budget before the scene's own minimum does.
-  const rail = parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue('--fluidcad-rail-width'),
-  ) || 0;
-  const max = Math.max(MIN_WIDTH, window.innerWidth - rail - MIN_SCENE_WIDTH);
-  return Math.round(Math.min(max, Math.max(MIN_WIDTH, width)));
 }

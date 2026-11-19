@@ -16,6 +16,7 @@ export default defineConfig({
       "lib/**/*.test.ts",
       "server/tests/**/*.test.ts",
       "mcp/tests/**/*.test.ts",
+      "agent/tests/**/*.test.ts",
       "ui/tests/**/*.test.ts",
       "scripts/tests/**/*.test.ts",
       "shell/tests/**/*.test.ts",

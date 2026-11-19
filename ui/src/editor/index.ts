@@ -1,5 +1,6 @@
 import { setupMonaco, monaco } from './monaco-setup';
 import { EditorPane } from './editor-pane';
+import type { LeftSlot, LeftSlotOccupant } from '../ui/left-slot';
 import { WorkspaceModels, type ModelEntry } from './models';
 import { loadEngineTypes, loadOcctTypes, packageTypes } from './engine-types';
 import { OcctTypes } from './occt-types';
@@ -43,10 +44,11 @@ export interface EditorSurfaceDeps {
   setTabs(tabs: FileTab[], activePath: string | null, currentModelPath: string | null): void;
   /** Name the workspace in the top bar, once loading it reveals its root. */
   setWorkspaceName?(name: string): void;
+  /** The left slot the pane docks in, and the editor's place in it (see `EditorPaneOptions`). */
+  slot: LeftSlot;
+  occupant: LeftSlotOccupant;
   initialOpen?: boolean;
-  initialWidth?: number;
   onOpenChange?(open: boolean): void;
-  onWidthChange?(width: number): void;
   /** Report a refused edit to the user, through the UI's own toast. */
   onEditRefused?(message: string): void;
   /**
@@ -56,6 +58,18 @@ export interface EditorSurfaceDeps {
    */
   onOpenParamsFile?(absPath: string): void;
 }
+
+/** Fence languages {@link EditorSurface.colorize} knows, to the Monaco language that tokenizes them. */
+const COLORIZE_LANGUAGES: Record<string, string> = {
+  js: 'javascript',
+  javascript: 'javascript',
+  jsx: 'javascript',
+  mjs: 'javascript',
+  cjs: 'javascript',
+  ts: 'typescript',
+  typescript: 'typescript',
+  tsx: 'typescript',
+};
 
 export class EditorSurface {
   readonly pane: EditorPane;
@@ -73,10 +87,10 @@ export class EditorSurface {
   private constructor(private readonly deps: EditorSurfaceDeps) {
     this.pane = new EditorPane({
       container: deps.container,
+      slot: deps.slot,
+      occupant: deps.occupant,
       initialOpen: deps.initialOpen,
-      initialWidth: deps.initialWidth,
       onOpenChange: deps.onOpenChange,
-      onWidthChange: deps.onWidthChange,
     });
     this.quickOpen = new QuickOpen({
       onOpen: (entry) => void this.openFile(entry.absPath),
@@ -613,6 +627,21 @@ export class EditorSurface {
     }
   }
 
+  /**
+   * `code` coloured the way the editor colours it (Monaco's
+   * `editor.colorize`, in the editor's theme): token spans as an HTML
+   * string, for the Agent panel's code blocks, which allowlist it before it
+   * reaches the page. Null for a language this editor has no tokenizer for
+   * (it ships JavaScript and TypeScript only).
+   */
+  async colorize(code: string, language: string): Promise<string | null> {
+    const id = COLORIZE_LANGUAGES[language.toLowerCase()];
+    if (!id) {
+      return null;
+    }
+    return monaco.editor.colorize(code, id, { tabSize: 2 });
+  }
+
   private async showFile(absPath: string): Promise<void> {
     const entry = this.models.get(absPath) ?? await this.models.ensure(absPath).catch(() => undefined);
     if (!entry) {
@@ -706,9 +735,17 @@ export class EditorSurface {
     this.breakpoints.refresh(event.absPath);
   }
 
-  /** Re-announce after a reconnect — the server forgets hosts on disconnect. */
+  /**
+   * Re-announce after a reconnect — the server forgets hosts on disconnect,
+   * and the unsaved files a connection reported go with it, so say them
+   * again.
+   */
   onSocketOpen(): void {
     this.deps.send({ type: 'editor-hello', editor: 'monaco', capabilities: { undoRedo: true } });
+    const dirty = this.models.dirtyPaths();
+    if (dirty.length > 0) {
+      this.deps.send({ type: 'editor-dirty-state', dirtyFiles: dirty });
+    }
   }
 
   private installEditorCommands(): void {

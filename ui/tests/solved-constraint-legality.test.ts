@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  axisChoiceMoot,
   axisDimensionPicks,
   axisFromCursor,
   candidateSpec,
@@ -7,9 +8,8 @@ import {
   coincidentsAtPicks,
   constraintOptions,
   describeCoincidentRemoval,
+  dimensionCandidate,
   dimensionFormFor,
-  dimensionPreviewLayout,
-  distancePlacementMoot,
   expandDimensionPicks,
   inferTangency,
   measureDimension,
@@ -20,6 +20,7 @@ import {
 import { angleSectorAt } from '../src/interactive/solved-constraint-toolbar/angle-sector';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
+import { dimensionFrame, dimensionLabelText, layoutConstraintGlyphs } from '../src/sketch-solver-client';
 
 const loc = (line: number) => ({ filePath: '/ws/m.fluid.js', line, column: 3 });
 
@@ -261,18 +262,18 @@ describe('axisFromCursor', () => {
   });
 });
 
-describe('distancePlacementMoot', () => {
-  it('an axis-aligned point pair skips placement — the only axis measures the aligned value', () => {
-    expect(distancePlacementMoot([endA, startB], [0, 0], [10, 0])).toBe(true);
-    expect(distancePlacementMoot([endA, startB], [3, -2], [3, 9])).toBe(true);
+describe('axisChoiceMoot', () => {
+  it('an axis-aligned point pair offers no axis form — the only one measures the aligned value', () => {
+    expect(axisChoiceMoot([endA, startB], [0, 0], [10, 0])).toBe(true);
+    expect(axisChoiceMoot([endA, startB], [3, -2], [3, 9])).toBe(true);
   });
 
-  it('a diagonal pair still places', () => {
-    expect(distancePlacementMoot([endA, startB], [0, 0], [10, 8])).toBe(false);
+  it('a diagonal pair keeps the choice', () => {
+    expect(axisChoiceMoot([endA, startB], [0, 0], [10, 8])).toBe(false);
   });
 
-  it('round targets always place — their aligned form measures the circumference, not the centers', () => {
-    expect(distancePlacementMoot([pointP, circleC], [0, 0], [10, 0])).toBe(false);
+  it('round targets always keep it — their aligned form measures the circumference, not the centers', () => {
+    expect(axisChoiceMoot([pointP, circleC], [0, 0], [10, 0])).toBe(false);
   });
 });
 
@@ -389,126 +390,113 @@ describe('inferTangency', () => {
   });
 });
 
-describe('dimensionPreviewLayout', () => {
+// The dimension a pick set would create, as the constraint a render would
+// bring back for it: the toolbar draws THAT through the sketch's own glyph
+// pass while the dimension follows the cursor, so what is placed is what the
+// commit draws. These pin the frame each form places its value in.
+describe('dimensionCandidate', () => {
   const distance = { kind: 'distance' as const, axisChoice: true, tangencyChoice: false };
+  const plain = { kind: 'distance' as const, axisChoice: false, tangencyChoice: false };
+  const start0: SolvedPick = { entityId: 0, kind: 'line', role: 'start', sourceLocation: loc(5) };
   const end1: SolvedPick = { entityId: 1, kind: 'line', role: 'end', sourceLocation: loc(6) };
 
-  /** The lifted-leader standoff (12% of the span), in the same float ops
-   * distanceLeaderLayout performs so equality stays exact. */
-  const lift = (span: number): number => span * 0.12;
+  it('a lone line is the distance between its own ends, at the measured value', () => {
+    const candidate = dimensionCandidate(model, [lineA], distance)!;
+    expect(candidate.kind).toBe('distance');
+    expect(candidate.status).toBe('ok');
+    expect(candidate.value).toBe(10);
+    expect(candidate.spec).toEqual({
+      kind: 'distance', a: { entity: 0, point: 'start' }, b: { entity: 0, point: 'end' }, value: 10,
+    });
+    expect(dimensionFrame(model, candidate)).toEqual({
+      type: 'span', from: [0, 0], to: [10, 0], toAnchor: [10, 0], arrows: 'both', aligned: false,
+    });
+    expect(dimensionLabelText(model, candidate)).toBe('10 mm');
+  });
 
-  it('point–point on a straight edge: leader LIFTED off it, witnesses back to the vertices', () => {
-    // (10,0)→(10,8) lies exactly on lineB — the leader lifts 12% of the
-    // span to the side away from the centroid (leftward here), and dashed
-    // witnesses tie the lifted ends back to the measured vertices.
-    const x = 10 - lift(8);
-    expect(dimensionPreviewLayout(model, [endA, end1], distance)).toEqual({
-      line: [[x, 0], [x, 8]],
-      at: [x, 4],
-      arrows: 'both',
-      extensions: [[[10, 0], [x, 0]], [[10, 8], [x, 8]]],
+  it('axis forms span one component, anchored back to the real second point', () => {
+    // start0 (0,0), end1 (10,8): the horizontal form measures 10 along x and
+    // ends on a corner level with the first point; the vertical one 8 along y.
+    const horizontal = dimensionCandidate(model, [start0, end1], distance, 'x')!;
+    expect(horizontal.value).toBe(10);
+    expect(dimensionFrame(model, horizontal)).toMatchObject({
+      type: 'span', from: [0, 0], to: [10, 0], toAnchor: [10, 8],
+    });
+    const vertical = dimensionCandidate(model, [start0, end1], distance, 'y')!;
+    expect(vertical.value).toBe(8);
+    expect(dimensionFrame(model, vertical)).toMatchObject({
+      type: 'span', from: [0, 0], to: [0, 8], toAnchor: [10, 8],
     });
   });
 
-  it('a lone line: leader lifted parallel to the line, input at its midpoint', () => {
-    const y = -lift(10);
-    expect(dimensionPreviewLayout(model, [lineA], distance)).toEqual({
-      line: [[0, y], [10, y]],
-      at: [5, y],
-      arrows: 'both',
-      extensions: [[[0, 0], [0, y]], [[10, 0], [10, y]]],
-    });
+  it('point–line spans the point and its perpendicular foot', () => {
+    const candidate = dimensionCandidate(model, [end1, lineA], plain)!;
+    expect(candidate.value).toBe(8);
+    expect(dimensionFrame(model, candidate)).toMatchObject({ type: 'span', from: [10, 8], to: [10, 0] });
   });
 
-  it('axis forms: leader drawn axis-aligned from the first anchor, dashed witness extension to the floating far point', () => {
-    const start0: SolvedPick = { entityId: 0, kind: 'line', role: 'start', sourceLocation: loc(5) };
-    const y = -lift(10);
-    // start0 (0,0), end1 (10,8). The x form's leader runs along lineA, so
-    // it lifts too, and the far witness ties the lifted corner to the REAL
-    // second point.
-    expect(dimensionPreviewLayout(model, [start0, end1], distance, 'x')).toEqual({
-      line: [[0, y], [10, y]],
-      at: [5, y],
-      arrows: 'both',
-      extensions: [[[0, 0], [0, y]], [[10, 8], [10, y]]],
-    });
-    // The y form's leader (x=0) rides no edge — drawn in place.
-    expect(dimensionPreviewLayout(model, [start0, end1], distance, 'y')).toEqual({
-      line: [[0, 0], [0, 8]],
-      at: [0, 4],
-      arrows: 'both',
-      extensions: [[[0, 8], [10, 8]]],
-    });
-    // A pair already on the axis needs no corner witness — but it rides
-    // lineA, so it lifts like the aligned form.
-    expect(dimensionPreviewLayout(model, [endA, { ...endA, role: 'start' }], distance, 'x')).toEqual({
-      line: [[10, y], [0, y]],
-      at: [5, y],
-      arrows: 'both',
-      extensions: [[[10, 0], [10, y]], [[0, 0], [0, y]]],
-    });
-  });
-
-  it('point–line: leader from the point to its perpendicular foot, lifted off the edge it rides', () => {
-    // end1's drop onto lineA runs straight down lineB — lifted leftward.
-    const x = 10 - lift(8);
-    expect(dimensionPreviewLayout(model, [end1, lineA], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toEqual({
-      line: [[x, 8], [x, 0]],
-      at: [x, 4],
-      arrows: 'both',
-      extensions: [[[10, 8], [x, 8]], [[10, 0], [x, 0]]],
-    });
-  });
-
-  it('line–circle: leader from the rim to the center\'s foot on the line', () => {
-    expect(dimensionPreviewLayout(model, [lineB, circleC], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toEqual({
-      line: [[25, 0], [10, 0]],
-      at: [17.5, 0],
-      arrows: 'both',
-    });
-  });
-
-  it('line–circle max: leader from the FAR rim to the foot', () => {
+  it('line–circle spans the rim and the center\'s foot — the far rim for a max tangency', () => {
     const form = { kind: 'distance' as const, axisChoice: false, tangencyChoice: true };
-    expect(dimensionPreviewLayout(model, [lineB, circleC], form, undefined, null, 'max')).toEqual({
-      line: [[35, 0], [10, 0]],
-      at: [22.5, 0],
-      arrows: 'both',
+    const near = dimensionCandidate(model, [lineB, circleC], form)!;
+    expect(near.value).toBe(15);
+    expect(dimensionFrame(model, near)).toMatchObject({ type: 'span', from: [25, 0], to: [10, 0] });
+    const far = dimensionCandidate(model, [lineB, circleC], form, undefined, null, 'max')!;
+    expect(far.value).toBe(25);
+    expect(far.spec).toMatchObject({ kind: 'distance', tangency: 'max' });
+    expect(dimensionFrame(model, far)).toMatchObject({ type: 'span', from: [35, 0], to: [10, 0] });
+  });
+
+  it('a circle places radially: a diameter by default, a radius when asked', () => {
+    const diameter = dimensionCandidate(model, [circleC], { kind: 'diameter', axisChoice: false, tangencyChoice: false })!;
+    expect(diameter.kind).toBe('diameter');
+    expect(diameter.value).toBe(10);
+    expect(dimensionFrame(model, diameter)).toEqual({
+      type: 'radial', center: [30, 0], radius: 5, diameter: true,
     });
+    expect(dimensionLabelText(model, diameter)).toBe('⌀10 mm');
   });
 
-  it('radius: leader from the center to the rim, input riding the line', () => {
-    const layout = dimensionPreviewLayout(model, [circleC], { kind: 'radius', axisChoice: false, tangencyChoice: false });
-    expect(layout).not.toBeNull();
-    expect(layout!.line![0]).toEqual([30, 0]);
-    expect(layout!.line![1][0]).toBeCloseTo(30 + 5 * Math.SQRT1_2, 10);
-    // The input opens on the label spot: halfway along the radius.
-    expect(layout!.at[0]).toBeCloseTo((30 + layout!.line![1][0]) / 2, 10);
-    expect(layout!.at[1]).toBeCloseTo(layout!.line![1][1] / 2, 10);
-    // The center end measures nothing, so only the rim gets an arrowhead.
-    expect(layout!.arrows).toBe('end');
-  });
-
-  it('diameter: leader rim to rim through the center, input on the label spot', () => {
-    const form = { kind: 'diameter' as const, axisChoice: false, tangencyChoice: false };
-    const layout = dimensionPreviewLayout(model, [circleC], form);
-    expect(layout).not.toBeNull();
-    const [from, to] = layout!.line!;
-    expect(Math.hypot(to[0] - from[0], to[1] - from[1])).toBeCloseTo(10, 9);
-    expect(Math.hypot(from[0] - 30, from[1])).toBeCloseTo(5, 9);
-    expect(layout!.at[0]).toBeCloseTo(30, 9);
-    expect(layout!.at[1]).toBeCloseTo(0, 9);
-  });
-
-  it('angle: no leader, sector arc at the line intersection', () => {
-    // The default sector's a-boundary ray (+x) points AWAY from a's
-    // segment (the intersection is a's far endpoint) — the arc's end
-    // needs the dashed tail stub there; b's segment covers its ray.
-    expect(dimensionPreviewLayout(model, [lineA, lineB], { kind: 'angle', axisChoice: false, tangencyChoice: false })).toEqual({
-      line: null,
-      at: [10, 0],
-      arc: { startAngle: 0, sweep: Math.PI / 2, extensions: [], tails: [0] },
+  it('an angle places around the corner of its sector', () => {
+    const sector = angleSectorAt(model, lineA, lineB, null)!;
+    const form = { kind: 'angle' as const, axisChoice: false, tangencyChoice: false };
+    const candidate = dimensionCandidate(model, [lineA, lineB], form, undefined, sector)!;
+    expect(candidate.kind).toBe('angle');
+    expect(candidate.value).toBe(90);
+    expect(dimensionFrame(model, candidate)).toEqual({
+      type: 'angular', at: [10, 0], startAngle: 0, sweep: Math.PI / 2,
     });
+    // An angle is a sector: without one there is nothing to dimension.
+    expect(dimensionCandidate(model, [lineA, lineB], form)).toBeNull();
+  });
+
+  it('is null when the picks measure nothing', () => {
+    const gone: SolvedPick = { entityId: 99, kind: 'circle', sourceLocation: loc(20) };
+    expect(dimensionCandidate(model, [gone], { kind: 'diameter', axisChoice: false, tangencyChoice: false })).toBeNull();
+  });
+
+  it('draws through the sketch\'s own glyph pass: placed where its label says', () => {
+    // The dimension line 3 above the line it measures, the value a quarter
+    // of the way along — the same glyphs a committed `.labelAt(-2.5, 3)` gets.
+    const candidate = { ...dimensionCandidate(model, [lineA], distance)!, label: [-2.5, 3] as [number, number] };
+    const glyphs = layoutConstraintGlyphs({ ...model, constraints: [candidate] });
+    expect(glyphs).toHaveLength(2);
+    expect(glyphs[0]).toMatchObject({
+      type: 'leader', from: [0, 3], to: [10, 3], arrows: 'both', placed: true,
+      extensions: [[[0, 0], [0, 3]], [[10, 0], [10, 3]]],
+    });
+    expect(glyphs[1]).toMatchObject({ type: 'text', label: '10 mm', at: [2.5, 3], placed: true });
+    // Nothing on the candidate points at a statement: it has none yet.
+    expect(glyphs[1].objId).toBeUndefined();
+    expect(glyphs[1].sourceLocation).toBeUndefined();
+  });
+
+  it('without a label it is laid out automatically, like any unplaced dimension', () => {
+    const glyphs = layoutConstraintGlyphs({
+      ...model, constraints: [dimensionCandidate(model, [lineB, circleC], plain)!],
+    });
+    expect(glyphs[0]).toMatchObject({ type: 'leader', from: [25, 0], to: [10, 0] });
+    expect(glyphs[0]).not.toHaveProperty('placed');
+    expect(glyphs[1]).toMatchObject({ type: 'text', at: [17.5, 0] });
   });
 });
 
@@ -759,10 +747,12 @@ describe('ellipse radius dimension', () => {
     expect(measureDimension(ellipseModel, [nearRyEnd], form, 'y')).toBe(10);
     expect(measureDimension(ellipseModel, [nearRxEnd], form, 'x')).toBe(20);
     expect(candidateSpec('dimension', [nearRyEnd], 10, 'y')).toEqual({ kind: 'radius', a: { entity: 6 }, value: 10, axis: 'y' });
-    const layout = dimensionPreviewLayout(ellipseModel, [nearRxEnd], form, 'x')!;
-    expect(layout.line![0]).toEqual([50, 50]);
-    expect(layout.line![1][0]).toBeCloseTo(50, 9);
-    expect(layout.line![1][1]).toBeCloseTo(70, 9);
-    expect(layout.arrows).toBe('end');
+    // The semi-radius places along its own axis: a span from the center to
+    // the end of RX, capped at the rim only, its value lying along the line.
+    const frame = dimensionFrame(ellipseModel, dimensionCandidate(ellipseModel, [nearRxEnd], form, 'x')!);
+    expect(frame).toMatchObject({ type: 'span', from: [50, 50], arrows: 'end', aligned: true });
+    const to = (frame as { to: [number, number] }).to;
+    expect(to[0]).toBeCloseTo(50, 9);
+    expect(to[1]).toBeCloseTo(70, 9);
   });
 });

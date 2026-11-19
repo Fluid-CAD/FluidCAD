@@ -37,34 +37,30 @@ import type {
 import { angleLabelPlacement } from '../../sketch-solver-client';
 import type { Placement } from '../../sketch-solver-client/declutter';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
-import { applyConstantPixelSize, pixelScale, pixelsToWorld } from '../screen-scale';
+import { applyConstantPixelSize } from '../screen-scale';
 import { themeColors } from '../../scene/theme-colors';
 import { PLACED_ANNOTATION_FLAG } from '../../scene/scene-geometry-bounds';
-import { createTextTexture, getIconTexture, getTextTexture, IconTexture } from './badge-textures';
+import { getIconTexture, getTextTexture } from './badge-textures';
 import { buildDimensionArrows } from './dimension-arrows';
 import {
   ANGLE_LABEL_PX_SIZE,
   BADGE_PX_SIZE,
-  GLYPH_PLANE_SIZE,
   GLYPH_RENDER_ORDER,
   LABEL_PX_SIZE,
   SolvedGlyphLayout,
   createGlyphSprite,
   createLinkLine,
 } from './solved-glyph-layout';
-import type { BadgeSprite, DimensionSprite, FixedAnnotation } from './solved-glyph-layout';
+import type { BadgeSprite, BoxPx, DimensionSprite, FixedAnnotation } from './solved-glyph-layout';
 
-const ICON_PLANE_SIZE = GLYPH_PLANE_SIZE;
 const ICON_RENDER_ORDER = GLYPH_RENDER_ORDER;
-const TEXT_OFFSET_PX = 14;
 const TEXT_PX_SIZE = LABEL_PX_SIZE;
 const DOT_PLANE_RADIUS = 2;
 const DOT_PX_RADIUS = 8;
 const LEADER_OPACITY = 0.45;
 const ANGLE_ARC_RADIUS = 5;
-/** Base pixel radius of the angle dimension arc — exported so the value
- * input's placement can share the committed glyph's geometry. */
-export const ANGLE_ARC_PX_RADIUS = 26;
+/** Base pixel radius of the angle dimension arc. */
+const ANGLE_ARC_PX_RADIUS = 26;
 const ANGLE_TEXT_PX_SIZE = ANGLE_LABEL_PX_SIZE;
 const ANGLE_ARC_SEGMENTS = 32;
 /** A placed angle's arc is world-scale — it can fill the screen — so it is
@@ -119,62 +115,10 @@ function roleColor(role: GlyphColorRole): Color {
   }
 }
 
-function dirToWorld(dir: [number, number], plane: PlaneData): Vector3 {
-  return new Vector3(
-    plane.xDirection.x * dir[0] + plane.yDirection.x * dir[1],
-    plane.xDirection.y * dir[0] + plane.yDirection.y * dir[1],
-    plane.xDirection.z * dir[0] + plane.yDirection.z * dir[1],
-  ).normalize();
-}
-
 function orientToPlane(group: Group, position: Vector3, plane: PlaneData, normal: Vec3Data): void {
   group.position.copy(position);
   group.up.set(plane.yDirection.x, plane.yDirection.y, plane.yDirection.z);
   group.lookAt(new Vector3(position.x + normal.x, position.y + normal.y, position.z + normal.z));
-}
-
-/** Screen-constant textured plane (badge box or bare text) offset from its
- * anchor along a world direction by a pixel amount. Self-positioning — used
- * by the toolbar's placement previews, which sit outside the layout pass. */
-function createOffsetSprite(
-  texture: IconTexture,
-  color: Color,
-  position: Vector3,
-  offsetDirWorld: Vector3,
-  offsetPx: number,
-  pxSize: number,
-  plane: PlaneData,
-  normal: Vec3Data,
-): { group: Group; material: MeshBasicMaterial } {
-  const geometry = new PlaneGeometry(ICON_PLANE_SIZE * texture.aspect, ICON_PLANE_SIZE);
-  const material = new MeshBasicMaterial({
-    map: texture.texture,
-    transparent: true,
-    depthTest: false,
-    side: DoubleSide,
-    color,
-  });
-  const mesh = new Mesh(geometry, material);
-  mesh.renderOrder = ICON_RENDER_ORDER;
-
-  const group = new Group();
-  group.renderOrder = ICON_RENDER_ORDER;
-  group.userData.isConstraintIcon = true;
-  orientToPlane(group, position, plane, normal);
-  group.add(mesh);
-
-  mesh.onBeforeRender = (renderer, _scene, camera) => {
-    const offsetWorld = pixelsToWorld(renderer, camera, position, offsetPx);
-    group.position.set(
-      position.x + offsetDirWorld.x * offsetWorld,
-      position.y + offsetDirWorld.y * offsetWorld,
-      position.z + offsetDirWorld.z * offsetWorld,
-    );
-    group.scale.setScalar(pixelScale(renderer, camera, position, pxSize, ICON_PLANE_SIZE));
-    group.updateMatrixWorld(true);
-  };
-
-  return { group, material };
 }
 
 /**
@@ -184,11 +128,10 @@ function createOffsetSprite(
  * Dash length is proportional to each extension so density reads the same
  * whatever the sketch's size. Null when there is nothing to draw.
  */
-export function buildAngleExtensions(
+function buildAngleExtensions(
   extensions: [[number, number], [number, number]][],
   plane: PlaneData,
   color: Color,
-  opacity = LEADER_OPACITY,
 ): Group | null {
   if (extensions.length === 0) {
     return null;
@@ -216,7 +159,7 @@ export function buildAngleExtensions(
     const material = new LineDashedMaterial({
       color,
       transparent: true,
-      opacity,
+      opacity: LEADER_OPACITY,
       depthTest: false,
       dashSize: dash,
       gapSize: 0.7 * dash,
@@ -255,11 +198,10 @@ function arcWorldPoints(arc: ArcStretch, plane: PlaneData): number[] {
  * is proportional to each stretch, quantized so it starts and ends on a full
  * dash. Null when there is nothing to draw.
  */
-export function buildWitnessArcs(
+function buildWitnessArcs(
   arcs: ArcStretch[],
   plane: PlaneData,
   color: Color,
-  opacity = LEADER_OPACITY,
 ): Group | null {
   const group = new Group();
   group.renderOrder = ICON_RENDER_ORDER - 1;
@@ -273,7 +215,7 @@ export function buildWitnessArcs(
     geometry.setAttribute('position', new Float32BufferAttribute(arcWorldPoints(arc, plane), 3));
     const dash = length / (1 + 1.7 * 8);
     const material = new LineDashedMaterial({
-      color, transparent: true, opacity, depthTest: false, dashSize: dash, gapSize: 0.7 * dash,
+      color, transparent: true, opacity: LEADER_OPACITY, depthTest: false, dashSize: dash, gapSize: 0.7 * dash,
     });
     const line = new Line(geometry, material);
     line.computeLineDistances();
@@ -289,7 +231,7 @@ export function buildWitnessArcs(
  * default (buildAngleArc) — it zooms with the geometry like a distance
  * leader does. Its value is a separate placed label riding it.
  */
-export function buildPlacedAngleArc(
+function buildPlacedAngleArc(
   arc: ArcStretch,
   plane: PlaneData,
   color: Color,
@@ -320,30 +262,21 @@ export type AngleArcVisual = {
   textPxRadius: number;
   textAspect: number;
   materials: (MeshBasicMaterial | LineBasicMaterial)[];
-  /** Uncached label texture (opacity previews) — dispose with the group. */
-  ownedTexture: IconTexture['texture'] | null;
 };
 
 /**
- * Screen-constant angle dimension arc + readout, shared by the committed
- * glyph and the toolbar's placement/pending previews. `opacity < 1` marks a
- * preview: its label texture is created uncached (live readouts change
- * every frame) and returned for disposal.
+ * Screen-constant angle dimension arc + readout: an angle the automatic
+ * layout places (a placed one draws its arc world-scale — buildPlacedAngleArc).
  */
-export function buildAngleArc(
+function buildAngleArc(
   at: [number, number],
   startAngle: number,
   sweep: number,
-  label: string | null,
+  label: string,
   plane: PlaneData,
   normal: Vec3Data,
   color: Color,
-  opacity = ANGLE_ARC_OPACITY,
-  tails: number[] = [],
-  /** Arc radius override for LABEL-LESS previews whose caller placed its
-   * own readout (the value input) with angleLabelPlacement — so the arc
-   * still trails out to it. Ignored when `label` is set. */
-  arcPx?: number,
+  tails: number[],
 ): AngleArcVisual {
   const position = localToWorld(at, plane);
   const group = new Group();
@@ -358,30 +291,15 @@ export function buildAngleArc(
   // would — the arc follows it out instead of staying a sliver at the
   // vertex, swamped by the vertex dots.
   const textSize = ANGLE_ARC_RADIUS * (ANGLE_TEXT_PX_SIZE / ANGLE_ARC_PX_RADIUS);
-  let labelAngle = startAngle + sweep / 2;
-  let textPxRadius = ANGLE_ARC_PX_RADIUS + ANGLE_TEXT_PX_SIZE;
-  let arcPxRadius = arcPx ?? ANGLE_ARC_PX_RADIUS;
-  let textAspect = 1;
-  let ownedTexture: IconTexture['texture'] | null = null;
-  const cached = opacity >= ANGLE_ARC_OPACITY;
-  const texture = label !== null
-    ? (cached ? getTextTexture(label, '#ffffff') : createTextTexture(label, '#ffffff'))
-    : null;
-  if (texture) {
-    textAspect = texture.aspect;
-    if (!cached) {
-      ownedTexture = texture.texture;
-    }
-    const placed = angleLabelPlacement(
-      startAngle, sweep,
-      (ANGLE_TEXT_PX_SIZE * texture.aspect) / 2, ANGLE_TEXT_PX_SIZE / 2,
-      textPxRadius, ANGLE_ARC_PX_RADIUS,
-    );
-    labelAngle = placed.angle;
-    textPxRadius = placed.radiusPx;
-    arcPxRadius = placed.arcRadiusPx;
-  }
-  const arcRadius = ANGLE_ARC_RADIUS * (arcPxRadius / ANGLE_ARC_PX_RADIUS);
+  const texture = getTextTexture(label, '#ffffff');
+  const placed = angleLabelPlacement(
+    startAngle, sweep,
+    (ANGLE_TEXT_PX_SIZE * texture.aspect) / 2, ANGLE_TEXT_PX_SIZE / 2,
+    ANGLE_ARC_PX_RADIUS + ANGLE_TEXT_PX_SIZE, ANGLE_ARC_PX_RADIUS,
+  );
+  const labelAngle = placed.angle;
+  const textPxRadius = placed.radiusPx;
+  const arcRadius = ANGLE_ARC_RADIUS * (placed.arcRadiusPx / ANGLE_ARC_PX_RADIUS);
 
   const arcPoints: number[] = [];
   for (let i = 0; i <= ANGLE_ARC_SEGMENTS; i++) {
@@ -391,7 +309,7 @@ export function buildAngleArc(
   const arcGeometry = new BufferGeometry();
   arcGeometry.setAttribute('position', new Float32BufferAttribute(arcPoints, 3));
   const arcMaterial = new LineBasicMaterial({
-    color, transparent: true, opacity, depthTest: false,
+    color, transparent: true, opacity: ANGLE_ARC_OPACITY, depthTest: false,
   });
   const arc = new Line(arcGeometry, arcMaterial);
   arc.renderOrder = ICON_RENDER_ORDER;
@@ -412,7 +330,7 @@ export function buildAngleArc(
     // 3 gaps + 4 dashes, dash-aligned at both ends (see buildAngleExtensions).
     const dash = tailRadius / (1 + 1.7 * 3);
     const material = new LineDashedMaterial({
-      color, transparent: true, opacity: Math.min(opacity, LEADER_OPACITY),
+      color, transparent: true, opacity: LEADER_OPACITY,
       depthTest: false, dashSize: dash, gapSize: 0.7 * dash,
     });
     const tail = new Line(geometry, material);
@@ -421,67 +339,39 @@ export function buildAngleArc(
     group.add(tail);
   }
 
-  const materials: (MeshBasicMaterial | LineBasicMaterial)[] = [arcMaterial];
-  let sizeAnchor: Mesh | Line = arc;
-  if (texture) {
-    const textMaterial = new MeshBasicMaterial({
-      map: texture.texture, transparent: true, opacity, depthTest: false, side: DoubleSide, color,
-    });
-    const textMesh = new Mesh(
-      new PlaneGeometry(textSize * texture.aspect, textSize),
-      textMaterial,
-    );
-    textMesh.renderOrder = ICON_RENDER_ORDER;
-    const textRadius = ANGLE_ARC_RADIUS * (textPxRadius / ANGLE_ARC_PX_RADIUS);
-    textMesh.position.set(Math.cos(labelAngle) * textRadius, Math.sin(labelAngle) * textRadius, 0);
-    group.add(textMesh);
-    materials.push(textMaterial);
-    sizeAnchor = textMesh;
-  }
+  const textMaterial = new MeshBasicMaterial({
+    map: texture.texture, transparent: true, opacity: ANGLE_ARC_OPACITY, depthTest: false,
+    side: DoubleSide, color,
+  });
+  const textMesh = new Mesh(
+    new PlaneGeometry(textSize * texture.aspect, textSize),
+    textMaterial,
+  );
+  textMesh.renderOrder = ICON_RENDER_ORDER;
+  const textRadius = ANGLE_ARC_RADIUS * (textPxRadius / ANGLE_ARC_PX_RADIUS);
+  textMesh.position.set(Math.cos(labelAngle) * textRadius, Math.sin(labelAngle) * textRadius, 0);
+  group.add(textMesh);
 
-  applyConstantPixelSize(sizeAnchor, group, position, ANGLE_ARC_PX_RADIUS, ANGLE_ARC_RADIUS);
+  applyConstantPixelSize(textMesh, group, position, ANGLE_ARC_PX_RADIUS, ANGLE_ARC_RADIUS);
 
   return {
     group,
     position,
     labelAngle,
     textPxRadius,
-    textAspect,
-    materials,
-    ownedTexture,
+    textAspect: texture.aspect,
+    materials: [arcMaterial, textMaterial],
   };
 }
 
-export type DimensionReadoutVisual = {
-  group: Group;
-  /** Uncached label texture (live readouts change per region) — dispose
-   * with the group. */
-  ownedTexture: IconTexture['texture'];
-};
-
 /**
- * Screen-constant live value readout for the toolbar's distance placement
- * preview — bare dimension text offset from its sketch anchor like the
- * committed glyph's label, with an uncached texture (the label changes as
- * the cursor crosses form regions).
+ * The box a dimension's value is drawn as, px — the text sprite's own size
+ * (buildSolvedConstraintMeshes). Whoever places a value before its meshes
+ * exist (a dimension following the cursor as it is drawn) measures with this.
  */
-export function buildDimensionReadout(
-  at: [number, number],
-  label: string,
-  offsetDir: [number, number],
-  plane: PlaneData,
-  normal: Vec3Data,
-  color: Color,
-  opacity: number,
-): DimensionReadoutVisual {
-  const texture = createTextTexture(label, '#ffffff');
-  const position = localToWorld(at, plane);
-  const { group, material } = createOffsetSprite(
-    texture, color, position, dirToWorld(offsetDir, plane),
-    TEXT_OFFSET_PX, TEXT_PX_SIZE, plane, normal,
-  );
-  material.opacity = opacity;
-  return { group, ownedTexture: texture.texture };
+export function dimensionLabelBox(label: string): BoxPx {
+  const texture = getTextTexture(label, '#ffffff');
+  return { halfWidthPx: (TEXT_PX_SIZE * texture.aspect) / 2, halfHeightPx: TEXT_PX_SIZE / 2 };
 }
 
 /** Anchor identity: badges resolving to the same sketch point share a row. */
@@ -704,8 +594,7 @@ export function buildSolvedConstraintMeshes(
           break;
         }
         const visual = buildAngleArc(
-          glyph.at, glyph.startAngle, glyph.sweep, glyph.label, plane, normal, color,
-          undefined, glyph.tails,
+          glyph.at, glyph.startAngle, glyph.sweep, glyph.label, plane, normal, color, glyph.tails,
         );
         groups.push(visual.group);
         // Dashed extension leaders to a virtual intersection — context,

@@ -2423,6 +2423,9 @@ export async function applySketchConstraint(options: {
   axis?: 'x' | 'y';
   /** distance only: far-side circle/arc measurement — renders `.max()`. */
   tangency?: 'max';
+  /** Dimensions only: where the value was placed as the dimension was
+   * drawn, in the dimension's own frame — renders `.labelAt(u, v)`. */
+  label?: [number, number];
   /** Declarations riding the commit (`name = value` typed in the value
    * input): a `param()` initializer lands at the top of the part body. */
   newVariables?: { name: string; initializer: string }[];

@@ -290,7 +290,8 @@ describe('agent sessions API', () => {
     expect(opened).toMatchObject({ cwd: workspace, resume: null, model: 'haiku' });
     expect(opened.instructions).toContain('You are running inside the FluidCAD app');
     expect(opened.mcpUrl).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:\\d+/api/agent/mcp/[A-Za-z0-9_-]{43}$`));
-    expect(opened.env.ANTHROPIC_API_KEY).toBe('sk-x');
+    // Claude Code runs on the subscription only: the engine's key never reaches it.
+    expect(opened.env.ANTHROPIC_API_KEY).toBeUndefined();
 
     expect(done.title).toBe('what is in this model? one sentence');
     expect(done.model).toBe('haiku');
@@ -423,8 +424,8 @@ describe('agent sessions API', () => {
     expect(backend.opened[2]).toMatchObject({ resume: backend.runs[0].ref });
   });
 
-  it('leaves ANTHROPIC_API_KEY out of the CLI\'s environment when the preference says so', async () => {
-    prefs = { agent: { defaultAgent: null, permissionMode: 'ask', claudeIgnoreApiKey: true, claudeModel: 'opus', effort: 'low' } };
+  it('runs Claude Code with the model and effort preferences', async () => {
+    prefs = { agent: { defaultAgent: null, permissionMode: 'ask', claudeModel: 'opus', effort: 'low' } };
     const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
     await json('POST', `${base}/sessions/${id}/messages`, { text: 'hi' });
     await idle(id);
@@ -434,9 +435,7 @@ describe('agent sessions API', () => {
     expect((await snapshot(id)).effort).toBe('low');
   });
 
-  it('follows detection when no API-key choice is made, and the choice when there is one', async () => {
-    // Detection sees the key, and the choice (none: automatic).
-    backend.install = { ...INSTALL, apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: true };
+  it('detects and runs Claude Code without ANTHROPIC_API_KEY', async () => {
     const detected: any[] = [];
     const detect = backend.detect.bind(backend);
     backend.detect = async (options?: any) => {
@@ -446,15 +445,8 @@ describe('agent sessions API', () => {
     const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
     await json('POST', `${base}/sessions/${id}/messages`, { text: 'hi' });
     await idle(id);
-    expect(detected[0].env.ANTHROPIC_API_KEY).toBe('sk-x');
-    expect('ignoreApiKey' in detected[0]).toBe(false);
+    expect(detected[0].env.ANTHROPIC_API_KEY).toBeUndefined();
     expect(backend.opened[0].env.ANTHROPIC_API_KEY).toBeUndefined();
-
-    // An explicit off keeps the key whatever detection found, and detects again.
-    prefs = { agent: { defaultAgent: null, permissionMode: 'ask', claudeIgnoreApiKey: false } };
-    await json('POST', `${base}/sessions/${id}/messages`, { text: 'again' });
-    await idle(id);
-    expect(detected.at(-1).ignoreApiKey).toBe(false);
   });
 
   it("passes the effort a message names, any of Claude Code's levels, and the agent's own preference otherwise", async () => {

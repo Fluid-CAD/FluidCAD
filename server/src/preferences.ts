@@ -129,14 +129,6 @@ export interface AgentPreferences {
   /** Ask before every edit (default), or apply workspace edits without asking. */
   permissionMode: (typeof AGENT_PERMISSION_MODES)[number];
   /**
-   * Run Claude Code on the user's subscription even when ANTHROPIC_API_KEY
-   * is set: the key is left out of its environment. true or false is the
-   * user's choice and always holds; absent means automatic (the agent
-   * runtime leaves the key out when a Claude subscription is signed in).
-   * Never filled in by the defaults; null or '' in a POST clears it.
-   */
-  claudeIgnoreApiKey?: boolean;
-  /**
    * The API agent's model, provider-qualified (`<providerId>/<model>`, e.g.
    * `anthropic/claude-opus-5-5`, `ollama/qwen3-vl:4b`): the last one used.
    */
@@ -328,6 +320,8 @@ export const AGENT_MODEL_PATTERN = /^[A-Za-z0-9][\w.:@\/\[\]-]*$/;
  */
 export function mergeAgentPreferences(base: AgentPreferences, value: unknown): AgentPreferences {
   const out: AgentPreferences = { ...base };
+  // Gone: Claude Code runs on the subscription only, so there is no API-key choice to keep.
+  delete (out as unknown as Record<string, unknown>).claudeIgnoreApiKey;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return out;
   }
@@ -368,11 +362,6 @@ export function mergeAgentPreferences(base: AgentPreferences, value: unknown): A
   }
   if (AGENT_PERMISSION_MODES.includes(v.permissionMode as any)) {
     out.permissionMode = v.permissionMode as AgentPreferences['permissionMode'];
-  }
-  if (v.claudeIgnoreApiKey === null || v.claudeIgnoreApiKey === '') {
-    delete out.claudeIgnoreApiKey;
-  } else if (typeof v.claudeIgnoreApiKey === 'boolean') {
-    out.claudeIgnoreApiKey = v.claudeIgnoreApiKey;
   }
   if (v.apiModel === null || v.apiModel === '') {
     delete out.apiModel;

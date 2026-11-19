@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SettingsModal } from '../src/ui/settings/settings-modal';
 import { agentSettings, applyAgentPreferences, DEFAULT_AGENT_PREFERENCES, rememberEffort, rememberModel } from '../src/ui/settings/agent-settings';
-import { IGNORE_API_KEY_LABEL } from '../src/ui/settings/agent-tab';
 import type { AgentInstall, ApiProviderStatus } from '../src/ui/chat/chat-types';
 import type { AgentPreferences, UserPreferences } from '../src/api';
 import { settle } from './fixtures/fake-packages-client';
@@ -16,7 +15,7 @@ import { FakeChatClient } from './fixtures/fake-chat-client';
 
 const CLAUDE: AgentInstall = {
   kind: 'claude', path: '/home/u/.local/bin/claude', version: '2.1.326', minVersion: '2.1.259',
-  supported: true, loggedIn: true, authMethod: 'api_key',
+  supported: true, loggedIn: true, authMethod: 'claude.ai', account: 'me@example.com',
 };
 const CODEX: AgentInstall = {
   kind: 'codex', path: null, version: null, minVersion: '', supported: false, loggedIn: null, authMethod: null,
@@ -61,7 +60,9 @@ describe('Settings → Agent', () => {
       'Apply edits automatically',
     ]);
     expect(h.panel.textContent).not.toMatch(/only reads the project/);
-    expect(h.panel.textContent).toContain(IGNORE_API_KEY_LABEL);
+    // Claude Code runs on the subscription only: no API-key switch.
+    expect(h.panel.textContent).not.toContain('ANTHROPIC_API_KEY');
+    expect(h.panel.querySelector('[data-ref="ignore-api-key"]')).toBeNull();
     // No model, effort or program fields: the chips pick the first two.
     for (const ref of ['claude-model', 'codex-model', 'claude-effort', 'codex-effort', 'claude-path', 'codex-path', 'model-error']) {
       expect(h.panel.querySelector(`[data-ref="${ref}"]`)).toBeNull();
@@ -76,23 +77,20 @@ describe('Settings → Agent', () => {
     expect(found.querySelector('[data-agent="claude"] [data-ref="verdict"]')!.textContent).toBe('Ready');
     expect(found.querySelector('[data-agent="claude"]')!.textContent).toContain('Version 2.1.326');
     expect(found.querySelector('[data-agent="claude"]')!.textContent).toContain('/home/u/.local/bin/claude');
-    expect(found.querySelector('[data-agent="claude"]')!.textContent).toContain('Uses the API key in ANTHROPIC_API_KEY.');
+    expect(found.querySelector('[data-agent="claude"]')!.textContent).toContain('Signed in with a Claude subscription as me@example.com.');
     expect(found.querySelector('[data-agent="codex"] [data-ref="verdict"]')!.textContent).toBe('Not supported yet');
 
-    // Change the agent and keep the subscription over the key.
+    // Change the agent.
     const agent = h.$<HTMLSelectElement>('[data-ref="default-agent"]');
     agent.value = 'codex';
     agent.dispatchEvent(new Event('change'));
-    const ignore = h.$<HTMLInputElement>('[data-ref="ignore-api-key"]');
-    ignore.checked = true;
-    ignore.dispatchEvent(new Event('change'));
     h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
     await settle();
     // Only the tab's fields: what it does not send, the engine keeps.
-    expect(h.save).toHaveBeenCalledWith({ defaultAgent: 'codex', permissionMode: 'ask', claudeIgnoreApiKey: true });
+    expect(h.save).toHaveBeenCalledWith({ defaultAgent: 'codex', permissionMode: 'ask' });
     expect(h.onSaved).toHaveBeenCalledTimes(1);
     expect(agentSettings.current).toMatchObject({
-      defaultAgent: 'codex', claudeIgnoreApiKey: true, claudePath: '/opt/claude', claudeModel: 'opus', claudeEffort: 'max',
+      defaultAgent: 'codex', claudePath: '/opt/claude', claudeModel: 'opus', claudeEffort: 'max',
     });
   });
 
@@ -108,65 +106,8 @@ describe('Settings → Agent', () => {
     mode.dispatchEvent(new Event('change'));
     h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
     await settle();
-    expect(h.save.mock.calls[0][0]).toEqual({ defaultAgent: null, permissionMode: 'auto-edits', claudeIgnoreApiKey: null });
+    expect(h.save.mock.calls[0][0]).toEqual({ defaultAgent: null, permissionMode: 'auto-edits' });
     expect(agentSettings.current).toMatchObject({ claudeModel: 'sonnet', codexEffort: 'high', permissionMode: 'auto-edits' });
-  });
-
-  describe('the API-key switch', () => {
-    const SUBSCRIBED: AgentInstall = { ...CLAUDE, authMethod: 'claude.ai', apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: true };
-    const NO_SUBSCRIPTION: AgentInstall = { ...CLAUDE, authMethod: 'api_key', apiKeyPresent: true, subscriptionAvailable: false, apiKeyIgnored: false };
-
-    const mountWith = (claude: AgentInstall) => mount(claude);
-
-    it('is on by itself when a subscription is signed in, with no extra state line or link', async () => {
-      applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask' } } as UserPreferences);
-      const h = mountWith(SUBSCRIBED);
-      h.modal.show('agent');
-      await settle();
-      expect(h.$<HTMLInputElement>('[data-ref="ignore-api-key"]').checked).toBe(true);
-      expect(h.$('[data-ref="ignore-api-key-hint"]').textContent).toContain('On by default when you are signed in to a Claude subscription');
-      expect(h.overlay.querySelector('[data-ref="ignore-api-key-note"], [data-ref="ignore-api-key-auto"]')).toBeNull();
-      expect(h.$('[data-ref="found"] [data-agent="claude"]').textContent).toContain('ANTHROPIC_API_KEY is left out');
-    });
-
-    it('is off by itself when no subscription is signed in', async () => {
-      applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask' } } as UserPreferences);
-      const h = mountWith(NO_SUBSCRIPTION);
-      h.modal.show('agent');
-      await settle();
-      expect(h.$<HTMLInputElement>('[data-ref="ignore-api-key"]').checked).toBe(false);
-    });
-
-    it('shows an explicit choice over detection, and saves a toggle as a choice', async () => {
-      applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask', claudeIgnoreApiKey: false } } as UserPreferences);
-      expect(agentSettings.current.claudeIgnoreApiKey).toBe(false);
-      const h = mountWith(SUBSCRIBED);
-      h.modal.show('agent');
-      await settle();
-      const box = h.$<HTMLInputElement>('[data-ref="ignore-api-key"]');
-      expect(box.checked).toBe(false);
-
-      // Toggling writes an explicit choice, even the value automatic would give.
-      box.checked = true;
-      box.dispatchEvent(new Event('change'));
-      h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
-      await settle();
-      expect(h.save.mock.calls[0][0]).toMatchObject({ claudeIgnoreApiKey: true });
-      expect(agentSettings.current.claudeIgnoreApiKey).toBe(true);
-    });
-
-    it('an untouched automatic switch saves as automatic', async () => {
-      applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask' } } as UserPreferences);
-      const h = mountWith(SUBSCRIBED);
-      h.modal.show('agent');
-      await settle();
-      const agent = h.$<HTMLSelectElement>('[data-ref="default-agent"]');
-      agent.value = 'claude';
-      agent.dispatchEvent(new Event('change'));
-      h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
-      await settle();
-      expect(h.save.mock.calls[0][0]).toMatchObject({ defaultAgent: 'claude', claudeIgnoreApiKey: null });
-    });
   });
 
   it('Check again detects afresh', async () => {
@@ -301,13 +242,12 @@ describe("Settings → Agent: the API agent's keys and local models", () => {
     await settle();
     const sections = [...h.panel.querySelectorAll<HTMLElement>('[data-section]')];
     expect(sections.map((el) => [el.dataset.section, el.querySelector('[data-ref="section-title"]')!.textContent])).toEqual([
-      ['general', 'General'], ['claude', 'Claude Code'], ['api-keys', 'API keys'], ['servers', 'Local models'], ['detected', 'Detected Agents'],
+      ['general', 'General'], ['api-keys', 'API keys'], ['servers', 'Local models'], ['detected', 'Detected Agents'],
     ]);
     const open = () => sections.filter((el) => el.querySelector<HTMLInputElement>('[data-ref="section-toggle"]')!.checked).map((el) => el.dataset.section);
     expect(open()).toEqual(['general']);
     // Each control sits in its section.
     expect(h.$('[data-section="general"] [data-ref="default-agent"]')).not.toBeNull();
-    expect(h.$('[data-section="claude"] [data-ref="ignore-api-key"]')).not.toBeNull();
     expect(h.$('[data-section="api-keys"] [data-provider="anthropic"]')).not.toBeNull();
     expect(h.$('[data-section="detected"] [data-ref="found"]')).not.toBeNull();
 
@@ -320,7 +260,7 @@ describe("Settings → Agent: the API agent's keys and local models", () => {
     h.modal.show('agent');
     await settle();
     expect(open()).toEqual(['general', 'api-keys']);
-    sections[2].querySelector<HTMLInputElement>('[data-ref="section-toggle"]')!.click();
+    sections[1].querySelector<HTMLInputElement>('[data-ref="section-toggle"]')!.click();
     expect(open()).toEqual(['general']);
   });
 
@@ -415,7 +355,7 @@ describe("Settings → Agent: the API agent's keys and local models", () => {
     agent.dispatchEvent(new Event('change'));
     h.dialogSave().click();
     await settle();
-    expect(h.saved).toEqual([{ defaultAgent: 'api', permissionMode: 'ask', claudeIgnoreApiKey: null }]);
+    expect(h.saved).toEqual([{ defaultAgent: 'api', permissionMode: 'ask' }]);
   });
 
   it('a refused key says why; a key typed and not stored is gone on Cancel', async () => {
@@ -462,7 +402,6 @@ describe("Settings → Agent: the API agent's keys and local models", () => {
     expect(h.saved).toEqual([{
       defaultAgent: null,
       permissionMode: 'ask',
-      claudeIgnoreApiKey: null,
       providers: [{ id: 'ollama', kind: 'openai-compatible', label: 'Ollama', baseURL: 'http://localhost:11434/v1', images: false, contextWindow: 32768 }],
     }]);
     expect(agentSettings.current.providers).toEqual(h.saved[0].providers);

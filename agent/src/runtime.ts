@@ -137,10 +137,8 @@ export class AgentRuntime {
   }
 
   /**
-   * The install of `kind`, detected once per path override and API-key
-   * choice (on, off or automatic): changing either in Settings detects again
-   * on the next ask. Detection also settles the automatic API-key choice,
-   * so "Check again" looks at the subscription login afresh.
+   * The install of `kind`, detected once per path override: changing it in
+   * Settings detects again on the next ask, as does "Check again".
    */
   install(kind: AgentKind, prefs: Preferences, fresh: boolean): Promise<AgentInstall> {
     const backend = this.backends[kind];
@@ -169,8 +167,7 @@ export class AgentRuntime {
       }));
     }
     const pathOverride = kind === 'claude' ? prefs.agent?.claudePath : prefs.agent?.codexPath;
-    const choice = this.apiKeyChoice(kind, prefs);
-    const key = JSON.stringify({ pathOverride: pathOverride ?? null, ignoreApiKey: choice ?? 'auto' });
+    const key = JSON.stringify({ pathOverride: pathOverride ?? null });
     const cached = this.detections.get(kind);
     if (!fresh && cached && cached.key === key) {
       return cached.promise;
@@ -178,9 +175,7 @@ export class AgentRuntime {
     const promise = backend
       .detect({
         ...(pathOverride ? { pathOverride } : {}),
-        // The key stays in: detection resolves whether it is used.
         env: kind === 'claude' ? claudeChildEnv(this.baseEnv) : { ...this.baseEnv },
-        ...(choice !== undefined ? { ignoreApiKey: choice } : {}),
       })
       .catch((e): AgentInstall => ({
         kind,
@@ -266,15 +261,12 @@ export class AgentRuntime {
   }
 
   /**
-   * The environment the CLI of `kind` runs with (§19, owner decision on
-   * ANTHROPIC_API_KEY): for Claude Code, without the key when the user
-   * chose so, or, with no choice made, when detection found a subscription
-   * signed in (`install.apiKeyIgnored`).
+   * The environment the CLI of `kind` runs with: Claude Code's never has
+   * ANTHROPIC_API_KEY (it runs on the subscription only, {@link claudeChildEnv}).
    */
   childEnv(kind: AgentKind, prefs: Preferences, install: AgentInstall): NodeJS.ProcessEnv {
     if (kind === 'claude') {
-      const ignoreApiKey = this.apiKeyChoice(kind, prefs) ?? install.apiKeyIgnored === true;
-      return claudeChildEnv(this.baseEnv, { ignoreApiKey });
+      return claudeChildEnv(this.baseEnv);
     }
     return { ...this.baseEnv };
   }
@@ -305,11 +297,6 @@ export class AgentRuntime {
   }
 
   /** The user's explicit API-key choice for `kind`; undefined: automatic. */
-  private apiKeyChoice(kind: AgentKind, prefs: Preferences): boolean | undefined {
-    const value = prefs.agent?.claudeIgnoreApiKey;
-    return kind === 'claude' && typeof value === 'boolean' ? value : undefined;
-  }
-
   // -------------------------------------------------------------------------
   // Sessions
   // -------------------------------------------------------------------------

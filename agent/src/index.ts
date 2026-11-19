@@ -32,7 +32,7 @@ export {
   type GateTimers,
 } from './tool-gate.ts';
 export { McpEndpoint, McpEndpoints, SharedMcpIndexes } from './mcp-endpoint.ts';
-export { ClaudeBackend, ClaudeRun, claudeChildEnv, effectiveIgnoreApiKey, hasApiKey, CLAUDE_MIN_VERSION, CLAUDE_MODELS } from './claude/claude-backend.ts';
+export { ClaudeBackend, ClaudeRun, claudeChildEnv, CLAUDE_MIN_VERSION, CLAUDE_MODELS } from './claude/claude-backend.ts';
 export { ClaudeStreamMapper } from './claude/stream-json.ts';
 export { CodexBackend, CodexRun, CODEX_MIN_VERSION, codexTargetTriples, resolveCodexProgram } from './codex/codex-backend.ts';
 export { CodexAppServer } from './codex/app-server.ts';

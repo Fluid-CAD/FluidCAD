@@ -232,10 +232,10 @@ describe.runIf(posix)('signing in to Codex from the app', () => {
     const status = await until(() => json('GET', `${loginBase}/agents/codex/login/${started.body.loginId}`), (r) => r.body.state !== 'pending');
     expect(status.body).toEqual({ state: 'done' });
 
-    // Detected afresh: signed in now. Nothing about the account was asked for.
+    // Detected afresh: signed in now, with the account's email (only that is asked for).
     const after = (await json('GET', `${loginBase}/agents`)).body.agents.find((a: AgentInstall) => a.kind === 'codex');
     expect(after.loggedIn).toBe(true);
-    expect(logged().filter((l) => l.dir === 'in' && l.msg.method === 'account/read')).toEqual([]);
+    expect(after.account).toBe('someone@example.com');
 
     // Signed in: no second sign-in that would replace the account.
     const again = await json('POST', `${loginBase}/agents/codex/login`);

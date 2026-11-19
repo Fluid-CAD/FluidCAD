@@ -12,7 +12,7 @@ import type { AgentInstall, AgentKind } from './chat-types';
 export const AGENT_INFO: Record<AgentKind, { name: string; label: string; installUrl: string; login: string; update: string; signInFromApp: boolean }> = {
   claude: {
     name: 'Claude Code',
-    label: 'Claude',
+    label: 'Claude Code',
     installUrl: 'https://code.claude.com/docs/en/setup',
     login: 'claude auth login',
     update: 'claude update',
@@ -62,64 +62,30 @@ export type SignInControls = {
   cancel(): void;
 };
 
-/** The Settings switch that puts the subscription before an inherited key (§19). */
-const IGNORE_API_KEY_SETTING = '“Use my Claude subscription even if ANTHROPIC_API_KEY is set”';
-
-export type AuthDescription = {
-  short: string;
-  long: string;
-  /** Each use is billed to an API key. */
-  apiKey: boolean;
-  /** How to run on the subscription instead; `settings`: the way is Settings → Agent. */
-  hint?: { text: string; settings: boolean };
-};
-
 /**
- * How Claude Code will authenticate, in the user's words, with the API-key
- * choice applied (the user's, or automatic: the subscription when one is
- * signed in); null when it cannot be told.
+ * How Claude Code authenticates, in the user's words: on the Claude
+ * subscription, the only way FluidCAD runs it; null for the other agents
+ * and when it is not signed in.
  */
-export function authDescription(install: AgentInstall | null): AuthDescription | null {
-  if (!install || install.kind !== 'claude') {
+export function authDescription(install: AgentInstall | null): string | null {
+  if (!install || install.kind !== 'claude' || !install.loggedIn || install.authMethod !== 'claude.ai') {
     return null;
   }
-  switch (install.authMethod) {
-    case 'claude.ai':
-      return {
-        short: 'Subscription',
-        long: install.apiKeyIgnored
-          ? 'Claude Code runs on your Claude subscription; FluidCAD leaves ANTHROPIC_API_KEY out of its environment.'
-          : 'Claude Code runs on your Claude subscription.',
-        apiKey: false,
-      };
-    case 'api_key':
-      return {
-        short: 'API',
-        long: 'Claude Code runs on the API key in ANTHROPIC_API_KEY, and its use is billed to that key.',
-        apiKey: true,
-        hint:
-          install.subscriptionAvailable === false
-            ? {
-                text: 'No Claude subscription is signed in. To use one instead, run `claude auth login` in a terminal, then check again.',
-                settings: false,
-              }
-            : { text: `To use your Claude subscription instead, turn on ${IGNORE_API_KEY_SETTING} in Settings → Agent.`, settings: true },
-      };
-    default:
-      return null;
-  }
+  return install.account ? `Claude Code runs on your Claude subscription (${install.account}).` : 'Claude Code runs on your Claude subscription.';
 }
 
 /**
- * The agent chip's text: "Claude (Subscription)", "Claude (API)", "Codex";
- * for the `api` agent the provider's label ("Anthropic API", "Ollama").
+ * The agent chip's text: the CLI with the account it is signed in with
+ * ("Claude Code (someone@example.com)", "Codex (someone@example.com)"),
+ * else the bare name; for the `api` agent the provider's label
+ * ("Anthropic API", "Ollama").
  */
 export function agentChipLabel(install: AgentInstall | null, kind: AgentKind, providerId?: string | null): string {
   if (kind === 'api') {
     return providerLabel(install, providerId);
   }
-  const auth = authDescription(install);
-  return auth ? `${AGENT_INFO[kind].label} (${auth.short})` : AGENT_INFO[kind].label;
+  const name = AGENT_INFO[kind].label;
+  return install?.account ? `${name} (${install.account})` : name;
 }
 
 /** A provider of the `api` agent as the pickers name it: its label, else its id. */
@@ -274,17 +240,9 @@ export function renderWelcome(install: AgentInstall | null, deps: AgentSetupDeps
   );
   const auth = authDescription(install);
   if (auth) {
-    const line = paragraph(auth.long, auth.apiKey ? 'text-warning' : undefined);
+    const line = paragraph(auth);
     line.dataset.ref = 'auth';
     el.append(line);
-    if (auth.hint) {
-      const hint = paragraph(auth.hint.text);
-      hint.dataset.ref = 'auth-hint';
-      el.append(hint);
-      if (auth.hint.settings && deps.openSettings) {
-        el.append(settingsButton(deps));
-      }
-    }
   }
   return el;
 }
@@ -413,16 +371,6 @@ function addKeyButton(deps: AgentSetupDeps, primary: boolean): HTMLButtonElement
     ? 'btn btn-sm btn-primary gap-1.5 self-start'
     : 'btn btn-sm btn-ghost border border-base-content/15 gap-1.5 self-start';
   button.append(ChatIcons.span(ChatIcons.SETTINGS, '[&>svg]:size-3.5'), document.createTextNode('Add an API key'));
-  button.addEventListener('click', () => deps.openSettings?.());
-  return button;
-}
-
-function settingsButton(deps: AgentSetupDeps): HTMLButtonElement {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.dataset.ref = 'open-settings';
-  button.className = 'btn btn-sm btn-ghost border border-base-content/15 gap-1.5 self-start';
-  button.append(ChatIcons.span(ChatIcons.SETTINGS, '[&>svg]:size-3.5'), document.createTextNode('Settings'));
   button.addEventListener('click', () => deps.openSettings?.());
   return button;
 }

@@ -270,14 +270,10 @@ export type AgentInstall = {
   supported: boolean;
   /** null: could not tell. */
   loggedIn: boolean | null;
-  /** Claude Code: `claude.ai` (subscription), `api_key`, `none`; with the API-key choice applied. */
+  /** Claude Code: `claude.ai` (subscription), `api_key`, `none`; only `claude.ai` counts as signed in. */
   authMethod?: string | null;
-  /** Claude Code: whether the engine's environment has ANTHROPIC_API_KEY. */
-  apiKeyPresent?: boolean;
-  /** Claude Code: whether a Claude subscription is signed in (asked with the key left out); null: could not tell. */
-  subscriptionAvailable?: boolean | null;
-  /** Claude Code: whether ANTHROPIC_API_KEY is left out of its environment (the user's choice, else automatic). */
-  apiKeyIgnored?: boolean;
+  /** The email of the account the CLI is signed in with (Claude subscription, ChatGPT); absent on an API key or when unknown. */
+  account?: string;
   /** What to tell the user when it is not ready. */
   problem?: string;
   /** `api`: every provider, ready or not. */

@@ -199,7 +199,7 @@ describe.runIf(onLinux)('preferences — the agent panel', () => {
     expect((await loadPreferences()).agent).toEqual({ defaultAgent: null, permissionMode: 'ask' });
     await withServer(async (base) => {
       let prefs = await post(`${base}/preferences`, {
-        agent: { defaultAgent: 'claude', claudePath: ' /opt/claude/bin/claude ', claudeModel: 'sonnet', effort: 'high', claudeIgnoreApiKey: true },
+        agent: { defaultAgent: 'claude', claudePath: ' /opt/claude/bin/claude ', claudeModel: 'sonnet', effort: 'high' },
       });
       expect(prefs.agent).toEqual({
         defaultAgent: 'claude',
@@ -207,16 +207,15 @@ describe.runIf(onLinux)('preferences — the agent panel', () => {
         claudeModel: 'sonnet',
         effort: 'high',
         permissionMode: 'ask',
-        claudeIgnoreApiKey: true,
       });
       // Invalid values are ignored; the rest of the stored key stays.
       prefs = await post(`${base}/preferences`, {
-        agent: { defaultAgent: 'gpt', claudeModel: '--evil flag', effort: 'max', permissionMode: 'yolo', claudeIgnoreApiKey: 'yes' },
+        agent: { defaultAgent: 'gpt', claudeModel: '--evil flag', effort: 'max', permissionMode: 'yolo' },
       });
-      expect(prefs.agent).toMatchObject({ defaultAgent: 'claude', claudeModel: 'sonnet', effort: 'high', permissionMode: 'ask', claudeIgnoreApiKey: true });
+      expect(prefs.agent).toMatchObject({ defaultAgent: 'claude', claudeModel: 'sonnet', effort: 'high', permissionMode: 'ask' });
       // Empty or null clears an optional field.
-      prefs = await post(`${base}/preferences`, { agent: { claudePath: '', claudeModel: null, effort: null, permissionMode: 'auto-edits', claudeIgnoreApiKey: false } });
-      expect(prefs.agent).toEqual({ defaultAgent: 'claude', permissionMode: 'auto-edits', claudeIgnoreApiKey: false });
+      prefs = await post(`${base}/preferences`, { agent: { claudePath: '', claudeModel: null, effort: null, permissionMode: 'auto-edits' } });
+      expect(prefs.agent).toEqual({ defaultAgent: 'claude', permissionMode: 'auto-edits' });
       expect((await loadPreferences()).agent).toEqual(prefs.agent);
 
       // Each agent's own effort: Claude Code's `--effort` choices, and any
@@ -233,27 +232,9 @@ describe.runIf(onLinux)('preferences — the agent panel', () => {
     });
   });
 
-  it('keeps the API-key choice unset (automatic) apart from an explicit off, and clears it on null', async () => {
-    // Unset: neither the defaults nor a save of other fields fill it in.
-    expect('claudeIgnoreApiKey' in (await loadPreferences()).agent).toBe(false);
+  it('drops the old API-key choice (Claude Code runs on the subscription only)', async () => {
     await withServer(async (base) => {
-      let prefs = await post(`${base}/preferences`, { agent: { permissionMode: 'auto-edits' } });
-      expect('claudeIgnoreApiKey' in prefs.agent).toBe(false);
-      expect('claudeIgnoreApiKey' in (await loadPreferences()).agent).toBe(false);
-
-      // An explicit off is kept as false, on disk and back.
-      prefs = await post(`${base}/preferences`, { agent: { claudeIgnoreApiKey: false } });
-      expect(prefs.agent.claudeIgnoreApiKey).toBe(false);
-      expect((await loadPreferences()).agent.claudeIgnoreApiKey).toBe(false);
-      // A field it does not name leaves the choice alone.
-      prefs = await post(`${base}/preferences`, { agent: { claudeModel: 'opus' } });
-      expect(prefs.agent.claudeIgnoreApiKey).toBe(false);
-
-      prefs = await post(`${base}/preferences`, { agent: { claudeIgnoreApiKey: true } });
-      expect((await loadPreferences()).agent.claudeIgnoreApiKey).toBe(true);
-
-      // null ("Use automatic") clears it back to unset.
-      prefs = await post(`${base}/preferences`, { agent: { claudeIgnoreApiKey: null } });
+      const prefs = await post(`${base}/preferences`, { agent: { claudeIgnoreApiKey: true } });
       expect('claudeIgnoreApiKey' in prefs.agent).toBe(false);
       expect('claudeIgnoreApiKey' in (await loadPreferences()).agent).toBe(false);
     });

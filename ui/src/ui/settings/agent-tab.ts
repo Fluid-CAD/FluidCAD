@@ -9,7 +9,6 @@ import {
   TEXT_INPUT,
   TOGGLE,
   field,
-  toggleRow,
   type PersistPreference,
   type SettingsContext,
   type SettingsTab,
@@ -38,8 +37,6 @@ export type AgentTabDeps = {
 };
 
 const NAMES: Record<AgentInstall['kind'], string> = { claude: 'Claude Code', codex: 'Codex', api: 'API' };
-/** "Use my Claude subscription even if ANTHROPIC_API_KEY is set" (§19, the owner's wording). */
-export const IGNORE_API_KEY_LABEL = 'Use my Claude subscription even if ANTHROPIC_API_KEY is set';
 
 /** The servers "Add" offers (§20.2): Ollama and LM Studio at their usual addresses, or any other. */
 export const SERVER_PRESETS = [
@@ -57,8 +54,7 @@ const KEY_INPUT = 'input input-sm input-bordered flex-1 min-w-0 font-mono text-x
 
 /**
  * Settings → Agent (docs/agent-chat-plan.md §9.3, §10.3, §20): the agent a
- * new chat starts with, whether edits are asked about, and whether Claude
- * Code may use an inherited ANTHROPIC_API_KEY; the API keys and local
+ * new chat starts with and whether edits are asked about; the API keys and local
  * servers of the `api` agent; under them, Detected Agents. The model and
  * effort are picked with the Agent panel's chips; the program paths
  * (`claudePath`, `codexPath`) are still read but not edited here.
@@ -76,7 +72,6 @@ export class AgentTab implements SettingsTab {
   private ctx!: SettingsContext;
   private defaultAgent!: HTMLSelectElement;
   private permission!: HTMLSelectElement;
-  private ignoreApiKey!: HTMLInputElement;
   private readonly sections = new Map<string, Section>();
   /** A section asked for before detection showed it: unfolded and scrolled to once it does. */
   private revealAfterDetect: string | null = null;
@@ -97,7 +92,6 @@ export class AgentTab implements SettingsTab {
     const changed = () => ctx.changed();
 
     const general = this.section('general', 'General', root);
-    const claude = this.section('claude', 'Claude Code', root);
     this.keysSection = this.section('api-keys', 'API keys', root).root;
     this.serversSection = this.section('servers', 'Local models', root).root;
     const detected = this.section('detected', 'Detected Agents', root);
@@ -130,23 +124,6 @@ export class AgentTab implements SettingsTab {
           'Apply edits automatically changes project files without asking, and still asks before anything outside the project.',
       ),
     );
-
-    const ignore = toggleRow(IGNORE_API_KEY_LABEL, (checked) => {
-      // Touching the switch makes it the user's choice; untouched, it follows detection.
-      this.draft.claudeIgnoreApiKey = checked;
-      this.paintApiKey();
-      changed();
-    });
-    this.ignoreApiKey = ignore.input;
-    this.ignoreApiKey.dataset.ref = 'ignore-api-key';
-    claude.body.appendChild(ignore.row);
-    const ignoreHint = document.createElement('p');
-    ignoreHint.className = `${FIELD_HINT} -mt-3 mb-4`;
-    ignoreHint.dataset.ref = 'ignore-api-key-hint';
-    ignoreHint.textContent =
-      'When ANTHROPIC_API_KEY is set, Claude Code bills that key instead of your subscription. ' +
-      'Turn this on to hide the key from Claude Code. On by default when you are signed in to a Claude subscription.';
-    claude.body.appendChild(ignoreHint);
 
     // The `api` agent's keys and servers: shown once detection says the engine has it.
     this.keysSection.classList.add('hidden');
@@ -198,7 +175,6 @@ export class AgentTab implements SettingsTab {
     this.draft = { ...agentSettings.current, providers: cloneProviders(agentSettings.current.providers) };
     this.defaultAgent.value = this.draft.defaultAgent ?? '';
     this.permission.value = this.draft.permissionMode;
-    this.paintApiKey();
     // Typed keys go with the fields: every open (and Cancel) starts them empty.
     this.paintKeys();
     this.paintServers();
@@ -278,10 +254,6 @@ export class AgentTab implements SettingsTab {
       defaultAgent: this.draft.defaultAgent,
       permissionMode: this.draft.permissionMode,
     };
-    delete next.claudeIgnoreApiKey;
-    if (typeof this.draft.claudeIgnoreApiKey === 'boolean') {
-      next.claudeIgnoreApiKey = this.draft.claudeIgnoreApiKey;
-    }
     if (sendProviders) {
       next.providers = cloneProviders(providers);
       if (next.providers.length === 0) {
@@ -294,8 +266,6 @@ export class AgentTab implements SettingsTab {
     const payload = {
       defaultAgent: next.defaultAgent,
       permissionMode: next.permissionMode,
-      // The user's on or off; null goes back to automatic.
-      claudeIgnoreApiKey: typeof next.claudeIgnoreApiKey === 'boolean' ? next.claudeIgnoreApiKey : null,
       ...(sendProviders ? { providers: cloneProviders(providers) } : {}),
     } as unknown as AgentPreferences;
     // Keys typed for servers the engine does not know yet: stored once the servers are saved.
@@ -686,18 +656,6 @@ export class AgentTab implements SettingsTab {
 
   // ---------------------------------------------------------------------------
 
-  /**
-   * The API-key switch as it acts: the user's choice when they made one;
-   * otherwise automatic, on when detection found a Claude subscription
-   * signed in.
-   */
-  private paintApiKey(): void {
-    const choice = this.draft.claudeIgnoreApiKey;
-    const claude = this.installs?.find((i) => i.kind === 'claude') ?? null;
-    const explicit = typeof choice === 'boolean';
-    this.ignoreApiKey.checked = explicit ? choice : claude?.subscriptionAvailable === true;
-  }
-
   private async detect(fresh: boolean): Promise<void> {
     if (!this.deps) {
       this.paintFound(null, 'This page cannot reach an agent runtime.');
@@ -714,7 +672,6 @@ export class AgentTab implements SettingsTab {
       const installs = await this.deps.agents(fresh);
       this.installs = installs;
       this.paintFound(installs, installs ? null : 'This engine has no agent runtime.');
-      this.paintApiKey();
       this.paintKeys();
       this.serversSection.classList.toggle('hidden', !installs?.some((i) => i.kind === 'api'));
       this.paintServerKeys();
@@ -779,10 +736,10 @@ function foundRow(install: AgentInstall): HTMLElement {
   if (install.path) {
     lines.push(install.path);
   }
-  if (install.kind === 'claude' && install.authMethod === 'claude.ai') {
-    lines.push(install.apiKeyIgnored ? 'Signed in with a Claude subscription; ANTHROPIC_API_KEY is left out.' : 'Signed in with a Claude subscription.');
-  } else if (install.kind === 'claude' && install.authMethod === 'api_key') {
-    lines.push('Uses the API key in ANTHROPIC_API_KEY.');
+  if (install.kind === 'claude' && install.loggedIn && install.authMethod === 'claude.ai') {
+    lines.push(install.account ? `Signed in with a Claude subscription as ${install.account}.` : 'Signed in with a Claude subscription.');
+  } else if (install.kind === 'codex' && install.loggedIn && install.account) {
+    lines.push(`Signed in with ChatGPT as ${install.account}.`);
   }
   if (install.problem) {
     lines.push(install.problem);
@@ -917,7 +874,6 @@ function sameSettings(a: AgentPreferences, b: AgentPreferences): boolean {
   return (
     (a.defaultAgent ?? null) === (b.defaultAgent ?? null) &&
     a.permissionMode === b.permissionMode &&
-    (a.claudeIgnoreApiKey ?? null) === (b.claudeIgnoreApiKey ?? null) &&
     sameProviders(a.providers ?? [], b.providers ?? [])
   );
 }

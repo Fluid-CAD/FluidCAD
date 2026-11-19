@@ -42,7 +42,7 @@ function envWith(pathDirs: string[], extra: NodeJS.ProcessEnv = {}): NodeJS.Proc
 const backend = () => new CodexBackend({ homeDir: tmp, fixedPaths: [], clientVersion: '9.9.9', cwd: tmp, lingerMs: 50, interruptGraceMs: 300, mcpStartupTimeoutMs: 1500 });
 
 describe.runIf(posix)('CodexBackend.detect with fake binaries on PATH', () => {
-  it('finds Codex on PATH, checks the version and reads only the exit code of `login status`', async () => {
+  it('finds Codex on PATH, checks the version, reads the exit code of `login status` and the ChatGPT account\'s email', async () => {
     const dir = fakeOnPath('ok');
     const install = await backend().detect({ env: envWith([dir]) });
     expect(install).toEqual({
@@ -52,7 +52,15 @@ describe.runIf(posix)('CodexBackend.detect with fake binaries on PATH', () => {
       minVersion: CODEX_MIN_VERSION,
       supported: true,
       loggedIn: true,
+      account: 'someone@example.com',
     });
+  });
+
+  it('names no account when Codex is signed in with an API key', async () => {
+    const dir = fakeOnPath('apikey', ['FAKE_CODEX_ACCOUNT=apikey']);
+    const install = await backend().detect({ env: envWith([dir]) });
+    expect(install.loggedIn).toBe(true);
+    expect(install.account).toBeUndefined();
   });
 
   it('says how to sign in when it is not signed in', async () => {

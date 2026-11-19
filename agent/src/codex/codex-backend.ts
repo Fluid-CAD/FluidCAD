@@ -33,6 +33,8 @@ export const CODEX_MIN_VERSION = '0.162.0';
 export const CODEX_LINGER_MS = 60_000;
 const INTERRUPT_GRACE_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 60_000;
+/** Detection does not wait longer than this for the account's email. */
+const ACCOUNT_TIMEOUT_MS = 5_000;
 /** How long FluidCAD's MCP server may take to connect when a thread starts. */
 const MCP_STARTUP_TIMEOUT_MS = 20_000;
 /** How often the thread's MCP servers are listed while FluidCAD's has not reported its startup. */
@@ -177,10 +179,14 @@ export class CodexBackend implements AgentBackend {
         };
       }
       install.supported = true;
-      // The exit code is all that is read: 0 signed in, 1 not (§5.2).
+      // The exit code says whether it is signed in: 0 signed in, 1 not (§5.2).
       const login = await runBriefly(candidate, ['login', 'status'], { env: options.env, timeoutMs: 15_000 });
       if (login.code === 0) {
         install.loggedIn = true;
+        const account = await this.readAccount(candidate, options.env);
+        if (account) {
+          install.account = account;
+        }
       } else if (login.code === 1) {
         install.loggedIn = false;
         install.problem = 'Codex is not signed in. Run `codex login` in a terminal, then check again.';
@@ -190,6 +196,29 @@ export class CodexBackend implements AgentBackend {
       return install;
     }
     return { ...base, problem: lastProblem || 'Codex was not found.' };
+  }
+
+  /**
+   * The ChatGPT account's email, from the app server's `account/read`; null
+   * when signed in with an API key, or when the server does not answer in
+   * time (detection goes on without it).
+   */
+  private async readAccount(program: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+    let server: CodexAppServer;
+    try {
+      server = await this.acquire(program, env);
+    } catch {
+      return null;
+    }
+    try {
+      const result: any = await server.rpc.request('account/read', { refreshToken: false }, ACCOUNT_TIMEOUT_MS);
+      const account = result?.account;
+      return account?.type === 'chatgpt' && typeof account.email === 'string' && account.email !== '' ? account.email : null;
+    } catch {
+      return null;
+    } finally {
+      this.release(server);
+    }
   }
 
   // -------------------------------------------------------------------------

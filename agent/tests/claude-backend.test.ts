@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ClaudeBackend, claudeChildEnv, CLAUDE_MCP_TIMEOUT_MS, effectiveIgnoreApiKey, type ClaudeRun } from '../src/claude/claude-backend.ts';
+import { ClaudeBackend, claudeChildEnv, CLAUDE_MCP_TIMEOUT_MS, type ClaudeRun } from '../src/claude/claude-backend.ts';
 import type { AgentInstall, AgentRun, BackendEvent } from '../src/backend.ts';
 import { AgentRuntime } from '../src/runtime.ts';
 import { trackedChildCount } from '../src/children.ts';
@@ -41,7 +41,7 @@ function envWith(pathDirs: string[], extra: NodeJS.ProcessEnv = {}): NodeJS.Proc
 const backend = () => new ClaudeBackend({ homeDir: tmp, fixedPaths: [] });
 
 describe.runIf(posix)('ClaudeBackend.detect with fake binaries on PATH', () => {
-  it('finds Claude Code on PATH, checks the version and reads only the auth method', async () => {
+  it('finds Claude Code on PATH, checks the version and reads the auth method and the account\'s email', async () => {
     const dir = fakeOnPath('ok');
     const install = await backend().detect({ env: envWith([dir]) });
     expect(install).toEqual({
@@ -52,72 +52,41 @@ describe.runIf(posix)('ClaudeBackend.detect with fake binaries on PATH', () => {
       supported: true,
       loggedIn: true,
       authMethod: 'claude.ai',
-      apiKeyPresent: false,
-      subscriptionAvailable: true,
-      apiKeyIgnored: false,
+      account: 'someone@example.com',
     });
-    // The status also carries account fields; none is kept.
-    expect(JSON.stringify(install)).not.toMatch(/example\.com|org-1|email|orgName/);
+    // Only the email is kept of the account fields.
+    expect(JSON.stringify(install)).not.toMatch(/org-1|orgName|"Org"/);
   });
 
-  describe('an inherited ANTHROPIC_API_KEY', () => {
+  describe('subscription only', () => {
     /** The `auth status` lines the fake logged: whether each saw the key. */
     function statusLog(file: string): string[] {
       return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter((l) => l.startsWith('auth-status')) : [];
     }
 
-    it('changes nothing without a key: one status, the environment as it is', async () => {
-      const log = path.join(tmp, 'no-key.log');
-      const dir = fakeOnPath('no-key', [`FAKE_CLAUDE_LOG=${log}`]);
-      const install = await backend().detect({ env: envWith([dir]) });
-      expect(install).toMatchObject({ apiKeyPresent: false, apiKeyIgnored: false, authMethod: 'claude.ai', loggedIn: true });
-      expect(statusLog(log)).toEqual(['auth-status key=no']);
-      // An explicit choice does nothing either: there is no key to leave out.
-      expect(await backend().detect({ env: envWith([dir]), ignoreApiKey: false })).toMatchObject({ apiKeyIgnored: false, authMethod: 'claude.ai' });
-    });
-
-    it('is left out by default when a Claude subscription is signed in', async () => {
+    it('asks about the login without an inherited ANTHROPIC_API_KEY', async () => {
       const log = path.join(tmp, 'sub.log');
       const dir = fakeOnPath('sub', [`FAKE_CLAUDE_LOG=${log}`]);
       const install = await backend().detect({ env: envWith([dir], { ANTHROPIC_API_KEY: 'sk-test' }) });
-      expect(install).toMatchObject({
-        apiKeyPresent: true,
-        subscriptionAvailable: true,
-        apiKeyIgnored: true,
-        loggedIn: true,
-        authMethod: 'claude.ai',
-      });
-      // The login was asked about without the key, and that answer stands.
+      expect(install).toMatchObject({ loggedIn: true, authMethod: 'claude.ai', account: 'someone@example.com' });
       expect(statusLog(log)).toEqual(['auth-status key=no']);
-      expect(JSON.stringify(install)).not.toMatch(/example\.com|org-1|email|orgName/);
     });
 
-    it('is kept by default when no subscription is signed in (it is the only way in)', async () => {
-      const log = path.join(tmp, 'no-sub.log');
-      const dir = fakeOnPath('no-sub', [`FAKE_CLAUDE_LOG=${log}`, 'FAKE_CLAUDE_SUBSCRIPTION=0']);
+    it('is not signed in when no subscription is, even with a key in the environment', async () => {
+      const dir = fakeOnPath('no-sub', ['FAKE_CLAUDE_SUBSCRIPTION=0']);
       const install = await backend().detect({ env: envWith([dir], { ANTHROPIC_API_KEY: 'sk-test' }) });
-      expect(install).toMatchObject({
-        apiKeyPresent: true,
-        subscriptionAvailable: false,
-        apiKeyIgnored: false,
-        loggedIn: true,
-        authMethod: 'api_key',
-      });
-      expect(statusLog(log)).toEqual(['auth-status key=no', 'auth-status key=yes']);
-      expect(install.problem).toBeUndefined();
-    });
-
-    it('is kept when the user turned the setting off, subscription or not', async () => {
-      const dir = fakeOnPath('off');
-      const install = await backend().detect({ env: envWith([dir], { ANTHROPIC_API_KEY: 'sk-test' }), ignoreApiKey: false });
-      expect(install).toMatchObject({ apiKeyPresent: true, subscriptionAvailable: true, apiKeyIgnored: false, authMethod: 'api_key' });
-    });
-
-    it('is left out when the user turned the setting on, even with no subscription', async () => {
-      const dir = fakeOnPath('on', ['FAKE_CLAUDE_SUBSCRIPTION=0']);
-      const install = await backend().detect({ env: envWith([dir], { ANTHROPIC_API_KEY: 'sk-test' }), ignoreApiKey: true });
-      expect(install).toMatchObject({ apiKeyPresent: true, subscriptionAvailable: false, apiKeyIgnored: true, loggedIn: false, authMethod: 'none' });
+      expect(install).toMatchObject({ supported: true, loggedIn: false, authMethod: 'none' });
+      expect(install.account).toBeUndefined();
       expect(install.problem).toContain('claude auth login');
+    });
+
+    it('is not signed in when Claude Code is signed in some other way than a subscription', async () => {
+      const dir = fakeOnPath('other', ['FAKE_CLAUDE_AUTH_METHOD=api_key']);
+      const install = await backend().detect({ env: envWith([dir]) });
+      expect(install).toMatchObject({ supported: true, loggedIn: false, authMethod: 'api_key' });
+      expect(install.account).toBeUndefined();
+      expect(install.problem).toContain('subscription only');
+      expect(install.problem).toContain('Anthropic API');
     });
   });
 
@@ -161,42 +130,25 @@ describe.runIf(posix)('ClaudeBackend.detect with fake binaries on PATH', () => {
   });
 });
 
-describe('effectiveIgnoreApiKey', () => {
-  it('honours an explicit choice and otherwise follows the subscription', () => {
-    expect(effectiveIgnoreApiKey(undefined, true)).toBe(true);
-    expect(effectiveIgnoreApiKey(undefined, false)).toBe(false);
-    expect(effectiveIgnoreApiKey(undefined, null)).toBe(false);
-    expect(effectiveIgnoreApiKey(false, true)).toBe(false);
-    expect(effectiveIgnoreApiKey(true, false)).toBe(true);
-  });
-});
-
-describe.runIf(posix)('AgentRuntime with Claude Code and an inherited ANTHROPIC_API_KEY', () => {
+describe.runIf(posix)('AgentRuntime runs Claude Code without an inherited ANTHROPIC_API_KEY', () => {
   let runtime: AgentRuntime | null = null;
   afterEach(async () => {
     await runtime?.shutdown();
     runtime = null;
   });
 
-  /** A runtime on the real Claude Code driver, with a fake `claude` and the key in its environment. */
-  function start(fakeEnv: string[], prefs: { agent: Record<string, unknown> }): { log: string; prefs: typeof prefs } {
+  it('leaves the key out of the run', async () => {
     const log = path.join(tmp, 'runtime.log');
-    const dir = fakeOnPath('rt', [`FAKE_CLAUDE_LOG=${log}`, ...fakeEnv]);
+    const dir = fakeOnPath('rt', [`FAKE_CLAUDE_LOG=${log}`]);
     const workspace = path.join(tmp, 'ws');
     fs.mkdirSync(workspace, { recursive: true });
+    const prefs = { agent: { defaultAgent: null, permissionMode: 'ask' } };
     runtime = new AgentRuntime(
       { workspacePath: workspace, port: 1, version: '0.0.0', startedAt: '', loadPreferences: async () => prefs } as any,
       { backends: { claude: backend() }, env: envWith([dir], { ANTHROPIC_API_KEY: 'sk-test' }) },
     );
-    return { log, prefs };
-  }
-
-  async function claudeInstall(fresh = false): Promise<AgentInstall> {
-    return (await runtime!.agents(fresh)).find((i) => i.kind === 'claude')!;
-  }
-
-  /** Starts the CLI as a turn would (the env the runtime prepares), and reads back whether it saw the key. */
-  async function spawnSawKey(log: string): Promise<boolean> {
+    const install = (await runtime.agents(false)).find((i) => i.kind === 'claude')!;
+    expect(install).toMatchObject({ loggedIn: true, authMethod: 'claude.ai' });
     const setup = await (runtime as any).prepareTurn('claude');
     const run = await backend().open({ install: setup.install, resume: null, cwd: tmp, mcpUrl: 'http://127.0.0.1:1/x', instructions: 't', env: setup.env });
     for (let i = 0; i < 200 && !fs.readFileSync(log, 'utf8').includes('run '); i++) {
@@ -204,60 +156,12 @@ describe.runIf(posix)('AgentRuntime with Claude Code and an inherited ANTHROPIC_
     }
     await run.close();
     const line = fs.readFileSync(log, 'utf8').split('\n').find((l) => l.startsWith('run '))!;
-    fs.writeFileSync(log, '');
-    return line.endsWith('key=yes');
-  }
-
-  it('leaves the key out of the run by default when a subscription is signed in', async () => {
-    const { log } = start([], { agent: { defaultAgent: null, permissionMode: 'ask' } });
-    expect(await claudeInstall()).toMatchObject({ apiKeyIgnored: true, authMethod: 'claude.ai' });
-    expect(await spawnSawKey(log)).toBe(false);
-  });
-
-  it('keeps the key for the run by default when no subscription is signed in', async () => {
-    const { log } = start(['FAKE_CLAUDE_SUBSCRIPTION=0'], { agent: { defaultAgent: null, permissionMode: 'ask' } });
-    expect(await claudeInstall()).toMatchObject({ apiKeyIgnored: false, authMethod: 'api_key' });
-    expect(await spawnSawKey(log)).toBe(true);
-  });
-
-  it('detects again when the choice changes, and honours an explicit one', async () => {
-    const { log, prefs } = start([], { agent: { defaultAgent: null, permissionMode: 'ask' } });
-    expect(await claudeInstall()).toMatchObject({ apiKeyIgnored: true });
-    const statuses = () => fs.readFileSync(log, 'utf8').split('\n').filter((l) => l.startsWith('auth-status')).length;
-    const before = statuses();
-    // Cached while nothing changes.
-    await claudeInstall();
-    expect(statuses()).toBe(before);
-
-    prefs.agent.claudeIgnoreApiKey = false;
-    expect(await claudeInstall()).toMatchObject({ apiKeyIgnored: false, authMethod: 'api_key' });
-    expect(statuses()).toBeGreaterThan(before);
-    expect(await spawnSawKey(log)).toBe(true);
-
-    prefs.agent.claudeIgnoreApiKey = true;
-    expect(await claudeInstall()).toMatchObject({ apiKeyIgnored: true, authMethod: 'claude.ai' });
-    expect(await spawnSawKey(log)).toBe(false);
-
-    // Back to automatic: detected again, the subscription decides.
-    delete prefs.agent.claudeIgnoreApiKey;
-    const atAuto = statuses();
-    expect(await claudeInstall()).toMatchObject({ apiKeyIgnored: true });
-    expect(statuses()).toBeGreaterThan(atAuto);
-  });
-
-  it('looks at the subscription login again on "Check again"', async () => {
-    start([], { agent: { defaultAgent: null, permissionMode: 'ask' } });
-    expect(await claudeInstall()).toMatchObject({ subscriptionAvailable: true, apiKeyIgnored: true });
-    // The user signs out of the subscription: the cache still says signed in, a fresh check does not.
-    const fake = path.join(tmp, 'rt', 'claude');
-    fs.writeFileSync(fake, fs.readFileSync(fake, 'utf8').replace('exec ', 'export FAKE_CLAUDE_SUBSCRIPTION=0\nexec '));
-    expect(await claudeInstall()).toMatchObject({ apiKeyIgnored: true });
-    expect(await claudeInstall(true)).toMatchObject({ subscriptionAvailable: false, apiKeyIgnored: false, authMethod: 'api_key' });
+    expect(line.endsWith('key=no')).toBe(true);
   });
 });
 
 describe('claudeChildEnv', () => {
-  it('drops a parent Claude Code session\'s markers but no auth variable unless asked', () => {
+  it('drops a parent Claude Code session\'s markers and ANTHROPIC_API_KEY, no other auth variable', () => {
     const env = claudeChildEnv({
       PATH: '/bin',
       CLAUDECODE: '1',
@@ -267,8 +171,7 @@ describe('claudeChildEnv', () => {
       CLAUDE_CODE_OAUTH_TOKEN: 'tok',
       CLAUDE_CODE_USE_BEDROCK: '1',
     });
-    expect(env).toEqual({ PATH: '/bin', ANTHROPIC_API_KEY: 'sk', CLAUDE_CODE_OAUTH_TOKEN: 'tok', CLAUDE_CODE_USE_BEDROCK: '1' });
-    expect(claudeChildEnv({ ANTHROPIC_API_KEY: 'sk' }, { ignoreApiKey: true })).toEqual({});
+    expect(env).toEqual({ PATH: '/bin', CLAUDE_CODE_OAUTH_TOKEN: 'tok', CLAUDE_CODE_USE_BEDROCK: '1' });
   });
 });
 

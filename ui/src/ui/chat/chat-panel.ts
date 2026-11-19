@@ -116,6 +116,16 @@ const OTHER_MODEL = '__other__';
 /** One row of the agent picker: Claude Code, Codex, or one provider of the `api` agent. */
 type AgentEntry = { kind: AgentKind; provider: ApiProviderStatus | null; label: string };
 
+/** The CLIs at the top of the agent picker, in this order. */
+const CLI_ORDER: AgentKind[] = ['claude', 'codex'];
+
+/** A CLI the agent picker shows but cannot start: its row's label suffix and tooltip, by why. */
+const UNAVAILABLE_AGENT: Record<'not-found' | 'too-old' | 'signed-out', { suffix: string; why: (name: string) => string }> = {
+  'not-found': { suffix: 'Not installed', why: (name) => `${name} is not installed on this computer. Manage shows how to install it.` },
+  'too-old': { suffix: 'Update needed', why: (name) => `This version of ${name} is too old for the Agent. Manage shows how to update it.` },
+  'signed-out': { suffix: 'Not signed in', why: (name) => `${name} is installed but not signed in. Manage shows how to sign in.` },
+};
+
 /**
  * The Agent panel (docs/agent-chat-plan.md §10): a chat with the user's own
  * Claude Code (or Codex), which reads the project through FluidCAD's MCP
@@ -715,32 +725,47 @@ export class ChatPanel {
     const provider = this.provider;
     this.agentSlot.replaceChildren();
     const entries = this.agentEntries();
+    const unavailable = this.unavailableAgents();
     const install = this.state.install(kind);
     const text = agentChipLabel(install, kind, provider);
-    const auth = authDescription(install);
     const isCurrent = (entry: AgentEntry) => entry.kind === kind && (kind !== 'api' || entry.provider?.id === provider);
     let chip: HTMLElement | null = null;
     const openSettings = this.deps.openSettings;
     // A new chat picks its agent here; Manage (keys, local models, what is installed) is in the same menu.
-    if (!this.state.session && (entries.length > 1 || (entries.length === 1 && openSettings))) {
+    if (!this.state.session && entries.length > 0 && (entries.length + unavailable.length > 1 || openSettings)) {
       const picker = chipButton('agent-picker');
       fillChip(picker, text);
       picker.setAttribute('aria-label', `Agent: ${text}`);
       picker.addEventListener('click', () => {
-        const items: PopupMenuItem[] = entries.map((entry) => ({
+        const row = (entry: AgentEntry): PopupMenuItem => ({
           icon: isCurrent(entry) ? ChatIcons.CHECK : '',
           label: entry.label,
           className: isCurrent(entry) ? 'font-medium' : undefined,
           onSelect: () => this.chooseAgent(entry),
-        }));
+        });
+        // Claude Code and Codex first, in that order, whether they can run or not
+        // (those that cannot are shown disabled, saying why; Manage sets them up),
+        // then the providers of the `api` agent.
+        const items: PopupMenuItem[] = [];
+        for (const cli of CLI_ORDER) {
+          const ready = entries.find((e) => e.kind === cli);
+          const blocked = unavailable.find((u) => u.kind === cli);
+          if (ready) {
+            items.push(row(ready));
+          } else if (blocked) {
+            const info = UNAVAILABLE_AGENT[blocked.state];
+            items.push({ icon: '', label: `${AGENT_INFO[cli].label} (${info.suffix})`, disabled: true, title: info.why(AGENT_INFO[cli].name) });
+          }
+        }
+        items.push(...entries.filter((e) => e.kind === 'api').map(row));
         if (openSettings) {
           items.push({ icon: ChatIcons.SETTINGS, label: 'Manage', separated: true, onSelect: () => openSettings() });
         }
         this.showChipMenu(picker, 'agent-menu', items);
       });
       chip = picker;
-    } else if (entries.length > 1 || auth || kind === 'api') {
-      // One agent needs no picker, but how Claude is paid for, or which
+    } else if (entries.length > 1 || install?.account || kind === 'api') {
+      // One agent needs no picker, but the account it runs on, or which
       // provider an `api` chat runs on, is still worth showing.
       const name = document.createElement('span');
       name.dataset.ref = 'agent-name';
@@ -749,11 +774,8 @@ export class ChatPanel {
       chip = name;
     }
     if (chip) {
-      if (auth?.apiKey) {
-        chip.dataset.tone = 'warning';
-      }
       const runs = `This chat runs on ${kind === 'api' ? text : AGENT_INFO[kind].name}.`;
-      chip.title = auth ? `${auth.long}${auth.hint ? ` ${auth.hint.text}` : ''}` : runs;
+      chip.title = authDescription(install) ?? runs;
       this.agentSlot.append(chip);
     }
     this.paintModelPicker();
@@ -776,6 +798,18 @@ export class ChatPanel {
       }
     }
     return entries;
+  }
+
+  /** The CLIs (not the `api` agent) that are offered but cannot run yet: not installed, too old, or signed out. */
+  private unavailableAgents(): { kind: AgentKind; state: keyof typeof UNAVAILABLE_AGENT }[] {
+    const result: { kind: AgentKind; state: keyof typeof UNAVAILABLE_AGENT }[] = [];
+    for (const install of this.state.offeredAgents) {
+      const state = ChatState.readinessOf(install).state;
+      if (install.kind !== 'api' && state !== 'ready') {
+        result.push({ kind: install.kind, state });
+      }
+    }
+    return result;
   }
 
   /** A new chat starts with `entry`; for a provider, on its last-used (else suggested) model, which new chats then keep. */
@@ -1020,7 +1054,8 @@ export class ChatPanel {
       // A built-in provider bills the key; a local server costs nothing.
       return this.state.install('api')?.providers?.find((p) => p.id === this.provider)?.builtIn === true;
     }
-    return authDescription(this.state.install(this.state.agent))?.apiKey === true;
+    // Claude Code and Codex run on the user's subscription.
+    return false;
   }
 
   private turnActions(turn: TurnRecord): HTMLElement[] {

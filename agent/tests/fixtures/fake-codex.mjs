@@ -15,6 +15,7 @@
 // FAKE_CODEX_USER_SERVERS  JSON object for config.mcp_servers
 // FAKE_CODEX_RESUME_FAIL   1: thread/resume of an unknown thread fails
 // FAKE_CODEX_LOGIN      how account/login/start goes: succeed (default, soon after), fail, wait (until cancelled)
+// FAKE_CODEX_ACCOUNT    what account/read says: chatgpt (default, someone@example.com) | apikey
 // FAKE_CODEX_LOGIN_FILE  `login status` says signed in while this file exists (beats FAKE_CODEX_LOGGED_IN);
 //                       a login that succeeds creates it
 //
@@ -275,6 +276,10 @@ async function onRequest(msg) {
       ];
       return reply({ data, nextCursor: null });
     }
+    case 'account/read':
+      return reply(process.env.FAKE_CODEX_ACCOUNT === 'apikey'
+        ? { account: { type: 'apiKey' }, requiresOpenaiAuth: true }
+        : { account: { type: 'chatgpt', email: 'someone@example.com', planType: 'plus' }, requiresOpenaiAuth: true });
     case 'model/list':
       return reply({
         data: [

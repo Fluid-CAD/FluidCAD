@@ -10,13 +10,6 @@ export type DetectOptions = {
   pathOverride?: string;
   /** The environment the CLI will run with (PATH for the lookup, the auth variables). */
   env: NodeJS.ProcessEnv;
-  /**
-   * Claude Code: the user's own choice about an inherited ANTHROPIC_API_KEY
-   * (`agent.claudeIgnoreApiKey`): true leaves the key out, false keeps it.
-   * Absent: automatic, the key is left out when a Claude subscription is
-   * signed in. `env` still carries the key; detection resolves the choice.
-   */
-  ignoreApiKey?: boolean;
 };
 
 export interface AgentBackend {
@@ -101,25 +94,18 @@ export type AgentInstall = {
   /** null: could not tell. */
   loggedIn: boolean | null;
   /**
-   * How the CLI will authenticate, as it reports it (Claude Code:
-   * `claude.ai` for the subscription, `api_key`, `none`). Account fields
-   * are never read into this.
+   * How the CLI authenticates, as it reports it (Claude Code: `claude.ai`
+   * for the subscription, `api_key`, `none`). Claude Code runs on a Claude
+   * subscription only: any other method is reported as not signed in.
    */
   authMethod?: string | null;
-  /** Claude Code: whether the engine's environment has ANTHROPIC_API_KEY. */
-  apiKeyPresent?: boolean;
   /**
-   * Claude Code: whether a Claude subscription is signed in, as `claude auth
-   * status` reports it with ANTHROPIC_API_KEY left out of its environment;
-   * null when it could not be told (or detection stopped before asking).
+   * The account the CLI is signed in with, as it reports it: the email of
+   * the Claude subscription or the ChatGPT account. Shown to the user next
+   * to the agent's name; absent when signed in with an API key or when it
+   * could not be told. Only the email is read, never credentials.
    */
-  subscriptionAvailable?: boolean | null;
-  /**
-   * Claude Code: whether ANTHROPIC_API_KEY is left out of its environment,
-   * by the user's choice or, when they made none, because a subscription is
-   * signed in. `authMethod` and `loggedIn` describe that environment.
-   */
-  apiKeyIgnored?: boolean;
+  account?: string;
   /** API agent: every model provider and whether it is ready (`loggedIn`: any is). */
   providers?: ApiProviderStatus[];
   /** What to tell the user when it is not ready. */

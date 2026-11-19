@@ -31,7 +31,8 @@ if (args[0] === 'auth' && args[1] === 'status') {
   // only an API key signs it in. An inherited key wins over the login.
   const subscription = process.env.FAKE_CLAUDE_SUBSCRIPTION !== '0';
   const loggedIn = process.env.FAKE_CLAUDE_LOGGED_IN !== '0' && (hasKey || subscription);
-  const authMethod = !loggedIn ? 'none' : hasKey ? 'api_key' : 'claude.ai';
+  // FAKE_CLAUDE_AUTH_METHOD: how a signed-in Claude Code says it signs in, whatever the key (e.g. api_key from a key helper).
+  const authMethod = !loggedIn ? 'none' : process.env.FAKE_CLAUDE_AUTH_METHOD ?? (hasKey ? 'api_key' : 'claude.ai');
   console.log(JSON.stringify({ loggedIn, authMethod, apiProvider: 'firstParty', email: 'someone@example.com', orgId: 'org-1', orgName: 'Org' }));
   process.exit(loggedIn ? 0 : 1);
 }

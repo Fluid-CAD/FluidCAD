@@ -65,7 +65,8 @@ The agent works on the project only through FluidCAD's own tools, the same ones 
 
 Everything else is switched off for the chat:
 
-- No shell commands, no web access beyond the hub FluidCAD is set to, and no writing files except through FluidCAD's tools.
+- No shell commands, and no writing files except through FluidCAD's tools.
+- Claude Code and Codex can search the web with their own web search tool, for example to look up a standard part's dimensions. Each search shows in the chat as a card with its query. The agents on an API key have no web search; they reach the hub FluidCAD is set to and nothing else.
 - Claude Code keeps its read-only file tools (Read, Glob, Grep), confined to the project folder. Codex runs in its read-only sandbox and reads files through FluidCAD's tools.
 - Your other MCP servers are not loaded into the chat, and Claude Code does not load your settings files or hooks. Your own configuration files are not changed.
 

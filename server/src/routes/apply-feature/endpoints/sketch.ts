@@ -42,15 +42,20 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
   // picks arrive as entity statement lines + point roles; the transform
   // hoists unbound producers and appends the constraint statement at the
   // sketch body's end — one edit, riding the generic apply-feature-edit
-  // round trip (preflight + drift-honest ack).
+  // round trip (preflight + drift-honest ack). A dimension placed as it was
+  // drawn brings its `label` position, written as the statement's chained
+  // `.labelAt(u, v)` in that same edit.
   router.post('/sketch/add-constraint', async (req, res) => {
-    const { sketchLine, filePath, kind, targets, valueExpr, axis, tangency } = req.body ?? {};
+    const { sketchLine, filePath, kind, targets, valueExpr, axis, tangency, label } = req.body ?? {};
     if (typeof sketchLine !== 'number' || typeof kind !== 'string'
       || !Array.isArray(targets) || !constraintTargetCountValid(kind, targets.length)
       || (filePath !== undefined && typeof filePath !== 'string')
       || (valueExpr !== undefined && typeof valueExpr !== 'string')
       || (axis !== undefined && axis !== 'x' && axis !== 'y')
-      || (tangency !== undefined && tangency !== 'max')) {
+      || (tangency !== undefined && tangency !== 'max')
+      // A dimension placed as it is drawn carries its label position; only
+      // the dimension commands have a label to place.
+      || (label !== undefined && !(DimensionLabel.CALLEES.has(kind) && DimensionLabel.isPosition(label)))) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -92,6 +97,7 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
         ...(valueExpr !== undefined ? { valueExpr } : {}),
         ...(axis !== undefined ? { axis } : {}),
         ...(tangency !== undefined ? { tangency } : {}),
+        ...(label !== undefined ? { label } : {}),
         ...(nvResult.newVariables !== undefined ? { newVariables: nvResult.newVariables } : {}),
       },
     };

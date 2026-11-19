@@ -85,10 +85,10 @@ export class DimensionLabel {
       return { newCode: DimensionLabel.splice(code, links.map(l => ({ start: l.start, end: l.end, text: '' }))) };
     }
 
-    const args = `(${spec.position.map(DimensionLabel.format).join(', ')})`;
     if (links.length === 0) {
-      return { newCode: spliceCode(code, call.endIndex, call.endIndex, `.${DimensionLabel.METHOD}${args}`) };
+      return { newCode: spliceCode(code, call.endIndex, call.endIndex, DimensionLabel.chain(spec.position)) };
     }
+    const args = DimensionLabel.args(spec.position);
     // Chained calls apply in order, so the outermost link is the one in
     // force: it takes the new arguments, and the ones it shadowed go.
     const [live, ...shadowed] = links;
@@ -98,6 +98,17 @@ export class DimensionLabel {
         ...shadowed.map(l => ({ start: l.start, end: l.end, text: '' })),
       ]),
     };
+  }
+
+  /** The chained call that places a label at `position` — `.labelAt(u, v)`,
+   * as appended to a dimension statement. */
+  static chain(position: [number, number]): string {
+    return `.${DimensionLabel.METHOD}${DimensionLabel.args(position)}`;
+  }
+
+  /** The call's argument list, parentheses included. */
+  private static args(position: [number, number]): string {
+    return `(${position.map(DimensionLabel.format).join(', ')})`;
   }
 
   /** The chain's `.labelAt(…)` links, outermost (last applied) first. */

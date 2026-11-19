@@ -25,6 +25,9 @@ export type SolvedConstraintEmission = {
   axis?: 'x' | 'y';
   /** distance only: far-side circle/arc measurement — renders `.max()`. */
   tangency?: 'max';
+  /** Dimensions only: where the value was placed as the dimension was drawn,
+   * in the dimension's own frame — renders a chained `.labelAt(u, v)`. */
+  label?: [number, number];
 };
 
 export type SolvedEmissionSpec = {

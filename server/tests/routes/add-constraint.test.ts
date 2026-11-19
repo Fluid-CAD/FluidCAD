@@ -96,6 +96,22 @@ describe('/api/sketch/add-constraint', () => {
     expect(relayed[0].spec.sketchConstraint.targets).toHaveLength(4);
   });
 
+  it('relays a placed dimension\'s label, and rejects one on a non-dimension', async () => {
+    const targets = [{ line: 4, role: 'start' }, { line: 4, role: 'end' }];
+    const placed = await post({
+      sketchLine: 3, kind: 'distance', targets, valueExpr: '100', label: [0, -12],
+    });
+    expect(placed.status).toBe(200);
+    expect(relayed[0].spec.sketchConstraint.label).toEqual([0, -12]);
+
+    relayed = [];
+    expect((await post({ sketchLine: 3, kind: 'coincident', targets, label: [0, -12] })).status).toBe(400);
+    expect((await post({
+      sketchLine: 3, kind: 'distance', targets, valueExpr: '100', label: [0, 'x'],
+    })).status).toBe(400);
+    expect(relayed).toHaveLength(0);
+  });
+
   it('still caps positional kinds at three targets', async () => {
     const { status } = await post({
       sketchLine: 3,

@@ -27,7 +27,7 @@ import { PublishDialog } from './ui/publish/publish-dialog';
 import { PublishState } from './ui/publish/publish-state';
 import { PanelRail } from './ui/panel-rail';
 import { DEFAULT_PARAMS_FILE, GlobalParamsPanel } from './ui/global-params-panel';
-import { listWorkspaceFiles } from './editor/editor-api';
+import { listWorkspaceFiles, rawWorkspaceFileUrl } from './editor/editor-api';
 import { Navbar } from './ui/navbar';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
@@ -127,7 +127,10 @@ import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
 import type { LengthUnit } from './units/units';
-import { desktop, installDesktopMenu } from './desktop';
+import { canCaptureDesktopWindow, captureDesktopWindow, deliverFile, desktop, installDesktopMenu } from './desktop';
+import { BugReportClipboard, BugReportPanel } from './ui/bug-report/bug-report-panel';
+import { BugReportEnvironment } from './ui/bug-report/bug-report';
+import { ConfigurationExport } from './ui/export-configurations';
 import type { EditorSurface } from './editor';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
@@ -1283,6 +1286,51 @@ const hubPanel = new HubPanel({
   onOpenChange: () => panelRail.sync(),
 });
 
+// The bug report panel, from the bug button at the foot of the rail (and the
+// desktop's Help → Report an Issue): a title, a description, a screenshot of
+// the scene and any project files, handed to GitHub's new-issue page. It
+// shares the left slot with the editor, the Hub and the Agent.
+const bugReportPanel = new BugReportPanel({
+  container,
+  slot: leftSlot,
+  listFiles: async () => (await listWorkspaceFiles()).files,
+  readFile: async (file) => {
+    const res = await fetch(rawWorkspaceFileUrl(file.absPath));
+    if (!res.ok) {
+      throw new Error(res.status === 413 ? 'it is too large' : `the engine answered ${res.status}`);
+    }
+    return res.blob();
+  },
+  currentFile: () => currentSceneAbsPath,
+  // The view on screen, at the viewport's proportions, with the grid and the axes.
+  capture: () => {
+    const width = 1600;
+    const aspect = container.clientWidth > 0 && container.clientHeight > 0
+      ? container.clientHeight / container.clientWidth
+      : 0.625;
+    return captureScreenshot(viewer.sceneContext, {
+      width,
+      height: Math.round(width * Math.min(1.25, Math.max(0.4, aspect))),
+      view: { kind: 'current' },
+      showGrid: true,
+      showAxes: true,
+    });
+  },
+  // The desktop app pictures its whole window instead, toolbars and panels included.
+  captureWindow: canCaptureDesktopWindow() ? () => captureDesktopWindow() : undefined,
+  environment: async () => BugReportEnvironment.lines({
+    version: await getEngineVersion(),
+    desktopPlatform: desktop()?.platform ?? null,
+    framed: window.parent !== window,
+    userAgent: navigator.userAgent,
+  }),
+  copyImage: (image) => BugReportClipboard.copyImage(image),
+  archive: (files) => ConfigurationExport.archive(files),
+  deliver: (blob, name, filters) => deliverFile(blob, name, filters),
+  openExternal: (url) => void ExternalLinks.open(url),
+  onOpenChange: () => panelRail.sync(),
+});
+
 // The project Parameters column: every `*.params.js` file's exports, the
 // same column in both workbenches — it is not part of the rail that
 // ensureRailFor() swaps. Declaration edits go through the part dialog in its
@@ -1348,6 +1396,8 @@ const panelRail = new PanelRail(container, {
   onToggleAgent: () => toggleAgentPanel(),
   isAgentOpen: () => agentPanel?.isOpen() === true,
   isAgentAvailable: () => agentAvailable,
+  onToggleBugReport: () => bugReportPanel.toggle(),
+  isBugReportOpen: () => bugReportPanel.isOpen(),
 });
 
 // The Agent panel (docs/agent-chat-plan.md §10): a chat with the user's own
@@ -1527,6 +1577,7 @@ installDesktopMenu({
   'toggle-editor': () => toggleEditorPane(),
   undo: () => runEditorHistory('undo'),
   redo: () => runEditorHistory('redo'),
+  'report-bug': () => bugReportPanel.show(),
   import: () => fileImporter.openPicker(),
   // An assembly exports whole, where its parts sit; a part scene offers
   // every solid of the scene exported — the server collects them from the

@@ -33,6 +33,8 @@ type DesktopApi = {
   setTitle(title: string): void;
   onMenuCommand(handler: (command: string, payload?: unknown) => void): void;
   restartEngine(): Promise<void>;
+  /** A PNG of the whole page as the window shows it. Absent in a shell older than the page. */
+  captureWindow?(): Promise<{ ok: boolean; base64?: string; error?: string }>;
 };
 
 declare global {
@@ -59,6 +61,37 @@ async function toBase64(blob: Blob): Promise<string> {
     binary += String.fromCharCode(...buffer.subarray(i, i + CHUNK));
   }
   return btoa(binary);
+}
+
+/** Whether the shell can take a picture of the whole window ({@link captureDesktopWindow}). */
+export function canCaptureDesktopWindow(): boolean {
+  return typeof desktop()?.captureWindow === 'function';
+}
+
+/**
+ * A PNG of the whole page as the desktop window shows it: toolbars, panels
+ * and scene. Null in a browser, in a shell that predates the capture, or
+ * when the capture fails; the caller then pictures the scene alone.
+ */
+export async function captureDesktopWindow(): Promise<Blob | null> {
+  const api = desktop();
+  if (!api?.captureWindow) {
+    return null;
+  }
+  try {
+    const result = await api.captureWindow();
+    if (!result.ok || !result.base64) {
+      return null;
+    }
+    const binary = atob(result.base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: 'image/png' });
+  } catch {
+    return null;
+  }
 }
 
 export type DeliveryResult = 'saved' | 'cancelled' | 'downloaded' | 'failed';
@@ -107,6 +140,8 @@ export type DesktopMenuHandlers = {
   redo?: () => void;
   import?: () => void;
   export?: () => void;
+  /** Help → Report an Issue, with a project open: the bug report panel. */
+  'report-bug'?: () => void;
 };
 
 /**

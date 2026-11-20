@@ -42,7 +42,8 @@ export function createHostActionsRouter(deps: HostActionsDeps): Router {
 class HostActions {
   /** The URL as a canonical string when it is `http:` or `https:`; null otherwise. */
   static httpUrl(value: unknown): string | null {
-    if (typeof value !== 'string' || value.length > 4096) {
+    // Long enough for a link that carries text in its query (a bug report's GitHub issue).
+    if (typeof value !== 'string' || value.length > 8192) {
       return null;
     }
     let url: URL;

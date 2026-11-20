@@ -62,6 +62,10 @@ const desktopApi = {
     void ipcRenderer.invoke('desktop:set-title', title);
   },
 
+  /** A PNG of the whole page as the window shows it, for a bug report. */
+  captureWindow: (): Promise<{ ok: boolean; base64?: string; error?: string }> =>
+    ipcRenderer.invoke('desktop:capture-window'),
+
   /** Native menu items the page is responsible for acting on. */
   onMenuCommand: (handler: (command: string, payload?: unknown) => void): void => {
     ipcRenderer.on('desktop:menu-command', (_event, command: string, payload?: unknown) =>

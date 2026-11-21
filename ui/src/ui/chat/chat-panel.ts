@@ -22,6 +22,7 @@ import {
   type ApprovalDecision,
   type Effort,
   type PermissionMode,
+  type QuestionReply,
   type SessionStatus,
   type TurnRecord,
 } from './chat-types';
@@ -264,6 +265,7 @@ export class ChatPanel {
       fileUrl: (name: string) => (this.state.session ? deps.client.fileUrl(this.state.session.id, name) : ''),
       ...(deps.openSource ? { openSource: deps.openSource } : {}),
       decideApproval: (approvalId: string, decision: ApprovalDecision) => this.state.decideApproval(approvalId, decision),
+      answerQuestion: (questionId: string, reply: QuestionReply) => this.state.answerQuestion(questionId, reply),
     };
     this.transcript = new ChatTranscript(partContext);
     body.append(this.center, this.transcript.el);
@@ -1290,6 +1292,8 @@ export class ChatPanel {
         return 'Working…';
       case 'awaiting-approval':
         return 'Waiting for your approval…';
+      case 'awaiting-answer':
+        return 'Waiting for your answer…';
       default:
         return null;
     }

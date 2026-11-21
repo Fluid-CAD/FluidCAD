@@ -124,6 +124,8 @@ export type SessionStatus =
   | { state: 'starting'; turnId: string }
   | { state: 'running'; turnId: string }
   | { state: 'awaiting-approval'; turnId: string; approvalIds: string[] }
+  /** The agent asked the user something (`ask_user`) and waits. An approval waiting at the same time wins. */
+  | { state: 'awaiting-answer'; turnId: string; questionIds: string[] }
   /** The engine restarted while a turn was running. */
   | { state: 'interrupted'; reason: string }
   | { state: 'error'; kind: 'auth' | 'rate-limit' | 'not-installed' | 'other'; message: string; resetsAt?: string };
@@ -161,6 +163,44 @@ export type ToolPart = {
 /** Body of `POST api/agent/sessions/:id/approvals/:approvalId`. */
 export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
 
+/** One choice of a question. */
+export type QuestionOption = { label: string; description?: string };
+
+/** One question of an `ask_user` call. Without `options` the user answers in their own words. */
+export type QuestionItem = { question: string; options?: QuestionOption[]; multiSelect?: boolean };
+
+/**
+ * The user's answer to one question: the labels they picked and what they
+ * wrote. Neither (`selected` empty, no `text`) means they left it open.
+ */
+export type QuestionAnswer = { selected: string[]; text?: string };
+
+/**
+ * `unanswered`: it ended with nobody answering (the turn was stopped, the
+ * wait timed out, the app closed); `reason` says which.
+ */
+export type QuestionPartState = 'awaiting-answer' | 'answered' | 'skipped' | 'unanswered';
+
+/**
+ * What the agent asked through `ask_user`, as one card. `id` is also what
+ * the answer is posted to. `answers` is set once the user answered: one per
+ * question, in order.
+ */
+export type QuestionPart = {
+  type: 'question';
+  id: string;
+  state: QuestionPartState;
+  questions: QuestionItem[];
+  answers?: QuestionAnswer[];
+  reason?: string;
+};
+
+/** Body of `POST api/agent/sessions/:id/questions/:questionId`: the answers, one per question in order, or a skip. */
+export type QuestionReply = { answers: QuestionAnswer[] } | { skip: true };
+
+/** The longest answer the user may write to one question. */
+export const MAX_ANSWER_CHARS = 2000;
+
 export type TextPart = { type: 'text'; id: string; text: string };
 export type ReasoningPart = { type: 'reasoning'; id: string; text: string };
 /** `name`: set for an image the user attached (its file name); absent: the references capture. */
@@ -175,7 +215,7 @@ export type NoticePart = { type: 'notice'; id: string; level: 'info' | 'warning'
 /** What a turn cost, as the CLI reported it at its end. */
 export type TurnUsage = { inputTokens?: number; outputTokens?: number; costUsd?: number };
 
-export type ChatPart = TextPart | ReasoningPart | ImagePart | ReferencesPart | ToolPart | NoticePart;
+export type ChatPart = TextPart | ReasoningPart | ImagePart | ReferencesPart | ToolPart | QuestionPart | NoticePart;
 
 export type ChatMessage = {
   id: string;
@@ -300,5 +340,10 @@ export type LoginStatus = { state: 'pending' | 'done' | 'failed'; error?: string
 
 /** Whether a status means a turn is in flight. */
 export function isBusy(status: SessionStatus): boolean {
-  return status.state === 'starting' || status.state === 'running' || status.state === 'awaiting-approval';
+  return (
+    status.state === 'starting' ||
+    status.state === 'running' ||
+    status.state === 'awaiting-approval' ||
+    status.state === 'awaiting-answer'
+  );
 }

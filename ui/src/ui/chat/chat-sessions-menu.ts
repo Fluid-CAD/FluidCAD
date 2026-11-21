@@ -285,6 +285,7 @@ export function statusLabel(status: SessionStatus): { text: string; tone: 'busy'
     case 'running':
       return { text: 'Working', tone: 'busy' };
     case 'awaiting-approval':
+    case 'awaiting-answer':
       return { text: 'Waiting for you', tone: 'warning' };
     case 'interrupted':
       return { text: 'Interrupted', tone: 'warning' };

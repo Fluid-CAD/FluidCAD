@@ -7,6 +7,7 @@ import type {
   ChatEventEnvelope,
   LoginStatus,
   PermissionMode,
+  QuestionReply,
   RevertResult,
   SendMessage,
   SessionSnapshot,
@@ -69,6 +70,12 @@ export interface ChatClient {
    * session" is not offered, 404 when there is no such approval.
    */
   decideApproval(id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>>;
+  /**
+   * Answer (or skip) a question the agent asked. Refused with 409 when it
+   * was already settled (another tab, a stop), 400 when the reply does not
+   * fit the questions, 404 when there is no such question.
+   */
+  answerQuestion(id: string, questionId: string, reply: QuestionReply): Promise<ChatAnswer<null>>;
   /**
    * Revert `turnId` and every later turn that changed files, newest first
    * (§12.2). Refused with 409 while a turn or another revert runs.
@@ -158,6 +165,10 @@ export class HttpChatClient implements ChatClient {
 
   decideApproval(id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>> {
     return this.request('POST', `${this.session(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision });
+  }
+
+  answerQuestion(id: string, questionId: string, reply: QuestionReply): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${this.session(id)}/questions/${encodeURIComponent(questionId)}`, reply);
   }
 
   revert(id: string, turnId: string): Promise<ChatAnswer<RevertResult>> {

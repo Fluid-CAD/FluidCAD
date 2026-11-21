@@ -841,6 +841,205 @@
   color: var(--chat-muted);
 }
 
+/* --- Question cards (ask_user) --------------------------------------------- */
+
+[data-role='chat-panel'] .chat-question {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--chat-line);
+  border-radius: 6px;
+  background: var(--chat-surface);
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-question[data-state='awaiting-answer'] {
+  border-color: color-mix(in oklab, var(--color-warning) 55%, transparent);
+}
+
+[data-role='chat-panel'] .chat-question-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+[data-role='chat-panel'] .chat-question-text {
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+[data-role='chat-panel'] .chat-question:not([data-state='awaiting-answer']) .chat-question-text {
+  font-weight: 400;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-question-hint {
+  color: var(--chat-faint);
+  font-size: 11px;
+}
+
+[data-role='chat-panel'] .chat-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-role='chat-panel'] .chat-question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-question-option:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
+[data-role='chat-panel'] .chat-question-option:focus-visible,
+[data-role='chat-panel'] .chat-question-input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+[data-role='chat-panel'] .chat-question-option[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-100));
+}
+
+[data-role='chat-panel'] .chat-question-option:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* Round for a question that takes one option, square for one that takes several. */
+[data-role='chat-panel'] .chat-question-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 35%, transparent);
+  border-radius: 50%;
+  color: transparent;
+}
+
+[data-role='chat-panel'] .chat-question-option[data-multi='true'] .chat-question-mark {
+  border-radius: 3px;
+}
+
+[data-role='chat-panel'] .chat-question-option[aria-pressed='true'] .chat-question-mark {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-content);
+}
+
+[data-role='chat-panel'] .chat-question-option-words {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-question-description {
+  color: var(--chat-muted);
+  font-size: 11px;
+}
+
+[data-role='chat-panel'] .chat-question-input {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-question-input::placeholder {
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-question-input:disabled {
+  opacity: 0.7;
+}
+
+[data-role='chat-panel'] .chat-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+[data-role='chat-panel'] .chat-question-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-question-waiting > span:first-child {
+  color: var(--color-warning);
+}
+
+[data-role='chat-panel'] .chat-question-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Settled: the question, then what was answered. */
+[data-role='chat-panel'] .chat-question:not([data-state='awaiting-answer']) {
+  gap: 8px;
+}
+
+[data-role='chat-panel'] .chat-question:not([data-state='awaiting-answer']) .chat-question-item {
+  gap: 2px;
+}
+
+[data-role='chat-panel'] .chat-question-answer {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--color-base-content);
+  line-height: 1.45;
+}
+
+[data-role='chat-panel'] .chat-question-answer > span:first-child {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-question-answer[data-open='true'] {
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-question-outcome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chat-muted);
+}
+
 /* A write refused for unsaved changes. */
 [data-role='chat-panel'] .chat-tool-dirty {
   display: flex;

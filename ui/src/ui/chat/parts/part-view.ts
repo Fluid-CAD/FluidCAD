@@ -1,5 +1,5 @@
 import type { Colorizer } from '../code-block';
-import type { ApprovalDecision, ChatPart } from '../chat-types';
+import type { ApprovalDecision, ChatPart, QuestionReply } from '../chat-types';
 
 /** What a part's view needs from the page. */
 export type PartContext = {
@@ -17,6 +17,12 @@ export type PartContext = {
    * the card only says it waits.
    */
   decideApproval?(approvalId: string, decision: ApprovalDecision): Promise<boolean>;
+  /**
+   * Answer (or skip) a question the agent asked; resolves true once the
+   * engine took it (the card then changes through the part's next update).
+   * Absent: the card only says it waits.
+   */
+  answerQuestion?(questionId: string, reply: QuestionReply): Promise<boolean>;
 };
 
 /**

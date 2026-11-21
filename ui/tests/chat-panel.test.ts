@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel, type ChatConfirmOptions, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
-import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChatMessage, PermissionMode, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
+import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChatMessage, PermissionMode, QuestionPart, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
 import { LeftSlot } from '../src/ui/left-slot';
 import { closePopupMenu } from '../src/ui/popup-menu';
 import { isEditableTarget, isChatComposer } from '../src/editable-target';
@@ -1374,6 +1374,202 @@ describe('approval on tool cards (§12.1)', () => {
     await settle();
     expect(h.$$<HTMLButtonElement>('[data-ref="approval"] button').every((b) => !b.disabled)).toBe(true);
     expect(h.$('[data-ref="status"]')!.textContent).toContain('FluidCAD did not answer.');
+  });
+});
+
+// --- Questions the agent asks (ask_user, §22) -------------------------------
+
+function questionPart(overrides: Partial<QuestionPart> = {}): QuestionPart {
+  return {
+    type: 'question',
+    id: 'q1',
+    state: 'awaiting-answer',
+    questions: [
+      {
+        question: 'Which thread should the holes take?',
+        options: [
+          { label: 'M4', description: 'Fits the standoffs already in the model.' },
+          { label: 'M5' },
+        ],
+      },
+      { question: 'Which faces get a chamfer?', options: [{ label: 'Top' }, { label: 'Bottom' }, { label: 'Sides' }], multiSelect: true },
+      { question: 'How thick should the wall be?' },
+    ],
+    ...overrides,
+  };
+}
+
+/** A session whose running turn waits on `part`, as a snapshot holds it (a reload, a second tab). */
+function askingSession(client: FakeChatClient, part: QuestionPart = questionPart()) {
+  return client.addSession({
+    id: 's',
+    title: 'Bracket',
+    status: part.state === 'awaiting-answer' ? { state: 'awaiting-answer', turnId: 't1', questionIds: [part.id] } : { state: 'idle' },
+    messages: [
+      { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'u1t', text: 'add mounting holes' }] },
+      { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [part] },
+    ],
+    turns: [{ id: 't1', userMessageId: 'u1', revertible: false }],
+  });
+}
+
+describe('question cards (§22)', () => {
+  const pressed = (card: Element, index: number) =>
+    [...card.querySelectorAll<HTMLButtonElement>(`[data-ref="question"][data-index="${index}"] [data-ref="option"]`)]
+      .filter((b) => b.getAttribute('aria-pressed') === 'true')
+      .map((b) => b.dataset.label);
+  const option = (card: Element, index: number, label: string) =>
+    card.querySelector<HTMLButtonElement>(`[data-ref="question"][data-index="${index}"] [data-ref="option"][data-label="${label}"]`)!;
+  const field = (card: Element, index: number) =>
+    card.querySelector<HTMLInputElement>(`[data-ref="question"][data-index="${index}"] [data-ref="text"]`)!;
+  const write = (input: HTMLInputElement, value: string) => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  it('shows every question with its options and a field of its own; Send waits for an answer', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    expect(card.dataset.state).toBe('awaiting-answer');
+    expect([...card.querySelectorAll('[data-ref="question-text"]')].map((q) => q.textContent)).toEqual([
+      'Which thread should the holes take?',
+      'Which faces get a chamfer?',
+      'How thick should the wall be?',
+    ]);
+    const first = [...card.querySelectorAll<HTMLButtonElement>('[data-ref="question"][data-index="0"] [data-ref="option"]')];
+    expect(first.map((b) => b.textContent!.trim())).toEqual(['M4Fits the standoffs already in the model.', 'M5']);
+    // Real buttons, in the tab order, saying whether they are picked.
+    expect(first.every((b) => b.type === 'button' && b.tabIndex >= 0 && b.getAttribute('aria-pressed') === 'false')).toBe(true);
+    expect(card.querySelectorAll('[data-ref="question"][data-index="2"] [data-ref="option"]')).toHaveLength(0);
+    expect(field(card, 0).placeholder).toBe('Or in your own words…');
+    expect(field(card, 2).placeholder).toBe('Your answer…');
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.disabled).toBe(true);
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="skip"]')!.disabled).toBe(false);
+    expect(h.$('[data-ref="activity"]')!.textContent).toBe('Waiting for your answer…');
+    expect(h.panel.el.dataset.status).toBe('awaiting-answer');
+    expect(h.panel.el.dataset.busy).toBe('true');
+  });
+
+  it('one option where the question takes one, several where it takes several; a second click takes a pick back', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    option(card, 0, 'M4').click();
+    option(card, 0, 'M5').click();
+    expect(pressed(card, 0)).toEqual(['M5']);
+    option(card, 0, 'M5').click();
+    expect(pressed(card, 0)).toEqual([]);
+    option(card, 1, 'Sides').click();
+    option(card, 1, 'Top').click();
+    expect(pressed(card, 1)).toEqual(['Top', 'Sides']);
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.disabled).toBe(false);
+  });
+
+  it('Send posts one answer per question, in order, and the card settles to what was answered', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    option(card, 0, 'M4').click();
+    option(card, 1, 'Sides').click();
+    option(card, 1, 'Top').click();
+    write(field(card, 1), '  only the outer edges ');
+    card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.click();
+    await settle();
+    expect(client.answerQuestion).toHaveBeenCalledWith('s', 'q1', {
+      answers: [{ selected: ['M4'] }, { selected: ['Top', 'Sides'], text: 'only the outer edges' }, { selected: [] }],
+    });
+    expect(card.dataset.state).toBe('answered');
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+    expect([...card.querySelectorAll('[data-ref="answer"]')].map((a) => a.textContent!.trim())).toEqual([
+      'M4',
+      'Top, Sides — only the outer edges',
+      'Left open',
+    ]);
+    expect(h.panel.el.dataset.status).toBe('running');
+  });
+
+  it('Enter in a field sends; an empty card does not', async () => {
+    const client = new FakeChatClient();
+    askingSession(client, questionPart({ questions: [{ question: 'How thick should the wall be?' }] }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    const input = field(card, 0);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    expect(client.answerQuestion).not.toHaveBeenCalled();
+    write(input, '2.5 mm');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    expect(client.answerQuestion).toHaveBeenCalledWith('s', 'q1', { answers: [{ selected: [], text: '2.5 mm' }] });
+    expect(card.querySelector('[data-ref="answer"]')!.textContent!.trim()).toBe('2.5 mm');
+  });
+
+  it('Skip leaves the choice to the agent, and the card says so', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    card.querySelector<HTMLButtonElement>('[data-ref="skip"]')!.click();
+    await settle();
+    expect(client.answerQuestion).toHaveBeenCalledWith('s', 'q1', { skip: true });
+    expect(card.dataset.state).toBe('skipped');
+    expect(card.querySelector('[data-ref="outcome"]')!.textContent!.trim()).toBe('You skipped this; the agent decides.');
+    expect(card.querySelectorAll('[data-ref="answer"]')).toHaveLength(0);
+  });
+
+  it('settled elsewhere (another tab, a stop): the controls go and the card says how it ended', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    option(card, 0, 'M4').click();
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'q1', patch: { state: 'unanswered', reason: 'Stopped before you answered.' } });
+    expect(card.dataset.state).toBe('unanswered');
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+    expect(card.querySelector('[data-ref="outcome"]')!.textContent!.trim()).toBe('Stopped before you answered.');
+  });
+
+  it('a reply the engine did not take: the controls come back with what was picked, and the reason shows', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    let release!: () => void;
+    client.answerQuestion.mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve({ ok: false, status: 0, error: 'FluidCAD did not answer.' });
+    }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    option(card, 0, 'M5').click();
+    card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.click();
+    await settle();
+    // While it goes, everything waits.
+    expect([...card.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input')].every((c) => c.disabled)).toBe(true);
+    release();
+    await settle();
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.disabled).toBe(false);
+    expect(option(card, 0, 'M5').disabled).toBe(false);
+    expect(pressed(card, 0)).toEqual(['M5']);
+    expect(h.$('[data-ref="status"]')!.textContent).toContain('FluidCAD did not answer.');
+  });
+
+  it('an answered question from a stored chat shows its answers and nothing to click', async () => {
+    const client = new FakeChatClient();
+    askingSession(client, questionPart({ state: 'answered', answers: [{ selected: ['M5'] }, { selected: [] }, { selected: [], text: '3 mm' }] }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    expect([...card.querySelectorAll('[data-ref="answer"]')].map((a) => a.textContent!.trim())).toEqual(['M5', 'Left open', '3 mm']);
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
   });
 });
 

@@ -2,6 +2,7 @@ import type { ChatEvent, ChatMessage, ChatPart } from './chat-types';
 import { ImagePartView } from './parts/image-part';
 import { NoticePartView } from './parts/notice-part';
 import type { PartContext, PartView } from './parts/part-view';
+import { QuestionPartView } from './parts/question-part';
 import { ReasoningPartView } from './parts/reasoning-part';
 import { ReferencesPartView } from './parts/references-part';
 import { TextPartView } from './parts/text-part';
@@ -259,6 +260,8 @@ export class MessageView {
         return new ReasoningPartView(part, this.ctx, this.live);
       case 'tool':
         return new ToolPartView(part, this.ctx);
+      case 'question':
+        return new QuestionPartView(part, this.ctx);
       case 'notice':
         return new NoticePartView(part);
       case 'image':

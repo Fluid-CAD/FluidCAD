@@ -12,6 +12,7 @@ import {
   type ChatEventEnvelope,
   type ChatMessage,
   type PermissionMode,
+  type QuestionReply,
   type RevertResult,
   type SendMessage,
   type SessionSnapshot,
@@ -504,6 +505,28 @@ export class ChatState {
       return false;
     }
     const answer = await this.client.decideApproval(id, approvalId, decision);
+    if (answer.ok === false) {
+      if (answer.status !== 409) {
+        this.error = answer.error;
+        this.emit({ kind: 'activity' });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Answer (or skip) a question the agent asked. Resolves true once the
+   * engine took it; the card then changes through the event that follows. A
+   * question already settled elsewhere (another tab, a stop) is not an
+   * error: its event says how it ended.
+   */
+  async answerQuestion(questionId: string, reply: QuestionReply): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.answerQuestion(id, questionId, reply);
     if (answer.ok === false) {
       if (answer.status !== 409) {
         this.error = answer.error;

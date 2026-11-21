@@ -11,6 +11,7 @@ import type {
   ChatPart,
   LoginStatus,
   PermissionMode,
+  QuestionReply,
   RevertResult,
   SendMessage,
   SessionSnapshot,
@@ -60,6 +61,8 @@ export class FakeChatClient implements ChatClient {
   revertAnswer: ChatAnswer<RevertResult> | null = null;
   /** What `decideApproval` answers (before the engine settles the card); null: 204 and the card settles. */
   decideAnswer: ChatAnswer<null> | null = null;
+  /** What `answerQuestion` answers (before the engine settles the card); null: 204 and the card settles. */
+  questionAnswer: ChatAnswer<null> | null = null;
   private nextId = 1;
 
   static install(overrides: Partial<AgentInstall> = {}): AgentInstall {
@@ -374,6 +377,36 @@ export class FakeChatClient implements ChatClient {
       }
     }
     return { ok: false, status: 404, error: 'No such approval.' };
+  });
+
+  /**
+   * Answers like the runtime: the waiting card settles (`answered` with the
+   * answers, or `skipped`), the status goes back to `running`.
+   */
+  answerQuestion = vi.fn(async (id: string, questionId: string, reply: QuestionReply): Promise<ChatAnswer<null>> => {
+    if (this.questionAnswer) {
+      return this.questionAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'question' && part.id === questionId) {
+          if (part.state !== 'awaiting-answer') {
+            return { ok: false, status: 409, error: 'This question was already settled.' };
+          }
+          this.emit(id, {
+            type: 'part-update',
+            messageId: message.id,
+            partId: part.id,
+            patch: 'skip' in reply ? { state: 'skipped' } : { state: 'answered', answers: reply.answers },
+          });
+          const status = snapshot.status as SessionStatus & { turnId?: string };
+          this.emit(id, { type: 'status', status: { state: 'running', turnId: status.turnId ?? 'turn' } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such question.' };
   });
 
   revert = vi.fn(async (id: string, turnId: string): Promise<ChatAnswer<RevertResult>> => {

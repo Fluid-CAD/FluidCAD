@@ -8,6 +8,7 @@ import {
   defaultSelector,
   parseConfigurationOptions,
 } from '../lib/export-configurations.js';
+import { DRAWING_PLANES, SVG_PAGE_HELP, drawingPlanesHelp, exportWarnings, parseDrawingOptions } from '../lib/export-drawing.js';
 import {
   discoverInstance,
   getFreePort,
@@ -20,7 +21,7 @@ import {
 } from '../lib/server-client.js';
 
 /**
- * `fluidcad export step|stl|png` — the export and screenshot HTTP APIs from a
+ * `fluidcad export step|stl|dxf|svg|png` — the export and screenshot HTTP APIs from a
  * terminal. Against a running server the scene it already serves is the one
  * exported; with nothing running the CLI forks a server, renders the entry
  * file, exports, and reaps it.
@@ -50,7 +51,7 @@ const UI_PROBE = { width: 64, height: 64, autoCrop: false, fitToModel: false, tr
 export function registerExportCommand(program) {
   const exportCommand = program
     .command('export')
-    .description('Export the model to a STEP, STL, or PNG file');
+    .description('Export the model to a STEP, STL, DXF, SVG, or PNG file');
 
   withCommonOptions(exportCommand.command('step'))
     .description('Export the model as a STEP file (an assembly exports as one STEP assembly)')
@@ -72,6 +73,33 @@ export function registerExportCommand(program) {
     .option('--all-configurations', 'export every configurations() row: <model>.stl for Default, <model>-<Row>.stl per row')
     .addHelpText('after', CONFIGURATION_HELP)
     .action(runner(runStlExport));
+
+  withCommonOptions(exportCommand.command('dxf'))
+    .description('Export a 2D drawing of the model\'s view on a standard plane as a DXF file')
+    .option('--plane <name>', `the plane the model is drawn on (required): ${Object.keys(DRAWING_PLANES).join(', ')}`)
+    .option('--hidden-lines', 'draw the edges behind the model too, dashed, on their own HIDDEN layer')
+    .option('--tangent-edges', 'draw smooth edges such as a fillet\'s borders, on their own TANGENT layer')
+    .option('--shapes <ids...>', 'shapes to draw by position, feature name, or id (defaults to every solid)')
+    .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
+    .option('--all-configurations', 'export every configurations() row: <model>-<view>.dxf for Default, <model>-<Row>-<view>.dxf per row')
+    .addHelpText('after', drawingPlanesHelp('dxf'))
+    .addHelpText('after', CONFIGURATION_HELP)
+    .action(runner((opts) => runDrawingExport('dxf', opts)));
+
+  withCommonOptions(exportCommand.command('svg'))
+    .description('Export a 2D drawing of the model\'s view on a standard plane as an SVG file')
+    .option('--plane <name>', `the plane the model is drawn on (required): ${Object.keys(DRAWING_PLANES).join(', ')}`)
+    .option('--hidden-lines', 'draw the edges behind the model too, dashed, in their own "hidden" layer')
+    .option('--tangent-edges', 'draw smooth edges such as a fillet\'s borders, in their own "tangent" layer')
+    .option('--stroke-width <mm>', 'stroke width of the visible edges, in millimetres on paper (default: 0.25)')
+    .option('--margin <mm>', 'blank margin around the drawing, in millimetres on paper (default: 5)')
+    .option('--shapes <ids...>', 'shapes to draw by position, feature name, or id (defaults to every solid)')
+    .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
+    .option('--all-configurations', 'export every configurations() row: <model>-<view>.svg for Default, <model>-<Row>-<view>.svg per row')
+    .addHelpText('after', drawingPlanesHelp('svg'))
+    .addHelpText('after', SVG_PAGE_HELP)
+    .addHelpText('after', CONFIGURATION_HELP)
+    .action(runner((opts) => runDrawingExport('svg', opts)));
 
   withCommonOptions(exportCommand.command('png'))
     .description('Capture the model as a PNG (renders in a connected browser)')
@@ -135,13 +163,32 @@ function runStlExport(opts) {
   return runShapeExport('stl', opts, stlBody(opts));
 }
 
-async function runShapeExport(format, opts, formatBody) {
+/**
+ * A drawing (`dxf`, `svg`) is one view: the plane — and an SVG's page — is
+ * settled before anything is spawned, and without -o the file is named
+ * after the view (`bracket-top.dxf`), since one part is usually drawn on
+ * several planes.
+ */
+function runDrawingExport(format, opts) {
+  // --list-shapes prints the scene and exports nothing: it needs no plane.
+  if (opts.listShapes && opts.plane === undefined) {
+    return runShapeExport(format, opts, {});
+  }
+  const { body, view } = parseDrawingOptions(opts, format);
+  return runShapeExport(format, opts, body, `-${view}`);
+}
+
+/**
+ * `nameSuffix` closes the default output name (a drawing's `-top`); a path
+ * given with -o is used as it is.
+ */
+async function runShapeExport(format, opts, formatBody, nameSuffix = '') {
   const requested = parseShapeIds(opts.shapes);
   const configurations = parseConfigurationOptions(opts);
   const configurationBody = configurations?.kind === 'one' ? { configuration: configurations.name } : {};
 
   await withServer(opts, async (ctx) => {
-    const extension = format === 'step' ? '.step' : '.stl';
+    const extension = `.${format}`;
     const assembly = isAssemblyFile(ctx.file);
     // No --shapes: an assembly exports as a whole — every instance where it
     // sits — and any other file every solid of the scene exported, which
@@ -150,15 +197,16 @@ async function runShapeExport(format, opts, formatBody) {
     if (selector) {
       const detail = assembly ? 'whole assembly' : 'every solid';
       if (configurations?.kind === 'all') {
-        await exportEachConfiguration(ctx, opts, extension, { format, ...selector, ...formatBody }, detail);
+        await exportEachConfiguration(ctx, opts, extension, { format, ...selector, ...formatBody }, detail, nameSuffix);
         return;
       }
       const result = await postForBuffer(ctx.port, '/api/export', { format, ...selector, ...formatBody, ...configurationBody });
       if (!result.ok) {
         throw new Error(`Export failed: ${exportFailure(ctx, result)}`);
       }
-      const outPath = resolveOut(opts.out, ctx.modelName, extension);
+      const outPath = resolveOut(opts.out, `${ctx.modelName}${nameSuffix}`, extension);
       writeOutput(outPath, result.buffer, detail);
+      printWarnings(result.headers);
       // The engine solves the mates itself and exports the parts there. Only
       // when it could not (or the project's engine predates that) do they
       // land on their insert() poses, and the user should know.
@@ -183,7 +231,7 @@ async function runShapeExport(format, opts, formatBody) {
     const shapeIds = selectShapes(shapes, requested, owners);
     const detail = `${shapeIds.length} shape${shapeIds.length === 1 ? '' : 's'}`;
     if (configurations?.kind === 'all') {
-      await exportEachConfiguration(ctx, opts, extension, { format, shapeIds, ...formatBody }, detail);
+      await exportEachConfiguration(ctx, opts, extension, { format, shapeIds, ...formatBody }, detail, nameSuffix);
       return;
     }
     const result = await postForBuffer(ctx.port, '/api/export', { format, shapeIds, ...formatBody, ...configurationBody });
@@ -191,8 +239,9 @@ async function runShapeExport(format, opts, formatBody) {
       throw new Error(`Export failed: ${responseError(result)}`);
     }
 
-    const outPath = resolveOut(opts.out, ctx.modelName, extension);
+    const outPath = resolveOut(opts.out, `${ctx.modelName}${nameSuffix}`, extension);
     writeOutput(outPath, result.buffer, detail);
+    printWarnings(result.headers);
   });
 }
 
@@ -204,7 +253,7 @@ async function runShapeExport(format, opts, formatBody) {
  * on screen's, mapped onto each row's render. Every row is exported before
  * any file is written, so a row that fails leaves no partial set behind.
  */
-async function exportEachConfiguration(ctx, opts, extension, body, detail) {
+async function exportEachConfiguration(ctx, opts, extension, body, detail, nameSuffix = '') {
   const table = await getJson(ctx.port, '/api/configurations');
   if (!table.ok) {
     throw new Error(`Could not read the model's configurations: ${table.body?.error ?? `HTTP ${table.status}`}`);
@@ -213,14 +262,22 @@ async function exportEachConfiguration(ctx, opts, extension, body, detail) {
   if (names.length === 0) {
     process.stderr.write('Note: the model declares no configurations() table — exporting Default only.\n');
   }
-  const targets = allConfigurationTargets(names, { outOption: opts.out, modelName: ctx.modelName, extension });
+  const targets = allConfigurationTargets(names, { outOption: opts.out, modelName: ctx.modelName, extension, suffix: nameSuffix });
   const files = await collectConfigurationExports(
     targets,
     (configuration) => postForBuffer(ctx.port, '/api/export', { ...body, configuration }),
     (result) => exportFailure(ctx, result),
   );
-  for (const { configuration, outPath, buffer } of files) {
+  for (const { configuration, outPath, buffer, headers } of files) {
     writeOutput(outPath, buffer, `${detail}, ${configuration}`);
+    printWarnings(headers);
+  }
+}
+
+/** What the server says about a file it wrote — a drawing whose curves had to be approximated — on stderr. */
+function printWarnings(headers) {
+  for (const warning of exportWarnings(headers)) {
+    process.stderr.write(`Warning: ${warning}\n`);
   }
 }
 

@@ -159,10 +159,13 @@ async function runShapeExport(format, opts, formatBody) {
       }
       const outPath = resolveOut(opts.out, ctx.modelName, extension);
       writeOutput(outPath, result.buffer, detail);
+      // The engine solves the mates itself and exports the parts there. Only
+      // when it could not (or the project's engine predates that) do they
+      // land on their insert() poses, and the user should know.
       if (result.headers.get('x-fluidcad-assembly-poses') === 'statement') {
         process.stderr.write(
-          'Note: parts sit where the source places them. Mates are solved in the viewer, ' +
-            'so export from the viewer for the mated layout.\n',
+          'Note: the mates could not be solved, so parts sit where the source places them. ' +
+            'Export from the viewer for the mated layout.\n',
         );
       }
       return;

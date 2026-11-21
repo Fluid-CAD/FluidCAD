@@ -10,6 +10,10 @@
 // preview, the approval), so a call that arrives late, or is approved just
 // as the user cancels, is refused. Codex keeps an MCP call pending through
 // `turn/interrupt` (§19): the session settles pending approvals on cancel.
+//
+// It also answers `ask_user` (§22), the one tool that does not pass through
+// `before`: the question is a card of its own, and the call waits for the
+// user the way an approval does.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,6 +24,7 @@ import {
   TOOL_CLASSES,
   isReadOnlyClass,
   previewSourceEdit,
+  type AskUserInput,
   type McpToolCall,
   type McpToolClass,
   type McpToolGate,
@@ -28,7 +33,8 @@ import {
   type SourceEditPreview,
 } from '../../mcp/dist/server.js';
 import type { Checkpoint } from './session-store.ts';
-import type { ApprovalDecision, ChatEvent, PermissionMode, ToolPart } from './types.ts';
+import { failure, questionPatch, questionResult, readQuestionReply, readQuestions, type QuestionOutcome } from './questions.ts';
+import type { ApprovalDecision, ChatEvent, PermissionMode, QuestionItem, QuestionPart, ToolPart } from './types.ts';
 
 /** Longest tool output text kept in the transcript. */
 const MAX_OUTPUT_CHARS = 20_000;
@@ -78,6 +84,8 @@ export type ToolGateHost = {
   persist(): void;
   /** The approvals `turnId` waits on changed; empty when none is left. */
   approvalsChanged(turnId: string, approvalIds: string[]): void;
+  /** The questions `turnId` waits on changed; empty when none is left. */
+  questionsChanged(turnId: string, questionIds: string[]): void;
   /**
    * Keeps `checkpoint` for `turnId` unless the turn already has one for that
    * path (§12.2). Returns whether it was taken now. Synchronous.
@@ -113,6 +121,13 @@ type PendingApproval = {
   name: string;
   canAllowSession: boolean;
   settle(outcome: ApprovalOutcome): void;
+};
+
+type PendingQuestion = {
+  id: string;
+  turnId: string;
+  questions: QuestionItem[];
+  settle(outcome: QuestionOutcome): void;
 };
 
 type CallState = {
@@ -176,6 +191,7 @@ export class ToolGate implements McpToolGate {
   private readonly host: ToolGateHost;
   private readonly calls = new WeakMap<McpToolCall, CallState>();
   private readonly pending = new Map<string, PendingApproval>();
+  private readonly pendingQuestions = new Map<string, PendingQuestion>();
   /** Tools the user allowed for the rest of the session. */
   private readonly allowedForSession = new Set<string>();
   private readonly timeoutMs: number;
@@ -202,6 +218,11 @@ export class ToolGate implements McpToolGate {
   /** Ids of the approvals waiting for the user, oldest first. */
   pendingApprovalIds(turnId?: string): string[] {
     return [...this.pending.values()].filter((p) => turnId === undefined || p.turnId === turnId).map((p) => p.id);
+  }
+
+  /** Ids of the questions waiting for the user, oldest first. */
+  pendingQuestionIds(turnId?: string): string[] {
+    return [...this.pendingQuestions.values()].filter((p) => turnId === undefined || p.turnId === turnId).map((p) => p.id);
   }
 
   async before(call: McpToolCall, signal: AbortSignal): Promise<McpToolGateDecision> {
@@ -380,11 +401,79 @@ export class ToolGate implements McpToolGate {
     return 'ok';
   }
 
-  /** Settles every pending approval without the user: the turn was stopped or ended, or the engine is going away. */
+  /** Settles every pending approval and question without the user: the turn was stopped or ended, or the engine is going away. */
   settleAll(reason: ApprovalSweep): void {
     for (const pending of [...this.pending.values()]) {
       pending.settle(reason);
     }
+    for (const pending of [...this.pendingQuestions.values()]) {
+      pending.settle({ kind: reason });
+    }
+  }
+
+  /**
+   * `ask_user` (§22): shows the questions as a card and waits for the user.
+   * Resolves with what the model is told: the answers, that the user
+   * skipped, or an error when nobody answered. Nothing is asked outside a
+   * running turn.
+   */
+  async ask(input: AskUserInput, signal: AbortSignal): Promise<CallToolResult> {
+    const turn = this.host.activeTurn();
+    if (!turn) {
+      return failure(NO_TURN_MESSAGE);
+    }
+    const read = readQuestions(input);
+    if (read.ok === false) {
+      return failure(read.error);
+    }
+    const messageId = this.host.assistantMessageId();
+    const part: QuestionPart = { type: 'question', id: `question-${randomUUID()}`, state: 'awaiting-answer', questions: read.questions };
+    this.host.emit({ type: 'part-start', messageId, part });
+    const outcome = await new Promise<QuestionOutcome>((resolve) => {
+      let settled = false;
+      const onAbort = () => settle({ kind: 'aborted' });
+      const timer = this.timers.setTimeout(() => settle({ kind: 'timeout' }), this.timeoutMs);
+      const settle = (result: QuestionOutcome) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        this.pendingQuestions.delete(part.id);
+        this.timers.clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        this.host.emit({ type: 'part-update', messageId, partId: part.id, patch: questionPatch(result) });
+        this.host.questionsChanged(turn.turnId, this.pendingQuestionIds(turn.turnId));
+        resolve(result);
+      };
+      this.pendingQuestions.set(part.id, { id: part.id, turnId: turn.turnId, questions: read.questions, settle });
+      signal.addEventListener('abort', onAbort, { once: true });
+      this.host.questionsChanged(turn.turnId, this.pendingQuestionIds(turn.turnId));
+      // Saved while waiting: an engine restart now finds the card and says so.
+      this.host.persist();
+      if (signal.aborted) {
+        settle({ kind: 'aborted' });
+      }
+    });
+    this.host.persist();
+    return questionResult(read.questions, outcome, CANCELLED_MESSAGE);
+  }
+
+  /**
+   * The user's reply to a question (the body of the answer route).
+   * `not-found`: no question waits on that id (unknown, or already
+   * settled); `invalid`: the reply does not fit the questions.
+   */
+  answer(questionId: string, body: unknown): { result: 'ok' | 'not-found' } | { result: 'invalid'; error: string } {
+    const pending = this.pendingQuestions.get(questionId);
+    if (!pending) {
+      return { result: 'not-found' };
+    }
+    const read = readQuestionReply(pending.questions, body);
+    if (read.ok === false) {
+      return { result: 'invalid', error: read.error };
+    }
+    pending.settle('skip' in read.reply ? { kind: 'skipped' } : { kind: 'answered', answers: read.reply.answers });
+    return { result: 'ok' };
   }
 
   // -------------------------------------------------------------------------

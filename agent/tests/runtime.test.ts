@@ -15,7 +15,7 @@ import { McpEndpoints } from '../src/mcp-endpoint.ts';
 import { RESTART_REASON } from '../src/session.ts';
 import { SessionStore, type SessionRecord } from '../src/session-store.ts';
 import { NO_TURN_MESSAGE, STOPPED_MESSAGE } from '../src/tool-gate.ts';
-import type { ChatEventEnvelope, SessionSnapshot, ToolPart } from '../src/types.ts';
+import type { ChatEventEnvelope, QuestionPart, SessionSnapshot, ToolPart } from '../src/types.ts';
 
 // The runtime end to end, with a fake backend in place of a CLI: the fake run
 // connects to the session's MCP endpoint over HTTP the way Claude Code does,
@@ -854,6 +854,105 @@ const JPEG_BYTES = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.
 const WEBP_BYTES = Buffer.concat([Buffer.from('RIFF'), Buffer.from([4, 0, 0, 0]), Buffer.from('WEBPVP8 ')]);
 const GIF_BYTES = Buffer.from('GIF89a-body');
 const attachment = (mediaType: string, bytes: Buffer, name?: string) => ({ mediaType, base64: bytes.toString('base64'), ...(name ? { name } : {}) });
+
+describe('questions (ask_user, §22)', () => {
+  const ask = (...questions: object[]) => ({ name: 'ask_user', arguments: { questions } });
+  const THREAD = { question: 'Which thread should the holes take?', options: [{ label: 'M4' }, { label: 'M5' }] };
+  const WALL = { question: 'How thick should the wall be?' };
+  const questionParts = (snap: SessionSnapshot) => snap.messages.flatMap((m) => m.parts).filter((p): p is QuestionPart => p.type === 'question');
+  const awaitingAnswer = (id: string) => until(() => snapshot(id), (s) => s.status.state === 'awaiting-answer');
+
+  it('waits for the user, takes the first valid answer, and hands it to the model', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const turnId = (await json('POST', `${base}/sessions/${id}/messages`, { text: calls(ask(THREAD, WALL)) })).body.turnId;
+    const waiting = await awaitingAnswer(id);
+    const [part] = questionParts(waiting);
+    expect(part).toEqual({ type: 'question', id: expect.any(String), state: 'awaiting-answer', questions: [THREAD, WALL] });
+    expect(waiting.status).toEqual({ state: 'awaiting-answer', turnId, questionIds: [part.id] });
+    // The card is the question's own: no tool card beside it.
+    expect(toolParts(waiting)).toEqual([]);
+    // Saved while it waits.
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    expect(store.read(id)!.messages.flatMap((m) => m.parts).some((p) => p.type === 'question' && p.state === 'awaiting-answer')).toBe(true);
+
+    const url = `${base}/sessions/${id}/questions/${part.id}`;
+    expect((await json('POST', `${base}/sessions/${id}/questions/nope`, { skip: true })).status).toBe(404);
+    const refused = await json('POST', url, { answers: [{ selected: ['M6'] }, { selected: [] }] });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toContain('does not offer');
+    expect((await json('POST', url, { answers: [{ selected: [] }, { selected: [] }] })).status).toBe(400);
+    expect((await snapshot(id)).status.state).toBe('awaiting-answer');
+
+    expect((await json('POST', url, { answers: [{ selected: ['M5'] }, { selected: [], text: '2.5 mm' }] })).status).toBe(204);
+    const done = await idle(id);
+    expect((await json('POST', url, { skip: true })).status).toBe(409);
+    expect(questionParts(done)[0]).toMatchObject({ state: 'answered', answers: [{ selected: ['M5'] }, { selected: [], text: '2.5 mm' }] });
+    const result = backend.runs[0].results[0];
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toEqual({
+      answers: [
+        { question: THREAD.question, selected: ['M5'] },
+        { question: WALL.question, text: '2.5 mm' },
+      ],
+    });
+  });
+
+  it('a skip lets the turn go on; a stop while it waits ends the question unanswered', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(ask(WALL)) });
+    const [first] = questionParts(await awaitingAnswer(id));
+    expect((await json('POST', `${base}/sessions/${id}/questions/${first.id}`, { skip: true })).status).toBe(204);
+    const skipped = await idle(id);
+    expect(questionParts(skipped)[0].state).toBe('skipped');
+    expect(JSON.parse(textOf(backend.runs[0].results[0])).skipped).toBe(true);
+
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(ask(THREAD)) });
+    const [, second] = questionParts(await awaitingAnswer(id));
+    expect((await json('POST', `${base}/sessions/${id}/cancel`)).status).toBeLessThan(300);
+    const stopped = await idle(id);
+    expect(questionParts(stopped)[1]).toMatchObject({ id: second.id, state: 'unanswered', reason: 'Stopped before you answered.' });
+    expect((await json('POST', `${base}/sessions/${id}/questions/${second.id}`, { skip: true })).status).toBe(409);
+  });
+
+  it('a question nobody answered before a restart is settled, and the continue note says so', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000002';
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-21T10:00:00.000Z',
+      updatedAt: '2026-11-21T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'Add mounting holes' }] },
+        {
+          id: 'a',
+          role: 'assistant',
+          turnId: 't',
+          createdAt: '',
+          parts: [
+            { type: 'question', id: 'q-old', state: 'answered', questions: [WALL], answers: [{ selected: [], text: '3' }] },
+            { type: 'question', id: 'q-open', state: 'awaiting-answer', questions: [THREAD] },
+          ],
+        },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+    });
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(questionParts(snap).map((p) => [p.state, p.reason])).toEqual([
+      ['answered', undefined],
+      ['unanswered', 'The app restarted before you answered.'],
+    ]);
+    expect((await json('POST', `${base}/sessions/${id}/questions/q-open`, { skip: true })).status).toBe(409);
+
+    expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(202);
+    await idle(id);
+    const sent = backend.runs[0].sent[0];
+    expect(sent).toContain('- ask_user — answered by the user\n- ask_user — not answered: it was waiting for the user when the app restarted');
+  });
+});
 
 describe('images attached to a message', () => {
   it('tells the four image types apart by their bytes', () => {

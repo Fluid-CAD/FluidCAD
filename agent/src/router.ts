@@ -289,6 +289,30 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
     }
   });
 
+  // --- Questions (§22) -------------------------------------------------------
+
+  router.post('/sessions/:id/questions/:questionId', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const answer = session.answerQuestion(String(req.params.questionId), req.body);
+    switch (answer.result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'invalid':
+        res.status(400).json({ error: answer.error });
+        return;
+      case 'already-answered':
+        res.status(409).json({ error: 'This question was already settled.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such question.' });
+        return;
+    }
+  });
+
   router.post('/sessions/:id/revert', async (req, res) => {
     const session = findSession(runtime, req, res);
     if (!session) {

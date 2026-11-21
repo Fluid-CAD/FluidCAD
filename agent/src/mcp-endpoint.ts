@@ -13,6 +13,7 @@ import {
   loadDocsIndex,
   loadSkillsIndex,
   type DocsIndex,
+  type McpAskUser,
   type McpHttpHandler,
   type McpHttpRequest,
   type McpToolGate,
@@ -39,6 +40,8 @@ export class SharedMcpIndexes {
 export type McpEndpointOptions = {
   pinnedWorkspace: RegistryEntry;
   toolGate: McpToolGate;
+  /** Answers `ask_user` (§22): the session's gate shows the question and waits. */
+  askUser: McpAskUser;
   indexes: SharedMcpIndexes;
   /** The engine's port, for the URL the CLI is given. */
   port: number;
@@ -60,6 +63,7 @@ export class McpEndpoint {
         buildServer({
           pinnedWorkspace: options.pinnedWorkspace,
           toolGate: options.toolGate,
+          askUser: options.askUser,
           docsIndex: options.indexes.docsIndex,
           skillsIndex: options.indexes.skillsIndex,
         }),

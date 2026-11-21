@@ -24,7 +24,8 @@ import {
 } from '../src/tool-gate.ts';
 import type { Checkpoint } from '../src/session-store.ts';
 import { applyChatEvent } from '../src/transcript.ts';
-import type { ChatEvent, ChatMessage, PermissionMode, ToolPart } from '../src/types.ts';
+import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readQuestionReply } from '../src/questions.ts';
+import type { ChatEvent, ChatMessage, PermissionMode, QuestionItem, QuestionPart, ToolPart } from '../src/types.ts';
 
 // A stand-in for the engine the pinned server talks to: write_file and
 // edit_range ask it for dirty buffers, a lint and a render. Only the dirty
@@ -88,6 +89,7 @@ class FakeHost implements ToolGateHost {
   readonly events: ChatEvent[] = [];
   readonly messages: ChatMessage[] = [];
   readonly approvalChanges: string[][] = [];
+  readonly questionChanges: string[][] = [];
   /** turnId → path → checkpoint, as the session keeps them on disk. */
   readonly checkpoints = new Map<string, Map<string, Checkpoint>>();
   turn: { turnId: string; mode: PermissionMode } | null = { turnId: 't1', mode: 'ask' };
@@ -123,6 +125,9 @@ class FakeHost implements ToolGateHost {
   approvalsChanged(_turnId: string, ids: string[]): void {
     this.approvalChanges.push(ids);
   }
+  questionsChanged(_turnId: string, ids: string[]): void {
+    this.questionChanges.push(ids);
+  }
   checkpoint(turnId: string, checkpoint: Checkpoint): boolean {
     const files = this.checkpoints.get(turnId) ?? new Map<string, Checkpoint>();
     this.checkpoints.set(turnId, files);
@@ -137,6 +142,20 @@ class FakeHost implements ToolGateHost {
   }
   tools(): ToolPart[] {
     return (this.messages[0]?.parts ?? []).filter((p): p is ToolPart => p.type === 'tool');
+  }
+  questions(): QuestionPart[] {
+    return (this.messages[0]?.parts ?? []).filter((p): p is QuestionPart => p.type === 'question');
+  }
+  /** The id of the question waiting for the user, once it waits. */
+  async asking(index = 0): Promise<string> {
+    for (let i = 0; i < 400; i++) {
+      const part = this.questions()[index];
+      if (part?.state === 'awaiting-answer') {
+        return part.id;
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`no question is waiting: ${JSON.stringify(this.questions())}`);
   }
   /** The approval id of the call waiting for the user, once it waits. */
   async waiting(index = 0): Promise<string> {
@@ -173,8 +192,13 @@ class ManualTimers implements GateTimers {
 
 const clients: Client[] = [];
 
-async function connect(gate: ToolGate): Promise<Client> {
-  const server = buildServer({ pinnedWorkspace: pinned, toolGate: gate });
+async function connect(gate: ToolGate, options: { ask?: boolean } = {}): Promise<Client> {
+  const server = buildServer({
+    pinnedWorkspace: pinned,
+    toolGate: gate,
+    // As a chat session's endpoint builds it (mcp-endpoint.ts).
+    ...(options.ask ? { askUser: (input, signal) => gate.ask(input, signal) } : {}),
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: 'gate-test', version: '0.0.0' });
@@ -696,5 +720,189 @@ describe('ToolGate: checkpoints and refusals', () => {
     const plain = await client.callTool({ name: 'write_file', arguments: { path: 'bracket.fluid.js', content: 'v5\n', force: false } });
     expect(plain.isError).not.toBe(true);
     expect(read('bracket.fluid.js')).toBe('v5\n');
+  });
+});
+
+describe('ToolGate: questions (ask_user, §22)', () => {
+  const THREAD = {
+    question: 'Which thread should the holes take?',
+    options: [{ label: 'M4', description: 'Fits the standoffs.' }, { label: 'M5' }],
+  };
+  const FACES = { question: 'Which faces get a chamfer?', options: [{ label: 'Top' }, { label: 'Bottom' }, { label: 'Sides' }], multiSelect: true };
+  const WALL = { question: 'How thick should the wall be?' };
+
+  it('is offered by a chat session\'s server only, as a read-only tool outside the class table', async () => {
+    const plain = await connect(new ToolGate(new FakeHost()));
+    expect((await plain.listTools()).tools.map((t) => t.name)).not.toContain('ask_user');
+    const asking = await connect(new ToolGate(new FakeHost()), { ask: true });
+    const tool = (await asking.listTools()).tools.find((t) => t.name === 'ask_user')!;
+    expect(tool.annotations).toEqual({ readOnlyHint: true });
+    expect(toolClass('ask_user')).toBeUndefined();
+    expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['questions']);
+  });
+
+  it('shows the questions as one card, waits, and returns what the user answered', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { ask: true });
+    const call = client.callTool({ name: 'ask_user', arguments: { questions: [THREAD, FACES, WALL] } });
+    const id = await host.asking();
+    expect(host.questions()[0]).toEqual({
+      type: 'question',
+      id,
+      state: 'awaiting-answer',
+      questions: [THREAD, FACES, WALL],
+    });
+    // A card of its own, not a tool card; nothing to approve.
+    expect(host.tools()).toEqual([]);
+    expect(host.approvalChanges).toEqual([]);
+    expect(host.questionChanges).toEqual([[id]]);
+    expect(gate.pendingQuestionIds('t1')).toEqual([id]);
+    const saved = host.persisted;
+    expect(saved).toBeGreaterThan(0);
+
+    expect(gate.answer(id, { answers: [{ selected: ['M4'] }, { selected: ['Sides', 'Top'], text: ' outer edges only ' }, { selected: [] }] })).toEqual({ result: 'ok' });
+    const result = await call;
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toEqual({
+      answers: [
+        { question: THREAD.question, selected: ['M4'] },
+        { question: FACES.question, selected: ['Sides', 'Top'], text: 'outer edges only' },
+        { question: WALL.question, skipped: true },
+      ],
+    });
+    expect(host.questions()[0]).toMatchObject({
+      state: 'answered',
+      answers: [{ selected: ['M4'] }, { selected: ['Sides', 'Top'], text: 'outer edges only' }, { selected: [] }],
+    });
+    expect(host.questionChanges).toEqual([[id], []]);
+    expect(gate.pendingQuestionIds()).toEqual([]);
+    expect(host.persisted).toBeGreaterThan(saved);
+    // The first answer won: a second (another tab) finds nothing waiting.
+    expect(gate.answer(id, { skip: true })).toEqual({ result: 'not-found' });
+  });
+
+  it('a skip tells the model to decide for itself', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { ask: true });
+    const call = client.callTool({ name: 'ask_user', arguments: { questions: [THREAD] } });
+    expect(gate.answer(await host.asking(), { skip: true })).toEqual({ result: 'ok' });
+    const result = await call;
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toEqual({ skipped: true, note: QUESTION_SKIPPED_NOTE });
+    expect(host.questions()[0].state).toBe('skipped');
+  });
+
+  it('refuses a reply that does not fit the questions, and keeps waiting', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const pending = gate.ask({ questions: [THREAD, WALL] }, new AbortController().signal);
+    const id = await host.asking();
+    const refused = [
+      {},
+      { answers: [{ selected: ['M4'] }] },
+      { answers: [{ selected: ['M6'] }, { selected: [] }] },
+      { answers: [{ selected: ['M4', 'M5'] }, { selected: [] }] },
+      { answers: [{ selected: [] }, { selected: ['M4'] }] },
+      { answers: [{ selected: 'M4' }, { selected: [] }] },
+      { answers: [{ selected: [], text: 7 }, { selected: [] }] },
+      { answers: [{ selected: [], text: 'x'.repeat(2001) }, { selected: [] }] },
+      { answers: [{ selected: [] }, { selected: [], text: '   ' }] },
+    ];
+    for (const body of refused) {
+      expect(gate.answer(id, body).result, JSON.stringify(body).slice(0, 80)).toBe('invalid');
+    }
+    expect(host.questions()[0].state).toBe('awaiting-answer');
+    expect(gate.answer(id, { answers: [{}, { text: '2 mm' }] })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await pending))).toEqual({
+      answers: [{ question: THREAD.question, skipped: true }, { question: WALL.question, text: '2 mm' }],
+    });
+  });
+
+  it('reads a reply: picks deduplicated, text trimmed, one option unless the question takes several', () => {
+    const questions: QuestionItem[] = [THREAD, FACES];
+    expect(readQuestionReply(questions, { answers: [{ selected: ['M5', 'M5'] }, { selected: ['Top', 'Bottom'], text: '' }] })).toEqual({
+      ok: true,
+      reply: { answers: [{ selected: ['M5'] }, { selected: ['Top', 'Bottom'] }] },
+    });
+    expect(readQuestionReply(questions, { skip: true, answers: 'ignored' })).toEqual({ ok: true, reply: { skip: true } });
+    expect(readQuestionReply(questions, null).ok).toBe(false);
+  });
+
+  it('refuses options one answer could not tell apart, and questions the schema does not allow', async () => {
+    const host = new FakeHost();
+    const client = await connect(new ToolGate(host), { ask: true });
+    const twins = await client.callTool({
+      name: 'ask_user',
+      arguments: { questions: [{ question: 'Which?', options: [{ label: 'Top' }, { label: ' Top ' }] }] },
+    });
+    expect(twins.isError).toBe(true);
+    expect(textOf(twins)).toContain('share the label "Top"');
+    for (const questions of [[], [THREAD, THREAD, THREAD, THREAD, THREAD], [{ question: 'One?', options: [{ label: 'only' }] }], [{ question: '  ' }]]) {
+      const result = await client.callTool({ name: 'ask_user', arguments: { questions } });
+      expect(result.isError, JSON.stringify(questions).slice(0, 60)).toBe(true);
+    }
+    expect(host.events).toEqual([]);
+  });
+
+  it('asks nothing outside a turn', async () => {
+    const host = new FakeHost();
+    host.turn = null;
+    const client = await connect(new ToolGate(host), { ask: true });
+    const result = await client.callTool({ name: 'ask_user', arguments: { questions: [WALL] } });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(NO_TURN_MESSAGE);
+    expect(host.events).toEqual([]);
+  });
+
+  it('ends unanswered when the turn is stopped or the engine shuts down', async () => {
+    for (const [reason, words] of [['stopped', 'Stopped before you answered.'], ['shutdown', 'The app closed before you answered.']] as const) {
+      const host = new FakeHost();
+      const gate = new ToolGate(host);
+      const pending = gate.ask({ questions: [WALL] }, new AbortController().signal);
+      const id = await host.asking();
+      host.turn = null;
+      gate.settleAll(reason);
+      const result = await pending;
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe(QUESTION_STOPPED_MESSAGE);
+      expect(host.questions()[0]).toMatchObject({ id, state: 'unanswered', reason: words });
+      expect(gate.pendingQuestionIds()).toEqual([]);
+    }
+  });
+
+  it('gives up when the client cancels the request, and after an hour with no answer', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const controller = new AbortController();
+    const cancelled = gate.ask({ questions: [WALL] }, controller.signal);
+    await host.asking();
+    controller.abort();
+    expect(textOf(await cancelled)).toBe(CANCELLED_MESSAGE);
+    expect(host.questions()[0]).toMatchObject({ state: 'unanswered', reason: 'Cancelled.' });
+
+    const late = new FakeHost();
+    const timers = new ManualTimers();
+    const slow = new ToolGate(late, { timers });
+    const timedOut = slow.ask({ questions: [WALL] }, new AbortController().signal);
+    await late.asking();
+    expect([...timers.scheduled.values()].map((t) => t.ms)).toEqual([60 * 60 * 1000]);
+    timers.fireAll();
+    const result = await timedOut;
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(QUESTION_TIMED_OUT_MESSAGE);
+    expect(late.questions()[0]).toMatchObject({ state: 'unanswered', reason: 'Not answered within an hour.' });
+    expect(slow.pendingQuestionIds()).toEqual([]);
+  });
+
+  it('clears the timer when the user answers', async () => {
+    const host = new FakeHost();
+    const timers = new ManualTimers();
+    const gate = new ToolGate(host, { timers });
+    const pending = gate.ask({ questions: [WALL] }, new AbortController().signal);
+    gate.answer(await host.asking(), { answers: [{ text: '3' }] });
+    await pending;
+    expect(timers.scheduled.size).toBe(0);
   });
 });

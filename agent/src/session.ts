@@ -18,13 +18,14 @@ import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-end
 import { SessionStore, type Checkpoint, type SessionRecord } from './session-store.ts';
 import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from './tool-gate.ts';
 import { applyChatEvent, findMessage } from './transcript.ts';
-import { writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
+import { ASK_USER_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
 import type {
   AgentKind,
   ApprovalDecision,
   ChatEvent,
   ChatPart,
   PermissionMode,
+  QuestionPart,
   SendMessage,
   SessionSnapshot,
   SessionStatus,
@@ -39,6 +40,7 @@ export const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 const MAX_TITLE_CHARS = 80;
 export const RESTART_REASON = 'The app restarted while this turn was running.';
 const RESTART_TOOL_ERROR = 'The app restarted while this was running; its effect is unknown.';
+const RESTART_QUESTION_REASON = 'The app restarted before you answered.';
 
 /** What a turn needs resolved before the CLI starts: the install, its environment and the defaults. */
 export type TurnSetup = {
@@ -134,7 +136,8 @@ export class AgentSession {
         emit: (event) => this.emit(event),
         saveImage: (data, mimeType) => this.saveImage(data, mimeType),
         persist: () => this.persist(),
-        approvalsChanged: (turnId, ids) => this.approvalsChanged(turnId, ids),
+        approvalsChanged: (turnId) => this.waitsChanged(turnId),
+        questionsChanged: (turnId) => this.waitsChanged(turnId),
         checkpoint: (turnId, checkpoint) => this.takeCheckpoint(turnId, checkpoint),
         dropCheckpoint: (turnId, filePath) => this.dropCheckpoint(turnId, filePath),
       },
@@ -176,6 +179,9 @@ export class AgentSession {
           if (part.type === 'tool' && (part.state === 'running' || part.state === 'awaiting-approval')) {
             part.state = 'error';
             part.error = RESTART_TOOL_ERROR;
+          } else if (part.type === 'question' && part.state === 'awaiting-answer') {
+            part.state = 'unanswered';
+            part.reason = RESTART_QUESTION_REASON;
           }
         }
       }
@@ -348,6 +354,8 @@ export class AgentSession {
       for (const part of message.parts) {
         if (part.type === 'tool') {
           calls.push({ name: part.name, ...this.toolTarget(part), outcome: toolOutcome(part) });
+        } else if (part.type === 'question') {
+          calls.push({ name: ASK_USER_TOOL, outcome: questionOutcome(part) });
         }
       }
     }
@@ -389,12 +397,32 @@ export class AgentSession {
     return 'not-found';
   }
 
-  /** Approvals still waiting for the user end as denied: the engine is exiting. Synchronous. */
+  /**
+   * The user's reply to a question the agent asked (§22): the answers, or a
+   * skip. `already-answered`: the question is in the transcript but no
+   * longer waits.
+   */
+  answerQuestion(questionId: string, body: unknown): { result: 'ok' | 'not-found' | 'already-answered' } | { result: 'invalid'; error: string } {
+    const answer = this.gate.answer(questionId, body);
+    if (answer.result !== 'not-found') {
+      return answer;
+    }
+    for (const message of this.record.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'question' && part.id === questionId) {
+          return { result: 'already-answered' };
+        }
+      }
+    }
+    return { result: 'not-found' };
+  }
+
+  /** Approvals and questions still waiting for the user end unanswered: the engine is exiting. Synchronous. */
   onEngineExit(): void {
     if (this.turn) {
       this.turn.stopping = true;
     }
-    if (this.gate.pendingApprovalIds().length > 0) {
+    if (this.gate.pendingApprovalIds().length > 0 || this.gate.pendingQuestionIds().length > 0) {
       this.settleApprovals('shutdown');
       // Saved now: the gate's own save comes after an await the exit never reaches.
       this.persist();
@@ -415,7 +443,7 @@ export class AgentSession {
     // (Codex keeps an MCP call pending through an interrupt, §19) is refused.
     turn.stopping = true;
     this.settleApprovals('stopped');
-    if (this.statusValue.state === 'awaiting-approval') {
+    if (this.statusValue.state === 'awaiting-approval' || this.statusValue.state === 'awaiting-answer') {
       this.setStatus({ state: 'running', turnId: turn.turnId });
     }
     const run = this.run;
@@ -532,6 +560,7 @@ export class AgentSession {
       this.endpoint = new McpEndpoint({
         pinnedWorkspace: this.deps.pinnedWorkspace(),
         toolGate: this.gate,
+        askUser: (input, signal) => this.gate.ask(input, signal),
         indexes: this.deps.indexes,
         port: this.deps.port,
       });
@@ -690,6 +719,13 @@ export class AgentSession {
             partId: part.id,
             patch: { state: 'error', error: reason === 'interrupted' ? 'Stopped.' : 'The turn ended before this finished.' },
           });
+        } else if (part.type === 'question' && part.state === 'awaiting-answer') {
+          this.emit({
+            type: 'part-update',
+            messageId: turn.assistantMessageId,
+            partId: part.id,
+            patch: { state: 'unanswered', reason: reason === 'interrupted' ? 'Stopped before you answered.' : 'The turn ended before you answered.' },
+          });
         }
       }
       this.emit({ type: 'message-end', messageId: turn.assistantMessageId });
@@ -746,15 +782,32 @@ export class AgentSession {
     this.gate.settleAll(reason);
   }
 
-  private approvalsChanged(turnId: string, approvalIds: string[]): void {
+  /**
+   * What the turn waits on from the user changed (an approval or a question
+   * came or was settled). An approval wins the status while both wait: it
+   * holds a change back, a question only an answer.
+   */
+  private waitsChanged(turnId: string): void {
     const turn = this.turn;
     if (!turn || turn.turnId !== turnId || turn.stopping) {
       return;
     }
+    const approvalIds = this.gate.pendingApprovalIds(turnId);
+    const questionIds = this.gate.pendingQuestionIds(turnId);
+    const current = this.statusValue;
+    let next: SessionStatus;
     if (approvalIds.length > 0) {
-      this.setStatus({ state: 'awaiting-approval', turnId, approvalIds });
-    } else if (this.statusValue.state === 'awaiting-approval') {
-      this.setStatus({ state: 'running', turnId });
+      next = { state: 'awaiting-approval', turnId, approvalIds };
+    } else if (questionIds.length > 0) {
+      next = { state: 'awaiting-answer', turnId, questionIds };
+    } else if (current.state === 'awaiting-approval' || current.state === 'awaiting-answer') {
+      next = { state: 'running', turnId };
+    } else {
+      return;
+    }
+    // A question settled behind a waiting approval (or the reverse) changes nothing to say.
+    if (JSON.stringify(next) !== JSON.stringify(current)) {
+      this.setStatus(next);
     }
   }
 
@@ -994,6 +1047,21 @@ function toolOutcome(part: ToolPart): string {
         return 'result unknown (the app restarted while it ran)';
       }
       return `failed: ${(part.error ?? 'no reason given').split('\n')[0].slice(0, 160)}`;
+  }
+}
+
+/** How a question of a cut-off turn ended, for the continue note. */
+function questionOutcome(part: QuestionPart): string {
+  switch (part.state) {
+    case 'answered':
+      return 'answered by the user';
+    case 'skipped':
+      return 'skipped by the user';
+    case 'awaiting-answer':
+    case 'unanswered':
+      return part.reason === RESTART_QUESTION_REASON || part.state === 'awaiting-answer'
+        ? 'not answered: it was waiting for the user when the app restarted'
+        : 'not answered';
   }
 }
 

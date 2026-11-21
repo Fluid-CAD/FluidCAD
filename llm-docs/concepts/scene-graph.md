@@ -71,10 +71,25 @@ inserts (`partId`, `partName`), `owner` (the sub-assembly occurrence path,
 `""` at the root), `grounded`, `shapeIds` (the rendered solids it shows,
 the same for every instance of a part), `pose` and `sourceLocation`.
 `instancePoses` says what the poses are: `{ frame: "world", source:
-"statement" }`, where the `insert()` statements put each instance, not
-where the viewer's mate solve draws it. `occurrences` lists inserted
+"solved" }`, where the mates put each instance. The engine solves the mates
+itself, with the solver the viewer runs, starting every instance where its
+`insert()` statement puts it — the rest configuration, what the viewport
+shows when the file opens — and `interfere`, `measure`, `resolve_selection`
+and an assembly export place the instances there too. An instance the mates
+moved also carries `statementPose`, the pose its `insert()` chain sets.
+(`source: "statement"` means the mates were not applied: the solve could
+not run, or the project's engine predates it.) `occurrences` lists inserted
 sub-assemblies (a generated assembly's with `generated: { definition,
 values }`).
+
+`solve` says how that solve came out: `status` is `okay` (every mate and
+relation it enforces holds), `inconsistent` (at least one does not; the
+poses are the least-bad configuration) or `unsolved` (it could not run;
+`error` says why), and `dof` is the degrees of freedom the mates leave.
+With `dof` above zero the assembly can still move, and the rest
+configuration is one of many: a part the user dragged along a free joint,
+or a mate the Animate bar drives, moves only in their viewer — a screenshot
+shows it, the summary does not.
 
 `mates` lists every mate, sub-assemblies' and generators' included, in
 statement order: `mateId`, `name` (when authored), `type`, and the two
@@ -95,8 +110,16 @@ root, else the occurrence path) with `ownerName`, `sourceLocation`, and
 location is the insert that makes it; an instance a generator made is
 marked the same way).
 
-`joints: { source: "statement", solvedIn: "viewer" }` says what those are:
-the records as authored. The assembly solver runs only in the viewer and
-the server never receives its result, so the summary reports no solve
-status, misclosure or joint value — whether a joint closes and how far it
-moves shows on screen. A part file's summary has none of these keys.
+Each mate also carries how the solve left it. `status` is `satisfied`,
+`failed` (the assembly cannot close it: `gap` is the misclosure in the
+document unit, `gapAxis` its world axis when it is axis-aligned, `tiltDeg`
+the orientation error) or `unenforced` (it never reached the solve — a
+connector that did not build, exposed geometry a tangent mate cannot use —
+and constrains nothing). A revolute or a slider adds `value`, where the
+joint sits (degrees, or the document unit) in the space its `limits` are
+in, and `outsideLimits: true` when the solve had to leave it outside them.
+Each relation's `status` is `satisfied`, `failed` (its mates did not move
+in ratio), `contradicted` (its ratio disagrees with the other relations
+around a cycle) or `unenforced`. `solve.status` counts failed mates and
+relations only: an `unenforced` joint or one `outsideLimits` is an error
+too. A part file's summary has none of these keys.

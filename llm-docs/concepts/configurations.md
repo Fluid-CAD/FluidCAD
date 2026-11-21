@@ -178,8 +178,9 @@ parameter whose values are the child's row names, passed as the name —
 - CLI: `fluidcad export step|stl|png --configuration Wide`;
   `fluidcad export step|stl --all-configurations` → `<model>.step` for
   Default and `<model>-<Row>.step` per row. An export of a row other than
-  the one on screen is rendered on the side and places parts at their
-  statement poses (the viewer solves mates for the row on screen only).
+  the one on screen is rendered on the side and places parts where the
+  engine solves that row's mates (a viewer's dragged poses belong to the
+  row on screen).
 - MCP: `get_scene_summary().configurations` is `{ active, names, rows,
   modified }` (`modified`: session overrides sit on top of the row — only
   a read-only viewer or a `/set-param` caller makes them). `select_configuration(name)` switches the session like the

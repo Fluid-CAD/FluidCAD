@@ -466,11 +466,19 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'validate, interfere, measure, resolve_selection and the screenshot `hide`/`focus`/`fitTo` take), `name`, `partId`/`partName` ' +
         '(the `part` row it inserts; `partId` feeds get_shape_properties), `owner` (the sub-assembly occurrence path, "" at the root), ' +
         '`grounded` (fixed in the world), `shapeIds` (the rendered solids it shows, the same ids for every instance of one part: what ' +
-        'validate checks and interfere places for it), `pose`, `sourceLocation`, and `replica` on a replicate() copy. `instancePoses` ' +
-        'says what every `pose` is: { frame: "world", source: "statement" }, the insert() chain\'s translate/rotate composed through ' +
-        'sub-assembly frames, the pose interfere, measure and resolve_selection use by default. It is NOT the mate-solved pose the ' +
-        'viewport draws: mates are solved only in the viewer, and no tool reports that pose. Each `pose` is already an interfere ' +
-        '`poses` entry ({ instanceId, position, quaternion }). `occurrences` lists inserted sub-assemblies (`occurrenceId`, `name`, ' +
+        'validate checks and interfere places for it), `pose`, `statementPose` (only when the mates moved the instance: the pose its ' +
+        'insert() chain sets, the numbers a .translate()/.rotate() edit changes), `sourceLocation`, and `replica` on a replicate() ' +
+        'copy. `instancePoses` says what every `pose` is: { frame: "world", source: "solved" } — where the MATES put the instance, ' +
+        'composed through sub-assembly frames; the pose interfere, measure, resolve_selection and an assembly export use by default. ' +
+        'The engine solves the mates itself, with the solver the viewer runs, starting every instance at its insert() pose: the REST ' +
+        'configuration, what the viewport shows when the file opens. (`source: "statement"`: mates not applied — the solve could ' +
+        'not run, or the workspace\'s engine predates it.) Each `pose` is already an interfere `poses` entry ({ instanceId, ' +
+        'position, quaternion }). `solve` says how that solve came out: `status` — "okay" (every mate and relation it enforces ' +
+        'holds), "inconsistent" (at least one does not: the poses are the least-bad configuration) or "unsolved" (it could not ' +
+        'run; `error` says why) — and `dof`, the degrees of freedom the mates leave. With `dof` above 0 the assembly can still ' +
+        'move and the rest configuration is one of many: a part the user dragged along a free joint, or a mate the Animate bar ' +
+        'drives, moves only in their viewer — a screenshot shows that, this summary does not. ' +
+        '`occurrences` lists inserted sub-assemblies (`occurrenceId`, `name`, ' +
         '`assemblyName`, `parentPath`; a generated assembly\'s adds `generated: { definition, values }`). ' +
         '`mates` lists every mate, sub-assemblies\' and generators\' included, in statement order: `mateId`, `name` (when authored), ' +
         '`type`, and the two sides `a` (the driver) and `b`, each `{ kind: "connector", instanceId, instance, connector, connectorId }` ' +
@@ -480,13 +488,22 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         '`options` with only what differs from the default — `flip`, `rotate` (degrees), `offset` (in `unit`), `limits` [min, max] ' +
         '(degrees on a revolute, `unit` on a slider), `propagate: false` (`.noPropagate()`); `owner` ("" at the root, else the ' +
         'occurrence path) and `ownerName`; `engineOwned: true` on a joint a generator made (read-only: change it through the values ' +
-        'of its insert, whose line is its `sourceLocation`); `sourceLocation`; `replica` on a replicate() copy. `relations` (only ' +
+        'of its insert, whose line is its `sourceLocation`); `sourceLocation`; `replica` on a replicate() copy; and how the solve ' +
+        'left it — `status`: "satisfied", "failed" (the assembly cannot close it: `gap` is the misclosure in `unit`, `gapAxis` its ' +
+        'world axis when it is axis-aligned, `tiltDeg` the orientation error) or "unenforced" (it never reached the solve — a ' +
+        'connector that did not build, exposed geometry a tangent mate cannot use — and constrains nothing: an error to fix, which ' +
+        '`solve.status` does not count); `value` on a revolute (degrees) or a slider (`unit`): where the joint sits, in the space ' +
+        'its `limits` are in; `outsideLimits: true` when the solve left that value outside the `limits` (nothing is free to move ' +
+        'it back, or the limits of joints tied by a relation or a loop cannot all hold: an error to fix, which `solve.status` ' +
+        'does not count either). `relations` (only ' +
         'when there are any) lists `relationId`, `name`, `type` (gear | rack-and-pinion), `ratio` (gear: turns of mateB per turn of ' +
-        'mateA; rack-and-pinion: mateB\'s travel per turn of mateA, in `unit`), `reverse`, `mateA` / `mateB` ({ mateId, name }) and ' +
-        'the same `owner`, `ownerName`, `engineOwned`, `sourceLocation`. `joints` says what those are: { source: "statement", ' +
-        'solvedIn: "viewer" } — the authored records. The solver runs only in the viewer and the server never receives its ' +
-        'result, so no solve status, misclosure or current joint value is reported: check that a joint closes and moves with a ' +
-        'screenshot. An instance a generator made carries `engineOwned: true`. A part file has none of these keys.',
+        'mateA; rack-and-pinion: mateB\'s travel per turn of mateA, in `unit`), `reverse`, `mateA` / `mateB` ({ mateId, name }), ' +
+        'the same `owner`, `ownerName`, `engineOwned`, `sourceLocation`, and `status`: "satisfied", "failed" (its mates did not ' +
+        'move in ratio — a limit, a fastened part or a closed loop held one side back), "contradicted" (its ratio disagrees with ' +
+        'the other relations around a cycle of them) or "unenforced" (a mate it couples is unenforced or has no motion of the kind ' +
+        'it needs). After editing mates, read `solve`, every mate\'s `status` and the solved poses here; a screenshot shows the ' +
+        'same configuration unless the user has moved a part since. An instance a generator made carries `engineOwned: true`. ' +
+        'A part file has none of these keys.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getSceneSummary(target(workspace))),
@@ -584,8 +601,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       'Where the expression is evaluated. Omitted: root scope — the whole scene, as a root-level select() sees it. ' +
       '{ sceneObjectId } or { part }: only that part\'s own geometry, exactly what a select() inside part("name", ...) sees ' +
       '(a filter scoped to part "base" never matches faces of part "pillar"). { instanceId }: that instance\'s part build, ' +
-      'matches carrying instanceId and the statement pose (the `pose` get_scene_summary reports for the instance) so they feed ' +
-      'measure unchanged.',
+      'matches carrying instanceId and the pose the mates put the instance at (the `pose` get_scene_summary reports for it) so ' +
+      'they feed measure unchanged.',
     );
 
   const expressionArg = z
@@ -725,12 +742,12 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'set), `bodies`, `units` (parts or instances compared), `checked` (pairs whose boolean ran — the cost), `rejectedByBounds`, ' +
         '`clashes` and `intraPart` (each pair: two bodies with shapeId, sceneObjectId, part, instanceId in an assembly, and the shared ' +
         '`volume`), `failed` (pairs whose boolean threw, with the message; not cleared), `tolerance`, `unit`. Assembly instances sit ' +
-        'at their STATEMENT poses: insert().translate()/.rotate() composed through sub-assembly frames, in the world. That is the ' +
-        '`pose` get_scene_summary reports per instance, so passing those back unchanged gives the same result. Mates are solved only ' +
-        'in the viewer and no tool reports the solved pose: a mated instance is checked where its statement puts it. A viewport drag ' +
-        'writes the dragged instance\'s pose back onto its statement, so later checks read it. `poses` (world poses, each shaped like ' +
-        'get_scene_summary\'s `instances[].pose`) places instances elsewhere for this check only, e.g. at a pose you computed from ' +
-        'the mate geometry. `instanceIds` with one id tests that instance against every other body; with two or more, only the ' +
+        'where the MATES put them: the engine\'s own solve of the assembly from the insert() poses, composed through sub-assembly ' +
+        'frames, in the world — the rest configuration (get_scene_summary\'s `solve`). That is the `pose` get_scene_summary ' +
+        'reports per instance, so passing those back unchanged gives the same result. It is one configuration: a mechanism with ' +
+        'free motion left (`solve.dof` above 0) is checked where that solve lands, not where the user has since dragged a part in ' +
+        'the viewer. `poses` (world poses, each shaped like get_scene_summary\'s `instances[].pose`) places instances elsewhere ' +
+        'for this check only, e.g. at another position of the mechanism. `instanceIds` with one id tests that instance against every other body; with two or more, only the ' +
         'named instances among themselves. ' +
         '`shapeIds` narrows to those shapes (every instance showing them). An unknown shape or instance, or no rendered scene, is an ' +
         'error naming the problem.',
@@ -755,7 +772,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .array(instancePoseArg)
           .min(1)
           .optional()
-          .describe('Assembly files: world poses to use instead of the statement poses, per instance. Each entry has the shape of get_scene_summary\'s `instances[].pose`, which holds the statement pose itself.'),
+          .describe('Assembly files: world poses to use instead of the mate-solved ones, per instance. Each entry has the shape of get_scene_summary\'s `instances[].pose`, which holds the solved pose itself.'),
       },
     },
     async ({ workspace, instanceIds, shapeIds, tolerance, poses }) =>
@@ -799,9 +816,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       .optional()
       .describe(
         'Assembly files only: the inserted instance the entity belongs to (`instances[].instanceId` from get_scene_summary). ' +
-        'Instances of one part share a shapeId, and the entity is measured at the instance\'s statement pose: the world `pose` ' +
-        'get_scene_summary reports for it (insert() translate/rotate, through sub-assembly frames). The mate-solved pose the ' +
-        'viewport draws is not applied.',
+        'Instances of one part share a shapeId, and the entity is measured where the mates put the instance: the world `pose` ' +
+        'get_scene_summary reports for it (the engine\'s solve of the assembly from the insert() poses, through sub-assembly ' +
+        'frames). A pose the user has since dragged the part to in the viewer is not applied.',
       ),
   });
 
@@ -1316,7 +1333,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Export shapes or the whole assembly to STEP or STL',
       description:
-        'Exports the listed shapes — or, with `assembly: true`, the whole current assembly (every inserted part where it sits: one STEP assembly with shared part prototypes, or one STL mesh) — to a STEP or STL file. Pass exactly one of `shapeIds` / `assembly`. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise; assembly exports add `posesSource`: "statement" means parts sit where the source places them (mates are solved in the viewer, which the server never sees). STEP files are physically correct whatever the document\'s unit. STL carries no unit: by default the mesh is scaled into mm (what slicers expect); `scaleTo: "document"` keeps the document\'s numbers. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity.',
+        'Exports the listed shapes — or, with `assembly: true`, the whole current assembly (every inserted part where it sits: one STEP assembly with shared part prototypes, or one STL mesh) — to a STEP or STL file. Pass exactly one of `shapeIds` / `assembly`. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise; assembly exports add `posesSource`: "solved" means every part sits where the mates put it (the engine\'s own solve from the insert() poses, the rest configuration get_scene_summary reports); "statement" means the mates were NOT applied and parts sit where their insert() chains place them (the solve could not run, or the workspace\'s engine predates it) — tell the user. STEP files are physically correct whatever the document\'s unit. STL carries no unit: by default the mesh is scaled into mm (what slicers expect); `scaleTo: "document"` keeps the document\'s numbers. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity.',
       inputSchema: {
         ...workspaceArg,
         format: z.enum(['step', 'stl']).describe('Output format.'),
@@ -1345,7 +1362,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .enum(['mm', 'document'])
           .optional()
           .describe('STL only. "mm" (default) scales the mesh into millimetres for slicers; "document" keeps the document\'s units.'),
-        configuration: configurationArg.describe('Export this configurations() row ("Default" for the param() literals) instead of the one on screen. The server renders it for this export alone — the session\'s row and tweaks stay as they are; `shapeIds` are the on-screen scene\'s and are mapped onto the row\'s bodies. An assembly of another row exports at its statement poses. Omit for the row on screen, tweaks included.'),
+        configuration: configurationArg.describe('Export this configurations() row ("Default" for the param() literals) instead of the one on screen. The server renders it for this export alone — the session\'s row and tweaks stay as they are; `shapeIds` are the on-screen scene\'s and are mapped onto the row\'s bodies. An assembly of another row exports where the engine solves that row\'s mates. Omit for the row on screen, tweaks included.'),
       },
     },
     async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo, configuration }) =>

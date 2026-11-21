@@ -37,6 +37,8 @@ type ExportConfig = {
   status?: number;
   /** Last parsed body — populated after each call. */
   lastBody?: any;
+  /** The `X-FluidCAD-Assembly-Poses` header an assembly export answers with. */
+  posesSource?: string;
 };
 let exportConfig: ExportConfig = {};
 
@@ -103,18 +105,21 @@ function startFakeServer(): Promise<number> {
           const parsed = JSON.parse(body);
           exportConfig.lastBody = parsed;
           const status = exportConfig.status ?? 200;
+          const posesHeader: Record<string, string> = exportConfig.posesSource
+            ? { 'x-fluidcad-assembly-poses': exportConfig.posesSource }
+            : {};
           if (parsed.saveAsPath && exportConfig.saveBytes !== null) {
             const bytes = exportConfig.saveBytes ?? Buffer.from('ISO-10303-21;\nEND-ISO-10303-21;\n');
             // Mimic the real server: write to disk + return JSON.
             const target = path.resolve(workspace, parsed.saveAsPath);
             fs.writeFileSync(target, bytes);
-            res.writeHead(status, { 'content-type': 'application/json' });
+            res.writeHead(status, { 'content-type': 'application/json', ...posesHeader });
             res.end(JSON.stringify({ savedTo: target, bytesWritten: bytes.length }));
             return;
           }
           const bin = exportConfig.body ?? Buffer.from('ISO-10303-21;\nEND-ISO-10303-21;\n');
           const ct = exportConfig.contentType ?? (parsed.format === 'step' ? 'application/step' : 'application/sla');
-          res.writeHead(status, { 'content-type': ct });
+          res.writeHead(status, { 'content-type': ct, ...posesHeader });
           res.end(bin);
           return;
         }
@@ -343,6 +348,25 @@ describe('export', () => {
     expect(result.ok).toBe(true);
     expect(exportConfig.lastBody.assembly).toEqual({});
     expect('shapeIds' in exportConfig.lastBody).toBe(false);
+  });
+
+  it('says where an assembly export\'s poses came from, saved or returned', async () => {
+    for (const posesSource of ['solved', 'statement', 'live']) {
+      exportConfig.posesSource = posesSource;
+      const returned = await exportShapes({ format: 'step', assembly: true });
+      expect(returned.ok && (returned.data as { posesSource?: string }).posesSource).toBe(posesSource);
+      const saved = await exportShapes({ format: 'step', assembly: true, saveAsPath: path.join(workspace, 'rig.step') });
+      expect(saved.ok && (saved.data as { posesSource?: string }).posesSource).toBe(posesSource);
+    }
+  });
+
+  it('reports no poses source for a shape export or a value it does not know', async () => {
+    const shapes = await exportShapes({ format: 'step', shapeIds: ['sh-1'] });
+    expect(shapes.ok && 'posesSource' in (shapes.data as object)).toBe(false);
+
+    exportConfig.posesSource = 'guessed';
+    const unknown = await exportShapes({ format: 'step', assembly: true });
+    expect(unknown.ok && 'posesSource' in (unknown.data as object)).toBe(false);
   });
 
   it('needs exactly one of shapeIds and assembly', async () => {

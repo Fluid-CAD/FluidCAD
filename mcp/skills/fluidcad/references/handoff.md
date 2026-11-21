@@ -18,7 +18,7 @@ The export is of the scene as served. Confirm `render.state` is `rendered` with 
 
 - `export` with `format: "step"`, `saveAsPath`, and `includeColors: true` when the colors carry meaning.
 - STEP files carry their unit, so the export is physically correct in any document unit; no scaling option applies.
-- In an assembly, `assembly: true` writes one STEP assembly: shared part prototypes, one component per instance, sub-assemblies nested, names carried. The result's `posesSource` is `"statement"`: parts sit where their `insert().translate()/.rotate()` statements put them, because mates are solved in the viewer, which the server never sees. Tell the user; the viewer's own Export writes the mated layout.
+- In an assembly, `assembly: true` writes one STEP assembly: shared part prototypes, one component per instance, sub-assemblies nested, names carried. The result's `posesSource` is `"solved"`: every part sits where the mates put it, as the engine solves them from the `insert().translate()/.rotate()` poses. `"statement"` means the mates could not be solved and parts sit on those poses: tell the user. A mechanism the user has dragged to another position exports that position only from the viewer's own Export.
 
 ## A package, for sharing features and parts
 

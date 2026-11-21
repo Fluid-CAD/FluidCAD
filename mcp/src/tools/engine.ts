@@ -262,10 +262,15 @@ export type ExportInput = WorkspaceArg & {
 };
 
 /**
- * Assembly exports only: `statement` means the parts sit where the source
- * places them — mates are solved in the viewer, which the server never sees.
+ * Assembly exports only, where the instance poses written came from: `live`
+ * — poses handed in with the request (a viewer's); `solved` — the engine's
+ * own mate solve from the statement poses, what an export without poses
+ * writes; `statement` — the source's `insert()` chains alone, the mates not
+ * applied (the solve could not run, or the engine predates it).
  */
-export type ExportPosesSource = 'live' | 'statement';
+export type ExportPosesSource = 'live' | 'solved' | 'statement';
+
+const EXPORT_POSES_SOURCES: readonly string[] = ['live', 'solved', 'statement'];
 
 export type ExportSavedOutput = { savedTo: string; bytesWritten: number; posesSource?: ExportPosesSource };
 export type ExportBase64Output = {
@@ -444,7 +449,9 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
     }
     const posesHeader = raw.headers['x-fluidcad-assembly-poses'];
     const posesSource: ExportPosesSource | undefined =
-      posesHeader === 'live' || posesHeader === 'statement' ? posesHeader : undefined;
+      typeof posesHeader === 'string' && EXPORT_POSES_SOURCES.includes(posesHeader)
+        ? posesHeader as ExportPosesSource
+        : undefined;
     if (raw.contentType.includes('application/json')) {
       const parsed = JSON.parse(raw.data.toString('utf8')) as ExportSavedOutput;
       // Mirror the server's `savedTo` so the agent always returns absolute

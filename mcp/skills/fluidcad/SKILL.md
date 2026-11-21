@@ -179,7 +179,7 @@ The selector you write is the one the tool verified. Never edit the user's file 
 
 - scope = a scene object or a part (id from `get_scene_summary`, or a part name): only that part's geometry, so a filter inside `part("base", ...)` never matches a face of `part("pillar", ...)`;
 - no scope: the whole scene, which is what a root-level `select()` sees; every result names the part that owns it;
-- assembly files: scope by `instanceId`; results carry the instance and its statement pose so they feed `measure` unchanged (no `before`, and no synthesis: selectors are written in the part file);
+- assembly files: scope by `instanceId`; results carry the instance and the pose the mates put it at so they feed `measure` unchanged (no `before`, and no synthesis: selectors are written in the part file);
 - `.from(obj)` inside the expression crosses parts, as it does in source.
 
 Indices from `hit_test` and the scene summary still work as a fallback, but they renumber after every feature; a filter survives edits, and an accessor survives more.

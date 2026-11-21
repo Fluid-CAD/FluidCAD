@@ -14,20 +14,22 @@ A part is exported from the top bar. The fixed leaf goes out as STEP for other C
    ![Export menu](/img/docs/ui/export-menu.png)
 
 2. Click the solid. The export dialog opens.
-3. Choose **STEP** to keep exact geometry and the part's name, **STL** for a mesh (pick a **Resolution**; STL is written in millimetres by default since slicers expect that), or **PNG** for a picture from a chosen view. Tick **Colors** to keep any `color()` you applied.
+3. Choose **STEP** to keep exact geometry and the part's name, **STL** for a mesh (pick a **Resolution**; STL is written in millimetres by default since slicers expect that), **DXF** or **SVG** for a 2D drawing of the part seen from one side (pick the **View**; the preview shows what you will get), or **PNG** for a picture from a chosen view. Tick **Colors** to keep any `color()` you applied.
 4. Click **Export**. The file downloads through the browser.
 
 The same dialog is reachable from the **Shapes** panel: hover the solid's row and choose **Export** from its menu.
 
 ## From the terminal
 
-The export commands need no browser for STEP and STL:
+The export commands need no browser for STEP, STL, DXF and SVG:
 
 ```bash
 npx fluidcad export step -e hinge-leaf-fixed.part.js -o out/fixed-leaf.step
 npx fluidcad export stl  -e hinge-leaf-fixed.part.js --resolution fine
+npx fluidcad export dxf  -e hinge-leaf-fixed.part.js --plane top
+npx fluidcad export svg  -e hinge-leaf-fixed.part.js --plane top
 ```
 
-See [Export](/docs/import-export/export) for the assembly export and the [CLI Reference](/docs/cli#fluidcad-export) for every flag.
+See [Export](/docs/import-export/export) for the assembly export and what a DXF or SVG draws, and the [CLI Reference](/docs/cli#fluidcad-export) for every flag.
 
 Next: [Inserting the part into an assembly](/docs/getting-started/insert-into-assembly).

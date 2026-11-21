@@ -5,7 +5,7 @@ title: "Export"
 
 # Export
 
-FluidCAD writes STEP, STL and PNG files. Export from the top bar, from a shape's row in the Shapes panel, or from the command line.
+FluidCAD writes STEP, STL, DXF, SVG and PNG files. Export from the top bar, from a shape's row in the Shapes panel, or from the command line.
 
 ## From the top bar
 
@@ -13,9 +13,9 @@ FluidCAD writes STEP, STL and PNG files. Export from the top bar, from a shape's
 
    ![Export menu in a part](/img/docs/ui/export-menu.png)
 
-2. Choose a solid. The export dialog opens: pick **STEP**, **STL** or **PNG**, keep or drop colors, set the STL resolution or the PNG view, and click **Export**. The file downloads through the browser.
+2. Choose a solid. The export dialog opens: pick **STEP**, **STL**, **DXF**, **SVG** or **PNG**, keep or drop colors, set the STL resolution, the DXF or SVG view or the PNG size, and click **Export**. The file downloads through the browser.
 
-The exported file includes geometry and color information and opens in any standard CAD tool (Fusion 360, SolidWorks, FreeCAD, etc.).
+A STEP file includes geometry and color information and opens in any standard CAD tool (Fusion 360, SolidWorks, FreeCAD, etc.). A [DXF or SVG](#dxf-and-svg) is a 2D drawing of the solid seen from one side.
 
 ## Parts with several solids
 
@@ -33,7 +33,7 @@ In an assembly the Export menu leads with **Whole assembly**, followed by each i
 
 ![Export menu in an assembly](/img/docs/ui/export-menu-assembly.png)
 
-Choosing a part writes that part on its own, in its own frame. Choosing the whole assembly writes every inserted part where it sits, at the positions the joints solved to, exactly as the viewport shows them:
+Choosing a part writes that part on its own, in its own frame. Choosing the whole assembly writes every inserted part where it sits, at the positions the joints solved to, exactly as the viewport shows them. The whole assembly exports as STEP, STL or PNG; a [DXF or SVG](#dxf-and-svg) draws a part, so choose the part:
 
 - **STEP** keeps the structure: one product per part (repeated inserts share it), one component per instance, sub-assemblies nested under their own product, and the assembly, parts and instances carry their FluidCAD names. It opens as an assembly tree in other CAD tools.
 - **STL** flattens every placed part into one mesh, with the same resolution and unit options as a part export.
@@ -49,9 +49,65 @@ A part with [configurations](/docs/part/configurations) gets the same **Configur
 - A solid picked from the top bar's Export menu or the Shapes panel is found in the chosen configuration by its history. If that configuration does not build it, the export is refused with a message naming the solid, rather than exporting a different body.
 - **All configurations** is all or nothing: if any row fails, no zip is delivered.
 
+## DXF and SVG
+
+A DXF or an SVG is a 2D drawing: the solid as it looks from one side, drawn flat on a standard plane, with the edges behind it removed. DXF is the format laser cutters, CNC routers and 2D CAD tools take. SVG is the same drawing for Inkscape, a browser, a document or cutting software that reads SVG. The two formats share every option below; [SVG](#svg-files) adds a stroke width.
+
+Pick **DXF** or **SVG** in the export dialog and choose the **View**:
+
+| View | Plane | Seen from | Across the drawing | Up the drawing |
+|------|-------|-----------|--------------------|----------------|
+| **Top** | XY | +Z | X | Y |
+| **Bottom** | −XY | −Z | −X | Y |
+| **Front** | XZ | −Y | X | Z |
+| **Back** | −XZ | +Y | −X | Z |
+| **Right** | YZ | +X | Y | Z |
+| **Left** | −YZ | −X | −Y | Z |
+
+The select opens on **Top**. If you are looking at the model squarely from another side, for example after snapping to Front on the view gizmo, it opens on that view instead.
+
+The **Preview** at the top of the section shows the drawing the current options export, and follows the view and the two edge options as you change them. Its lines are drawn one pixel wide so they stay readable at any size; the file's own line widths are not shown. With **All configurations (.zip)** picked it shows the configuration on screen.
+
+Two options add edges, each on its own layer so they can be turned off or cut differently:
+
+- **Hidden lines** draws the edges behind the model as well, dashed, on the hidden layer. Where a hidden edge lies exactly under a visible one, only the visible one is drawn.
+- **Tangent edges** draws smooth edges, such as the two borders of a fillet, on the tangent layer.
+
+Everything else is on the visible layer: the sharp edges you can see and the outlines of curved faces, such as the two sides of a cylinder seen from the side. With both options off, the whole drawing is on the visible layer. In a DXF the layers are named `VISIBLE`, `HIDDEN` and `TANGENT`; in an SVG they are groups named `visible`, `hidden` and `tangent`.
+
+Curves are written as what they are, not as chains of short segments:
+
+| In the model | In a DXF | In an SVG |
+|--------------|----------|-----------|
+| A straight edge | Line | Line |
+| A circle or arc seen square-on | Circle or arc | Circle or arc |
+| A circle or arc seen at an angle | Ellipse or elliptical arc | Elliptical arc |
+| A circle or arc seen edge-on | Line | Line |
+| A spline edge | Spline | Bezier curves |
+
+An edge that two faces share is drawn once, and an edge that hidden-line removal cut into pieces is joined back into one line or arc. A curve that cannot be written as any of these is drawn as a polyline, and the dialog says so after the export.
+
+Several solids exported together, with **Whole part**, are drawn together: a solid in front hides what is behind it, as on screen. The whole assembly cannot be drawn yet; in an assembly, export a part.
+
+The file is named after the view: `bracket-top.dxf`, `bracket-front.svg`. With **All configurations (.zip)** each row is drawn on the chosen view: `bracket-top.dxf`, `bracket-M8-top.dxf`, in `bracket-top-configurations.zip`.
+
+### DXF files
+
+A DXF keeps the model's coordinates and unit. A point at X 12, Y 7 in the model is at 12, 7 in a top view, nothing is recentered or scaled, and the file declares the document's [unit](/docs/extra/units), so a 40 mm edge measures 40 mm where the file is opened.
+
+The file is an AutoCAD 2000 DXF, which current CAD and CAM tools read.
+
+### SVG files
+
+An SVG is sized in real units, millimetres for a metric document and inches for an imperial one, so it opens at true size in Inkscape and in cutting software: a 40 mm edge is 40 mm on the page. Inside the file the numbers are the document's own.
+
+SVG pages count Y downwards, so the drawing is flipped to read the right way up: what is up in the view is up on the page. The page is the drawing's extent plus a small margin, 5 mm unless the [command line](/docs/cli#fluidcad-export-svg) sets another.
+
+**Stroke width (mm)** sets how wide the lines are on paper, 0.25 mm by default. Cutting software usually wants a hairline, so set it to what yours expects. The lines are black with no fill, and the hidden layer is dashed.
+
 ## Units
 
-STEP files carry their unit, so a STEP export is physically correct whatever the document's [unit](/docs/extra/units): a 2 in boss opens as 2 in elsewhere. STL is unitless and slicers assume millimetres, so STL exports are scaled to mm by default; an export option keeps document units instead when the consumer expects them. BRep is written as-is.
+STEP files carry their unit, so a STEP export is physically correct whatever the document's [unit](/docs/extra/units): a 2 in boss opens as 2 in elsewhere. STL is unitless and slicers assume millimetres, so STL exports are scaled to mm by default; an export option keeps document units instead when the consumer expects them. A DXF keeps the document's numbers and declares its unit, and an SVG is sized in millimetres or inches to match. BRep is written as-is.
 
 ## From the command line
 
@@ -60,7 +116,11 @@ The same exports run from a terminal, which is what you want for build scripts a
 ```bash
 npx fluidcad export step                     # every solid → <entry>.step
 npx fluidcad export stl --resolution fine -o parts/bracket.stl
+npx fluidcad export dxf --plane top          # the top view → <entry>-top.dxf
+npx fluidcad export svg --plane front        # the front view → <entry>-front.svg
 npx fluidcad export png --view front --open
 ```
 
-If a FluidCAD server is already running for the project, the CLI exports the scene it is showing; otherwise it starts one, renders your model, exports, and shuts down again. An assembly file exports as a whole by default, every part where its joints put it — the layout the viewer shows when it opens the file. To export a mechanism in a position you dragged or animated it to, export from the viewer. See the [CLI Reference](/docs/cli#fluidcad-export) for shape selection, mesh resolution, and screenshot options.
+`export dxf` and `export svg` take the plane by its view name or its axis name (`--plane front` or `--plane xz`), and `--hidden-lines` and `--tangent-edges` for the two extra layers. `export svg` also takes `--stroke-width` and `--margin`, both in millimetres.
+
+If a FluidCAD server is already running for the project, the CLI exports the scene it is showing; otherwise it starts one, renders your model, exports, and shuts down again. An assembly file exports as a whole by default, every part where its joints put it — the layout the viewer shows when it opens the file. To export a mechanism in a position you dragged or animated it to, export from the viewer. See the [CLI Reference](/docs/cli#fluidcad-export) for shape selection, mesh resolution, drawing planes, and screenshot options.

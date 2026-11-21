@@ -28,6 +28,8 @@ A global install (`npm install -g fluidcad`) is not supported — the engine and
 | [`fluidcad serve`](#fluidcad-serve) | Open one project in the browser and watch its workspace |
 | [`fluidcad export step`](#fluidcad-export-step) | Write a STEP file |
 | [`fluidcad export stl`](#fluidcad-export-stl) | Write an STL mesh |
+| [`fluidcad export dxf`](#fluidcad-export-dxf) | Write a 2D drawing of one view as a DXF file |
+| [`fluidcad export svg`](#fluidcad-export-svg) | Write a 2D drawing of one view as an SVG file |
 | [`fluidcad export png`](#fluidcad-export-png) | Capture a PNG of the viewport |
 | [`fluidcad package init`](#fluidcad-package-init) | Make this project a package: write the `package` block of `fluidcad.json` |
 | [`fluidcad version`](#fluidcad-version) | Raise the package's version |
@@ -289,10 +291,12 @@ scene rather than covering it, so the model stays fully visible.
 ```bash
 npx fluidcad export step                          # every shape → <entry>.step
 npx fluidcad export stl --resolution fine -o parts/bracket.stl
+npx fluidcad export dxf --plane top               # the top view → <entry>-top.dxf
+npx fluidcad export svg --plane front             # the front view → <entry>-front.svg
 npx fluidcad export png --view front --open
 ```
 
-Writes a STEP, STL, or PNG file straight from the terminal — the same exports the [Export dialog](/docs/import-export/export) produces, without opening the UI.
+Writes a STEP, STL, DXF, SVG, or PNG file straight from the terminal — the same exports the [Export dialog](/docs/import-export/export) produces, without opening the UI.
 
 ### How the model gets rendered
 
@@ -305,13 +309,13 @@ Because an attached server's scene wins, passing `--entry` while one is running 
 
 ### Common flags
 
-These apply to all three formats:
+These apply to all five formats:
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-w, --workspace <path>` | Path to your project | Current directory |
 | `-e, --entry <file>` | Which `.fluid.js` to render | The workspace's only one |
-| `-o, --out <path>` | Output file | `<entry>.<ext>` in the current directory |
+| `-o, --out <path>` | Output file | `<entry>.<ext>` in the current directory (`dxf` and `svg`: `<entry>-<view>.<ext>`) |
 | `-p, --port <port>` | Export from the running server on this port instead of discovering one | Auto-discovered |
 | `--timeout <sec>` | Seconds to wait for the server (and, for `png`, for a browser) | `60` |
 
@@ -352,6 +356,63 @@ npx fluidcad export stl --linear-deflection 0.01 --angular-deflection 0.1
 
 Passing a deflection alongside `--resolution fine` is an error rather than a silent override.
 
+### `fluidcad export dxf`
+
+Writes a 2D drawing: the model as it looks from one side, drawn flat on a standard plane with the edges behind it removed. See [DXF](/docs/import-export/export#dxf-and-svg) for what the drawing holds.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--plane <name>` | The plane the model is drawn on, by view name or axis name. Required | — |
+| `--hidden-lines` | Draw the edges behind the model too, dashed, on the `HIDDEN` layer | _off_ |
+| `--tangent-edges` | Draw smooth edges, such as a fillet's borders, on the `TANGENT` layer | _off_ |
+| `--shapes <ids...>` | Draw a subset of the scene's shapes | Every solid |
+| `--list-shapes` | Print the scene's shapes and exit without exporting | — |
+| `--configuration <name>` | Draw this [configuration](/docs/part/configurations) (`Default` for the `param()` literals) | The one on screen |
+| `--all-configurations` | Write one file per configuration: `<model>-<view>.dxf` for Default, `<model>-<Row>-<view>.dxf` per row | — |
+
+`--plane` takes one of six planes, each under two names:
+
+| View name | Axis name | Seen from | Across the drawing | Up the drawing |
+|-----------|-----------|-----------|--------------------|----------------|
+| `top` | `xy` | +Z | X | Y |
+| `bottom` | `-xy` | −Z | −X | Y |
+| `front` | `xz` | −Y | X | Z |
+| `back` | `-xz` | +Y | −X | Z |
+| `right` | `yz` | +X | Y | Z |
+| `left` | `-yz` | −X | −Y | Z |
+
+```bash
+npx fluidcad export dxf --plane top                        # bracket-top.dxf
+npx fluidcad export dxf --plane xz --hidden-lines          # bracket-front.dxf, hidden edges dashed
+npx fluidcad export dxf --plane right --shapes Housing -o build/housing-side.dxf
+```
+
+Without `-o` the file is named after the view, whichever name the plane was given by, so several views of one model sit side by side. The solids are drawn together, one hiding another as on screen, at the model's coordinates and in the document's unit. An assembly file cannot be drawn as a whole yet: pass `--shapes` to draw one of its parts.
+
+### `fluidcad export svg`
+
+Writes the same 2D drawing as [`export dxf`](#fluidcad-export-dxf), as an SVG sized in real units: millimetres for a metric document, inches for an imperial one. See [SVG](/docs/import-export/export#svg-files) for what the file holds.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--plane <name>` | The plane the model is drawn on, by view name or axis name, as for [`export dxf`](#fluidcad-export-dxf). Required | — |
+| `--hidden-lines` | Draw the edges behind the model too, dashed, in the `hidden` group | _off_ |
+| `--tangent-edges` | Draw smooth edges, such as a fillet's borders, in the `tangent` group | _off_ |
+| `--stroke-width <mm>` | Width of the lines on paper, in millimetres | `0.25` |
+| `--margin <mm>` | Blank border around the drawing, in millimetres | `5` |
+| `--shapes <ids...>` | Draw a subset of the scene's shapes | Every solid |
+| `--list-shapes` | Print the scene's shapes and exit without exporting | — |
+| `--configuration <name>` | Draw this [configuration](/docs/part/configurations) (`Default` for the `param()` literals) | The one on screen |
+| `--all-configurations` | Write one file per configuration: `<model>-<view>.svg` for Default, `<model>-<Row>-<view>.svg` per row | — |
+
+```bash
+npx fluidcad export svg --plane top                        # bracket-top.svg
+npx fluidcad export svg --plane front --hidden-lines       # bracket-front.svg, hidden edges dashed
+npx fluidcad export svg --plane top --stroke-width 0.01 --margin 0 -o build/bracket-cut.svg
+```
+
+The file name follows the view as for `export dxf`, and an assembly file cannot be drawn as a whole yet: pass `--shapes` to draw one of its parts.
+
 ### Picking shapes
 
 `--list-shapes` prints what the scene contains, numbered:
@@ -379,7 +440,7 @@ npx fluidcad export stl --shapes Housing --resolution fine
 
 ### Assemblies
 
-When the scene is a `*.assembly.js` file, `export step` and `export stl` write the **whole assembly** by default: every inserted part where it sits. STEP keeps the structure — one product per part, one component per instance, sub-assemblies nested — so it opens as an assembly tree elsewhere. STL flattens every placed part into one mesh.
+When the scene is a `*.assembly.js` file, `export step` and `export stl` write the **whole assembly** by default (`export dxf` and `export svg` draw parts, not the whole assembly): every inserted part where it sits. STEP keeps the structure — one product per part, one component per instance, sub-assemblies nested — so it opens as an assembly tree elsewhere. STL flattens every placed part into one mesh.
 
 ```bash
 npx fluidcad export step                 # robot.assembly.js → robot.step, the full tree
@@ -397,6 +458,8 @@ A model with a `configurations()` table ([parts](/docs/part/configurations), [as
 npx fluidcad export step --configuration Wide              # frame.step, the Wide row
 npx fluidcad export step --all-configurations              # frame.step, frame-Compact.step, frame-Wide.step
 npx fluidcad export stl --all-configurations -o build/frame.stl
+npx fluidcad export dxf --plane top --all-configurations   # frame-top.dxf, frame-Compact-top.dxf, frame-Wide-top.dxf
+npx fluidcad export svg --plane top --all-configurations   # frame-top.svg, frame-Compact-top.svg, frame-Wide-top.svg
 ```
 
 `--all-configurations` renders every configuration before writing anything: if one fails, no file is written. Pass one flag or the other, not both. `--all-configurations` is not available for `png`, which captures one image. In a STEP file, an instance inserted with a configuration carries it in its name: `frame (Wide)`.

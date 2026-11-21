@@ -387,7 +387,7 @@ npx fluidcad export stl --resolution fine
 npx fluidcad export step --shapes 1      # a single part template instead, in its own frame
 ```
 
-Mates are solved in the viewer, and the CLI has no viewer, so parts land where the source places them (`insert().translate()` / `.rotate()`). The CLI prints a note when that is the case; for the mated layout, export from the viewer's Export menu.
+The export places every part where its mates put it: the engine solves the mates itself, starting each part where the source places it (`insert().translate()` / `.rotate()`), which is the layout the viewer shows when it opens the file. A mechanism with free motion left exports in that layout; to export it in a position you dragged or animated it to, use the viewer's Export menu. If the mates could not be solved, parts land where the source places them and the CLI prints a note saying so.
 
 ### Configurations
 

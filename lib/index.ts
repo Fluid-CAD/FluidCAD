@@ -255,6 +255,9 @@ export type {
   SceneInterferenceReport, SceneInterferenceRefusalCode, SceneInterferenceOutcome,
 } from './validation/scene-interference.js';
 export type { AssemblyExportPose, AssemblyExportPosesSource } from './io/assembly-export/index.js';
+export type { ExportOptions, ExportResult, SolidExportOptions, DrawingExportOptions } from './io/file-export.js';
+export { STANDARD_PLANES, isStandardPlane, standardPlaneView } from './math/plane.js';
+export type { StandardPlane, StandardView } from './math/plane.js';
 export type {
   AssemblySolution, AssemblyInstancePose, AssemblyMateState, AssemblyMateStatus, AssemblyRelationState,
   AssemblyRelationStatus,

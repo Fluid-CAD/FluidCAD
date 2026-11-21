@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" version="1.1" width="2.893700787in" height="1.393700787in" viewBox="-0.196850394 -0.196850394 2.893700787 1.393700787">
+  <title>Front view</title>
+  <g id="hidden" inkscape:groupmode="layer" inkscape:label="Hidden" fill="none" stroke="#808080" stroke-width="0.00492126" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="0.118110236 0.039370079">
+    <circle cx="1" cy="0.5" r="0.125"/>
+  </g>
+  <g id="visible" inkscape:groupmode="layer" inkscape:label="Visible" fill="none" stroke="#000000" stroke-width="0.00984252" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 0 1 L 2 1 A 0.5 0.5 0 0 0 2.5 0.5 A 0.5 0.5 0 0 0 2 0"/>
+  </g>
+</svg>

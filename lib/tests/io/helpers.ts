@@ -10,6 +10,7 @@ import { testRect } from "../helpers/profiles.js";
 import { render } from "../setup.js";
 import { coloredSolids } from "../utils.js";
 import type { ColoredSolid } from "../../common/colored-solid.js";
+import type { Scene } from "../../rendering/scene.js";
 
 export type Bounds = { min: [number, number, number]; max: [number, number, number] };
 
@@ -24,6 +25,23 @@ export function sceneSolids(): Solid[] {
     }
   }
   return solids;
+}
+
+/**
+ * The solids the rendered scene draws — the part as it ends up, without the
+ * bodies its features consumed on the way. What an export of every solid
+ * writes (the server's `ShapeExportSelection`, `shapeIds: "all"`).
+ */
+export function drawnSolids(scene: Scene): Solid[] {
+  const drawn = new Set<string>();
+  for (const row of scene.getRenderedObjects()) {
+    for (const shape of row.sceneShapes) {
+      if (shape.shapeType === 'solid' && !shape.isMetaShape && !shape.isGuide) {
+        drawn.add(shape.shapeId);
+      }
+    }
+  }
+  return sceneSolids().filter((solid) => drawn.has(solid.id));
 }
 
 /** `solids` with the colours their holders in the current scene resolve — the export's input. */

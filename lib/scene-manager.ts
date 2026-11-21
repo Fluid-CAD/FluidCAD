@@ -27,7 +27,7 @@ import type { LengthUnit } from "./units/units.js";
 import { createProjectUnitLookup, resolveProjectUnit } from "./project-unit.js";
 import { FileImport } from "./io/file-import.js";
 import { FileExport } from "./io/file-export.js";
-import type { ExportOptions } from "./io/file-export.js";
+import type { ExportOptions, ExportResult } from "./io/file-export.js";
 import { collectAssemblyExportTree, exportAssemblyTree } from "./io/assembly-export/index.js";
 import type { AssemblyExportOptions, AssemblyExportPose, AssemblyExportPosesSource } from "./io/assembly-export/index.js";
 import type { StepFileUnits } from "./oc/step-units.js";
@@ -583,7 +583,7 @@ class SceneManager {
     };
   }
 
-  exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
+  exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): ExportResult {
     // Each solid leaves with the colours its holder resolves for it (the
     // final state, scope-less).
     const solids: ColoredSolid[] = [];

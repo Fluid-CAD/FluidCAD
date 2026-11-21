@@ -437,6 +437,69 @@ describe('hub and package tools', () => {
   });
 });
 
+describe('ask_user', () => {
+  const questions = [{ question: 'Which thread?', options: [{ label: 'M4' }, { label: 'M5' }] }];
+
+  it('is not offered by a server with nobody to ask', async () => {
+    for (const server of [buildServer(), buildServer({ pinnedWorkspace: entry() })]) {
+      expect((await listToolSchemas(server)).map((t) => t.name)).not.toContain('ask_user');
+    }
+  });
+
+  it('is offered when the host can ask, hands it the questions, and returns its answer', async () => {
+    const asked: unknown[] = [];
+    const gated: string[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      toolGate: {
+        before: async (call) => {
+          gated.push(call.name);
+          return { allow: true };
+        },
+        after: () => {},
+      },
+      askUser: async (input, signal) => {
+        asked.push(input);
+        expect(signal.aborted).toBe(false);
+        return { content: [{ type: 'text', text: '{"answers":[{"question":"Which thread?","selected":["M5"]}]}' }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'ask_user')!;
+      expect(tool.annotations).toEqual({ readOnlyHint: true });
+      expect(tool.description).toContain('waits for their answers');
+      const result = await client.callTool({ name: 'ask_user', arguments: { questions } });
+      expect(result.isError).not.toBe(true);
+      expect(JSON.parse(textOf(result)).answers[0].selected).toEqual(['M5']);
+      expect(asked).toEqual([{ questions }]);
+      // The host answers it; the gate around the other tools never sees it.
+      expect(gated).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('reports a host that fails as a tool error', async () => {
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      askUser: async () => {
+        throw new Error('nobody home');
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const result = await client.callTool({ name: 'ask_user', arguments: { questions } });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe('nobody home');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
 describe('tool annotations', () => {
   const DESTRUCTIVE = ['write_file', 'edit_range', 'export', 'pack'];
   const MUTATING = ['recompute', 'select_configuration', 'rollback_to', 'add_breakpoint', 'clear_breakpoints', 'import_step', 'install_package'];

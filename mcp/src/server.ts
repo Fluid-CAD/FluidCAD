@@ -70,10 +70,18 @@ import { registerSkillsExtension, skillsExtensionCapability } from './skills-ext
 import { listSkills, readSkill } from './tools/skills.ts';
 import { registerDocResources, registerSkillResources } from './resources.ts';
 import type { RegistryEntry, ToolResult } from './types.ts';
-import { gateToolHandler, type McpToolGate } from './tool-gate.ts';
+import { gateToolHandler, toolError, type McpToolGate } from './tool-gate.ts';
 import { toolAnnotations } from './tool-classes.ts';
+import { ASK_USER_DESCRIPTION, ASK_USER_TITLE, ASK_USER_TOOL, askUserInputSchema, type McpAskUser } from './ask-user.ts';
 
 export type { McpToolCall, McpToolGate, McpToolGateDecision } from './tool-gate.ts';
+export {
+  ASK_USER_TOOL,
+  type AskUserInput,
+  type AskUserOption,
+  type AskUserQuestion,
+  type McpAskUser,
+} from './ask-user.ts';
 export type { RegistryEntry } from './types.ts';
 // A host that builds many servers (one per agent chat session) loads the
 // indexes once and passes them to every `buildServer`.
@@ -254,6 +262,12 @@ export type BuildServerOptions = {
    * sees its result. Unset, tools run as called.
    */
   toolGate?: McpToolGate;
+  /**
+   * Asks the user a question and waits for the answer. Set by a host that
+   * has someone to ask (the in-app chat): `ask_user` is offered only then.
+   * The call does not pass through `toolGate`.
+   */
+  askUser?: McpAskUser;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
@@ -1567,6 +1581,28 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     async ({ workspace, name, path: filePath, version, offset, maxChars }) =>
       toMcp(await readPackageFile({ ...target(workspace), name, path: filePath, version, offset, maxChars })),
   );
+
+  const askUser = options.askUser;
+  if (askUser) {
+    // Outside `registerTool`: no class (it changes nothing) and no gate (the
+    // host that answers it is the one that would gate it).
+    server.registerTool(
+      ASK_USER_TOOL,
+      {
+        title: ASK_USER_TITLE,
+        description: ASK_USER_DESCRIPTION,
+        inputSchema: askUserInputSchema,
+        annotations: { readOnlyHint: true },
+      },
+      async ({ questions }, extra) => {
+        try {
+          return await askUser({ questions }, extra.signal);
+        } catch (e) {
+          return toolError(e instanceof Error ? e.message : String(e));
+        }
+      },
+    );
+  }
 
   return server;
 }

@@ -94,6 +94,17 @@ Before a turn first changes a file, FluidCAD keeps a copy of it. Under a message
 
 Reverting covers project files the agent wrote. It does not undo an export, a pack or a STEP import. Reverting a turn that installed a package puts `fluidcad.json` back, so the project no longer uses the package; the package itself stays in your library.
 
+## Questions from the agent
+
+When a choice is yours to make and the request leaves it open (a dimension, which of two readings you meant), the agent can ask instead of guessing. The question shows as a card in the transcript, and the turn waits for you. One card holds up to four questions.
+
+- A question with options: click one to pick it, click it again to take the pick back. A question that says **Pick any that apply** takes several.
+- Every question also has a field for an answer in your own words. With options, what you write goes to the agent along with your pick, or instead of one.
+- **Send** (or Enter in a field) sends your answers. You can leave some questions open; the agent decides those itself.
+- **Skip** leaves all of them to the agent. It is told to choose sensibly and say what it assumed.
+
+Once answered, the card keeps the questions with what you answered. A card left unanswered for an hour times out, and **Stop** ends the turn with the question unanswered. Questions are part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer them to external agents, which have their own ways of asking.
+
 ## Packages from the hub
 
 The agent can look for a [package](/docs/packages) instead of modeling a standard part or writing a feature from scratch. Ask for it ("find a standoff package and use it on this plate"), or it may look on its own.
@@ -161,7 +172,7 @@ A chat stays with the agent it was started with; a new chat's agent chip picks i
 
 Chats are stored in the project, under `.fluidcad/agent/sessions/`: the conversation, images, and the copies of files kept for reverting. A new project's `.gitignore` already ignores `.fluidcad/`, so chats stay out of git. Claude Code and Codex also keep their own record of the conversation in their own folders, as they do for any session.
 
-If FluidCAD stopped while the agent was working, the chat reopens with a notice and **Continue**. The last tool call may or may not have run. Continuing tells the agent what you had asked and how each of its tool calls in that turn ended (done, failed, declined, waiting for your approval, or result unknown), so it can check the files and the model and carry on.
+If FluidCAD stopped while the agent was working, the chat reopens with a notice and **Continue**. The last tool call may or may not have run. Continuing tells the agent what you had asked and how each of its tool calls in that turn ended (done, failed, declined, waiting for your approval or your answer, or result unknown), so it can check the files and the model and carry on.
 
 ## Usage
 

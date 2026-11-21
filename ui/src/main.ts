@@ -351,9 +351,9 @@ const measureController = new MeasureController(
   container, engineClient, viewer,
   (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
   {
-    // The browser-side solver owns instance poses (drags, mate drives, the
-    // animate bar); the server only knows the statement pose. Each measured
-    // entity carries the live one.
+    // The viewer owns the live instance poses (drags, mate drives, the
+    // animate bar); the engine's own solve only knows the rest
+    // configuration. Each measured entity carries the live one.
     poseOf: (instanceId) => {
       const pose = viewer.getAssemblyController()?.getInstancePose(instanceId);
       if (!pose) {
@@ -374,7 +374,7 @@ viewer.referenceImage.onStatus = (message) => {
   }
 };
 // The whole-assembly export ships the same live poses measure does — the
-// browser-side solver owns them, the server only knows the statement pose.
+// viewer owns them, the engine's own solve only knows the rest configuration.
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext, {
   instances: () => (lastAssemblyPayload?.instances ?? []).map(i => ({ instanceId: i.instanceId, name: i.name })),
   poseOf: (instanceId) => {

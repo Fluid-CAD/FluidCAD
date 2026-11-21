@@ -50,8 +50,12 @@ const SHAPES_FILE_BASE = 'export';
 
 const ZIP_FILTER: DesktopFileFilter = { name: 'ZIP Archives', extensions: ['zip'] };
 
-/** Why a configuration other than the one on screen can sit differently: the viewer solved the mates for the row it shows. */
-const OFF_SCREEN_POSES = 'place their parts where the source puts them, not where the mates do';
+/**
+ * Why a configuration other than the one on screen can sit differently: the
+ * engine solves its mates from the source's poses, as when a file opens,
+ * while the row on screen exports wherever its parts were dragged or driven.
+ */
+const OFF_SCREEN_POSES = 'place their parts where the mates settle them, not where they were dragged';
 
 /**
  * The download's base name for a document: the file name without its
@@ -383,9 +387,9 @@ export class ExportDialog {
    * screen (the pick comes back with STEP or STL). The note says how the
    * export differs from the viewport: All configurations is one file per
    * row in a zip, and — the assembly only — a row other than the one on
-   * screen sits at its statement poses, the viewer having solved the mates
-   * for the row it shows. A part scene's other row needs no note: its
-   * solids are simply that row's.
+   * screen sits where the engine's own solve settles its mates, the
+   * viewer's dragged poses belonging to the row it shows. A part scene's
+   * other row needs no note: its solids are simply that row's.
    */
   private syncConfigurationControls(): void {
     const offered = this.configurationsOffered();

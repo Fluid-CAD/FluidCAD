@@ -262,13 +262,13 @@ describe('ExportDialog configurations', () => {
     expect(q('configuration-note').classList.contains('hidden')).toBe(true);
   });
 
-  it('sends the picked row, and says an off-screen row is not where the mates put it', async () => {
+  it('sends the picked row, and says an off-screen row sits where its mates settle it, not as dragged', async () => {
     const { dialog, exportShapes, q } = mount(provider());
     dialog.setConfigurations(TABLE);
     dialog.show({ kind: 'assembly' });
     pickConfiguration(q, 'Compact');
     expect(q('configuration-note').classList.contains('hidden')).toBe(false);
-    expect(q('configuration-note').textContent).toContain('not where the mates do');
+    expect(q('configuration-note').textContent).toContain('where the mates settle them');
 
     await clickExport(q);
 

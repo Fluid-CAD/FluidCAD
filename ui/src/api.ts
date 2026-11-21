@@ -174,9 +174,10 @@ export type ShapeSelection = string[] | typeof EVERY_SOLID;
  * part scene), or with {@link EVERY_SOLID} every solid of the scene
  * exported — so a configuration row that adds or drops a body exports its
  * own set, where listed ids it does not build are refused; `assembly`
- * exports every instance of the current assembly where it sits. `poses` must cover every instance — they are the browser
- * solver's live world poses, which the server cannot compute itself; a
- * headless client omits them and gets the statement poses instead.
+ * exports every instance of the current assembly where it sits. `poses` must
+ * cover every instance — they are this viewer's live world poses, the parts
+ * as dragged and driven on screen; a client that omits them gets the engine's
+ * own solve of the mates from the statement poses instead.
  */
 export type ExportRequestBody = (
   | { format: ExportFormat; shapeIds: ShapeSelection; assembly?: undefined }
@@ -187,8 +188,8 @@ export type ExportRequestBody = (
  * `configuration`: the `configurations()` row to export (`'Default'` for the
  * literals). The row on screen exports the live scene; any other is rendered
  * for the request alone — the session's row and the viewer are untouched —
- * and an assembly from that render sits at its statement poses (the live
- * poses were solved for the row on screen). Omitted: the scene on screen.
+ * and an assembly from that render sits where the engine solves its mates
+ * (the live poses belong to the row on screen). Omitted: the scene on screen.
  */
 export type ExportConfigurationOption = { configuration?: string };
 
@@ -198,9 +199,9 @@ export type MeasureEntityRef = {
   index: number;
   /**
    * Assembly context: the owning instance (two instances of one part share
-   * a shapeId) and its live world pose from the browser-side solver. The
-   * engine measures the entity where that pose puts it; without a pose it
-   * falls back to the instance's statement pose.
+   * a shapeId) and its live world pose in this viewer. The engine measures
+   * the entity where that pose puts it; without a pose it places the
+   * instance where its own solve of the mates does.
    */
   instanceId?: string;
   pose?: MeasurePose;
@@ -7315,7 +7316,7 @@ export type InterferenceRequestBody = {
   instanceIds?: string[];
   shapeIds?: string[];
   tolerance?: number;
-  /** Assembly files: the live world poses to use instead of the statement poses. */
+  /** Assembly files: the live world poses to use instead of the engine's solved ones. */
   poses?: (MeasurePose & { instanceId: string })[];
   /** Carry each shared volume's meshes on the pair (what the section view paints red). */
   includeGeometry?: boolean;

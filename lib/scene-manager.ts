@@ -3,6 +3,7 @@ import { AssemblyScene, SerializedAssemblyConnector, SerializedInstance, Seriali
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare, type SceneCompareOptions } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
+import type { AssemblySolution } from "./rendering/assembly-solution.js";
 import { SceneDisposal } from "./rendering/scene-disposal.js";
 import { GeneratedTemplateCache, type GeneratedCacheStats } from "./rendering/generated-template-cache.js";
 import { GeneratedBuildReports, type GeneratedBuildReport } from "./rendering/generated-build-report.js";
@@ -28,13 +29,13 @@ import { FileImport } from "./io/file-import.js";
 import { FileExport } from "./io/file-export.js";
 import type { ExportOptions } from "./io/file-export.js";
 import { collectAssemblyExportTree, exportAssemblyTree } from "./io/assembly-export/index.js";
-import type { AssemblyExportOptions, AssemblyExportPose } from "./io/assembly-export/index.js";
+import type { AssemblyExportOptions, AssemblyExportPose, AssemblyExportPosesSource } from "./io/assembly-export/index.js";
 import type { StepFileUnits } from "./oc/step-units.js";
 
 /** What an import produced, for the "N solids, file unit INCH" report. */
 /** What an assembly export produced, or why it was refused (`'reason' in outcome`). */
 export type AssemblyExportOutcome =
-  | { ok: true; data: string | Uint8Array; fileName: string; posesSource: 'live' | 'statement' }
+  | { ok: true; data: string | Uint8Array; fileName: string; posesSource: AssemblyExportPosesSource }
   | { ok: false; reason: string };
 
 /**
@@ -203,6 +204,14 @@ class SceneManager {
 
   renderScene(scene: Scene) {
     return this.renderer.render(scene);
+  }
+
+  /**
+   * Where an assembly's mates put its parts, with each joint's outcome —
+   * see {@link AssemblySolution}. Null for a part scene.
+   */
+  getAssemblySolution(scene: Scene): AssemblySolution | null {
+    return scene instanceof AssemblyScene ? scene.getSolution() : null;
   }
 
   getAssemblyData(scene: Scene): {
@@ -460,6 +469,9 @@ class SceneManager {
   measure(scene: Scene, refs: MeasureEntityRef[]): MeasureResult | null {
     const inputs: MeasureInput[] = [];
     const disposers: (() => void)[] = [];
+    // Where the mates put each instance — read once, and only when an
+    // entity names an instance without bringing a pose of its own.
+    let placedPoses: Map<string, MeasurePose> | null = null;
     try {
       for (const ref of refs) {
         const shape = findShapeById(scene, ref.shapeId);
@@ -481,9 +493,13 @@ class SceneManager {
         // shapes live once per template in the part's own frame, so the
         // sub-shape is moved (location only — no geometry copy; every
         // downstream kernel call reads through TopLoc_Location) by the
-        // instance pose: the caller's live pose, else the statement pose.
+        // instance pose: the caller's live pose, else where the mates put
+        // the instance (AssemblyScene.getSolution).
         if (ref.instanceId !== undefined) {
-          const pose = ref.pose ?? serializedInstancePose(scene, ref.instanceId);
+          if (!ref.pose && scene instanceof AssemblyScene) {
+            placedPoses ??= scene.getPlacedPoses();
+          }
+          const pose = ref.pose ?? placedPoses?.get(ref.instanceId);
           if (!pose) {
             return null;
           }
@@ -589,8 +605,9 @@ class SceneManager {
 
   /**
    * Export the whole assembly — every instance where it sits. `livePoses`
-   * are the browser-side solver's placements (the engine only knows the
-   * statement poses); without them the statement configuration is written,
+   * are a viewer's placements (a part dragged along a free joint, a mate
+   * the Animate bar drove — motion only that viewer holds); without them
+   * the instances go where the mates put them (AssemblyScene.getSolution),
    * and `posesSource` says which happened. A part scene is refused: it has
    * no instances to place.
    */
@@ -832,18 +849,6 @@ function withBoundary<T>(
     return scoped;
   }
   return run(scoped.scene);
-}
-
-/** The world pose the scene serialized for an instance (occurrence chain composed), or null when unknown. */
-function serializedInstancePose(scene: Scene, instanceId: string): MeasurePose | null {
-  if (!(scene instanceof AssemblyScene)) {
-    return null;
-  }
-  const inst = scene.getSerializedInstances().find(i => i.instanceId === instanceId);
-  if (!inst) {
-    return null;
-  }
-  return { position: inst.position, quaternion: inst.quaternion };
 }
 
 /** A feature that holds a face or an edge in one of its buckets (see SceneManager.getShapeOwners). */

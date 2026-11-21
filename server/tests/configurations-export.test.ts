@@ -124,7 +124,7 @@ function makeFakeManager(rowsFor: RowsFor = ONE_SOLID) {
     },
     exportAssembly(scene: FakeScene, options: { livePoses?: unknown }) {
       manager.assemblies.push({ scene: scene.no, livePoses: options.livePoses });
-      return { ok: true, data: 'ISO-10303-21;', fileName: 'rig.step', posesSource: options.livePoses ? 'live' : 'statement' };
+      return { ok: true, data: 'ISO-10303-21;', fileName: 'rig.step', posesSource: options.livePoses ? 'live' : 'solved' };
     },
   };
   return manager;
@@ -297,7 +297,7 @@ describe('POST /api/export with a configuration', () => {
     expect(res.status).toBe(400);
   });
 
-  it('exports an assembly of another row at its statement poses', async () => {
+  it('exports an assembly of another row where the engine solves that row, never at the viewer\'s poses', async () => {
     await renderTweakedCompact();
     const res = await post(`${app.url}/api/export`, {
       format: 'step',
@@ -307,7 +307,7 @@ describe('POST /api/export with a configuration', () => {
     expect(res.status).toBe(200);
     expect(manager.assemblies).toHaveLength(1);
     expect(manager.assemblies[0].livePoses).toBeUndefined();
-    expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('statement');
+    expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('solved');
     expect(manager.disposed).toEqual([manager.assemblies[0].scene]);
   });
 });

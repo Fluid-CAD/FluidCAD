@@ -13,7 +13,7 @@ import type { RenderedCandidate, RenderedPoolRefusalCode } from "./rendered-pool
 import type { SceneObjectMesh } from "../rendering/scene.js";
 import type { TopoDS_Shape } from "ocjs-fluidcad";
 
-/** A live world pose for one instance, overriding its statement pose. */
+/** A world pose for one instance, overriding where the mates put it. */
 export type InterferencePose = MeasurePose & { instanceId: string };
 
 export type InterferenceRequest = {
@@ -30,7 +30,7 @@ export type InterferenceRequest = {
    * overlap. Default: the equivalent of 1 mm³ (touching faces yield slivers).
    */
   tolerance?: number;
-  /** Assembly files: world poses to use instead of the statement poses, per instance. */
+  /** Assembly files: world poses to use instead of the mate-solved ones, per instance. */
   poses?: InterferencePose[];
   /**
    * Carry the shared volume itself, meshed in world space, on every pair
@@ -126,9 +126,9 @@ type Refusal = Extract<SceneInterferenceOutcome, { kind: 'refused' }>;
  * Do any two bodies of a scene occupy the same space?
  *
  * The bodies are the solids the scene renders ({@link RenderedSolidPool}).
- * In an assembly every instance of a part is its own body set, placed at
- * its statement pose (or the pose the caller supplies), so two instances of
- * one part can clash with each other. The unit of the verdict is the part:
+ * In an assembly every instance of a part is its own body set, placed
+ * where the mates put it (or at the pose the caller supplies), so two
+ * instances of one part can clash with each other. The unit of the verdict is the part:
  * a pair from two instances (or, in a part file, two `part()` blocks) is a
  * clash; a pair inside one instance (a multi-solid part) is `intraPart` and
  * never fails; in a file without parts every solid is its own unit.
@@ -314,8 +314,8 @@ export class SceneInterference {
 
   /**
    * One body per rendered solid in a part file; in an assembly one per
-   * instance showing the solid, placed at its world statement pose unless
-   * the caller supplied one.
+   * instance showing the solid, placed where the mates put it
+   * (AssemblyScene.getSolution) unless the caller supplied a pose.
    */
   private static bodies(
     scene: Scene,
@@ -324,8 +324,8 @@ export class SceneInterference {
     poseOverrides: Map<string, MeasurePose>,
   ): Body[] {
     const out: Body[] = [];
-    const statementPoses = scene instanceof AssemblyScene
-      ? new Map(scene.getSerializedInstances().map(i => [i.instanceId, { position: i.position, quaternion: i.quaternion }]))
+    const placedPoses = scene instanceof AssemblyScene
+      ? scene.getPlacedPoses()
       : new Map<string, MeasurePose>();
     for (const candidate of candidates) {
       const part = scene.findEnclosingPart(candidate.object);
@@ -344,7 +344,7 @@ export class SceneInterference {
           address: { ...address, instanceId },
           unitKey: `instance:${instanceId}`,
           candidate,
-          pose: poseOverrides.get(instanceId) ?? statementPoses.get(instanceId),
+          pose: poseOverrides.get(instanceId) ?? placedPoses.get(instanceId),
         });
       }
     }

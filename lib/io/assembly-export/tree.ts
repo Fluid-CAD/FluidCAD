@@ -3,11 +3,19 @@ import type { LengthUnit } from "../../units/units.js";
 import type { Pose } from "../../math/pose.js";
 
 /**
- * A live instance pose handed in by the client — the browser-side solver's
- * placement (drags, mate drives, the animate bar), which the engine never
- * sees otherwise. World frame, in the assembly's unit.
+ * A live instance pose handed in by a viewer — where its own solve has the
+ * part after drags, mate drives and the animate bar, motion the engine
+ * never sees otherwise. World frame, in the assembly's unit.
  */
 export type AssemblyExportPose = Pose & { instanceId: string };
+
+/**
+ * Where an export's instance poses came from: `live` — the viewer's, handed
+ * in; `solved` — the engine's own mate solve from the statement poses;
+ * `statement` — the source's `insert()` chains alone, because that solve
+ * could not run.
+ */
+export type AssemblyExportPosesSource = 'live' | 'solved' | 'statement';
 
 /** One part template: exported once, referenced by every instance of it. */
 export type AssemblyExportPart = {
@@ -34,8 +42,7 @@ export type AssemblyExportTree = {
   unit: LengthUnit;
   parts: Map<string, AssemblyExportPart>;
   children: AssemblyExportNode[];
-  /** Whether instance poses came from the client (`live`) or the source statements. */
-  posesSource: 'live' | 'statement';
+  posesSource: AssemblyExportPosesSource;
 };
 
 /** Whether anything under `node` has geometry to write. */

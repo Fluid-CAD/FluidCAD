@@ -62,13 +62,23 @@ export type ExportInstancePose = {
   quaternion: { x: number; y: number; z: number; w: number };
 };
 
+/**
+ * Where an assembly export's instance poses came from: `live` — the poses
+ * the request handed in (a viewer's, after drags and mate drives); `solved`
+ * — the engine's own mate solve from the statement poses; `statement` — the
+ * `insert()` chains alone, on an engine that predates that solve or when it
+ * could not run.
+ */
+export type ExportPosesSource = 'live' | 'solved' | 'statement';
+
 export type ExportSceneMessage = {
   type: 'export-scene';
   /** Solids to export — or omit it and pass `assembly` for the whole assembly. */
   shapeIds?: string[];
   /**
    * Export the whole assembly. `poses` are optional live placements (one per
-   * instance); without them the statement poses are written.
+   * instance); without them every instance goes where the engine's own mate
+   * solve puts it.
    */
   assembly?: { poses?: ExportInstancePose[] };
   options: {
@@ -335,8 +345,8 @@ export type ExportCompleteMessage = {
   data?: string;
   fileName?: string;
   error?: string;
-  /** Assembly exports: whether live or statement poses were written. */
-  posesSource?: 'live' | 'statement';
+  /** Assembly exports: where the instance poses written came from. */
+  posesSource?: ExportPosesSource;
 };
 
 export type AddBreakpointMessage = {

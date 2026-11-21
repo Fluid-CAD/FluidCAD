@@ -2465,10 +2465,11 @@ export class FluidCadServer {
 
   /**
    * Export the current assembly — every instance where it sits. `livePoses`
-   * are the browser's solved placements (the engine only knows the statement
-   * poses); absent, the statement configuration is written and the outcome
-   * says so. Null when nothing is rendered; a refusal (`reason`) when the
-   * current scene is not an assembly or the poses do not cover it.
+   * are a viewer's placements (parts dragged along free joints, a driven
+   * mate); absent, the instances go where the engine's own mate solve puts
+   * them, and the outcome says which was written. Null when nothing is
+   * rendered; a refusal (`reason`) when the current scene is not an assembly
+   * or the poses do not cover it.
    */
   exportAssembly(
     options: {
@@ -3076,7 +3077,14 @@ export class FluidCadServer {
       rollbackStop: this.lastRollbackStop,
       ...(this.lastRollbackScopePartId ? { rollbackScopePartId: this.lastRollbackScopePartId } : {}),
       compileError: this.compileError,
-      ...(assembly ? AssemblySummary.fields(assembly, this.sceneManager?.getInstanceShapeIds?.(scene) ?? null, rendered) : {}),
+      ...(assembly
+        ? AssemblySummary.fields(
+          assembly,
+          this.sceneManager?.getInstanceShapeIds?.(scene) ?? null,
+          rendered,
+          this.sceneManager?.getAssemblySolution?.(scene) ?? null,
+        )
+        : {}),
     };
   }
 

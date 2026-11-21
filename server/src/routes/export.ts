@@ -29,7 +29,7 @@ function isQuat(v: unknown): v is { x: number; y: number; z: number; w: number }
 /**
  * The `assembly.poses` list as sent by the UI: one live world pose per
  * instance. Returns the parsed list, `undefined` when the client sent none
- * (statement poses), or an error string.
+ * (the engine's own solve places the instances), or an error string.
  */
 function parseAssemblyPoses(assembly: unknown): AssemblyExportPose[] | undefined | string {
   if (assembly === null || typeof assembly !== 'object' || Array.isArray(assembly)) {
@@ -63,8 +63,9 @@ function parseAssemblyPoses(assembly: unknown): AssemblyExportPose[] | undefined
  * viewer shows are untouched (`docs/assembly-configurations-plan.md` §3.7).
  * The row that is already active exports the live scene, tweaks included;
  * `'Default'` is the literals. An assembly exported from a scratch render
- * sits at its statement poses — the viewer's solved poses belong to the
- * configuration on screen — and says so in `X-FluidCAD-Assembly-Poses`.
+ * sits where the engine's mate solve of that render puts it — the viewer's
+ * live poses belong to the configuration on screen — and says so in
+ * `X-FluidCAD-Assembly-Poses`.
  * A name the file does not declare is a 400 listing the declared names.
  *
  * `shapeIds: "all"` exports every solid of the scene exported — the row's
@@ -167,7 +168,8 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
           return;
         }
         scratch = rendered;
-        // The viewer's poses were solved for the configuration on screen.
+        // The viewer's poses belong to the configuration on screen; the
+        // engine solves the row it renders.
         livePoses = undefined;
       }
     }

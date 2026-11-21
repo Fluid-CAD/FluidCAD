@@ -106,15 +106,15 @@ describe('export route', () => {
     expect(exportCalls).toEqual([]);
   });
 
-  it('exports the assembly at its statement poses when none are sent', async () => {
-    assemblyOutcome = { ok: true, data: 'ISO-10303-21;', fileName: 'rig.step', posesSource: 'statement' };
+  it('exports the assembly where the engine solves it when no poses are sent', async () => {
+    assemblyOutcome = { ok: true, data: 'ISO-10303-21;', fileName: 'rig.step', posesSource: 'solved' };
     const res = await fetch(`${baseUrl}/api/export`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ format: 'step', assembly: {} }),
     });
     expect(res.status).toBe(200);
-    expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('statement');
+    expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('solved');
     expect(assemblyCalls[0].livePoses).toBeUndefined();
   });
 

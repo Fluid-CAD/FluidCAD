@@ -252,9 +252,9 @@ describe("assembly export", () => {
     const a = insert(blockDefinition());
     render();
 
-    const statement = exportCurrent({ format: "step" });
-    expect(!('reason' in statement) && statement.posesSource).toBe("statement");
-    expect(!('reason' in statement) && statement.fileName).toBe("rig.step");
+    const solved = exportCurrent({ format: "step" });
+    expect(!('reason' in solved) && solved.posesSource).toBe("solved");
+    expect(!('reason' in solved) && solved.fileName).toBe("rig.step");
 
     const live = exportCurrent({
       format: "step",

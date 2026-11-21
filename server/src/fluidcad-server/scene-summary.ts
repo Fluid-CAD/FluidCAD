@@ -3,16 +3,19 @@
 import type { CompileError } from '../ws-protocol.ts';
 import type { LengthUnit } from '../project-config.ts';
 import type { SceneRenderedData } from './render-types.ts';
+import type { AssemblySolution } from '../../../lib/dist/index.js';
 import type { SerializedAssembly } from './assembly-types.ts';
 import { GeneratedRows } from '../generated-rows.ts';
 import { JointSummary } from './joint-summary.ts';
-import type { SceneSummaryJoints, SceneSummaryMate, SceneSummaryRelation } from './joint-summary.ts';
+import type { SceneSummaryMate, SceneSummaryRelation, SceneSummarySolve } from './joint-summary.ts';
+import { SolvedNumber } from './solved-number.ts';
 
 export type {
-  SceneSummaryJoints,
   SceneSummaryMate,
   SceneSummaryMateOptions,
+  SceneSummaryMateOutcome,
   SceneSummaryMateSide,
+  SceneSummarySolve,
   SceneSummaryRelation,
   SceneSummaryRelationMate,
 } from './joint-summary.ts';
@@ -126,13 +129,15 @@ export type SceneSummaryInstancePose = {
 /**
  * What every `instances[].pose` is. `frame: 'world'`: occurrence frames are
  * composed in, so a sub-assembly's instance is placed where its parent puts
- * it. `source: 'statement'`: the warm-start pose the `insert()` chain sets
- * (`.translate()` / `.rotate()`; a replica copies its seed's) — the pose
- * `interfere`, `measure` and `resolve_selection` use when none is passed.
- * Never the mate-solved pose the viewport draws: mates are solved only in
- * the viewer, and the server never sees the result.
+ * it. `source` is where the pose comes from:
+ * - `solved`: where the mates put the instance — the engine's own solve of
+ *   the assembly (`SceneSummary.solve`), the pose `interfere`, `measure`,
+ *   `resolve_selection` and an assembly export use when none is passed.
+ * - `statement`: the pose the `insert()` chain sets (`.translate()` /
+ *   `.rotate()`; a replica copies its seed's), mates not applied — the solve
+ *   could not run, or the engine predates it.
  */
-export type SceneSummaryInstancePoses = { frame: 'world'; source: 'statement' };
+export type SceneSummaryInstancePoses = { frame: 'world'; source: 'solved' | 'statement' };
 
 /** One inserted assembly instance, addressed the way the inspection tools take it. */
 export type SceneSummaryInstance = {
@@ -154,6 +159,12 @@ export type SceneSummaryInstance = {
    */
   shapeIds?: string[];
   pose: SceneSummaryInstancePose;
+  /**
+   * The pose the instance's `insert()` chain sets, present only when the
+   * mates moved the instance off it — the number a `.translate()` /
+   * `.rotate()` edit changes, where `pose` is the one geometry is at.
+   */
+  statementPose?: SceneSummaryInstancePose;
   sourceLocation?: { filePath: string; line: number; column: number };
   /** Present on a `replicate()` copy: the seed instance, the replicate statement, the row. */
   replica?: { of: string; statement: string; row: number };
@@ -197,8 +208,8 @@ export type SceneSummary = {
   instances?: SceneSummaryInstance[];
   /** Assembly files that insert a sub-assembly only. */
   occurrences?: SceneSummaryOccurrence[];
-  /** Assembly files only: what every `mates[]` / `relations[]` entry is — authored records, solved only in the viewer. */
-  joints?: SceneSummaryJoints;
+  /** Assembly files only, on an engine that solves mates: how the solve of the assembly came out. */
+  solve?: SceneSummarySolve;
   /** Assembly files only: every mate, sub-assemblies' and generators' included, in statement order (possibly empty). */
   mates?: SceneSummaryMate[];
   /** Assembly files with a `relation()` (their own or a generator's) only. */
@@ -211,32 +222,45 @@ export type SceneSummary = {
  * none of these keys.
  */
 export class AssemblySummary {
-  static readonly POSES: SceneSummaryInstancePoses = { frame: 'world', source: 'statement' };
-
   /**
    * The summary keys for an assembly render. `shapeIds` maps an instance id
    * to the rendered solids it shows, or is null on an engine without that
    * lookup (the entries then carry no `shapeIds`). `rendered` are the
    * render's rows: they name the connectors mate sides hold by id, and with
    * the assembly records they decide which records are engine-owned
-   * ({@link GeneratedRows}, the write guard's rule).
+   * ({@link GeneratedRows}, the write guard's rule). `solution` is the
+   * engine's solve of the assembly — where its mates put the instances and
+   * how each joint came out — or null on an engine that predates it: the
+   * summary then reports the statement poses and no `solve`.
    */
   static fields(
     assembly: SerializedAssembly,
     shapeIds: Map<string, string[]> | null,
     rendered: readonly any[] = [],
-  ): Pick<SceneSummary, 'instancePoses' | 'instances' | 'occurrences' | 'joints' | 'mates' | 'relations'> {
+    solution: AssemblySolution | null = null,
+  ): Pick<SceneSummary, 'instancePoses' | 'instances' | 'occurrences' | 'solve' | 'mates' | 'relations'> {
     const occurrences = assembly.occurrences ?? [];
     const owned = GeneratedRows.of(rendered, assembly);
-    const joints = new JointSummary(assembly, rendered, owned);
+    const joints = new JointSummary(assembly, rendered, owned, solution);
     const relations = joints.relations();
+    const solved = solution?.posesSource === 'solved'
+      ? new Map(solution.poses.map(pose => [pose.instanceId, pose]))
+      : null;
     return {
-      instancePoses: { ...AssemblySummary.POSES },
-      instances: assembly.instances.map(instance => AssemblySummary.instanceOf(instance, shapeIds, owned)),
+      instancePoses: { frame: 'world', source: solved ? 'solved' : 'statement' },
+      instances: assembly.instances.map(instance => AssemblySummary.instanceOf(instance, shapeIds, owned, solved)),
       ...(occurrences.length > 0 ? { occurrences: occurrences.map(AssemblySummary.occurrenceOf) } : {}),
-      joints: { ...JointSummary.JOINTS },
+      ...(solution ? { solve: AssemblySummary.solveOf(solution) } : {}),
       mates: joints.mates(),
       ...(relations.length > 0 ? { relations } : {}),
+    };
+  }
+
+  private static solveOf(solution: AssemblySolution): SceneSummarySolve {
+    return {
+      status: solution.status,
+      dof: solution.dof,
+      ...(solution.error !== undefined ? { error: solution.error } : {}),
     };
   }
 
@@ -244,7 +268,14 @@ export class AssemblySummary {
     instance: SerializedAssembly['instances'][number],
     shapeIds: Map<string, string[]> | null,
     owned: GeneratedRows,
+    solved: ReadonlyMap<string, AssemblySolution['poses'][number]> | null,
   ): SceneSummaryInstance {
+    const statementPose = AssemblySummary.poseOf(instance.instanceId, instance);
+    const solvedPose = solved?.get(instance.instanceId);
+    // The solved pose goes out exactly as the engine holds it: it is the
+    // pose measure, interfere and resolve_selection place the instance at,
+    // and an agent passes it back to them unchanged.
+    const pose = solvedPose ? AssemblySummary.poseOf(instance.instanceId, solvedPose) : statementPose;
     return {
       instanceId: instance.instanceId,
       name: instance.name,
@@ -253,15 +284,37 @@ export class AssemblySummary {
       owner: instance.owner ?? '',
       grounded: instance.grounded,
       ...(shapeIds ? { shapeIds: [...(shapeIds.get(instance.instanceId) ?? [])] } : {}),
-      pose: {
-        instanceId: instance.instanceId,
-        position: { x: instance.position.x, y: instance.position.y, z: instance.position.z },
-        quaternion: { x: instance.quaternion.x, y: instance.quaternion.y, z: instance.quaternion.z, w: instance.quaternion.w },
-      },
+      pose,
+      ...(solvedPose && AssemblySummary.moved(statementPose, pose) ? { statementPose } : {}),
       ...(instance.sourceLocation ? { sourceLocation: instance.sourceLocation } : {}),
       ...(instance.replica ? { replica: { ...instance.replica } } : {}),
       ...(owned.owns({ row: instance.instanceId, location: instance.sourceLocation }) ? { engineOwned: true as const } : {}),
     };
+  }
+
+  private static poseOf(
+    instanceId: string,
+    pose: Pick<SceneSummaryInstancePose, 'position' | 'quaternion'>,
+  ): SceneSummaryInstancePose {
+    return {
+      instanceId,
+      position: { x: pose.position.x, y: pose.position.y, z: pose.position.z },
+      quaternion: { x: pose.quaternion.x, y: pose.quaternion.y, z: pose.quaternion.z, w: pose.quaternion.w },
+    };
+  }
+
+  /**
+   * Whether the solve put the instance somewhere other than its statement
+   * pose — beyond the float noise a solve leaves on a part it only
+   * re-derives in place.
+   */
+  private static moved(statement: SceneSummaryInstancePose, solved: SceneSummaryInstancePose): boolean {
+    const numbers = (pose: SceneSummaryInstancePose) => [
+      pose.position.x, pose.position.y, pose.position.z,
+      pose.quaternion.x, pose.quaternion.y, pose.quaternion.z, pose.quaternion.w,
+    ].map(SolvedNumber.round);
+    const before = numbers(statement);
+    return numbers(solved).some((value, index) => value !== before[index]);
   }
 
   private static occurrenceOf(occurrence: NonNullable<SerializedAssembly['occurrences']>[number]): SceneSummaryOccurrence {

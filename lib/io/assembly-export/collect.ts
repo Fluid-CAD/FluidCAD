@@ -11,8 +11,8 @@ export type CollectAssemblyOptions = {
   name: string;
   /**
    * Live world poses, one per instance. When given they must cover every
-   * instance in the scene — a partial list would silently mix solved and
-   * unsolved placement, so it is refused instead.
+   * instance in the scene — a partial list would silently mix a viewer's
+   * configuration with the engine's, so it is refused instead.
    */
   livePoses?: AssemblyExportPose[];
 };
@@ -22,11 +22,12 @@ export type CollectAssemblyResult =
   | { ok: false; reason: string };
 
 /**
- * Builds the export tree of an assembly scene: statement poses from the
- * scene (occurrence chain composed), instance poses overridden by the
- * client's live ones when present, each expressed LOCAL to its owner so
- * nesting survives while the geometry lands exactly where the solver put
- * it. Part templates are collected once per `Part.id` via the same
+ * Builds the export tree of an assembly scene: every instance where the
+ * mates put it (the scene's own solve), or at the client's live pose when
+ * it handed poses in, each expressed LOCAL to its owner so nesting survives
+ * while the geometry lands exactly where the solver put it. Occurrence
+ * frames stay at their statement poses — the solver moves instances, never
+ * the frames they hang off. Part templates are collected once per `Part.id` via the same
  * scope-less read the features use (hard removals honoured, meta and guide
  * shapes excluded).
  */
@@ -93,8 +94,10 @@ export function collectAssemblyExportTree(scene: AssemblyScene, options: Collect
     childrenOf(occ.parentPath).push(node);
   }
 
+  const solution = options.livePoses === undefined ? scene.getSolution() : null;
+  const placed = solution ? scene.getPlacedPoses() : live;
   for (const inst of instances) {
-    const worldPose = live.get(inst.instanceId) ?? { position: inst.position, quaternion: inst.quaternion };
+    const worldPose = placed.get(inst.instanceId) ?? { position: inst.position, quaternion: inst.quaternion };
     const ownerWorld = world.get(inst.owner) ?? IDENTITY_POSE;
     childrenOf(inst.owner).push({
       kind: 'instance',
@@ -112,7 +115,7 @@ export function collectAssemblyExportTree(scene: AssemblyScene, options: Collect
       unit: scene.unit,
       parts,
       children: rootChildren,
-      posesSource: options.livePoses !== undefined ? 'live' : 'statement',
+      posesSource: solution ? solution.posesSource : 'live',
     },
   };
 }

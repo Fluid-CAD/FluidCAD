@@ -3,6 +3,7 @@
 import type {
   AssemblyExportOutcome,
   AssemblyExportPose,
+  AssemblySolution,
   FeatureSlotRequest,
   FeatureSlotSynthesis,
   GeneratedRenderReport,
@@ -43,6 +44,11 @@ export type SceneManager = {
   // cache holds — a recompute from scratch.
   clearGeneratedTemplates?(): void;
   getAssemblyData(scene: any): SerializedAssembly | null;
+  // Optional: may predate the engine-side mate solve. Where an assembly's
+  // mates put its instances, with each joint's outcome; null for a part
+  // scene. An engine without it places instances at their statement poses
+  // wherever a pose is not handed in (measure, interfere, export).
+  getAssemblySolution?(scene: any): AssemblySolution | null;
   rollbackScene(scene: any, rollbackIndex: number, opts?: { partScoped?: boolean }): any;
   // Optional: may predate timeline-ordered renders — the stop is then the
   // last row, unscoped.

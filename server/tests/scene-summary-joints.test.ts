@@ -5,8 +5,8 @@
 // relation with the two mates it couples. A generated assembly's joints
 // (a cabinet: doors on limited revolutes coupled by a gear, a drawer on a
 // slider) live in its occurrence's scope and are engine-owned; a root mate
-// onto one of its parts is not. No entry carries a solve status: the server
-// never solves. A part file's summary has none of these keys.
+// onto one of its parts is not. Every entry carries how the engine's solve
+// of the assembly left it. A part file's summary has none of these keys.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -144,7 +144,6 @@ describe('scene summary joints through the real route', () => {
     engine._setSceneForTesting(ASSEMBLY_FILE, renderRig());
     const body = await summary();
 
-    expect(body.joints).toEqual({ source: 'statement', solvedIn: 'viewer' });
     const mates = body.mates!;
     expect(mates.map((m) => [m.mateId, m.type, m.name ?? null, m.owner, m.engineOwned ?? false])).toEqual([
       ['mate-0', 'fastened', null, '', false],
@@ -156,11 +155,42 @@ describe('scene summary joints through the real route', () => {
       ['asm-0/mate-2', 'slider', 'Drawer 1', 'asm-0', true],
       ['mate-4', 'fastened', 'Kitchen on plate', '', false],
     ]);
-    // No solve status anywhere: the server never solves.
-    for (const m of mates) {
-      expect(Object.keys(m)).not.toContain('status');
-    }
     const byId = new Map(mates.map((m) => [m.mateId, m]));
+
+    // The engine solved the assembly. The plate is fastened to the datum and
+    // the cabinet is grounded 300 away, so the mate that would seat one on
+    // the other cannot close: the solve says so, and by how much.
+    expect(body.solve).toEqual({ status: 'inconsistent', dof: 10 });
+    expect(mates.map((m) => [m.mateId, m.status])).toEqual([
+      ['mate-0', 'satisfied'],
+      ['mate-1', 'satisfied'],
+      ['mate-2', 'satisfied'],
+      ['mate-3', 'satisfied'],
+      ['asm-0/mate-0', 'satisfied'],
+      ['asm-0/mate-1', 'satisfied'],
+      ['asm-0/mate-2', 'satisfied'],
+      ['mate-4', 'failed'],
+    ]);
+    const unclosed = byId.get('mate-4')!;
+    expect(unclosed.gap).toBeGreaterThan(300);
+    expect(unclosed.tiltDeg).toBe(180);
+    expect('gapAxis' in unclosed).toBe(false);
+    // Only a failed mate carries a misclosure.
+    for (const m of mates.filter((mate) => mate.status === 'satisfied')) {
+      expect(Object.keys(m)).not.toEqual(expect.arrayContaining(['gap']));
+      expect(Object.keys(m)).not.toEqual(expect.arrayContaining(['tiltDeg']));
+    }
+    // Where each one-freedom joint sits, in the space its limits are in and
+    // free of float noise: a revolute's angle, a slider's travel. No other
+    // mate type has one.
+    expect(byId.get('mate-1')!.value).toBe(0);
+    expect(byId.get('mate-2')!.value).toBe(5);
+    for (const m of mates) {
+      expect('value' in m).toBe(m.type === 'revolute' || m.type === 'slider');
+    }
+    const drawerMate = byId.get('asm-0/mate-2')!;
+    expect(drawerMate.value).toBeGreaterThanOrEqual(0);
+    expect(drawerMate.value).toBeLessThanOrEqual(drawerTravel(CABINET_DEFAULTS.depth));
     const instanceIds = new Map(body.instances!.map((i) => [i.name, i.instanceId]));
     const connectors = connectorRows(body);
 
@@ -228,17 +258,23 @@ describe('scene summary joints through the real route', () => {
     // The generator's parts are engine-owned rows; the file's own are not.
     expect(body.instances!.filter((i) => i.engineOwned).map((i) => i.name)).toEqual(['Carcass', 'Left door', 'Right door', 'Drawer 1']);
 
-    // Relations: the two mates by id and name.
+    // Relations: the two mates by id and name, and how the solve left each.
+    // A relation couples the motion of one solve: here the solve itself
+    // moves the second mate of each pair off where its insert() left it
+    // while the first stays put, so neither pair moved in ratio — what a
+    // viewer opening this file reports too.
     expect(body.relations).toEqual([
       {
         relationId: 'rel-0', name: 'Drive', type: 'rack-and-pinion', ratio: 62.8, reverse: true,
         mateA: { mateId: 'mate-1', name: 'Pivot' }, mateB: { mateId: 'mate-2' },
         owner: '', sourceLocation: expect.objectContaining({ filePath: ASSEMBLY_FILE, line: rigLine('relation(') }),
+        status: 'failed',
       },
       {
         relationId: 'asm-0/rel-0', name: 'Doors together', type: 'gear', ratio: 1, reverse: true,
         mateA: { mateId: 'asm-0/mate-0', name: 'Left door' }, mateB: { mateId: 'asm-0/mate-1', name: 'Right door' },
         owner: 'asm-0', ownerName: 'Kitchen', engineOwned: true, sourceLocation: kitchenInsert,
+        status: 'failed',
       },
     ]);
   });
@@ -276,7 +312,7 @@ describe('scene summary joints through the real route', () => {
     engine._setSceneForTesting(ASSEMBLY_FILE, scene);
     const body = await summary();
 
-    expect(body.joints).toEqual({ source: 'statement', solvedIn: 'viewer' });
+    expect(body.solve).toEqual({ status: 'okay', dof: 0 });
     expect(body.mates).toEqual([]);
     expect(Object.keys(body)).not.toContain('relations');
     expect(body.instances!.map((i) => i.engineOwned)).toEqual([undefined]);
@@ -290,7 +326,7 @@ describe('scene summary joints through the real route', () => {
     engine._setSceneForTesting(PART_FILE, render());
     const body = await summary();
     expect(body.objects.length).toBeGreaterThan(0);
-    for (const key of ['joints', 'mates', 'relations', 'instances', 'instancePoses', 'occurrences']) {
+    for (const key of ['solve', 'mates', 'relations', 'instances', 'instancePoses', 'occurrences']) {
       expect(Object.keys(body)).not.toContain(key);
     }
   });

@@ -78,7 +78,7 @@ import {
   type LengthUnit,
 } from './project-config.ts';
 import { PageWriteLedger } from './files/page-write-ledger.ts';
-import type { CompileError, SerializedAssembly, ServerToUIMessage } from './ws-protocol.ts';
+import type { CompileError, ExportPosesSource, SerializedAssembly, ServerToUIMessage } from './ws-protocol.ts';
 import { detectKind, isParamsFile } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
@@ -897,7 +897,7 @@ async function handleExtensionMessage(msg: any) {
           // `assembly` (optionally with live poses) exports the whole
           // assembly; otherwise `shapeIds` picks solids, as the UI's route does.
           let result: { data: string | Uint8Array; fileName: string } | null = null;
-          let posesSource: 'live' | 'statement' | undefined;
+          let posesSource: ExportPosesSource | undefined;
           if (msg.assembly !== undefined) {
             const outcome = fluidCadServer.exportAssembly(msg.options, msg.assembly.poses);
             if (outcome) {

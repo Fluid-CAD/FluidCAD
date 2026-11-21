@@ -150,16 +150,25 @@ describe('get_scene_summary instances through the real routes', () => {
     await startEngine('/ws/rig.assembly.js', renderRig());
 
     const summary = await summaryOf();
-    expect(summary.instancePoses).toEqual({ frame: 'world', source: 'statement' });
+    expect(summary.instancePoses).toEqual({ frame: 'world', source: 'solved' });
+    // The seated block is fastened; the hand-posed one stays free.
+    expect(summary.solve).toEqual({ status: 'okay', dof: 6 });
+    expect(summary.mates!.map((m) => [m.mateId, m.status])).toEqual([['mate-0', 'satisfied']]);
     expect(summary.occurrences).toBeUndefined();
     const byName = new Map(summary.instances!.map((i) => [i.name, i]));
     expect([...byName.keys()]).toEqual(['Plate', 'Seated', 'Posed']);
     expect(byName.get('Plate')).toMatchObject({ instanceId: 'inst-0', partName: 'plate', owner: '', grounded: true });
     expect(byName.get('Seated')).toMatchObject({ instanceId: 'inst-1', partName: 'block', owner: '', grounded: false });
-    // Mated, but the server never solves: the seated block reports its starting pose.
-    expect(byName.get('Seated')!.pose).toEqual({
+    // Mated, and the engine solves: the seated block reports the pose the
+    // mate puts it at — down on the plate's top face — and, beside it, the
+    // starting pose its insert() chain sets.
+    const seated = byName.get('Seated')!;
+    expect(seated.pose.instanceId).toBe('inst-1');
+    expect(seated.pose.position.z).toBeCloseTo(8, 6);
+    expect(seated.statementPose).toEqual({
       instanceId: 'inst-1', position: { x: 10, y: 10, z: 30 }, quaternion: { x: 0, y: 0, z: 0, w: 1 },
     });
+    expect('statementPose' in byName.get('Posed')!).toBe(false);
     expect(byName.get('Posed')!.shapeIds).toEqual(byName.get('Seated')!.shapeIds);
     expect(byName.get('Plate')!.shapeIds).toHaveLength(1);
 
@@ -174,9 +183,14 @@ describe('get_scene_summary instances through the real routes', () => {
     const posed = await interfere({ poses });
     expect(plain.ok && posed.ok).toBe(true);
     expect((posed as any).data).toEqual((plain as any).data);
-    // Starting poses put the seated block 22 above the plate: clear, and so the
-    // check says, not inconclusive.
-    expect((plain as any).data).toMatchObject({ ok: true, units: 3 });
+    // The check runs on the solved configuration: the mate seats the block on
+    // the plate's centre, into the corner of the hand-posed block standing
+    // there. Its insert() pose, 22 above the plate, cleared everything — and
+    // handing the statement poses in still does.
+    expect((plain as any).data).toMatchObject({ ok: false, units: 3 });
+    expect((plain as any).data.clashes.map((c: any) => [c.a.instanceId, c.b.instanceId].sort())).toEqual([['inst-1', 'inst-2']]);
+    const atStatement = await interfere({ poses: summary.instances!.map((i) => i.statementPose ?? i.pose) });
+    expect((atStatement as any).data).toMatchObject({ ok: true, units: 3 });
 
     const posedBlock = byName.get('Posed')!;
     const resolved = await resolveSelection({ expression: 'face()', scope: { instanceId: posedBlock.instanceId } });
@@ -225,7 +239,8 @@ describe('get_scene_summary instances through the real routes', () => {
       expect(listed.isError).not.toBe(true);
       const summary = JSON.parse((listed.content as any[])[0].text) as SceneSummary;
 
-      expect(summary.joints).toEqual({ source: 'statement', solvedIn: 'viewer' });
+      expect(summary.solve!.status).toBe('okay');
+      expect(summary.solve!.dof).toBeGreaterThan(0);
       expect(summary.mates!.map((m) => [m.mateId, m.type, m.name ?? null, m.ownerName ?? null, m.engineOwned ?? false, m.options ?? null])).toEqual([
         ['mate-0', 'revolute', 'Drive', null, false, { limits: [0, 270] }],
         ['mate-1', 'revolute', null, null, false, null],
@@ -237,7 +252,19 @@ describe('get_scene_summary instances through the real routes', () => {
       const [drive] = summary.mates!;
       expect(drive.a).toMatchObject({ kind: 'connector', instanceId: 'inst-0', instance: 'Plate', connector: 'axleA' });
       expect(drive.b).toMatchObject({ kind: 'connector', instanceId: 'inst-1', instance: 'Small', connector: 'bore' });
-      expect(summary.mates!.every((m) => !('status' in m))).toBe(true);
+      // Every joint's geometry holds in the solved configuration, and each
+      // revolute and slider says where it sits — flagged when that is
+      // outside its limits.
+      expect(summary.mates!.every((m) => m.status === 'satisfied')).toBe(true);
+      for (const m of summary.mates!) {
+        expect(typeof m.value).toBe('number');
+        const [min, max] = m.options?.limits ?? [-Infinity, Infinity];
+        expect(m.outsideLimits ?? false).toBe(m.value! < min || m.value! > max);
+      }
+      // The cabinet's doors start half a turn apart and its gear turns them
+      // together, so their two ranges cannot both hold.
+      expect(summary.mates!.filter((m) => m.outsideLimits).map((m) => m.name)).toEqual(['Left door', 'Right door']);
+      expect(summary.relations!.map((r) => r.status)).toEqual(['satisfied', 'satisfied']);
       expect(summary.relations!.map((r) => [r.relationId, r.type, r.ratio, r.reverse, r.mateA, r.mateB, r.engineOwned ?? false])).toEqual([
         ['rel-0', 'gear', 0.5, true, { mateId: 'mate-0', name: 'Drive' }, { mateId: 'mate-1' }, false],
         ['asm-0/rel-0', 'gear', 1, true, { mateId: 'asm-0/mate-0', name: 'Left door' }, { mateId: 'asm-0/mate-1', name: 'Right door' }, true],
@@ -268,7 +295,7 @@ describe('get_scene_summary instances through the real routes', () => {
     expect(Object.keys(summary)).not.toContain('instances');
     expect(Object.keys(summary)).not.toContain('instancePoses');
     expect(Object.keys(summary)).not.toContain('occurrences');
-    expect(Object.keys(summary)).not.toContain('joints');
+    expect(Object.keys(summary)).not.toContain('solve');
     expect(Object.keys(summary)).not.toContain('mates');
     expect(Object.keys(summary)).not.toContain('relations');
   });

@@ -33,8 +33,9 @@ export interface MeasureEntityRef {
    */
   instanceId?: string;
   /**
-   * The instance's live world pose (the browser-side solver owns solved and
-   * dragged poses). Absent → the statement pose the scene serialized.
+   * The instance's live world pose in a viewer — a part dragged along a free
+   * joint, a mate the Animate bar drove. Absent → where the mates put the
+   * instance (AssemblyScene.getSolution).
    */
   pose?: MeasurePose;
 }

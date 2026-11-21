@@ -55,8 +55,8 @@ export function createMeasureRouter(fluidCadServer: FluidCadServer): Router {
         }
       }
       // Assembly entities: the owning instance, and optionally the live
-      // world pose the browser-side solver put it at (else the engine
-      // measures at the statement pose).
+      // world pose a viewer has it at (else the engine measures it where
+      // its own mate solve puts it).
       if (entity.instanceId !== undefined && (typeof entity.instanceId !== 'string' || !entity.instanceId)) {
         res.status(400).json({ error: 'instanceId must be a non-empty string' });
         return;

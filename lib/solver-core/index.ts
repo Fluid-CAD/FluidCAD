@@ -1,5 +1,5 @@
 // lib/solver-core/ — dependency-free numeric core shared by the
-// assembly solver (ui/src/solver/) and the 2D sketch constraint solver
+// assembly solver (lib/assembly-solver/) and the 2D sketch constraint solver
 // (lib/sketch-solver/). Nothing in this directory may import from
 // outside it; see linalg.ts.
 

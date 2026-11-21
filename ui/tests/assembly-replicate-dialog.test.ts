@@ -8,7 +8,7 @@ import {
   resolveSideChain,
 } from '../src/interactive/assembly-mate/side-resolve';
 import { provisionalReplicaId } from '../src/scene/provisional-replicas';
-import { WORLD_BODY_ID } from '../src/solver';
+import { WORLD_BODY_ID } from '../../lib/assembly-solver/index.js';
 import type { Viewer } from '../src/viewer';
 import type {
   SerializedAssembly,

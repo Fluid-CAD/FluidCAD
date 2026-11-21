@@ -3,7 +3,7 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import type { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
-import type { MateRecord } from '../solver';
+import type { MateRecord } from '../../../lib/assembly-solver/index.js';
 
 /**
  * The replicate dialog's live preview, as the controller solves it: one

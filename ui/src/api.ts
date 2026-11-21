@@ -1,6 +1,6 @@
 import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
-import type { ContactEntity } from './solver/types';
+import type { ContactEntity } from '../../lib/assembly-solver/types.js';
 import type { MeshLookup } from './scene/scene-meshes';
 import type {
   GlobalParamsSnapshot,

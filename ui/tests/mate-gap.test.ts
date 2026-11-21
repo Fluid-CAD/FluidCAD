@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { Quaternion, Vector3 } from 'three';
 import {
+  Quaternion,
   Solver,
+  Vector3,
   dominantAxis,
   type BodyState,
   type ConnectorState,
   type MateRecord,
-} from '../src/solver';
+} from '../../lib/assembly-solver/index.js';
 import { describeMateFailure } from '../src/ui/mate-failure-text';
 
 // The failed-mates report carries a measured misclosure per mate

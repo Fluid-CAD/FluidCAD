@@ -11,9 +11,9 @@ import {
 import type { Viewer } from '../../viewer';
 import { connectorLabel, type SerializedAssembly, type SerializedAssemblyMate, type SubSelection } from '../../types';
 import type { SelectionModifiers } from '../../viewer';
-import type { ContactEntity, MateRecord } from '../../solver';
-import { WORLD_BODY_ID, worldConnectorRef } from '../../solver';
-import { contactChainsRowCount } from '../../solver/contact-model';
+import type { ContactEntity, MateRecord } from '../../../../lib/assembly-solver/index.js';
+import { WORLD_BODY_ID, worldConnectorRef } from '../../../../lib/assembly-solver/index.js';
+import { contactChainsRowCount } from '../../../../lib/assembly-solver/contact-model.js';
 
 import {
   connectorChipLabel,

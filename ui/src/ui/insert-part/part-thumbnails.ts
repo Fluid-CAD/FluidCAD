@@ -5,7 +5,6 @@ import {
   Group,
   Object3D,
   PerspectiveCamera,
-  Quaternion,
   Scene,
   SRGBColorSpace,
   Vector3,
@@ -16,10 +15,9 @@ import { buildObjectMesh } from '../../meshes/mesh-factory';
 import { disposeEnvironmentOf, environmentFor } from '../../meshes/appearance/environment';
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
-import { Solver, makeWorldBody, matesReferenceWorld, worldConnectorRef } from '../../solver';
-import type { BodyState, ConnectorState, MateRecord } from '../../solver';
+import { AssemblySolverModel, Solver } from '../../../../lib/assembly-solver/index.js';
+import { PartMateGeometryReader } from '../../scene/part-mate-geometry';
 import type {
-  ConnectorData,
   SceneObjectRender,
   SerializedAssemblyInstance,
   SerializedAssemblyConnector,
@@ -77,7 +75,6 @@ export class PartThumbnailRenderer {
     const camera = this.makeCamera();
     const container = new Group();
     const groups = new Map<string, Group>();
-    const bodies: BodyState[] = [];
     for (const inst of instances) {
       const template = templates.get(inst.partId);
       if (!template) {
@@ -89,13 +86,6 @@ export class PartThumbnailRenderer {
       group.add(buildObjectMesh(template, objects, null, camera, false));
       container.add(group);
       groups.set(inst.instanceId, group);
-      bodies.push({
-        instanceId: inst.instanceId,
-        position: new Vector3(inst.position.x, inst.position.y, inst.position.z),
-        quaternion: new Quaternion(inst.quaternion.x, inst.quaternion.y, inst.quaternion.z, inst.quaternion.w),
-        grounded: inst.grounded,
-        connectors: collectConnectorStates(objects, inst.partId),
-      });
     }
     if (groups.size === 0) {
       return null;
@@ -104,11 +94,17 @@ export class PartThumbnailRenderer {
     // Best-effort: a solve that fails (or an over-free assembly) keeps the
     // warm-start poses, which the source authored to be roughly right.
     try {
-      const mateRecords = mates.map(toMateRecord);
-      if (matesReferenceWorld(mateRecords)) {
-        bodies.push(makeWorldBody(connectors));
-      }
-      const out = this.solver.solve({ bodies, mates: mateRecords });
+      const model = new AssemblySolverModel({
+        instances,
+        mates,
+        connectors,
+        partGeometry: partId => PartMateGeometryReader.of(objects, partId),
+      });
+      // Only the instances that drew a group are solved — the same set the
+      // assembly view solves.
+      const out = this.solver.solve(model.input({
+        poseOf: instanceId => groups.get(instanceId) ?? null,
+      }));
       if (out.result === 'okay') {
         for (const solved of out.bodies) {
           const group = groups.get(solved.instanceId);
@@ -201,39 +197,6 @@ export class PartThumbnailRenderer {
     }
     return this.renderer;
   }
-}
-
-/** Connector frames of one part's subtree, copies included — same read the assembly view does. */
-function collectConnectorStates(objects: SceneObjectRender[], partId: string): ConnectorState[] {
-  const out: ConnectorState[] = [];
-  for (const obj of SceneIndex.of(objects).connectorsOf(partId)) {
-    if (!obj.id) {
-      continue;
-    }
-    const data = obj.object as ConnectorData | undefined;
-    if (!data) {
-      continue;
-    }
-    out.push({
-      connectorId: obj.id,
-      localOrigin: new Vector3(data.origin.x, data.origin.y, data.origin.z),
-      localXDirection: new Vector3(data.xDirection.x, data.xDirection.y, data.xDirection.z),
-      localNormal: new Vector3(data.normal.x, data.normal.y, data.normal.z),
-    });
-  }
-  return out;
-}
-
-function toMateRecord(m: SerializedAssemblyMate): MateRecord {
-  return {
-    mateId: m.mateId,
-    type: m.type,
-    // Assembly-connector sides resolve on the synthetic grounded world
-    // body, same as the assembly controller's conversion.
-    connectorA: m.frameA ? worldConnectorRef(m.frameA) : m.connectorA,
-    connectorB: m.frameB ? worldConnectorRef(m.frameB) : m.connectorB,
-    options: m.options,
-  };
 }
 
 function hideConnectors(root: Object3D): void {

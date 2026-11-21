@@ -1,9 +1,9 @@
 // Dense linear-algebra kernels for the shared solver core.
 //
 // lib/solver-core/ is the dependency-free numeric core shared by the
-// assembly solver (via the ui/src/solver/relaxation.ts re-export) and
-// the 2D sketch constraint solver. Files in this directory may import
-// nothing outside the directory — no OCCT, no DOM, no Node builtins —
+// assembly solver (lib/assembly-solver/) and the 2D sketch constraint
+// solver. Files in this directory may import nothing outside the
+// directory — no OCCT, no DOM, no Node builtins —
 // so the same code runs in the kernel (Node) and the browser. A test
 // (lib/tests/solver-core/purity.test.ts) enforces this.
 

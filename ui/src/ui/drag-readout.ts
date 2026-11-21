@@ -9,7 +9,7 @@
 // Measure tool's display unit, so the value is copy-pasteable. The number
 // is untouched; only the suffix names the unit.
 
-import type { MateReadout } from '../solver';
+import type { MateReadout } from '../../../lib/assembly-solver/index.js';
 import { sceneUnit } from '../units/scene-unit';
 
 /** One-decimal format that never prints "-0.0". */

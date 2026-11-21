@@ -4,7 +4,7 @@ import { applyAssemblyRelation, type AssemblyRelationPayload, type AssemblyRelat
 import type { Viewer } from '../../viewer';
 import type { SelectionModifiers } from '../../viewer';
 import type { SerializedAssembly, SerializedAssemblyMate, SerializedAssemblyRelation, SubSelection } from '../../types';
-import type { RelationRecord } from '../../solver';
+import type { RelationRecord } from '../../../../lib/assembly-solver/index.js';
 import { MateLabel } from '../../ui/mate-label';
 
 /**

@@ -15,7 +15,7 @@ import {
 import { AssemblyController } from '../src/scene/assembly-controller';
 import { AssemblyMateService } from '../src/interactive/assembly-mate/mate-service';
 import type { Viewer } from '../src/viewer';
-import { WORLD_BODY_ID } from '../src/solver';
+import { WORLD_BODY_ID } from '../../lib/assembly-solver/index.js';
 import type { SceneObjectRender, SerializedAssembly } from '../src/types';
 
 // The mate dialog's connector picking: arming reveals every connector and

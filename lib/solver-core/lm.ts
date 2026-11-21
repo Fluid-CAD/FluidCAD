@@ -1,9 +1,9 @@
 // Levenberg-Marquardt least-squares driver.
 //
 // Part of lib/solver-core/ — the dependency-free numeric core shared by
-// the assembly solver's closed-loop relaxation pass (via the
-// ui/src/solver/relaxation.ts re-export) and the 2D sketch constraint
-// solver. See linalg.ts for the no-imports rule.
+// the assembly solver's closed-loop relaxation pass
+// (lib/assembly-solver/) and the 2D sketch constraint solver. See
+// linalg.ts for the no-imports rule.
 //
 // Implementation is hand-rolled to keep the dep graph clean. Assembly
 // problems are small (typically 4 bodies × 7 params = 28 variables,

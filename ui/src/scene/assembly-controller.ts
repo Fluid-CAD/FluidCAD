@@ -1,7 +1,7 @@
 import { Box3, Camera, Group, Material, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
 import { MeshCache, meshCache } from './mesh-cache';
 import { InstanceContent } from './instance-content';
-import { ConnectorAddress, ConnectorCopiesData, ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, SerializedAssemblyRelation, connectorLabel } from '../types';
+import { ConnectorAddress, ConnectorCopiesData, ConnectorData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, connectorLabel } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { SceneIndex } from '../helpers/scene-index';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
@@ -16,18 +16,20 @@ import {
   type ConnectorPickCandidate,
 } from './connector-gizmo-picker';
 import {
-  WORLD_BODY_ID,
+  AssemblySolverModel,
+  Quaternion as SolverQuaternion,
   Solver,
+  Vector3 as SolverVector3,
+  WORLD_BODY_ID,
   bodyFreedom,
   buildMateGraph,
+  emptySolverOutput,
   isAcceptableDragFrame,
   isInstanceFullyLocked,
-  makeWorldBody,
   mateReadoutValue,
-  matesReferenceWorld,
-  worldConnectorRef,
-} from '../solver';
-import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout, MateRecord, RelationRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
+} from '../../../lib/assembly-solver/index.js';
+import { PartMateGeometryReader } from './part-mate-geometry';
+import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout, MateRecord, RelationRecord, SolverInput, SolverOutput, TreeEdge } from '../../../lib/assembly-solver/index.js';
 
 const DRAG_THRESHOLD_PX = 4;
 
@@ -108,6 +110,13 @@ export class AssemblyController {
   private lastUpdateStats: InstanceUpdateStats = { kept: 0, rebuilt: 0, removed: 0 };
   private partTemplates = new Map<string, SceneObjectRender>();
   private allObjects: SceneObjectRender[] = [];
+  /**
+   * The render's assembly as the solver takes it — bodies, mates and
+   * relations built by the model the engine solves with too, so the viewer
+   * and every server-side reader place the parts with the same input.
+   */
+  private model = AssemblySolverModel.empty();
+  /** The committed `mate()` records ({@link model}'s). */
   private mates: MateRecord[] = [];
   /** The committed `relation()` records, as the solver couples them. */
   private relations: RelationRecord[] = [];
@@ -393,8 +402,15 @@ export class AssemblyController {
         this.partTemplates.set(obj.id, obj);
       }
     }
-    this.mates = assembly.mates.map(toSolverMateRecord);
-    this.relations = (assembly.relations ?? []).map(toSolverRelationRecord);
+    this.model = new AssemblySolverModel({
+      instances: assembly.instances,
+      mates: assembly.mates,
+      relations: assembly.relations,
+      connectors: assembly.connectors,
+      partGeometry: partId => PartMateGeometryReader.of(sceneObjects, partId),
+    });
+    this.mates = this.model.mates;
+    this.relations = this.model.relations;
     this.rebuildWorldConnectors(assembly.connectors ?? []);
     // Ghost clones were built from the previous render's meshes; the
     // replicate dialog re-sends its spec once its picks re-resolve.
@@ -440,8 +456,7 @@ export class AssemblyController {
     }
 
     for (const inst of assembly.instances) {
-      const connectors = this.collectConnectorStates(inst.partId);
-      const contacts = this.collectExposureStates(inst.partId);
+      const { connectors, contacts } = this.model.geometryOfPart(inst.partId);
       const existing = this.instances.get(inst.instanceId);
       // SceneCompare flips `fromCache` to false on any object it had to
       // rebuild — including when a parameter change shifts a partName (and
@@ -533,6 +548,7 @@ export class AssemblyController {
     this.instances.clear();
     this.partTemplates.clear();
     this.allObjects = [];
+    this.model = AssemblySolverModel.empty();
     this.mates = [];
     this.relations = [];
     this.transparencyPreview.clear();
@@ -723,14 +739,15 @@ export class AssemblyController {
   private poseInputsKey(assembly: SerializedAssembly): string {
     const frames = new Map<string, number[]>();
     const instances = assembly.instances.map((inst) => {
-      const connectors = this.collectConnectorStates(inst.partId).map((c) => {
-        const frame = [...c.localOrigin.toArray(), ...c.localXDirection.toArray(), ...c.localNormal.toArray()];
+      const geometry = this.model.geometryOfPart(inst.partId);
+      const connectors = geometry.connectors.map((c) => {
+        const frame = [c.localOrigin, c.localXDirection, c.localNormal].flatMap(v => [v.x, v.y, v.z]);
         frames.set(c.connectorId, frame);
         return frame;
       });
       return [
         inst.instanceId, inst.owner ?? '', inst.partName, inst.grounded,
-        inst.position, inst.quaternion, connectors, this.collectExposureStates(inst.partId),
+        inst.position, inst.quaternion, connectors, geometry.contacts,
       ];
     });
     const world = (assembly.connectors ?? []).map((c) => {
@@ -751,45 +768,50 @@ export class AssemblyController {
     return JSON.stringify([instances, world, mates, relations]);
   }
 
-  /**
-   * The connector frames one instance carries: the part's own connectors
-   * and their copies, shared by every instance of the part.
-   */
-  private collectConnectorStates(partId: string): ConnectorState[] {
-    const out: ConnectorState[] = [];
-    for (const obj of SceneIndex.of(this.allObjects).connectorsOf(partId)) {
-      const data = obj.object as ConnectorData | undefined;
-      if (!obj.id || !data?.origin || !data.xDirection || !data.normal) {
-        continue;
-      }
-      out.push({
-        connectorId: obj.id,
-        localOrigin: new Vector3(data.origin.x, data.origin.y, data.origin.z),
-        localXDirection: new Vector3(data.xDirection.x, data.xDirection.y, data.xDirection.z),
-        localNormal: new Vector3(data.normal.x, data.normal.y, data.normal.z),
-      });
-    }
-    return out;
+  /** The bodies a solve runs against now — see {@link solveInput}. */
+  private collectBodies(): BodyState[] {
+    return this.solveInput().bodies;
   }
 
   /**
-   * The classified exposures one instance carries: the part's own
-   * `expose()` publications, shared by every instance of the part —
-   * exactly the connector-frames pattern, but for tangent-mate geometry.
+   * What a solve runs against now: every instance at the pose it has on
+   * screen, in the render's record order (the order the engine's own solve
+   * reads them in), then the replicate preview's ghosts, the mates and
+   * relations with any dialog's candidate among them — and the world body
+   * whenever one of those mates, committed or provisional, takes an
+   * assembly connector as a side.
    */
-  private collectExposureStates(partId: string): ContactState[] {
-    const out: ContactState[] = [];
-    for (const obj of SceneIndex.of(this.allObjects).children(partId)) {
-      if (obj.type !== 'exposed' || !obj.id) continue;
-      const data = obj.object as ExposedData | undefined;
-      if (!data?.name) continue;
-      out.push({
-        exposeName: data.name,
-        seed: data.seed ?? null,
-        chain: data.chain ?? [],
+  private solveInput(): SolverInput {
+    return this.model.input({
+      poseOf: instanceId => this.instances.get(instanceId)?.group ?? null,
+      extraBodies: this.replicaGhostBodies(),
+      mates: this.solverMates(),
+      relations: this.solverRelations(),
+    });
+  }
+
+  /**
+   * Replica ghosts are bodies of their own while the replicate dialog
+   * previews: the seed's connectors and exposures (shared per part), posed
+   * wherever the last solve put the ghost.
+   */
+  private replicaGhostBodies(): BodyState[] {
+    const replicas = this.provisionalReplicas;
+    if (!replicas || replicas.committed) {
+      return [];
+    }
+    const bodies: BodyState[] = [];
+    for (const [provisionalId, ghost] of replicas.ghosts) {
+      bodies.push({
+        instanceId: provisionalId,
+        position: new SolverVector3().copy(ghost.group.position),
+        quaternion: new SolverQuaternion().copy(ghost.group.quaternion),
+        grounded: false,
+        connectors: ghost.source.connectors,
+        contacts: ghost.source.contacts,
       });
     }
-    return out;
+    return bodies;
   }
 
   /**
@@ -802,44 +824,6 @@ export class AssemblyController {
    * with zero DOFs. Built fresh per pointerdown so it reflects any mate /
    * grounded changes since the last gesture.
    */
-  private collectBodies(): BodyState[] {
-    const bodies: BodyState[] = [];
-    for (const state of this.instances.values()) {
-      bodies.push({
-        instanceId: state.data.instanceId,
-        position: state.group.position.clone(),
-        quaternion: state.group.quaternion.clone(),
-        grounded: state.data.grounded,
-        connectors: state.connectors,
-        contacts: state.contacts,
-      });
-    }
-    // Replica ghosts are bodies of their own while the replicate dialog
-    // previews: the seed's connectors/exposures (shared per part), posed
-    // wherever the last solve put the ghost.
-    const replicas = this.provisionalReplicas;
-    if (replicas && !replicas.committed) {
-      for (const [provisionalId, ghost] of replicas.ghosts) {
-        bodies.push({
-          instanceId: provisionalId,
-          position: ghost.group.position.clone(),
-          quaternion: ghost.group.quaternion.clone(),
-          grounded: false,
-          connectors: ghost.source.connectors,
-          contacts: ghost.source.contacts,
-        });
-      }
-    }
-    // Assembly-connector mate sides resolve against a synthetic grounded
-    // world body — appended whenever any committed OR provisional mate
-    // references it, so the provisional preview solve (which also reads
-    // collectBodies) never drops the candidate mate as unresolvable.
-    if (matesReferenceWorld(this.solverMates())) {
-      bodies.push(makeWorldBody([...this.worldConnectors.values()].map(w => w.data)));
-    }
-    return bodies;
-  }
-
   private computeLockedInstanceIds(): Set<string> {
     const bodies = this.collectBodies();
     const graph = buildMateGraph(bodies, this.mates);
@@ -857,11 +841,9 @@ export class AssemblyController {
     draggedTargetOrigin?: Vector3,
   ): SolverInput {
     return {
-      bodies: this.collectBodies(),
-      mates: this.solverMates(),
-      relations: this.solverRelations(),
+      ...this.solveInput(),
       draggedInstanceId,
-      draggedTargetOrigin,
+      draggedTargetOrigin: draggedTargetOrigin && new SolverVector3().copy(draggedTargetOrigin),
     };
   }
 
@@ -981,15 +963,7 @@ export class AssemblyController {
 
   private runSolverRefresh(): void {
     if (this.instances.size === 0) {
-      this.solverUpdateHandler?.({
-        bodies: [],
-        result: 'okay',
-        dof: 0,
-        failed: [],
-        failures: [],
-        failedRelations: [],
-        contradictedRelations: [],
-      });
+      this.solverUpdateHandler?.(emptySolverOutput());
       return;
     }
     try {
@@ -1264,8 +1238,8 @@ export class AssemblyController {
     const tBuild0 = debugPerf ? performance.now() : 0;
     const input: SolverInput = {
       ...this.buildSolverInput(this.dragState.instanceId, targetOrigin),
-      draggedCursorWorld: intersection.clone(),
-      draggedGrabLocal: this.dragState.grabLocal.clone(),
+      draggedCursorWorld: new SolverVector3().copy(intersection),
+      draggedGrabLocal: new SolverVector3().copy(this.dragState.grabLocal),
     };
     const tBuild1 = debugPerf ? performance.now() : 0;
     const out = this.solver.solve(input);
@@ -1910,9 +1884,9 @@ export class AssemblyController {
       return null;
     }
     const input: SolverInput = {
-      ...this.buildSolverInput(drag.instanceId, targetOrigin.clone()),
-      draggedCursorWorld: targetOrigin.clone(),
-      draggedGrabLocal: new Vector3(0, 0, 0),
+      ...this.buildSolverInput(drag.instanceId, targetOrigin),
+      draggedCursorWorld: new SolverVector3().copy(targetOrigin),
+      draggedGrabLocal: new SolverVector3(),
     };
     const out = this.solver.solve(input);
     if (isAcceptableDragFrame(out)) {
@@ -2257,34 +2231,4 @@ function applyInstanceOpacity(root: Object3D, opacity: number): void {
  */
 function pickedSlotKey(instanceId: string, connectorId: string): string {
   return `${instanceId}\0${connectorId}`;
-}
-
-/**
- * A serialized mate as the solver reads it. Exported for the replicate
- * dialog, which builds its provisional rows from the payload's mates.
- */
-/** A serialized `relation()` as the solver couples it. */
-export function toSolverRelationRecord(r: SerializedAssemblyRelation): RelationRecord {
-  return {
-    relationId: r.relationId,
-    type: r.type,
-    mateA: r.mateA,
-    mateB: r.mateB,
-    ratio: r.ratio,
-    reverse: r.reverse,
-  };
-}
-
-export function toSolverMateRecord(m: SerializedAssemblyMate): MateRecord {
-  return {
-    mateId: m.mateId,
-    type: m.type,
-    // Assembly-connector sides become ordinary connector refs on the
-    // synthetic grounded world body — the solver stays frame-unaware.
-    connectorA: m.frameA ? worldConnectorRef(m.frameA) : m.connectorA,
-    connectorB: m.frameB ? worldConnectorRef(m.frameB) : m.connectorB,
-    geometryA: m.geometryA,
-    geometryB: m.geometryB,
-    options: m.options,
-  };
 }

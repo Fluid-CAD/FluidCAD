@@ -3,8 +3,8 @@ import type {
   SerializedAssemblyMate,
   SerializedReplicateSide,
 } from '../../types';
-import type { MateRecord } from '../../solver';
-import { worldConnectorRef } from '../../solver';
+import type { MateRecord } from '../../../../lib/assembly-solver/index.js';
+import { worldConnectorRef } from '../../../../lib/assembly-solver/index.js';
 import {
   provisionalReplicaId,
   provisionalReplicaMateId,

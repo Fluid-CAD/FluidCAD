@@ -5,7 +5,7 @@ import {
   type GhostAxisRef, type GhostGeometry, type NewVariable, type ParsedFeatureStatement,
   fetchFeatureGhostResult, getScopeVariables,
 } from '../../api';
-import { WORLD_BODY_ID } from '../../solver';
+import { WORLD_BODY_ID } from '../../../../lib/assembly-solver/index.js';
 import type { StandardAxisId } from '../../scene/standard-axes';
 import type { SerializedAssembly, SubSelection } from '../../types';
 import type { SelectionModifiers, Viewer } from '../../viewer';

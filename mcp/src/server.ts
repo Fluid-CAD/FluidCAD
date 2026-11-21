@@ -50,6 +50,7 @@ import {
   addBreakpoint,
   clearBreakpoints,
   exportShapes,
+  EXPORT_PLANES,
   importStep,
   packPackage,
   recompute,
@@ -1331,12 +1332,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   registerTool(
     'export',
     {
-      title: 'Export shapes or the whole assembly to STEP or STL',
+      title: 'Export shapes or the whole assembly to STEP or STL, or a 2D drawing of shapes to DXF or SVG',
       description:
-        'Exports the listed shapes — or, with `assembly: true`, the whole current assembly (every inserted part where it sits: one STEP assembly with shared part prototypes, or one STL mesh) — to a STEP or STL file. Pass exactly one of `shapeIds` / `assembly`. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise; assembly exports add `posesSource`: "solved" means every part sits where the mates put it (the engine\'s own solve from the insert() poses, the rest configuration get_scene_summary reports); "statement" means the mates were NOT applied and parts sit where their insert() chains place them (the solve could not run, or the workspace\'s engine predates it) — tell the user. STEP files are physically correct whatever the document\'s unit. STL carries no unit: by default the mesh is scaled into mm (what slicers expect); `scaleTo: "document"` keeps the document\'s numbers. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity.',
+        'Exports the listed shapes — or, with `assembly: true`, the whole current assembly (every inserted part where it sits: one STEP assembly with shared part prototypes, or one STL mesh) — to a STEP or STL file. Pass exactly one of `shapeIds` / `assembly`. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise; assembly exports add `posesSource`: "solved" means every part sits where the mates put it (the engine\'s own solve from the insert() poses, the rest configuration get_scene_summary reports); "statement" means the mates were NOT applied and parts sit where their insert() chains place them (the solve could not run, or the workspace\'s engine predates it) — tell the user. STEP files are physically correct whatever the document\'s unit. STL carries no unit: by default the mesh is scaled into mm (what slicers expect); `scaleTo: "document"` keeps the document\'s numbers. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity. ' +
+        '`format: "dxf"` writes a 2D drawing instead of the solids: the listed shapes as seen on a standard plane, hidden lines removed — what a laser cutter, a router or a 2D CAD tool takes. `plane` is required for it and names the view: `top` (looking down the Z axis, X to the right and Y up), `bottom`, `front` (from the −Y side, X right and Z up), `back`, `right` (from the +X side), `left`; the axis names `xy`, `-xy`, `xz`, `-xz`, `yz`, `-yz` are the same six. The drawing keeps model coordinates in the document\'s unit (a point at (12, 7, z) is at (12, 7) in a top view; nothing is recentred or scaled) and holds real LINE, ARC, CIRCLE, ELLIPSE and SPLINE entities on a VISIBLE layer. Several shapes are drawn together, the nearer hiding the farther. `hiddenLines: true` adds the edges behind the model on a dashed HIDDEN layer; `tangentEdges: true` adds smooth edges such as a fillet\'s borders on a TANGENT layer; leave both off for a cutting outline. Pick the plane the part is flat on: a plate modelled on XY is cut from its `top` view. Name the file after the view (`plate-top.dxf`), one export per view. `resolution`, `includeColors` and `scaleTo` do not apply to a drawing and are refused with it, and `assembly: true` is not available for a drawing yet — pass the `shapeIds` of the solids to draw. The result may add `warnings` (curves that had to be approximated by polylines): pass them on to the user. ' +
+        '`format: "svg"` writes that same drawing as an SVG — same `plane`, `hiddenLines` and `tangentEdges`, same views. It is also a compact, exact 2D view you can read back as text to check a profile: without `saveAsPath` the result is `{ format, mimeType, text, bytes }` with the SVG source in `text`, one `<path>` per joined outline (`M`/`L` straight sides, `A` arcs with their radii, `C`/`Q` splines, `Z` closing a loop) and a `<circle cx cy r>` per full circle, in the document\'s own numbers, grouped by layer (`<g id="visible">`, `"hidden"`, `"tangent"`). One SVG unit is one document unit and the page (`width`/`height`) has the drawing\'s physical size, so it prints and cuts 1:1. SVG\'s Y runs down the page: X is the model\'s own, and Y is measured down from the drawing\'s top edge — a point at height y in the view is at `top − y`, where `top` is the view\'s highest Y; with `margin: 0` the `viewBox` is exactly the drawing\'s bounds (`viewBox="minX 0 width height"`). `strokeWidth` (default 0.25) and `margin` (default 5) are millimetres on paper whatever the document\'s unit and are refused with any other format; hidden and tangent edges are drawn at half the stroke. The file holds no script, style sheet or external reference. Use DXF for CAD/CAM tools and SVG for laser software, documents, the web, or to look at a view yourself.',
       inputSchema: {
         ...workspaceArg,
-        format: z.enum(['step', 'stl']).describe('Output format.'),
+        format: z.enum(['step', 'stl', 'dxf', 'svg']).describe('Output format: "step" or "stl" write the solids; "dxf" or "svg" writes a 2D drawing of their view on `plane`.'),
         shapeIds: z
           .array(z.string().min(1))
           .min(1)
@@ -1353,19 +1356,41 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         resolution: z
           .enum(['coarse', 'medium', 'fine'])
           .optional()
-          .describe('STL mesh resolution. Ignored for STEP. Defaults to "medium".'),
+          .describe('STL mesh resolution. Ignored for STEP, refused for DXF and SVG. Defaults to "medium".'),
         includeColors: z
           .boolean()
           .optional()
-          .describe('Include per-face color metadata (STEP/STL with color extension).'),
+          .describe('Include per-face color metadata (STEP/STL with color extension). Refused for DXF and SVG.'),
         scaleTo: z
           .enum(['mm', 'document'])
           .optional()
           .describe('STL only. "mm" (default) scales the mesh into millimetres for slicers; "document" keeps the document\'s units.'),
+        plane: z
+          .enum(EXPORT_PLANES)
+          .optional()
+          .describe('DXF and SVG only, and required for them: the standard plane the view is drawn on. "top"/"xy" looks down Z, "front"/"xz" from −Y, "right"/"yz" from +X; "bottom"/"-xy", "back"/"-xz", "left"/"-yz" are the opposite sides.'),
+        hiddenLines: z
+          .boolean()
+          .optional()
+          .describe('DXF and SVG only. Also draw the edges hidden behind the model, dashed, on their own layer (HIDDEN in a DXF, `<g id="hidden">` in an SVG). Defaults to false.'),
+        tangentEdges: z
+          .boolean()
+          .optional()
+          .describe('DXF and SVG only. Also draw smooth (tangent) edges such as a fillet\'s borders, on their own layer (TANGENT in a DXF, `<g id="tangent">` in an SVG). Defaults to false.'),
+        strokeWidth: z
+          .number()
+          .positive()
+          .optional()
+          .describe('SVG only. Stroke width of the visible edges, in millimetres on paper. Defaults to 0.25.'),
+        margin: z
+          .number()
+          .min(0)
+          .optional()
+          .describe('SVG only. Blank margin around the drawing, in millimetres on paper. Defaults to 5; 0 makes the viewBox the drawing\'s exact bounds.'),
         configuration: configurationArg.describe('Export this configurations() row ("Default" for the param() literals) instead of the one on screen. The server renders it for this export alone — the session\'s row and tweaks stay as they are; `shapeIds` are the on-screen scene\'s and are mapped onto the row\'s bodies. An assembly of another row exports where the engine solves that row\'s mates. Omit for the row on screen, tweaks included.'),
       },
     },
-    async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo, configuration }) =>
+    async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo, plane, hiddenLines, tangentEdges, strokeWidth, margin, configuration }) =>
       toMcp(
         await exportShapes({
           ...target(workspace),
@@ -1376,6 +1401,11 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           resolution,
           includeColors,
           scaleTo,
+          plane,
+          hiddenLines,
+          tangentEdges,
+          strokeWidth,
+          margin,
           configuration,
         }),
       ),

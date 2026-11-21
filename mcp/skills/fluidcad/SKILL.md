@@ -232,7 +232,7 @@ Load only what the task needs, from this skill's `references/` folder. If you ar
 - `references/verification.md`: read before declaring any feature or part done. Screenshot skip list, the visual-concern-to-deterministic-check table, the mandatory `interfere` and section gates and how to read a section, what never to claim, the final report template.
 - `references/modifying.md`: read when the task starts from an existing file rather than a blank one.
 - `references/sketching.md`: read before the first sketch, or when a sketch solves somewhere you did not draw it.
-- `references/handoff.md`: read when the user wants an STL, a STEP, a package, or asks "how do I use this".
+- `references/handoff.md`: read when the user wants an STL, a STEP, a DXF or SVG drawing, a package, or asks "how do I use this".
 
 Assemblies (parts, inserts, mates, connectors) are covered by the separate **fluidcad-assembly** skill; modeling from a drawing by **fluidcad-from-drawing**; writing a custom feature (a reusable feature type in a `*.feature.js` module, offered under the toolbar's Custom dropdown) by **fluidcad-custom-features**. All three are also served by the MCP server (`skill://fluidcad-assembly/SKILL.md`, `skill://fluidcad-from-drawing/SKILL.md`, `skill://fluidcad-custom-features/SKILL.md`, or `read_skill`).
 

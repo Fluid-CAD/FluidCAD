@@ -504,8 +504,8 @@ describe('ExportDialog configurations in a part scene', () => {
 // A DXF or an SVG is a drawing of the solids' view on a standard plane: their
 // own options section (the view, hidden lines, tangent edges; the stroke
 // width for an SVG), a body without any STEP or STL option (the server
-// refuses them with it), the view in every file name, and no pill at all for
-// the whole assembly, which cannot be drawn yet.
+// refuses them with it), the view in every file name, and — for the whole
+// assembly — a note in place of the options, with Export disabled.
 describe('ExportDialog drawing (DXF, SVG)', () => {
   const PART_TABLE = {
     active: 'Default',
@@ -663,22 +663,50 @@ describe('ExportDialog drawing (DXF, SVG)', () => {
     expect(await zip.file('plate-M8-front.dxf')!.async('string')).toBe('dxf M8');
   });
 
-  it('offers the whole assembly no DXF or SVG, and goes back to STEP when one was left selected', async () => {
+  it('lets the whole assembly pick DXF or SVG, which shows a note in place of the options and disables Export', async () => {
+    const { dialog, container, exportShapes, q, pickFormat } = mount(provider());
+    const noteShown = (): boolean => !q('format-note').classList.contains('hidden');
+    const exportBtn = q<HTMLButtonElement>('export-btn');
+
+    dialog.show({ kind: 'assembly' });
+    // Every pill is on screen and can be picked; the note waits for a drawing format.
+    expect([...container.querySelectorAll<HTMLInputElement>('[data-format]')]
+      .filter((p) => !p.classList.contains('hidden') && !p.disabled).map((p) => p.dataset.format)).toEqual(['step', 'stl', 'dxf', 'svg', 'png']);
+    expect(noteShown()).toBe(false);
+    expect(exportBtn.disabled).toBe(false);
+
+    for (const format of ['dxf', 'svg']) {
+      pickFormat(format);
+      expect(noteShown()).toBe(true);
+      expect(q('format-note').textContent).toBe('DXF/SVG exports are supported only on single parts');
+      expect(q('drawing-section').classList.contains('hidden')).toBe(true);
+      expect(exportBtn.disabled).toBe(true);
+    }
+    exportBtn.click();
+    await Promise.resolve();
+    expect(exportShapes).not.toHaveBeenCalled();
+    expect(q('status').classList.contains('hidden')).toBe(true);
+
+    // Another format takes the note away and gives Export back.
+    pickFormat('stl');
+    expect(noteShown()).toBe(false);
+    expect(q('stl-section').classList.contains('hidden')).toBe(false);
+    expect(exportBtn.disabled).toBe(false);
+  });
+
+  it('opens the whole assembly on STEP when a drawing format was left selected, and gives solids their options back', async () => {
     const { dialog, container, exportShapes, q, pickFormat } = mount(provider());
     const pill = (format: string): HTMLInputElement => container.querySelector<HTMLInputElement>(`[data-format="${format}"]`)!;
 
     dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
-    expect(pill('dxf').classList.contains('hidden')).toBe(false);
-    expect(pill('svg').classList.contains('hidden')).toBe(false);
     pickFormat('svg');
+    expect(q('format-note').classList.contains('hidden')).toBe(true);
+    expect(q('drawing-section').classList.contains('hidden')).toBe(false);
     dialog.hide();
 
     dialog.show({ kind: 'assembly' });
-    expect(pill('dxf').classList.contains('hidden')).toBe(true);
-    expect(pill('svg').classList.contains('hidden')).toBe(true);
-    expect([...container.querySelectorAll<HTMLInputElement>('[data-format]')]
-      .filter((p) => !p.classList.contains('hidden')).map((p) => p.dataset.format)).toEqual(['step', 'stl', 'png']);
     expect(pill('step').checked).toBe(true);
+    expect(q('format-note').classList.contains('hidden')).toBe(true);
     expect(q('drawing-section').classList.contains('hidden')).toBe(true);
     expect(q('step-section').classList.contains('hidden')).toBe(false);
 
@@ -686,10 +714,15 @@ describe('ExportDialog drawing (DXF, SVG)', () => {
     expect((exportShapes.mock.calls[0][0] as any).format).toBe('step');
     expect(deliverFileMock.mock.calls[0][1]).toBe('robot.step');
 
-    // Solids get the pills back.
+    // A drawing format picked on the assembly is a drawing again on solids.
+    dialog.show({ kind: 'assembly' });
+    pickFormat('dxf');
+    dialog.hide();
     dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
-    expect(pill('dxf').classList.contains('hidden')).toBe(false);
-    expect(pill('svg').classList.contains('hidden')).toBe(false);
+    expect(pill('dxf').checked).toBe(true);
+    expect(q('format-note').classList.contains('hidden')).toBe(true);
+    expect(q('drawing-section').classList.contains('hidden')).toBe(false);
+    expect(q<HTMLButtonElement>('export-btn').disabled).toBe(false);
   });
 
   it('SVG sends the drawing options and its stroke width, and downloads <base>-<view>.svg', async () => {

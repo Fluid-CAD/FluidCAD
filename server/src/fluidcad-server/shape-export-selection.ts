@@ -62,7 +62,7 @@ export class ShapeExportSelection {
       };
     }
     if (!selection.some((id) => ShapeExportSelection.isSolid(ShapeExportSelection.shapeOf(liveRows, id)))) {
-      return { status: 422, reason: 'None of the selected shapes is a solid. STEP and STL export solids.' };
+      return { status: 422, reason: 'None of the selected shapes is a solid. Only solids can be exported.' };
     }
     if (!target) {
       return { shapeIds: selection };

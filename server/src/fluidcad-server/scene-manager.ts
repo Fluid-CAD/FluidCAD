@@ -4,6 +4,8 @@ import type {
   AssemblyExportOutcome,
   AssemblyExportPose,
   AssemblySolution,
+  ExportOptions,
+  ExportResult,
   FeatureSlotRequest,
   FeatureSlotSynthesis,
   GeneratedRenderReport,
@@ -15,6 +17,7 @@ import type {
   SceneInterferenceOutcome,
   SceneOptions,
   SceneValidationOutcome,
+  SolidExportOptions,
   ValidateSceneRequest,
 } from '../../../lib/dist/index.js';
 import type { SerializedAssembly } from './assembly-types.ts';
@@ -225,28 +228,13 @@ export type SceneManager = {
     rayDir: [number, number, number],
     edgeThreshold: number,
   ): any;
-  exportShapes(
-    scene: any,
-    shapeIds: string[],
-    options: {
-      format: 'step' | 'stl';
-      includeColors?: boolean;
-      resolution?: string;
-      customLinearDeflection?: number;
-      customAngularDeflectionDeg?: number;
-    },
-  ): { data: string | Uint8Array; fileName: string };
+  // `options.format` picks the writer: the solids themselves (`step`, `stl`)
+  // or a drawing of their view on a plane (`dxf`, `svg`). An engine that predates
+  // the drawing formats writes an STL for them — see
+  // `FluidCadServer.exportShapes`, which refuses that answer.
+  exportShapes(scene: any, shapeIds: string[], options: ExportOptions): ExportResult;
   exportAssembly(
     scene: any,
-    options: {
-      format: 'step' | 'stl';
-      name: string;
-      livePoses?: AssemblyExportPose[];
-      includeColors?: boolean;
-      resolution?: string;
-      customLinearDeflection?: number;
-      customAngularDeflectionDeg?: number;
-      scaleTo?: 'mm' | 'document';
-    },
+    options: Omit<SolidExportOptions, 'unit'> & { name: string; livePoses?: AssemblyExportPose[] },
   ): AssemblyExportOutcome;
 };

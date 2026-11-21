@@ -22,6 +22,9 @@ import {
   setUnitRegistry,
   type AssemblyExportOutcome,
   type AssemblyExportPose,
+  type ExportOptions,
+  type ExportResult,
+  type SolidExportOptions,
   type FeatureSlotRequest,
   type FeatureSlotSynthesis,
   type ImportReport,
@@ -2436,18 +2439,16 @@ export class FluidCadServer {
    * same statement and position), since every render mints shape ids
    * afresh. Null when nothing is rendered; a refusal when the selection
    * names nothing the exported scene has.
+   *
+   * `options.format` decides what is written: the solids (`step`, `stl`), or
+   * a 2D drawing of their view on `options.plane` (`dxf`, `svg`), whose result may
+   * carry `warnings`. An engine too old to know the format is a refusal.
    */
   exportShapes(
     selection: ShapeSelection,
-    options: {
-      format: 'step' | 'stl';
-      includeColors?: boolean;
-      resolution?: string;
-      customLinearDeflection?: number;
-      customAngularDeflectionDeg?: number;
-    },
+    options: ExportOptions,
     scratch?: Extract<ScratchRender, { ok: true }>,
-  ): { data: string | Uint8Array; fileName: string } | ShapeExportRefusal | null {
+  ): ExportResult | ShapeExportRefusal | null {
     if (!this.sceneManager) {
       return null;
     }
@@ -2460,7 +2461,18 @@ export class FluidCadServer {
     if ('reason' in resolved) {
       return resolved;
     }
-    return this.sceneManager.exportShapes(target?.scene ?? scene, resolved.shapeIds, options);
+    const exported = this.sceneManager.exportShapes(target?.scene ?? scene, resolved.shapeIds, options);
+    // An engine that predates the drawing formats falls through to its last
+    // writer and answers with an STL mesh; the file's extension gives that away.
+    const drawing = options.format !== 'step' && options.format !== 'stl';
+    if (drawing && !String(exported?.fileName ?? '').toLowerCase().endsWith(`.${options.format}`)) {
+      return {
+        status: 422,
+        reason: `This workspace's FluidCAD engine cannot export ${options.format.toUpperCase()}: it predates the format. `
+          + 'Update the fluidcad package the workspace uses.',
+      };
+    }
+    return exported;
   }
 
   /**
@@ -2472,14 +2484,7 @@ export class FluidCadServer {
    * or the poses do not cover it.
    */
   exportAssembly(
-    options: {
-      format: 'step' | 'stl';
-      includeColors?: boolean;
-      resolution?: string;
-      customLinearDeflection?: number;
-      customAngularDeflectionDeg?: number;
-      scaleTo?: 'mm' | 'document';
-    },
+    options: Omit<SolidExportOptions, 'unit'>,
     livePoses?: AssemblyExportPose[],
     scratch?: Extract<ScratchRender, { ok: true }>,
   ): AssemblyExportOutcome | null {

@@ -87,6 +87,7 @@ import { describeOcException, KernelTraps } from '../../lib/dist/index.js';
 import { EngineHealth } from './engine-health.ts';
 import { createEngineRouter } from './routes/engine.ts';
 import { setMaxWorkers } from '../../lib/dist/oc/init.js';
+import { STANDARD_PLANES, isStandardPlane } from '../../lib/dist/math/plane.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
 // through vite's SSR wrapper, whose transform shifts raw stack lines (+3) and
@@ -896,8 +897,28 @@ async function handleExtensionMessage(msg: any) {
         try {
           // `assembly` (optionally with live poses) exports the whole
           // assembly; otherwise `shapeIds` picks solids, as the UI's route does.
-          let result: { data: string | Uint8Array; fileName: string } | null = null;
+          let result: { data: string | Uint8Array; fileName: string; warnings?: string[] } | null = null;
           let posesSource: ExportPosesSource | undefined;
+          // A drawing format needs its plane, and has no whole-assembly form
+          // yet — the same refusals the HTTP route gives.
+          const drawing = msg.options?.format === 'dxf' || msg.options?.format === 'svg';
+          const drawingName = String(msg.options?.format ?? '').toUpperCase();
+          if (drawing && !isStandardPlane(msg.options.plane)) {
+            sendToExtension({
+              type: 'export-complete',
+              success: false,
+              error: `${drawingName} draws the model's view on a plane: plane must be one of ${STANDARD_PLANES.join(', ')}.`,
+            });
+            break;
+          }
+          if (drawing && msg.assembly !== undefined) {
+            sendToExtension({
+              type: 'export-complete',
+              success: false,
+              error: `A ${drawingName} drawing of the whole assembly is not available yet. Export a part or its solids instead.`,
+            });
+            break;
+          }
           if (msg.assembly !== undefined) {
             const outcome = fluidCadServer.exportAssembly(msg.options, msg.assembly.poses);
             if (outcome) {
@@ -928,6 +949,7 @@ async function handleExtensionMessage(msg: any) {
               data,
               fileName: result.fileName,
               ...(posesSource ? { posesSource } : {}),
+              ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {}),
             });
           } else {
             sendToExtension({ type: 'export-complete', success: false, error: 'No active scene to export.' });

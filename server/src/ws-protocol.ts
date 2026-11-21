@@ -82,13 +82,22 @@ export type ExportSceneMessage = {
    */
   assembly?: { poses?: ExportInstancePose[] };
   options: {
-    format: 'step' | 'stl';
+    /** `dxf` and `svg` draw the solids' view on `plane` instead of writing them; they take no assembly. */
+    format: 'step' | 'stl' | 'dxf' | 'svg';
     includeColors?: boolean;
     resolution?: string;
     customLinearDeflection?: number;
     customAngularDeflectionDeg?: number;
     /** STL only: scale the mesh into mm (default) or keep document units. */
     scaleTo?: 'mm' | 'document';
+    /** DXF, SVG: the standard plane the view is drawn on (`top`, `front`, `xy`, `-xz` …). Required for them. */
+    plane?: string;
+    /** DXF, SVG: draw the edges behind the model too, on their own dashed layer. */
+    hiddenLines?: boolean;
+    /** DXF, SVG: draw smooth (tangent) edges, on their own layer. */
+    tangentEdges?: boolean;
+    /** SVG only: the page — visible stroke width and margin, in millimetres on paper (0.25 and 5 by default). */
+    svg?: { strokeWidth?: number; margin?: number };
   };
 };
 
@@ -347,6 +356,8 @@ export type ExportCompleteMessage = {
   error?: string;
   /** Assembly exports: where the instance poses written came from. */
   posesSource?: ExportPosesSource;
+  /** What the user should be told about the file — a drawing whose curves had to be approximated. */
+  warnings?: string[];
 };
 
 export type AddBreakpointMessage = {

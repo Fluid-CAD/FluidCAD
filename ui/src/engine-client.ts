@@ -6,6 +6,7 @@ import type {
   EdgeProperties,
   EditorHistoryResult,
   ExportRequestBody,
+  ExportResult,
   FaceProperties,
   Material,
   MeasureEntityRef,
@@ -183,8 +184,12 @@ export interface EngineClient {
    */
   getPartProperties?(partId: string): Promise<PartProperties | null>;
   measureEntities(entities: MeasureEntityRef[], signal?: AbortSignal): Promise<MeasureResult | null>;
-  /** `POST /api/export` — a list of solids, or the whole assembly; see {@link ExportRequestBody}. */
-  exportShapes(body: ExportRequestBody): Promise<Blob>;
+  /**
+   * `POST /api/export` — a list of solids, or the whole assembly; see
+   * {@link ExportRequestBody}. Answers the file, alone or with the export's
+   * warnings ({@link ExportResult}); `toExportResult` reads either.
+   */
+  exportShapes(body: ExportRequestBody): Promise<Blob | ExportResult>;
   loadPreferences(): Promise<UserPreferences | null>;
   savePreference<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]): void;
   /** Editing affordances; null in read-only hosts. */

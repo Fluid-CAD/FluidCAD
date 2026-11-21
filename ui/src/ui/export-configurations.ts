@@ -52,16 +52,21 @@ export class ConfigurationExport {
    * file-safe. Two rows that sanitise alike get `-2`, `-3`, … (compared
    * case-insensitively, as a Windows or macOS unzip would), so no entry
    * overwrites another.
+   *
+   * `suffix` is what every file carries after its row, ahead of the
+   * extension — a drawing's view (`-top`), so one part's views sit side by
+   * side: `<base>-top.dxf`, `<base>-<Row>-top.dxf`.
    */
-  static entries(table: UIConfigurations, base: string, extension: string): ConfigurationEntry[] {
+  static entries(table: UIConfigurations, base: string, extension: string, suffix = ''): ConfigurationEntry[] {
     const taken = new Set<string>();
+    const tail = `${suffix}${extension}`;
     return ConfigurationExport.rows(table).map((configuration) => {
       const stem = configuration === DEFAULT_CONFIGURATION
         ? base
         : `${base}-${ConfigurationExport.fileSegment(configuration)}`;
-      let fileName = `${stem}${extension}`;
+      let fileName = `${stem}${tail}`;
       for (let n = 2; taken.has(fileName.toLowerCase()); n++) {
-        fileName = `${stem}-${n}${extension}`;
+        fileName = `${stem}-${n}${tail}`;
       }
       taken.add(fileName.toLowerCase());
       return { configuration, fileName };

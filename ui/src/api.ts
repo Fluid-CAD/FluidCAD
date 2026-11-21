@@ -148,7 +148,13 @@ export type MeasurePose = {
 /** One assembly instance's live world pose, as the whole-assembly export ships it. */
 export type ExportInstancePose = { instanceId: string } & MeasurePose;
 
-export type ExportFormat = 'step' | 'stl';
+export type ExportFormat = 'step' | 'stl' | 'dxf' | 'svg';
+
+/**
+ * The six views a drawing export (DXF, SVG) can draw, named as the server's
+ * standard planes are: `top` is the model seen from +Z, drawn on XY.
+ */
+export type ExportDrawingView = 'top' | 'bottom' | 'front' | 'back' | 'right' | 'left';
 
 /** The per-format knobs of `POST /api/export` — the same for either selector. */
 export type ExportFormatOptions = {
@@ -160,7 +166,48 @@ export type ExportFormatOptions = {
   scaleTo?: 'mm' | 'document';
   customAngularDeflectionDeg?: number;
   customLinearDeflection?: number;
+  /** DXF, SVG: the standard plane the solids are drawn on, by its view name. Required for a drawing, refused for STEP and STL. */
+  plane?: ExportDrawingView;
+  /** DXF, SVG: draw the edges behind the model too, dashed, on their own layer. */
+  hiddenLines?: boolean;
+  /** DXF, SVG: draw smooth (tangent) edges, on their own layer. */
+  tangentEdges?: boolean;
+  /** SVG only: the lines' width in millimetres on paper; the server's default is 0.25. Refused with any other format. */
+  strokeWidth?: number;
+  /** SVG only: the blank border around the drawing, in millimetres; the server's default is 5. Refused with any other format. */
+  margin?: number;
 };
+
+/**
+ * An exported file with what the server had to say about it — a drawing
+ * whose curves had to be approximated says so in `warnings`.
+ */
+export type ExportResult = { blob: Blob; warnings: string[] };
+
+/** The response header a drawing export's warnings travel in: a URI-encoded JSON array of strings. */
+const EXPORT_WARNINGS_HEADER = 'X-FluidCAD-Export-Warnings';
+
+/**
+ * What an `EngineClient.exportShapes` answered, as an {@link ExportResult}:
+ * a host that answers with the bare file has no warnings.
+ */
+export function toExportResult(exported: Blob | ExportResult): ExportResult {
+  // By shape, not `instanceof`: a host's file may be a Blob of another realm (a worker's, a frame's).
+  return 'blob' in exported && Array.isArray(exported.warnings) ? exported : { blob: exported as Blob, warnings: [] };
+}
+
+/** The warnings of an export response; none when the header is absent or is not the list it should be. */
+export function parseExportWarnings(header: string | null): string[] {
+  if (!header) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(decodeURIComponent(header));
+    return Array.isArray(parsed) ? parsed.filter((w): w is string => typeof w === 'string' && w.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
 
 /** `shapeIds: "all"` — every solid of the scene the export comes from (a configuration's own render when it is not on screen). */
 export const EVERY_SOLID = 'all' as const;
@@ -5785,7 +5832,7 @@ export async function importFile(fileName: string, data: string): Promise<Import
   }
 }
 
-export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
+export async function exportShapes(body: ExportRequestBody): Promise<ExportResult> {
   const res = await fetch('api/export', {
     method: 'POST',
     headers: JSON_HEADERS,
@@ -5795,7 +5842,7 @@ export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
     const err = await res.json();
     throw new Error(err.error || 'Export failed');
   }
-  return res.blob();
+  return { blob: await res.blob(), warnings: parseExportWarnings(res.headers.get(EXPORT_WARNINGS_HEADER)) };
 }
 
 /**

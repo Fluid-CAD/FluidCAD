@@ -33,7 +33,7 @@ import {
   setPartAppearance,
   setProjectUnit,
 } from './api';
-import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, PauseAfterOptions, PauseAfterResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
+import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, ExportResult, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, PauseAfterOptions, PauseAfterResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -193,7 +193,7 @@ export class HttpEngineClient implements EngineClient {
     return measureEntities(entities, signal);
   }
 
-  exportShapes(body: ExportRequestBody): Promise<Blob> {
+  exportShapes(body: ExportRequestBody): Promise<ExportResult> {
     return exportShapes(body);
   }
 

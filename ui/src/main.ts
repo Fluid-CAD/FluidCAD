@@ -388,6 +388,17 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
     };
   },
   fileBaseName: () => exportBaseName(sceneDocument.current?.absPath ?? ''),
+}, {
+  // A drawing export opens on Top, or on the standard view the camera
+  // clearly faces (`DrawingViews.facing`). The camera looks down its own
+  // −Z, so its +Z axis in the world — the third column of its world
+  // matrix — points from the model back to the eye.
+  eyeDirection: () => {
+    const camera = viewer.sceneContext.camera;
+    camera.updateMatrixWorld();
+    const m = camera.matrixWorld.elements;
+    return { x: m[8], y: m[9], z: m[10] };
+  },
 });
 
 /** The rendered file's `configurations()` table as its last render reported it — the export and share dialogs read it. */

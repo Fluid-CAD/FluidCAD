@@ -26,7 +26,9 @@ import {
 import type { Checkpoint } from '../src/session-store.ts';
 import { applyChatEvent } from '../src/transcript.ts';
 import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readQuestionReply, readSvg } from '../src/questions.ts';
-import type { ChatEvent, ChatMessage, PermissionMode, QuestionItem, QuestionPart, ToolPart } from '../src/types.ts';
+import { VARIANTS_ANSWERED_NOTE, VARIANTS_SKIPPED_NOTE, VARIANTS_STOPPED_MESSAGE, VARIANTS_TIMED_OUT_MESSAGE, readVariantsReply } from '../src/variants.ts';
+import { findPart } from '../src/transcript.ts';
+import type { ChatEvent, ChatMessage, ChatPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
 
 // A stand-in for the engine the pinned server talks to: write_file and
 // edit_range ask it for dirty buffers, a lint and a render. Only the dirty
@@ -37,6 +39,15 @@ let dirtyFiles: string[] = [];
 /** What the engine's `POST /api/hub/install` does; null answers 404 like any other route. */
 let hubInstall: ((body: any) => { status: number; json: unknown }) | null = null;
 let hubInstalls: any[] = [];
+/**
+ * What the engine's `POST /api/scratch-build` answers for a candidate text
+ * (propose_variants); null answers 404 like any other route. A promise holds
+ * the build until the test lets it end.
+ */
+let scratchBuild: ((source: string) => unknown | Promise<unknown>) | null = null;
+let scratchBuilds: { file: string; source: string }[] = [];
+/** What the engine's lint says of a candidate text; null answers 404 (the tools then carry on). */
+let lint: ((code: string) => unknown) | null = null;
 let workspace: string;
 let pinned: RegistryEntry;
 
@@ -45,7 +56,27 @@ beforeEach(async () => {
   dirtyFiles = [];
   hubInstall = null;
   hubInstalls = [];
+  scratchBuild = null;
+  scratchBuilds = [];
+  lint = null;
   engine = http.createServer((req, res) => {
+    if ((req.url === '/api/scratch-build' && scratchBuild) || (req.url === '/api/lint-fluid-js' && lint)) {
+      const chunks: Buffer[] = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', async () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        let answer: unknown;
+        if (req.url === '/api/scratch-build') {
+          scratchBuilds.push({ file: body.file, source: body.source });
+          answer = await scratchBuild!(body.source);
+        } else {
+          answer = lint!(body.code);
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(answer));
+      });
+      return;
+    }
     if (req.url === '/api/editor/dirty-files') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(dirtyFiles.map((p) => ({ path: p, lastModifiedMs: 0 }))));
@@ -117,6 +148,9 @@ class FakeHost implements ToolGateHost {
     this.events.push(event);
     applyChatEvent(this.messages, event);
   }
+  part(messageId: string, partId: string): ChatPart | undefined {
+    return findPart(this.messages, messageId, partId);
+  }
   saveImage(): string {
     return 'img.png';
   }
@@ -146,6 +180,20 @@ class FakeHost implements ToolGateHost {
   }
   questions(): QuestionPart[] {
     return (this.messages[0]?.parts ?? []).filter((p): p is QuestionPart => p.type === 'question');
+  }
+  variants(): VariantsPart[] {
+    return (this.messages[0]?.parts ?? []).filter((p): p is VariantsPart => p.type === 'variants');
+  }
+  /** The variants card once it is in `state`. */
+  async variantsIn(state: VariantsPart['state'], index = 0): Promise<VariantsPart> {
+    for (let i = 0; i < 400; i++) {
+      const part = this.variants()[index];
+      if (part?.state === state) {
+        return part;
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`no variants card is ${state}: ${JSON.stringify(this.variants())}`);
   }
   /** The id of the question waiting for the user, once it waits. */
   async asking(index = 0): Promise<string> {
@@ -193,12 +241,13 @@ class ManualTimers implements GateTimers {
 
 const clients: Client[] = [];
 
-async function connect(gate: ToolGate, options: { ask?: boolean } = {}): Promise<Client> {
+async function connect(gate: ToolGate, options: { ask?: boolean; variants?: boolean } = {}): Promise<Client> {
   const server = buildServer({
     pinnedWorkspace: pinned,
     toolGate: gate,
     // As a chat session's endpoint builds it (mcp-endpoint.ts).
     ...(options.ask ? { askUser: (input, signal) => gate.ask(input, signal) } : {}),
+    ...(options.variants ? { proposeVariants: (input, signal) => gate.propose(input, signal) } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -974,5 +1023,410 @@ describe('ToolGate: questions (ask_user, §22)', () => {
     gate.answer(await host.asking(), { answers: [{ text: '3' }] });
     await pending;
     expect(timers.scheduled.size).toBe(0);
+  });
+});
+
+describe('ToolGate: variants (propose_variants, §24)', () => {
+  const BASE = 'base();\n';
+  const RIB = 'base();\nrib();\n';
+  const GUSSET = 'base();\ngusset();\n';
+  /** The gusset as an edit of the file on disk: a line appended. */
+  const GUSSET_EDIT = [{ start: { line: 1, column: 0 }, end: { line: 1, column: 0 }, newText: 'gusset();\n' }];
+  const VARIANTS = [
+    { label: 'Rib', description: 'One rib under the arm.', content: RIB },
+    { label: 'Gusset', edits: GUSSET_EDIT },
+  ];
+  const call = (variants: object[] = VARIANTS, extra: object = {}) => ({
+    name: 'propose_variants',
+    arguments: { path: 'bracket.fluid.js', question: 'Which stiffener?', variants, ...extra },
+  });
+
+  /** A scratch build that rendered, as the engine answers one. */
+  const rendered = (id: string, size: [number, number, number], volume: number) => ({
+    state: 'rendered',
+    id,
+    file: 'bracket.fluid.js',
+    sceneKind: 'part',
+    unit: 'mm',
+    durationMs: 12,
+    builtFrom: 'source',
+    configuration: 'Default',
+    sessionOverrides: 0,
+    unusedParams: [],
+    solidCount: 1,
+    bounds: { min: [0, 0, 0], max: size },
+    volume,
+    validation: { ok: true, checked: 1, findings: [], skipped: 0 },
+  });
+  const RIB_BUILD = rendered('11111111-1111-4111-8111-111111111111', [80, 40, 30.5], 41200);
+  const GUSSET_BUILD = rendered('22222222-2222-4222-8222-222222222222', [80, 40, 30], 44000);
+  const COMPILE_ERROR = {
+    state: 'compile-error',
+    file: 'x',
+    durationMs: 2,
+    compileError: { message: 'gusset is not defined\n    at eval', sourceLocation: { filePath: 'x', line: 2, column: 1 } },
+  };
+  const builds = (source: string) => (source === RIB ? RIB_BUILD : source === GUSSET ? GUSSET_BUILD : COMPILE_ERROR);
+
+  beforeEach(() => {
+    fs.writeFileSync(file('bracket.fluid.js'), BASE);
+    scratchBuild = builds;
+  });
+
+  it('is offered by a chat session\'s server only, annotated as the write it ends in, outside the class table', async () => {
+    const plain = await connect(new ToolGate(new FakeHost()), { ask: true });
+    expect((await plain.listTools()).tools.map((t) => t.name)).not.toContain('propose_variants');
+    const proposing = await connect(new ToolGate(new FakeHost()), { variants: true });
+    const tool = (await proposing.listTools()).tools.find((t) => t.name === 'propose_variants')!;
+    expect(tool.annotations).toEqual({ readOnlyHint: false, destructiveHint: true });
+    expect(toolClass('propose_variants')).toBeUndefined();
+    expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['path', 'question', 'variants']);
+  });
+
+  it('shows the card at once, builds the variants one after the other, waits, and writes the one the user picks', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    // The first build is held, so the card is seen before any tile fills in.
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchBuild = async (source) => {
+      if (source === RIB) {
+        await held;
+      }
+      return builds(source);
+    };
+    const pending = client.callTool(call());
+    await expect.poll(() => host.variants()[0]?.variants[0].state).toBe('building');
+    const card = host.variants()[0];
+    expect(card).toEqual({
+      type: 'variants',
+      id: card.id,
+      state: 'building',
+      file: 'bracket.fluid.js',
+      question: 'Which stiffener?',
+      variants: [
+        { label: 'Rib', description: 'One rib under the arm.', state: 'building' },
+        { label: 'Gusset', state: 'queued' },
+      ],
+    });
+    // One build at a time; a reply before they are done is refused; nothing waits for the user yet.
+    expect(scratchBuilds).toHaveLength(1);
+    expect(gate.choose(card.id, { pick: 'Rib' })).toEqual({ result: 'building' });
+    expect(gate.pendingQuestionIds()).toEqual([]);
+    expect(gate.pendingVariantIds('t1')).toEqual([card.id]);
+    expect(host.questionChanges).toEqual([]);
+    expect(host.persisted).toBeGreaterThan(0);
+
+    release();
+    const waiting = await host.variantsIn('awaiting-choice');
+    // Each candidate was built as the file would be with it: the whole text, and the edits applied to the disk's.
+    expect(scratchBuilds).toEqual([
+      { file: file('bracket.fluid.js'), source: RIB },
+      { file: file('bracket.fluid.js'), source: GUSSET },
+    ]);
+    expect(waiting.variants).toEqual([
+      {
+        label: 'Rib',
+        description: 'One rib under the arm.',
+        state: 'ready',
+        buildId: RIB_BUILD.id,
+        sceneKind: 'part',
+        facts: { solidCount: 1, size: [80, 40, 30.5], volume: 41200, unit: 'mm', sound: true },
+      },
+      {
+        label: 'Gusset',
+        state: 'ready',
+        buildId: GUSSET_BUILD.id,
+        sceneKind: 'part',
+        facts: { solidCount: 1, size: [80, 40, 30], volume: 44000, unit: 'mm', sound: true },
+      },
+    ]);
+    // It waits as a question does; nothing is written, copied or asked for approval (the mode is `ask`).
+    expect(host.questionChanges).toEqual([[card.id]]);
+    expect(gate.pendingQuestionIds('t1')).toEqual([card.id]);
+    expect(host.tools()).toEqual([]);
+    expect(host.approvalChanges).toEqual([]);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+
+    expect(gate.choose(card.id, { pick: 'Gusset' })).toEqual({ result: 'ok' });
+    const result = await pending;
+    expect(result.isError).not.toBe(true);
+    // The stand-in engine has no render route: the write reports that, as write_file would.
+    expect(JSON.parse(textOf(result))).toEqual({ picked: 'Gusset', render: { state: 'render-failed', error: expect.any(String) } });
+    expect(read('bracket.fluid.js')).toBe(GUSSET);
+    // Checkpointed as a write_file of the turn is: reverting the turn puts the file back.
+    expect([...host.checkpoints.get('t1')!.values()]).toEqual([{ path: file('bracket.fluid.js'), existed: true, content: BASE }]);
+    expect(host.variants()[0]).toMatchObject({ state: 'picked', picked: 'Gusset' });
+    // The write is a card of its own after the variants card, with its diff and its result.
+    const [write] = host.tools();
+    expect(write).toMatchObject({
+      name: 'write_file',
+      title: 'Apply "Gusset" to bracket.fluid.js',
+      kind: 'edit',
+      state: 'done',
+      input: { path: 'bracket.fluid.js', variant: 'Gusset' },
+    });
+    expect(write.approval).toBeUndefined();
+    expect(write.diff).toContain('+gusset();');
+    expect(JSON.parse(write.output!.text!).render.state).toBe('render-failed');
+    expect(host.messages[0].parts.map((p) => p.type)).toEqual(['variants', 'tool']);
+    expect(host.questionChanges).toEqual([[card.id], []]);
+    expect(gate.pendingVariantIds()).toEqual([]);
+    // The first reply won: a second (another tab) finds nothing waiting.
+    expect(gate.choose(card.id, { skip: true })).toEqual({ result: 'not-found' });
+  });
+
+  it('shows a variant that does not build as failed with its reason, and it cannot be picked', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    const featureFails = {
+      ...GUSSET_BUILD,
+      state: 'build-error',
+      objectErrors: [
+        { index: 3, id: 'x', name: 'Fillet 1', uniqueKind: 'fillet', message: 'the radius may be too large', sourceLocation: { filePath: 'x', line: 7, column: 1 } },
+        { index: 4, id: 'y', name: 'Shell 1', uniqueKind: 'shell', message: 'no' },
+      ],
+    };
+    scratchBuild = (source) => (source === RIB ? RIB_BUILD : featureFails);
+    const pending = client.callTool(call());
+    const card = await host.variantsIn('awaiting-choice');
+    // A build with a failed feature still has a scene: its tile keeps the build to draw, and says what failed.
+    expect(card.variants[1]).toMatchObject({
+      label: 'Gusset',
+      state: 'failed',
+      buildId: GUSSET_BUILD.id,
+      error: 'Fillet 1 does not build (line 7): the radius may be too large, and 1 more',
+    });
+    expect(gate.choose(card.id, { pick: 'Gusset' })).toEqual({ result: 'invalid', error: '"Gusset" did not build, so it cannot be picked.' });
+    expect(gate.choose(card.id, { pick: 'Web' })).toMatchObject({ result: 'invalid' });
+    expect(gate.choose(card.id, {})).toMatchObject({ result: 'invalid' });
+    expect(gate.choose(card.id, { pick: 'Rib' })).toEqual({ result: 'ok' });
+    const result = JSON.parse(textOf(await pending));
+    expect(result.picked).toBe('Rib');
+    expect(result.failed).toEqual([{ label: 'Gusset', reason: 'Fillet 1 does not build (line 7): the radius may be too large, and 1 more' }]);
+    expect(read('bracket.fluid.js')).toBe(RIB);
+  });
+
+  it('returns an error without asking when neither variant builds', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    scratchBuild = () => COMPILE_ERROR;
+    const result = await client.callTool(call());
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('Neither variant built, so the user was not asked');
+    expect(textOf(result)).toContain('- "Rib": It does not compile: gusset is not defined (line 2)');
+    expect(host.variants()[0]).toMatchObject({
+      state: 'failed',
+      reason: 'Neither variant built.',
+      variants: [{ state: 'failed', error: 'It does not compile: gusset is not defined (line 2)' }, { state: 'failed' }],
+    });
+    expect(host.variants()[0].variants[0].buildId).toBeUndefined();
+    expect(host.questionChanges).toEqual([]);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+  });
+
+  it('refuses a call a write would refuse, naming the variant, before anything is built or shown', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    const refused = async (variants: object[], extra: object = {}) => {
+      const result = await client.callTool(call(variants, extra));
+      expect(result.isError, JSON.stringify(variants).slice(0, 80)).toBe(true);
+      return textOf(result);
+    };
+    expect(await refused([VARIANTS[0], { label: ' Rib ', content: GUSSET }])).toBe('Both variants are labelled "Rib". Give each its own label.');
+    expect(await refused([VARIANTS[0], { label: 'Gusset', content: GUSSET, edits: GUSSET_EDIT }])).toContain('Variant "Gusset": give the candidate as `content` (the whole file) or as `edits`, not both.');
+    expect(await refused([VARIANTS[0], { label: 'Gusset' }])).toContain('Variant "Gusset"');
+    expect(await refused([VARIANTS[0], { label: 'Same', content: RIB }])).toBe('"Rib" and "Same" are the same text. Offer two variants that differ, or make the change directly.');
+    expect(JSON.parse(await refused(VARIANTS, { path: 'notes.txt' }))).toMatchObject({ code: 'invalid-input', details: { variant: 'Rib' } });
+    expect(JSON.parse(await refused(VARIANTS, { path: '../outside.fluid.js' }))).toMatchObject({ code: 'invalid-input' });
+
+    // write_file's lint: the second candidate uses a symbol without its import.
+    lint = (code) => (code === GUSSET
+      ? { missing: [{ symbol: 'gusset', module: 'fluidcad/core', line: 1, column: 0 }], suggestion: 'import { gusset } from "fluidcad/core";' }
+      : { missing: [], suggestion: '' });
+    const missing = JSON.parse(await refused(VARIANTS));
+    expect(missing).toMatchObject({ code: 'missing-imports', details: { variant: 'Gusset', suggestion: 'import { gusset } from "fluidcad/core";' } });
+    expect(missing.message).toMatch(/^Variant "Gusset": Not built: write_file would refuse this candidate/);
+    lint = null;
+
+    // Unsaved changes in the editor: a pick could not be written, so nothing is built for it.
+    dirtyFiles = [file('bracket.fluid.js')];
+    const dirty = JSON.parse(await refused(VARIANTS));
+    expect(dirty.code).toBe('dirty-buffer');
+    expect(dirty.message).toContain('"bracket.fluid.js" has unsaved changes in the editor');
+    expect(dirty.message).not.toContain('force');
+
+    expect(scratchBuilds).toEqual([]);
+    expect(host.events).toEqual([]);
+  });
+
+  it('a skip or an answer in the user\'s own words writes nothing and tells the model so', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    const skipped = client.callTool(call());
+    expect(gate.choose((await host.variantsIn('awaiting-choice')).id, { skip: true })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await skipped))).toEqual({ skipped: true, note: VARIANTS_SKIPPED_NOTE });
+    expect(host.variants()[0]).toMatchObject({ state: 'skipped' });
+
+    const answered = client.callTool(call());
+    const second = await host.variantsIn('awaiting-choice', 1);
+    expect(gate.choose(second.id, { text: '   ' })).toMatchObject({ result: 'invalid' });
+    expect(gate.choose(second.id, { text: ' neither — make the base thicker ' })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await answered))).toEqual({ answer: 'neither — make the base thicker', note: VARIANTS_ANSWERED_NOTE });
+    expect(host.variants()[1]).toMatchObject({ state: 'answered', text: 'neither — make the base thicker' });
+
+    expect(read('bracket.fluid.js')).toBe(BASE);
+    expect(host.tools()).toEqual([]);
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+  });
+
+  it('reads a reply: a pick of a built tile, bounded words, or a skip', () => {
+    const tiles: VariantTile[] = [{ label: 'Rib', state: 'ready' }, { label: 'Gusset', state: 'failed' }];
+    expect(readVariantsReply(tiles, { pick: 'Rib' })).toEqual({ ok: true, reply: { pick: 'Rib' } });
+    expect(readVariantsReply(tiles, { skip: true, pick: 'Gusset' })).toEqual({ ok: true, reply: { skip: true } });
+    expect(readVariantsReply(tiles, { text: ' thicker ' })).toEqual({ ok: true, reply: { text: 'thicker' } });
+    expect(readVariantsReply(tiles, { text: 'x'.repeat(2001) })).toMatchObject({ ok: false });
+    expect(readVariantsReply(tiles, { pick: 3 })).toMatchObject({ ok: false });
+    expect(readVariantsReply(tiles, null)).toMatchObject({ ok: false });
+  });
+
+  it('a stop cancels the build that has not started, and ends the card unanswered', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchBuild = async (source) => {
+      await held;
+      return builds(source);
+    };
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    await expect.poll(() => scratchBuilds.length).toBe(1);
+    host.turn = null;
+    gate.settleAll('stopped');
+    // The card says so at once; the build in progress cannot be cancelled and its tile stays cancelled when it ends.
+    expect(host.variants()[0]).toMatchObject({ state: 'unanswered', reason: 'Stopped before you chose.', variants: [{ state: 'cancelled' }, { state: 'cancelled' }] });
+    release();
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(VARIANTS_STOPPED_MESSAGE);
+    expect(scratchBuilds).toHaveLength(1);
+    expect(host.variants()[0].variants.map((t) => t.state)).toEqual(['cancelled', 'cancelled']);
+    expect(gate.pendingVariantIds()).toEqual([]);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+  });
+
+  it('ends unanswered when the engine shuts down, the client cancels, or an hour passes', async () => {
+    const host = new FakeHost();
+    const timers = new ManualTimers();
+    const gate = new ToolGate(host, { timers });
+    const signal = () => new AbortController().signal;
+
+    const closing = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, signal());
+    await host.variantsIn('awaiting-choice', 0);
+    // The hour starts when the card starts waiting, not while it builds.
+    expect([...timers.scheduled.values()].map((t) => t.ms)).toEqual([60 * 60 * 1000]);
+    gate.settleAll('shutdown');
+    expect(textOf(await closing)).toBe(VARIANTS_STOPPED_MESSAGE);
+    expect(host.variants()[0]).toMatchObject({ state: 'unanswered', reason: 'The app closed before you chose.', variants: [{ state: 'ready' }, { state: 'ready' }] });
+    expect(timers.scheduled.size).toBe(0);
+
+    const controller = new AbortController();
+    const cancelled = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, controller.signal);
+    await host.variantsIn('awaiting-choice', 1);
+    controller.abort();
+    expect(textOf(await cancelled)).toBe(CANCELLED_MESSAGE);
+    expect(host.variants()[1]).toMatchObject({ state: 'unanswered', reason: 'Cancelled.' });
+
+    const late = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, signal());
+    await host.variantsIn('awaiting-choice', 2);
+    timers.fireAll();
+    const result = await late;
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(VARIANTS_TIMED_OUT_MESSAGE);
+    expect(host.variants()[2]).toMatchObject({ state: 'unanswered', reason: 'Not chosen within an hour.' });
+    expect(host.questionChanges.at(-1)).toEqual([]);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+  });
+
+  it('shows nothing outside a turn', async () => {
+    const host = new FakeHost();
+    host.turn = null;
+    const result = await new ToolGate(host).propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(NO_TURN_MESSAGE);
+    expect(host.events).toEqual([]);
+    expect(scratchBuilds).toEqual([]);
+  });
+
+  it('does not write a pick over a file that changed while the user was choosing', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    const card = await host.variantsIn('awaiting-choice');
+    // The user saved an edit of their own meanwhile: the tiles show builds of the old text.
+    fs.writeFileSync(file('bracket.fluid.js'), 'base();\nhole();\n');
+    expect(gate.choose(card.id, { pick: 'Rib' })).toEqual({ result: 'ok' });
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('The user picked "Rib", but bracket.fluid.js changed on disk while they were choosing, so it was not written.');
+    expect(read('bracket.fluid.js')).toBe('base();\nhole();\n');
+    expect(host.variants()[0]).toMatchObject({ state: 'failed', reason: 'bracket.fluid.js changed after these were built, so "Rib" was not written.' });
+    expect(host.variants()[0].picked).toBeUndefined();
+    expect(host.tools()).toEqual([]);
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+  });
+
+  it('refuses the write of a pick over unsaved editor changes as a write_file is refused, and keeps no copy', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    const card = await host.variantsIn('awaiting-choice');
+    // The user started typing in the editor after the card came up.
+    dirtyFiles = [file('bracket.fluid.js')];
+    gate.choose(card.id, { pick: 'Rib' });
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    const error = JSON.parse(textOf(result));
+    expect(error.code).toBe('dirty-buffer');
+    expect(error.message).toMatch(/^The user picked "Rib", but it was not written: /);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+    expect(host.variants()[0]).toMatchObject({ state: 'picked', picked: 'Rib' });
+    expect(host.tools()[0]).toMatchObject({
+      name: 'write_file',
+      state: 'error',
+      errorCode: 'dirty-buffer',
+      error: 'Not written: bracket.fluid.js has unsaved changes in the editor. Save it, then ask again.',
+    });
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+  });
+
+  it('keeps a picture the page added to a tile while the other variant built', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchBuild = async (source) => {
+      if (source === GUSSET) {
+        await held;
+      }
+      return builds(source);
+    };
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    await expect.poll(() => host.variants()[0]?.variants[1].state).toBe('building');
+    // As the session's picture route does: the tile gains its `image` in the transcript.
+    const card = host.variants()[0];
+    host.emit({ type: 'part-update', messageId: 'a1', partId: card.id, patch: { variants: card.variants.map((t, i) => (i === 0 ? { ...t, image: 'rib.png' } : t)) } });
+    release();
+    const waiting = await host.variantsIn('awaiting-choice');
+    expect(waiting.variants.map((t) => [t.state, t.image])).toEqual([['ready', 'rib.png'], ['ready', undefined]]);
+    gate.choose(card.id, { skip: true });
+    await pending;
+    expect(host.variants()[0].variants[0].image).toBe('rib.png');
   });
 });

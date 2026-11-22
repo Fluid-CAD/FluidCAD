@@ -17,8 +17,9 @@ import { buildCliText, CONTINUE_TEXT, interruptedTurnNote, type InterruptedToolC
 import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-endpoint.ts';
 import { SessionStore, type Checkpoint, type SessionRecord } from './session-store.ts';
 import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from './tool-gate.ts';
-import { applyChatEvent, findMessage } from './transcript.ts';
-import { ASK_USER_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
+import { applyChatEvent, findMessage, findPart } from './transcript.ts';
+import { cancelUnbuilt, VARIANTS_RESTART_BUILDING_REASON, VARIANTS_RESTART_REASON } from './variants.ts';
+import { ASK_USER_TOOL, PROPOSE_VARIANTS_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
 import type {
   AgentKind,
   ApprovalDecision,
@@ -33,6 +34,7 @@ import type {
   ToolPart,
   TurnRecord,
   TurnUsage,
+  VariantsPart,
 } from './types.ts';
 
 /** How long a CLI may sit idle between turns before it is closed (§6.2); the next message resumes it. */
@@ -134,6 +136,7 @@ export class AgentSession {
         activeTurn: () => (this.turn && !this.turn.stopping ? { turnId: this.turn.turnId, mode: this.turn.mode } : null),
         assistantMessageId: () => this.assistantMessageId(),
         emit: (event) => this.emit(event),
+        part: (messageId, partId) => findPart(this.record.messages, messageId, partId),
         saveImage: (data, mimeType) => this.saveImage(data, mimeType),
         persist: () => this.persist(),
         approvalsChanged: (turnId) => this.waitsChanged(turnId),
@@ -182,6 +185,10 @@ export class AgentSession {
           } else if (part.type === 'question' && part.state === 'awaiting-answer') {
             part.state = 'unanswered';
             part.reason = RESTART_QUESTION_REASON;
+          } else if (part.type === 'variants' && (part.state === 'building' || part.state === 'awaiting-choice')) {
+            part.reason = part.state === 'building' ? VARIANTS_RESTART_BUILDING_REASON : VARIANTS_RESTART_REASON;
+            part.state = 'unanswered';
+            part.variants = cancelUnbuilt(part.variants);
           }
         }
       }
@@ -356,6 +363,8 @@ export class AgentSession {
           calls.push({ name: part.name, ...this.toolTarget(part), outcome: toolOutcome(part) });
         } else if (part.type === 'question') {
           calls.push({ name: ASK_USER_TOOL, outcome: questionOutcome(part) });
+        } else if (part.type === 'variants') {
+          calls.push({ name: PROPOSE_VARIANTS_TOOL, target: part.file, outcome: variantsOutcome(part) });
         }
       }
     }
@@ -417,12 +426,68 @@ export class AgentSession {
     return { result: 'not-found' };
   }
 
-  /** Approvals and questions still waiting for the user end unanswered: the engine is exiting. Synchronous. */
+  /**
+   * The user's reply to a variants card (§24): a pick, their own words, or a
+   * skip. `already-settled`: the card is in the transcript but no longer
+   * waits; `building`: its variants are not built yet.
+   */
+  chooseVariant(variantsId: string, body: unknown): { result: 'ok' | 'not-found' | 'already-settled' | 'building' } | { result: 'invalid'; error: string } {
+    const choice = this.gate.choose(variantsId, body);
+    if (choice.result !== 'not-found') {
+      return choice;
+    }
+    return this.findVariants(variantsId) ? { result: 'already-settled' } : { result: 'not-found' };
+  }
+
+  /**
+   * Keeps the picture a page drew of a variant's build (a PNG) with the
+   * session, and names it on the tile: every tab shows it from then on, and
+   * it outlives the engine's own copy of the build (§24). The first picture
+   * of a tile is kept; a later one is dropped (`kept: false`). `not-found`:
+   * no such card or tile; `not-built`: the tile has no build to be a
+   * picture of.
+   */
+  saveVariantPicture(variantsId: string, label: string, png: Buffer): { result: 'ok'; kept: boolean } | { result: 'not-found' | 'not-built' } {
+    const found = this.findVariants(variantsId);
+    const index = found ? found.part.variants.findIndex((tile) => tile.label === label) : -1;
+    if (!found || index < 0) {
+      return { result: 'not-found' };
+    }
+    const tile = found.part.variants[index];
+    if (!tile.buildId) {
+      return { result: 'not-built' };
+    }
+    if (tile.image) {
+      return { result: 'ok', kept: false };
+    }
+    const image = this.saveImage(png, 'image/png');
+    this.emit({
+      type: 'part-update',
+      messageId: found.messageId,
+      partId: found.part.id,
+      patch: { variants: found.part.variants.map((t, i) => (i === index ? { ...t, image } : t)) },
+    });
+    this.persist();
+    return { result: 'ok', kept: true };
+  }
+
+  private findVariants(variantsId: string): { messageId: string; part: VariantsPart } | null {
+    for (const message of this.record.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'variants' && part.id === variantsId) {
+          return { messageId: message.id, part };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Approvals, questions and variants cards still waiting for the user end unanswered: the engine is exiting. Synchronous. */
   onEngineExit(): void {
     if (this.turn) {
       this.turn.stopping = true;
     }
-    if (this.gate.pendingApprovalIds().length > 0 || this.gate.pendingQuestionIds().length > 0) {
+    if (this.gate.pendingApprovalIds().length > 0 || this.gate.pendingQuestionIds().length > 0 || this.gate.pendingVariantIds().length > 0) {
       this.settleApprovals('shutdown');
       // Saved now: the gate's own save comes after an await the exit never reaches.
       this.persist();
@@ -561,6 +626,7 @@ export class AgentSession {
         pinnedWorkspace: this.deps.pinnedWorkspace(),
         toolGate: this.gate,
         askUser: (input, signal) => this.gate.ask(input, signal),
+        proposeVariants: (input, signal) => this.gate.propose(input, signal),
         indexes: this.deps.indexes,
         port: this.deps.port,
       });
@@ -725,6 +791,17 @@ export class AgentSession {
             messageId: turn.assistantMessageId,
             partId: part.id,
             patch: { state: 'unanswered', reason: reason === 'interrupted' ? 'Stopped before you answered.' : 'The turn ended before you answered.' },
+          });
+        } else if (part.type === 'variants' && (part.state === 'building' || part.state === 'awaiting-choice')) {
+          this.emit({
+            type: 'part-update',
+            messageId: turn.assistantMessageId,
+            partId: part.id,
+            patch: {
+              state: 'unanswered',
+              reason: reason === 'interrupted' ? 'Stopped before you chose.' : 'The turn ended before you chose.',
+              variants: cancelUnbuilt(part.variants),
+            },
           });
         }
       }
@@ -1062,6 +1139,28 @@ function questionOutcome(part: QuestionPart): string {
       return part.reason === RESTART_QUESTION_REASON || part.state === 'awaiting-answer'
         ? 'not answered: it was waiting for the user when the app restarted'
         : 'not answered';
+  }
+}
+
+/** How a variants card of a cut-off turn ended, for the continue note. */
+function variantsOutcome(part: VariantsPart): string {
+  switch (part.state) {
+    case 'picked':
+      return `the user picked "${part.picked ?? ''}"; its write is the write_file call that follows`;
+    case 'answered':
+      return `the user answered in their own words instead: ${(part.text ?? '').split('\n')[0].slice(0, 160)}`;
+    case 'skipped':
+      return 'skipped by the user';
+    case 'failed':
+      return `nothing was written: ${part.reason ?? 'the variants did not build'}`;
+    case 'building':
+    case 'awaiting-choice':
+    case 'unanswered':
+      return part.reason === VARIANTS_RESTART_BUILDING_REASON || part.state === 'building'
+        ? 'not shown: the app restarted while the variants were building'
+        : part.reason === VARIANTS_RESTART_REASON || part.state === 'awaiting-choice'
+          ? 'not chosen: it was waiting for the user when the app restarted'
+          : 'not chosen';
   }
 }
 

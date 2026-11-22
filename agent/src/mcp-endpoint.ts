@@ -16,6 +16,7 @@ import {
   type McpAskUser,
   type McpHttpHandler,
   type McpHttpRequest,
+  type McpProposeVariants,
   type McpToolGate,
   type RegistryEntry,
   type SkillsIndex,
@@ -42,6 +43,8 @@ export type McpEndpointOptions = {
   toolGate: McpToolGate;
   /** Answers `ask_user` (§22): the session's gate shows the question and waits. */
   askUser: McpAskUser;
+  /** Answers `propose_variants` (§24): the session's gate builds the variants, shows them and writes the pick. */
+  proposeVariants: McpProposeVariants;
   indexes: SharedMcpIndexes;
   /** The engine's port, for the URL the CLI is given. */
   port: number;
@@ -64,6 +67,7 @@ export class McpEndpoint {
           pinnedWorkspace: options.pinnedWorkspace,
           toolGate: options.toolGate,
           askUser: options.askUser,
+          proposeVariants: options.proposeVariants,
           docsIndex: options.indexes.docsIndex,
           skillsIndex: options.indexes.skillsIndex,
         }),

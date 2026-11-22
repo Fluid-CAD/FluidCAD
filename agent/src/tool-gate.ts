@@ -11,9 +11,11 @@
 // as the user cancels, is refused. Codex keeps an MCP call pending through
 // `turn/interrupt` (§19): the session settles pending approvals on cancel.
 //
-// It also answers `ask_user` (§22), the one tool that does not pass through
-// `before`: the question is a card of its own, and the call waits for the
-// user the way an approval does.
+// It also answers the two tools that do not pass through `before`. `ask_user`
+// (§22): the question is a card of its own, and the call waits for the user
+// the way an approval does. `propose_variants` (§24): the gate builds the
+// variants, shows them as a card, waits for the pick and writes the picked
+// one itself — the pick is the approval.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,18 +25,45 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import {
   TOOL_CLASSES,
   isReadOnlyClass,
+  buildCandidate,
   previewSourceEdit,
+  resolveCandidate,
+  writeFile,
   type AskUserInput,
+  type Candidate,
   type McpToolCall,
   type McpToolClass,
   type McpToolGate,
   type McpToolGateDecision,
+  type ProposeVariantsInput,
   type RegistryEntry,
   type SourceEditPreview,
 } from '../../mcp/dist/server.js';
 import type { Checkpoint } from './session-store.ts';
 import { failure, questionPatch, questionResult, readQuestionReply, readQuestions, type QuestionOutcome } from './questions.ts';
-import type { ApprovalDecision, ChatEvent, PermissionMode, QuestionItem, QuestionPart, ToolPart } from './types.ts';
+import {
+  builtTile,
+  candidateRefusal,
+  failedVariants,
+  json,
+  readVariants,
+  readVariantsReply,
+  toolError,
+  variantsPatch,
+  variantsResult,
+  type VariantsOutcome,
+} from './variants.ts';
+import type {
+  ApprovalDecision,
+  ChatEvent,
+  ChatPart,
+  PermissionMode,
+  QuestionItem,
+  QuestionPart,
+  ToolPart,
+  VariantTile,
+  VariantsPart,
+} from './types.ts';
 
 /** Longest tool output text kept in the transcript. */
 const MAX_OUTPUT_CHARS = 20_000;
@@ -78,13 +107,15 @@ export type ToolGateHost = {
   /** The in-flight assistant message of the active turn, started if needed. */
   assistantMessageId(): string;
   emit(event: ChatEvent): void;
+  /** A part of the transcript as it stands now (a variants card: its tiles, with the pictures the page drew). */
+  part(messageId: string, partId: string): ChatPart | undefined;
   /** Stores an image under the session's `files/`; returns its name. */
   saveImage(data: Buffer, mimeType: string): string;
   /** Persists the session (a tool call started or ended, §7.5). */
   persist(): void;
   /** The approvals `turnId` waits on changed; empty when none is left. */
   approvalsChanged(turnId: string, approvalIds: string[]): void;
-  /** The questions `turnId` waits on changed; empty when none is left. */
+  /** The questions `turnId` waits on changed (variants cards waiting for a choice among them); empty when none is left. */
   questionsChanged(turnId: string, questionIds: string[]): void;
   /**
    * Keeps `checkpoint` for `turnId` unless the turn already has one for that
@@ -128,6 +159,15 @@ type PendingQuestion = {
   turnId: string;
   questions: QuestionItem[];
   settle(outcome: QuestionOutcome): void;
+};
+
+type PendingVariants = {
+  id: string;
+  turnId: string;
+  /** Whether the builds have ended and the card waits for the user; a reply before that is refused. */
+  choosing: boolean;
+  tiles(): VariantTile[];
+  settle(outcome: VariantsOutcome): void;
 };
 
 type CallState = {
@@ -192,6 +232,7 @@ export class ToolGate implements McpToolGate {
   private readonly calls = new WeakMap<McpToolCall, CallState>();
   private readonly pending = new Map<string, PendingApproval>();
   private readonly pendingQuestions = new Map<string, PendingQuestion>();
+  private readonly pendingVariants = new Map<string, PendingVariants>();
   /** Tools the user allowed for the rest of the session. */
   private readonly allowedForSession = new Set<string>();
   private readonly timeoutMs: number;
@@ -220,9 +261,17 @@ export class ToolGate implements McpToolGate {
     return [...this.pending.values()].filter((p) => turnId === undefined || p.turnId === turnId).map((p) => p.id);
   }
 
-  /** Ids of the questions waiting for the user, oldest first. */
+  /** Ids of the questions waiting for the user, oldest first, then of the variants cards waiting for a choice. */
   pendingQuestionIds(turnId?: string): string[] {
-    return [...this.pendingQuestions.values()].filter((p) => turnId === undefined || p.turnId === turnId).map((p) => p.id);
+    return [
+      ...[...this.pendingQuestions.values()].filter((p) => turnId === undefined || p.turnId === turnId).map((p) => p.id),
+      ...[...this.pendingVariants.values()].filter((p) => p.choosing && (turnId === undefined || p.turnId === turnId)).map((p) => p.id),
+    ];
+  }
+
+  /** Ids of the variants cards not settled yet: still building, or waiting for a choice. */
+  pendingVariantIds(turnId?: string): string[] {
+    return [...this.pendingVariants.values()].filter((p) => turnId === undefined || p.turnId === turnId).map((p) => p.id);
   }
 
   async before(call: McpToolCall, signal: AbortSignal): Promise<McpToolGateDecision> {
@@ -401,12 +450,15 @@ export class ToolGate implements McpToolGate {
     return 'ok';
   }
 
-  /** Settles every pending approval and question without the user: the turn was stopped or ended, or the engine is going away. */
+  /** Settles every pending approval, question and variants card without the user: the turn was stopped or ended, or the engine is going away. */
   settleAll(reason: ApprovalSweep): void {
     for (const pending of [...this.pending.values()]) {
       pending.settle(reason);
     }
     for (const pending of [...this.pendingQuestions.values()]) {
+      pending.settle({ kind: reason });
+    }
+    for (const pending of [...this.pendingVariants.values()]) {
       pending.settle({ kind: reason });
     }
   }
@@ -476,6 +528,207 @@ export class ToolGate implements McpToolGate {
     return { result: 'ok' };
   }
 
+  /**
+   * `propose_variants` (§24): checks the two candidates as a write of each
+   * would be, shows them as a card, builds them one after the other (each
+   * tile fills in as its build ends), waits for the user, and writes the
+   * variant they pick. Resolves with what the model is told.
+   *
+   * The pick is the approval: the write is the gate's own, made the moment
+   * the user picks, with the turn's copy of the file taken first — so it is
+   * reverted with the turn as any `write_file` of it is — and no approval is
+   * asked in any mode. It is refused, as a write is, when the file has
+   * unsaved changes in the editor, and when the file is no longer the text
+   * the variants were made from. Nothing is shown outside a running turn.
+   */
+  async propose(input: ProposeVariantsInput, signal: AbortSignal): Promise<CallToolResult> {
+    const turn = this.host.activeTurn();
+    if (!turn) {
+      return failure(NO_TURN_MESSAGE);
+    }
+    const read = readVariants(input);
+    if (read.ok === false) {
+      return failure(read.error);
+    }
+    const pinnedWorkspace = this.host.pinnedWorkspace();
+    const candidates: Candidate[] = [];
+    for (const [index, variant] of read.variants.entries()) {
+      let candidate;
+      try {
+        // The first check also asks the editor for unsaved changes: a pick could not be written over them.
+        candidate = await resolveCandidate({ pinnedWorkspace, path: input.path, ...variant.candidate, refuseDirty: index === 0 }, 'propose_variants');
+      } catch (e) {
+        return failure(`Variant "${variant.label}": ${e instanceof Error ? e.message : String(e)}`);
+      }
+      if (candidate.ok === false) {
+        return candidateRefusal(variant.label, path.isAbsolute(input.path) ? this.relative(input.path) : input.path, candidate);
+      }
+      candidates.push(candidate.data);
+    }
+    if (!this.isActive(turn.turnId)) {
+      return failure(STOPPED_MESSAGE);
+    }
+    const [first, second] = candidates;
+    if (first.before !== second.before || first.existed !== second.existed) {
+      return failure(`${input.path} changed while the variants were being read. Read it again and call propose_variants again.`);
+    }
+    if (first.text === second.text) {
+      return failure(`"${read.variants[0].label}" and "${read.variants[1].label}" are the same text. Offer two variants that differ, or make the change directly.`);
+    }
+    const rel = this.relative(first.absPath);
+    const question = input.question?.trim();
+    const messageId = this.host.assistantMessageId();
+    const part: VariantsPart = {
+      type: 'variants',
+      id: `variants-${randomUUID()}`,
+      state: 'building',
+      file: rel,
+      ...(question ? { question } : {}),
+      variants: read.variants.map((variant) => ({
+        label: variant.label,
+        ...(variant.description ? { description: variant.description } : {}),
+        state: 'queued' as const,
+      })),
+    };
+    this.host.emit({ type: 'part-start', messageId, part });
+    // The tiles as the transcript holds them: a page may have added a picture since the gate last wrote them.
+    const tiles = (): VariantTile[] => {
+      const current = this.host.part(messageId, part.id);
+      return current?.type === 'variants' ? current.variants : part.variants;
+    };
+    const update = (patch: Partial<VariantsPart>) => this.host.emit({ type: 'part-update', messageId, partId: part.id, patch });
+    const setTile = (index: number, change: (tile: VariantTile) => VariantTile) =>
+      update({ variants: tiles().map((tile, i) => (i === index ? change(tile) : tile)) });
+
+    type PickedWrite = { call: McpToolCall; candidate: Candidate; label: string };
+    /** Set when the user picked and the write is the gate's to make. */
+    const picked: { write: PickedWrite | null } = { write: null };
+    let settled: VariantsOutcome | null = null;
+    let timer: unknown = null;
+    let resolveOutcome: (outcome: VariantsOutcome) => void = () => {};
+    const done = new Promise<VariantsOutcome>((resolve) => {
+      resolveOutcome = resolve;
+    });
+    const onAbort = () => settle({ kind: 'aborted' });
+    // Synchronous from the reply to the last event: a stop or the end of the
+    // turn that settles the card also sweeps the transcript right after.
+    const settle = (asked: VariantsOutcome) => {
+      if (settled) {
+        return;
+      }
+      let outcome = asked;
+      if (outcome.kind === 'picked') {
+        const label = outcome.label;
+        const candidate = candidates[read.variants.findIndex((variant) => variant.label === label)];
+        const start = this.startPickedWrite(turn.turnId, messageId, rel, label, candidate);
+        outcome = start.outcome;
+        picked.write = start.call ? { call: start.call, candidate, label } : null;
+      }
+      settled = outcome;
+      const pending = this.pendingVariants.get(part.id);
+      this.pendingVariants.delete(part.id);
+      if (timer !== null) {
+        this.timers.clearTimeout(timer);
+      }
+      signal.removeEventListener('abort', onAbort);
+      update(variantsPatch(outcome, tiles(), rel));
+      if (picked.write) {
+        // The card first, then the write it led to.
+        this.startWritePart(picked.write, messageId, rel);
+      }
+      if (pending?.choosing) {
+        this.host.questionsChanged(turn.turnId, this.pendingQuestionIds(turn.turnId));
+      }
+      resolveOutcome(outcome);
+    };
+    const pending: PendingVariants = { id: part.id, turnId: turn.turnId, choosing: false, tiles, settle };
+    this.pendingVariants.set(part.id, pending);
+    signal.addEventListener('abort', onAbort, { once: true });
+    // Saved before the first build: an engine a build takes down finds the card and says so.
+    this.host.persist();
+    if (signal.aborted) {
+      settle({ kind: 'aborted' });
+    }
+
+    // The builds, one after the other: each is a full build that holds the engine.
+    for (let index = 0; index < candidates.length && !settled; index++) {
+      setTile(index, (tile) => ({ ...tile, state: 'building' }));
+      let built;
+      try {
+        built = await buildCandidate({ pinnedWorkspace, absPath: candidates[index].absPath, text: candidates[index].text });
+      } catch (e) {
+        built = { ok: false as const, code: 'internal' as const, message: e instanceof Error ? e.message : String(e) };
+      }
+      if (settled) {
+        // Stopped while it built: the card already says so, and the tile stays as it was left.
+        break;
+      }
+      setTile(index, (tile) => builtTile(tile, built));
+      this.host.persist();
+    }
+    if (!settled) {
+      if (!tiles().some((tile) => tile.state === 'ready')) {
+        settle({ kind: 'none-built' });
+      } else {
+        pending.choosing = true;
+        timer = this.timers.setTimeout(() => settle({ kind: 'timeout' }), this.timeoutMs);
+        update({ state: 'awaiting-choice' });
+        this.host.questionsChanged(turn.turnId, this.pendingQuestionIds(turn.turnId));
+        // Saved while waiting: an engine restart now finds the card and says so.
+        this.host.persist();
+      }
+    }
+
+    const outcome = await done;
+    this.host.persist();
+    if (outcome.kind !== 'picked') {
+      return variantsResult(outcome, tiles(), rel, CANCELLED_MESSAGE);
+    }
+    if (!picked.write) {
+      return failure(`The user picked "${outcome.label}", but it was not written.`);
+    }
+    const { call, candidate, label } = picked.write;
+    let written;
+    try {
+      written = await writeFile({ pinnedWorkspace, path: candidate.absPath, content: candidate.text });
+    } catch (e) {
+      written = { ok: false as const, code: 'internal' as const, message: e instanceof Error ? e.message : String(e) };
+    }
+    // The write's own card ends as a write_file's does: the render, or the refusal (and the turn's copy is dropped).
+    this.after(call, written.ok === false ? toolError({ code: written.code, message: written.message, details: written.details }) : json(written.data));
+    if (written.ok === false) {
+      return toolError({
+        code: written.code,
+        message: `The user picked "${label}", but it was not written: ${written.message}`,
+        ...(written.details !== undefined ? { details: written.details } : {}),
+      });
+    }
+    return json({ picked: label, render: written.data.render, ...failedVariants(tiles()) });
+  }
+
+  /**
+   * The user's reply to a variants card (the body of its route).
+   * `not-found`: no card waits on that id (unknown, or already settled);
+   * `building`: its variants are not built yet; `invalid`: the reply does
+   * not fit the card.
+   */
+  choose(variantsId: string, body: unknown): { result: 'ok' | 'not-found' | 'building' } | { result: 'invalid'; error: string } {
+    const pending = this.pendingVariants.get(variantsId);
+    if (!pending) {
+      return { result: 'not-found' };
+    }
+    if (!pending.choosing) {
+      return { result: 'building' };
+    }
+    const read = readVariantsReply(pending.tiles(), body);
+    if (read.ok === false) {
+      return { result: 'invalid', error: read.error };
+    }
+    const reply = read.reply;
+    pending.settle('skip' in reply ? { kind: 'skipped' } : 'pick' in reply ? { kind: 'picked', label: reply.pick } : { kind: 'answered', text: reply.text });
+    return { result: 'ok' };
+  }
+
   // -------------------------------------------------------------------------
 
   private isActive(turnId: string): boolean {
@@ -530,6 +783,65 @@ export class ToolGate implements McpToolGate {
       if (signal.aborted) {
         settle('aborted');
       }
+    });
+  }
+
+  /**
+   * The user picked `label`: decides, synchronously, whether its write goes
+   * ahead. The file must still be the text the variants were made from (a
+   * tile shows a build of that text with the variant's change; written over
+   * anything else it would undo what changed since), and the turn's copy of
+   * it is taken before it changes (§12.2). `call` is what the write's tool
+   * part and its end are recorded under.
+   */
+  private startPickedWrite(
+    turnId: string,
+    messageId: string,
+    rel: string,
+    label: string,
+    candidate: Candidate,
+  ): { outcome: VariantsOutcome; call?: McpToolCall } {
+    let now: Checkpoint;
+    try {
+      now = readCheckpoint(candidate.absPath);
+    } catch (e) {
+      return { outcome: { kind: 'no-copy', label, message: `FluidCAD could not read ${rel} before changing it: ${e instanceof Error ? e.message : String(e)}` } };
+    }
+    if (now.existed !== candidate.existed || now.content !== candidate.before) {
+      return { outcome: { kind: 'stale', label } };
+    }
+    let checkpointed: boolean;
+    try {
+      checkpointed = this.host.checkpoint(turnId, now);
+    } catch (e) {
+      // Without a copy the change could not be reverted: it is not made.
+      return { outcome: { kind: 'no-copy', label, message: `FluidCAD could not keep a copy of ${rel} before changing it: ${e instanceof Error ? e.message : String(e)}` } };
+    }
+    const call: McpToolCall = { name: 'write_file', input: { path: rel, variant: label } };
+    this.calls.set(call, { messageId, partId: `tool-${randomUUID()}`, turnId, file: candidate.absPath, checkpointed });
+    return { outcome: { kind: 'picked', label }, call };
+  }
+
+  /** The tool part of a picked variant's write: a `write_file` card with its diff, running. */
+  private startWritePart(write: { call: McpToolCall; candidate: Candidate; label: string }, messageId: string, rel: string): void {
+    const state = this.calls.get(write.call);
+    if (!state) {
+      return;
+    }
+    this.host.emit({
+      type: 'part-start',
+      messageId,
+      part: {
+        type: 'tool',
+        id: state.partId,
+        source: 'fluidcad',
+        name: 'write_file',
+        title: `Apply "${write.label}" to ${rel}`,
+        kind: 'edit',
+        state: 'running',
+        input: write.call.input,
+        diff: unifiedDiff(rel, { existed: write.candidate.existed, before: write.candidate.before, after: write.candidate.text }),
+      },
     });
   }
 

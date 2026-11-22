@@ -85,6 +85,20 @@ The mode chip under the message box switches between **Ask before edits** and **
 
 A card left unanswered for an hour times out, and the call is not run. **Stop** (or Escape in the message box) ends the turn and declines anything still waiting.
 
+### What a change does to the model
+
+When the change that waits is to a model file (`.fluid.js`, `.part.js`, `.assembly.js`), the card also shows what it does to the model, above the diff. FluidCAD builds the file as it is and the file with the change, without writing anything and without touching the model on screen. The buttons work from the moment the card appears; the rest fills in.
+
+- **Before** and **After** are two pictures taken from the same direction and framed on both models together, so the same thing sits at the same place and size in each. A file the change creates has one picture, **New file**.
+- Under them, three facts as differences: the number of bodies, the overall size along X, Y and Z, and the volume, each in the project's unit. A line reads, for example, `72,000 mm³ → 77,429 mm³` with `+5,429 mm³ (+7.5%)` beside it, or `Z +12 mm` for the size. A fact that did not move reads **no change**.
+- **This change does not build** comes first when the file with the change does not compile, or when one of its features fails. The card lists the reason for each, with the line it is on in the changed file. You can still allow or deny it. When a feature fails, the pictures show what did build.
+- **No change to the geometry** replaces the pictures when both builds draw the same thing, as after a comment or a rename.
+- **Show in viewport** draws the model with the change over the model on screen as a translucent green ghost. Click it again to take it out; it also goes when you answer or close the panel. It shows the whole changed model, not only what was added or removed, and it is offered for a part, not for an assembly or a new file.
+
+Each of the two builds is a full build, and the app waits while one runs. FluidCAD keeps recent builds and reuses them: the **After** of a change you allowed is the **Before** of the next one, so from the second change on a card usually costs one build. When the file's last build took more than two seconds, nothing is built until you ask: the card says how long that build took and offers **Preview the change**. Your answer, **Stop** and the end of the turn cancel a build that has not started; one that is running finishes first, so an answer clicked during a build is taken when that build ends.
+
+Once you answer, the pictures and the facts stay with the card: click the card to open its details. The pictures are kept with the chat, so they are still there after a reload or a restart of the app. A card whose preview was never built shows none. In **Apply edits automatically** nothing waits, so nothing is previewed: the viewport shows the result.
+
 ### Unsaved changes in the editor
 
 The agent never overwrites a file that has unsaved changes in the code editor. Its write is refused, and a card names the file. Save the file, then ask again. Unsaved changes in a browser tab you have closed no longer count: they went with the tab.

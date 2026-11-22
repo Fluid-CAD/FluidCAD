@@ -962,6 +962,65 @@
   font-size: 11px;
 }
 
+/*
+ * Drawings (`svg` of a question or an option). The model draws dark on
+ * light; the dark theme turns the drawing over and keeps its hues.
+ */
+[data-role='chat-panel'] .chat-question-drawing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--color-base-content) 4%, transparent);
+  pointer-events: none;
+}
+
+[data-role='chat-panel'] .chat-question-drawing > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: invert(1) hue-rotate(180deg);
+}
+
+[data-theme='fluidcad-light'] [data-role='chat-panel'] .chat-question-drawing > img {
+  filter: none;
+}
+
+/* A question's figure, under its words. */
+[data-role='chat-panel'] .chat-question-item > .chat-question-drawing {
+  height: 132px;
+  padding: 6px;
+  border: 1px solid var(--chat-line);
+  background: var(--color-base-100);
+}
+
+[data-role='chat-panel'] .chat-question:not([data-state='awaiting-answer']) .chat-question-item > .chat-question-drawing {
+  height: 96px;
+  margin: 3px 0;
+}
+
+/* Options with drawings: tiles, the drawing above the label. */
+[data-role='chat-panel'] .chat-question-options[data-drawn='true'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-question-options[data-drawn='true'] .chat-question-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 6px 8px;
+  padding: 6px 8px 7px;
+}
+
+[data-role='chat-panel'] .chat-question-option > .chat-question-drawing {
+  grid-column: 1 / -1;
+  height: 88px;
+  padding: 4px;
+}
+
 [data-role='chat-panel'] .chat-question-input {
   width: 100%;
   min-height: 28px;

@@ -1453,6 +1453,61 @@ describe('question cards (§22)', () => {
     expect(h.panel.el.dataset.busy).toBe('true');
   });
 
+  it('shows a drawing as an image, never as markup of the page: a figure under the question, tiles for drawn options', async () => {
+    const hostile = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90" onload="window.__drawn = true"><script>window.__drawn = true</script><rect width="60" height="40"/></svg>';
+    const plain = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90"><circle cx="60" cy="45" r="30"/></svg>';
+    const client = new FakeChatClient();
+    askingSession(client, questionPart({
+      questions: [
+        { question: 'Which corner?', svg: plain, options: [{ label: 'Round', svg: hostile }, { label: 'Square', svg: plain }, { label: 'Either' }] },
+        { question: 'Which thread?', options: [{ label: 'M4' }, { label: 'M5' }] },
+      ],
+    }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    const source = (el: Element) => decodeURIComponent(el.querySelector('img')!.src.replace('data:image/svg+xml;charset=utf-8,', ''));
+
+    const figure = card.querySelector('[data-ref="question"][data-index="0"] > [data-ref="question-drawing"]')!;
+    expect(source(figure)).toBe(plain);
+    // The label and description carry the meaning; the drawing is decoration to a screen reader.
+    expect(figure.querySelector('img')!.alt).toBe('');
+
+    const groups = [...card.querySelectorAll<HTMLElement>('.chat-question-options')];
+    expect(groups.map((g) => g.dataset.drawn)).toEqual(['true', 'false']);
+    expect(source(option(card, 0, 'Round').querySelector('[data-ref="option-drawing"]')!)).toBe(hostile);
+    expect(option(card, 0, 'Either').querySelector('[data-ref="option-drawing"]')).toBeNull();
+    expect(card.querySelectorAll('[data-ref="question"][data-index="1"] img')).toHaveLength(0);
+    // Nothing of the drawing is an element of the page, and nothing in it ran.
+    expect(card.querySelectorAll('svg rect, svg circle, script')).toHaveLength(0);
+    expect((window as any).__drawn).toBeUndefined();
+
+    // A drawn option is the same toggle button.
+    option(card, 0, 'Round').click();
+    expect(pressed(card, 0)).toEqual(['Round']);
+
+    // A drawing the browser cannot read takes itself out; the option stays.
+    option(card, 0, 'Square').querySelector('img')!.dispatchEvent(new Event('error'));
+    expect(option(card, 0, 'Square').querySelector('[data-ref="option-drawing"]')).toBeNull();
+    expect(option(card, 0, 'Square').textContent!.trim()).toBe('Square');
+  });
+
+  it('a settled card keeps the question\'s figure and drops the options with their drawings', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90"><circle cx="60" cy="45" r="30"/></svg>';
+    const client = new FakeChatClient();
+    askingSession(client, questionPart({
+      state: 'answered',
+      questions: [{ question: 'Which corner?', svg, options: [{ label: 'Round', svg }, { label: 'Square', svg }] }],
+      answers: [{ selected: ['Round'] }],
+    }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    expect(card.querySelectorAll('[data-ref="question-drawing"] img')).toHaveLength(1);
+    expect(card.querySelectorAll('[data-ref="option-drawing"]')).toHaveLength(0);
+    expect(card.querySelector('[data-ref="answer"]')!.textContent!.trim()).toBe('Round');
+  });
+
   it('one option where the question takes one, several where it takes several; a second click takes a pick back', async () => {
     const client = new FakeChatClient();
     askingSession(client);

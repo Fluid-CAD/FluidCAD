@@ -1,5 +1,5 @@
 import { ChatIcons } from '../chat-icons';
-import { MAX_ANSWER_CHARS, type ChatPart, type QuestionAnswer, type QuestionItem, type QuestionPart, type QuestionReply } from '../chat-types';
+import { MAX_ANSWER_CHARS, type ChatPart, type QuestionAnswer, type QuestionItem, type QuestionOption, type QuestionPart, type QuestionReply } from '../chat-types';
 import type { PartContext, PartView } from './part-view';
 
 /** What the user has picked and written for one question, before it is sent. */
@@ -14,6 +14,10 @@ type Draft = { selected: Set<string>; text: string };
  * question that takes one option moves the pick. Send needs one question
  * answered; the ones left open are told to the agent as skipped. Enter in a
  * field sends.
+ *
+ * A question and an option may carry a drawing (`svg`). A question's is a
+ * figure under its words; options with drawings lay out as tiles, the
+ * drawing above the label.
  *
  * The state comes from the part, so a reloaded page or a second tab shows
  * the same card; the first answer wins and the others are refused by the
@@ -82,8 +86,9 @@ export class QuestionPartView implements PartView {
         options.className = 'chat-question-options';
         options.setAttribute('role', 'group');
         options.setAttribute('aria-label', question.question);
+        options.dataset.drawn = String(question.options.some((option) => !!option.svg));
         for (const option of question.options) {
-          options.append(this.optionButton(index, question, option.label, option.description, canAnswer));
+          options.append(this.optionButton(index, question, option, canAnswer));
         }
         item.append(options);
       }
@@ -114,7 +119,8 @@ export class QuestionPartView implements PartView {
     this.paintActions();
   }
 
-  private optionButton(index: number, question: QuestionItem, label: string, description: string | undefined, enabled: boolean): HTMLButtonElement {
+  private optionButton(index: number, question: QuestionItem, option: QuestionOption, enabled: boolean): HTMLButtonElement {
+    const { label, description } = option;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'chat-question-option';
@@ -137,6 +143,9 @@ export class QuestionPartView implements PartView {
       more.className = 'chat-question-description';
       more.textContent = description;
       words.append(more);
+    }
+    if (option.svg) {
+      button.append(drawing(option.svg, 'option-drawing'));
     }
     button.append(mark, words);
     button.addEventListener('click', () => this.toggle(index, question, label));
@@ -268,7 +277,30 @@ function questionBlock(question: QuestionItem, index: number): HTMLDivElement {
   words.dataset.ref = 'question-text';
   words.textContent = question.question;
   item.append(words);
+  if (question.svg) {
+    item.append(drawing(question.svg, 'question-drawing'));
+  }
   return item;
+}
+
+/**
+ * A drawing the model wrote, as an image. The markup is untrusted and never
+ * enters the page's DOM: an `<img>` runs no script in it and loads nothing it
+ * refers to. Decorative (the words beside it say the same), and one the
+ * browser cannot read takes itself out.
+ */
+function drawing(svg: string, ref: string): HTMLElement {
+  const figure = document.createElement('span');
+  figure.className = 'chat-question-drawing';
+  figure.dataset.ref = ref;
+  const image = document.createElement('img');
+  image.alt = '';
+  image.decoding = 'async';
+  image.draggable = false;
+  image.addEventListener('error', () => figure.remove());
+  image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  figure.append(image);
+  return figure;
 }
 
 /** What the user answered to one question: the options picked, then their own words; "Left open" for neither. */

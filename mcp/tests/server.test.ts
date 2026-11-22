@@ -10,6 +10,8 @@ import { buildServer, SERVER_INSTRUCTIONS, TOOL_CLASSES } from '../src/server.ts
 import { MAX_SVG_CHARS } from '../src/ask-user.ts';
 import { PROPOSE_VARIANTS_DESCRIPTION, VARIANT_COUNT } from '../src/propose-variants.ts';
 import { MAX_OFFERED_PARAMS, MAX_PARAMS_NOTE_CHARS, OFFER_PARAMS_DESCRIPTION } from '../src/offer-params.ts';
+import { MAX_SHOW_ITEMS, MAX_SHOW_LABEL_CHARS, MAX_SHOW_NOTE_CHARS, SHOW_USER_COLORS, SHOW_USER_DESCRIPTION, resolveShowItems } from '../src/show-user.ts';
+import { REFERENCE_COLORS } from '../../ui/src/ui/chat/reference-colors.ts';
 import { registryFilePath } from '../src/discovery.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
@@ -769,6 +771,233 @@ describe('offer_params', () => {
       await client.close();
       await server.close();
     }
+  });
+});
+
+describe('show_user', () => {
+  const items = [
+    { label: 'mounting face', expression: 'face().onPlane("xy", 30)' },
+    { label: 'this edge', ref: { shapeId: 'sh-1', kind: 'edge', index: 4 } },
+  ];
+  const shown = '{"shown":[{"n":1,"color":"red","label":"mounting face","faces":1,"edges":0}]}';
+
+  it('is not offered by a server without a chat and a viewport to point in', async () => {
+    const chatWithoutIt = buildServer({ pinnedWorkspace: entry(), askUser: async () => ({ content: [] }), offerParams: async () => ({ content: [] }) });
+    for (const server of [buildServer(), buildServer({ pinnedWorkspace: entry() }), chatWithoutIt]) {
+      expect((await listToolSchemas(server)).map((t) => t.name)).not.toContain('show_user');
+    }
+  });
+
+  it('is offered when the host can point, hands it the call, and returns its answer', async () => {
+    const calls: unknown[] = [];
+    const gated: string[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      toolGate: {
+        before: async (call) => {
+          gated.push(call.name);
+          return { allow: true };
+        },
+        after: () => {},
+      },
+      showUser: async (input, signal) => {
+        calls.push(input);
+        expect(signal.aborted).toBe(false);
+        return { content: [{ type: 'text', text: shown }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'show_user')!;
+      // It changes no file: a highlight and a card.
+      expect(tool.annotations).toEqual({ readOnlyHint: true });
+      expect((tool.inputSchema as any).required).toEqual(['items']);
+      expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['items', 'note']);
+      const item = (tool.inputSchema as any).properties.items.items;
+      expect(item.required).toEqual(['label']);
+      // A ref is a face or an edge: the highlight draws nothing for a vertex.
+      expect(item.properties.ref.properties.kind.enum).toEqual(['face', 'edge']);
+      const result = await client.callTool({ name: 'show_user', arguments: { items, note: '  Which of these?  ' } });
+      expect(result.isError).not.toBe(true);
+      expect(JSON.parse(textOf(result)).shown[0].color).toBe('red');
+      expect((await client.callTool({ name: 'show_user', arguments: { items: [items[0]] } })).isError).not.toBe(true);
+      expect(calls).toEqual([{ items, note: 'Which of these?' }, { items: [items[0]] }]);
+      // The host draws and shows; the gate around the other tools never sees the call.
+      expect(gated).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('bounds how many items a call shows and how long its labels and note are', async () => {
+    const calls: unknown[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      showUser: async (input) => {
+        calls.push(input);
+        return { content: [{ type: 'text', text: shown }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const many = Array.from({ length: MAX_SHOW_ITEMS + 1 }, (_, i) => ({ label: `Face ${i}`, expression: 'face()' }));
+      for (const args of [
+        {},
+        { items: [] },
+        { items: many },
+        { items: [{ label: '  ', expression: 'face()' }] },
+        { items: [{ label: 'x'.repeat(MAX_SHOW_LABEL_CHARS + 1), expression: 'face()' }] },
+        { items: [{ label: 'a vertex', ref: { shapeId: 'sh-1', kind: 'vertex', index: 0 } }] },
+        { items: [items[0]], note: 'x'.repeat(MAX_SHOW_NOTE_CHARS + 1) },
+      ]) {
+        expect((await client.callTool({ name: 'show_user', arguments: args })).isError, JSON.stringify(args).slice(0, 60)).toBe(true);
+      }
+      expect(calls).toEqual([]);
+      expect((await client.callTool({ name: 'show_user', arguments: { items: many.slice(1) } })).isError).not.toBe(true);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('says when to call it and when not to', () => {
+    expect(SHOW_USER_DESCRIPTION).toContain('Do NOT call it by default');
+    expect(SHOW_USER_DESCRIPTION).toContain('the user already sees the viewport');
+    expect(SHOW_USER_DESCRIPTION).toContain('does not wait for the user');
+    expect(SHOW_USER_DESCRIPTION).toContain('when words would not locate the geometry reliably');
+    expect(SHOW_USER_DESCRIPTION).toContain('a problem you found on a particular face or edge');
+    expect(SHOW_USER_DESCRIPTION).toContain('the candidates of a question');
+    expect(SHOW_USER_DESCRIPTION).toContain('a proposal that touches particular geometry');
+    expect(SHOW_USER_DESCRIPTION).toContain('after every edit');
+    expect(SHOW_USER_DESCRIPTION).toContain('to illustrate what you just built');
+    expect(SHOW_USER_DESCRIPTION).toContain('for a whole body');
+    expect(SHOW_USER_DESCRIPTION).toContain('again in the same turn');
+    expect(SHOW_USER_DESCRIPTION).toContain('the few items your text refers to');
+    expect(SHOW_USER_DESCRIPTION).toContain('plain text');
+  });
+
+  it('names the chips\' colours as the page draws them', () => {
+    expect([...SHOW_USER_COLORS]).toEqual(REFERENCE_COLORS.map((c) => c.name));
+    expect(MAX_SHOW_ITEMS).toBe(REFERENCE_COLORS.length);
+  });
+
+  it('reports a host that fails as a tool error', async () => {
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      showUser: async () => {
+        throw new Error('no viewport');
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const result = await client.callTool({ name: 'show_user', arguments: { items } });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe('no viewport');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  describe('resolving the items', () => {
+    let selectionEngine: http.Server;
+    let pinned: RegistryEntry;
+    let requests: any[] = [];
+    /** What the engine's `POST /api/resolve-selection` answers. */
+    let answer: (body: any) => { status: number; json: unknown };
+
+    const match = (shapeId: string, kind: string, index: number) => ({ shapeId, kind, index, sceneObjectId: 'ex-1', sceneObjectName: 'extrude', part: null, summary: { form: 'plane', center: [0, 0, 0] } });
+
+    beforeEach(async () => {
+      requests = [];
+      selectionEngine = http.createServer((req, res) => {
+        if (req.url !== '/api/resolve-selection') {
+          res.writeHead(404).end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          requests.push(body);
+          const { status, json } = answer(body);
+          res.writeHead(status, { 'content-type': 'application/json' });
+          res.end(JSON.stringify(json));
+        });
+      });
+      await new Promise<void>((resolve) => selectionEngine.listen(0, '127.0.0.1', () => resolve()));
+      pinned = entry({ port: (selectionEngine.address() as net.AddressInfo).port });
+    });
+
+    afterEach(async () => {
+      selectionEngine.closeAllConnections();
+      await new Promise<void>((resolve) => selectionEngine.close(() => resolve()));
+    });
+
+    it('resolves a selector as resolve_selection does and counts the faces and edges it matches', async () => {
+      answer = (body) => ({
+        status: 200,
+        json: { ok: true, count: 3, matches: [match('sh-1', 'face', 5), match('sh-1', 'edge', 1), match('sh-1', 'edge', 2)], scope: body.scope ? { kind: 'part', part: 'Lid' } : { kind: 'root' }, unit: 'mm' },
+      });
+      const resolved = await resolveShowItems(
+        { items: [{ label: 'the lid\'s rim', expression: '$obj["ex-1"].endEdges()', scope: { part: 'Lid' } }, { label: 'top', expression: 'face().onPlane("xy", 30)' }] },
+        { pinnedWorkspace: pinned },
+      );
+      expect(resolved).toEqual({
+        ok: true,
+        items: [
+          { label: 'the lid\'s rim', target: { expression: '$obj["ex-1"].endEdges()', scope: { part: 'Lid' } }, faces: 1, edges: 2 },
+          { label: 'top', target: { expression: 'face().onPlane("xy", 30)' }, faces: 1, edges: 2 },
+        ],
+      });
+      expect(requests).toEqual([{ expression: '$obj["ex-1"].endEdges()', scope: { part: 'Lid' } }, { expression: 'face().onPlane("xy", 30)' }]);
+    });
+
+    it('hands a ref on as its synthesized selector when that resolves back to the same face, and as the ref otherwise', async () => {
+      const ref = { shapeId: 'sh-1', kind: 'face' as const, index: 5 };
+      answer = (body) => body.picks
+        ? { status: 200, json: { ok: true, count: 1, matches: [match('sh-1', 'face', 5)], scope: { kind: 'root' }, unit: 'mm', synthesized: { ok: true, expression: '$obj["ex-1"].endFaces()', source: 'e.endFaces()' } } }
+        : { status: 200, json: { ok: true, count: 1, matches: [match('sh-1', 'face', 5)], scope: { kind: 'root' }, unit: 'mm' } };
+      expect(await resolveShowItems({ items: [{ label: 'top', ref }] }, { pinnedWorkspace: pinned })).toEqual({
+        ok: true,
+        items: [{ label: 'top', target: { expression: '$obj["ex-1"].endFaces()' }, faces: 1, edges: 0 }],
+      });
+      expect(requests).toEqual([{ picks: [ref] }, { expression: '$obj["ex-1"].endFaces()' }]);
+
+      // The selector resolves to another face (or to several): the ref itself is what is shown.
+      answer = (body) => body.picks
+        ? { status: 200, json: { ok: true, count: 1, matches: [match('sh-1', 'face', 5)], scope: { kind: 'root' }, unit: 'mm', synthesized: { ok: true, expression: '$obj["ex-1"].endFaces()' } } }
+        : { status: 200, json: { ok: true, count: 2, matches: [match('sh-1', 'face', 5), match('sh-1', 'face', 6)], scope: { kind: 'root' }, unit: 'mm' } };
+      expect((await resolveShowItems({ items: [{ label: 'top', ref }] }, { pinnedWorkspace: pinned }) as any).items[0].target).toEqual({ pick: ref });
+      // No selector could be written for it.
+      answer = () => ({ status: 200, json: { ok: true, count: 1, matches: [match('sh-1', 'face', 5)], scope: { kind: 'root' }, unit: 'mm', synthesized: { ok: false, reason: 'geometry from a loop' } } });
+      expect((await resolveShowItems({ items: [{ label: 'top', ref }] }, { pinnedWorkspace: pinned }) as any).items[0].target).toEqual({ pick: ref });
+    });
+
+    it('names the item that does not resolve, and why', async () => {
+      const failing = async (item: any, respond: typeof answer) => {
+        answer = respond;
+        const resolved = await resolveShowItems({ items: [{ label: 'top', expression: 'face()' }, item] }, { pinnedWorkspace: pinned });
+        return resolved.ok === false ? resolved.error : 'resolved';
+      };
+      const some = { status: 200, json: { ok: true, count: 1, matches: [match('sh-1', 'face', 5)], scope: { kind: 'root' }, unit: 'mm' } };
+      const second = (other: { status: number; json: unknown }): typeof answer => (body) => (body.expression === 'face()' ? some : other);
+      expect(await failing({ label: 'the bore', expression: 'face().cylinder(4)' }, second({ status: 200, json: { ok: true, count: 0, matches: [], scope: { kind: 'root' }, unit: 'mm' } })))
+        .toBe('Item 2 ("the bore"): the expression matches nothing in the current model. Nothing was shown.');
+      expect(await failing({ label: 'a corner', ref: { shapeId: 'sh-1', kind: 'face', index: 0 } }, second({ status: 200, json: { ok: true, count: 1, matches: [match('sh-1', 'vertex', 0)], scope: { kind: 'root' }, unit: 'mm' } })))
+        .toBe('Item 2 ("a corner"): it resolves to vertices only; point at faces or edges. Nothing was shown.');
+      expect(await failing({ label: 'the bore', expression: 'face().nope()' }, second({ status: 422, json: { error: 'face().nope is not a function', code: 'evaluation-error' } })))
+        .toBe('Item 2 ("the bore"): face().nope is not a function. Nothing was shown.');
+      expect(await failing({ label: 'gone', ref: { shapeId: 'old', kind: 'edge', index: 1 } }, second({ status: 404, json: { error: 'No solid "old" in the scene (ids come from list_shapes / get_scene_summary).', code: 'unresolved-pick' } })))
+        .toBe('Item 2 ("gone"): No solid "old" in the scene (ids come from list_shapes / get_scene_summary). Nothing was shown.');
+      // Exactly one of the two, checked before the engine is asked.
+      requests = [];
+      expect(await failing({ label: 'both', expression: 'face()', ref: { shapeId: 'sh-1', kind: 'face', index: 0 } }, () => some)).toContain('Item 2 ("both"): give exactly one of `expression`');
+      expect(await failing({ label: 'neither' }, () => some)).toContain('Item 2 ("neither"): give exactly one of `expression`');
+      expect(await failing({ label: 'scoped ref', ref: { shapeId: 'sh-1', kind: 'face', index: 0 }, scope: { part: 'Lid' } }, () => some)).toContain('`scope` goes with `expression`');
+      expect(requests.every((r) => r.expression === 'face()')).toBe(true);
+    });
   });
 });
 

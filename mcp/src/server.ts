@@ -88,6 +88,7 @@ import {
   offerParamsInputSchema,
   type McpOfferParams,
 } from './offer-params.ts';
+import { SHOW_USER_DESCRIPTION, SHOW_USER_TITLE, SHOW_USER_TOOL, showUserInputSchema, type McpShowUser, type ShowUserItem } from './show-user.ts';
 
 export type { McpToolCall, McpToolGate, McpToolGateDecision } from './tool-gate.ts';
 export {
@@ -112,6 +113,18 @@ export {
   type OfferParamsInput,
   type OfferedParam,
 } from './offer-params.ts';
+export {
+  MAX_SHOW_ITEMS,
+  SHOW_USER_COLORS,
+  SHOW_USER_TOOL,
+  resolveShowItems,
+  type McpShowUser,
+  type ResolvedShowItem,
+  type ShowRef,
+  type ShowTarget,
+  type ShowUserInput,
+  type ShowUserItem,
+} from './show-user.ts';
 export type { RegistryEntry } from './types.ts';
 // A host that builds many servers (one per agent chat session) loads the
 // indexes once and passes them to every `buildServer`.
@@ -354,6 +367,13 @@ export type BuildServerOptions = {
    * nothing, and what the user does with the controls is their own action.
    */
   offerParams?: McpOfferParams;
+  /**
+   * Points at geometry of the model for the user: highlights it in their
+   * viewport and lists it in the chat. Set by a host with a chat and a
+   * viewport: `show_user` is offered only then. The call does not pass
+   * through `toolGate`: it changes no file.
+   */
+  showUser?: McpShowUser;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
@@ -1765,6 +1785,29 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       async ({ params, note }, extra) => {
         try {
           return await offerParams({ ...(params ? { params } : {}), ...(note ? { note } : {}) }, extra.signal);
+        } catch (e) {
+          return toolError(e instanceof Error ? e.message : String(e));
+        }
+      },
+    );
+  }
+
+  const showUser = options.showUser;
+  if (showUser) {
+    // Outside `registerTool` as `ask_user` is: it changes no file, and the
+    // host draws the highlight and shows the card. It does not wait for the
+    // user.
+    server.registerTool(
+      SHOW_USER_TOOL,
+      {
+        title: SHOW_USER_TITLE,
+        description: SHOW_USER_DESCRIPTION,
+        inputSchema: showUserInputSchema,
+        annotations: { readOnlyHint: true },
+      },
+      async ({ items, note }, extra) => {
+        try {
+          return await showUser({ items: items as ShowUserItem[], ...(note ? { note } : {}) }, extra.signal);
         } catch (e) {
           return toolError(e instanceof Error ? e.message : String(e));
         }

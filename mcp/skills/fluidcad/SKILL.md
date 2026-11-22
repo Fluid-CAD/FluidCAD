@@ -176,6 +176,29 @@ Do not call it:
 
 Without the tool, describe the alternatives in words and let the user say which.
 
+### `offer_params`: the model's parameters as live controls in the chat
+
+When your tools include `offer_params` (the in-app chat; a standalone MCP client does not have it), it puts parameters of the model on screen into the chat as a card of controls. The user drags one and the model follows; nothing is written until they press Keep. It does not wait for the user: it returns at once, and it is not a question.
+
+**The default is not to call it.** Most turns end without a card.
+
+Call it when:
+
+- **A new or reworked model is finished and rendered, and it has a few dimensions the user is plausibly going to tune**: they said "roughly", gave a range, or are exploring a design.
+- **The user asks to play with the sizes.**
+
+Do not call it:
+
+- after every edit;
+- when the user gave exact values and asked for nothing else;
+- for a model with no dimension worth tuning;
+- again for parameters this conversation already offered, unless they changed;
+- in place of a question that blocks the work: `ask_user` waits, the card does not.
+
+Offer the few parameters that matter, not all of them, and never add a `param()` only to have something to offer. When the user keeps values, their next message lists them in `<param_changes>`: read the file again before editing it, and do not put the old values back.
+
+Without the tool, say which parameters the user can change in the Parameters panel.
+
 ## After writing the code
 
 `write_file` and `edit_range` return once the render settles. Check the outcome in this order:

@@ -56,12 +56,14 @@ function frontmatter(markdown: string): string {
 let registeredTools: Set<string>;
 
 beforeAll(async () => {
-  // The skills ship to the in-app chat too, whose server offers two tools the
-  // standalone one does not (`ask_user`, `propose_variants`): a skill names
-  // those conditionally ("when your tools include …").
+  // The skills ship to the in-app chat too, whose server offers three tools
+  // the standalone one does not (`ask_user`, `propose_variants`,
+  // `offer_params`): a skill names those conditionally ("when your tools
+  // include …").
   const server = buildServer({
     askUser: async () => ({ content: [] }),
     proposeVariants: async () => ({ content: [] }),
+    offerParams: async () => ({ content: [] }),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'skills-test', version: '0.0.0' });
@@ -92,6 +94,31 @@ describe('skills policy', () => {
     expect(block).toContain('after every change');
     expect(block).toContain('Two full builds from scratch');
     expect(block).toContain('exactly two variants');
+  });
+
+  it('names offer_params as a tool only the in-app chat has, with when to call it and when not to', () => {
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
+    const start = core.indexOf('### `offer_params`');
+    expect(start).toBeGreaterThan(0);
+    const block = core.slice(start, core.indexOf('\n## ', start));
+    expect(block).toContain('When your tools include `offer_params` (the in-app chat; a standalone MCP client does not have it)');
+    expect(block).toContain('**The default is not to call it.**');
+    // When: the two triggers.
+    expect(block).toContain('plausibly going to tune');
+    expect(block).toContain('asks to play with the sizes');
+    // When not.
+    expect(block).toContain('after every edit');
+    expect(block).toContain('gave exact values and asked for nothing else');
+    expect(block).toContain('no dimension worth tuning');
+    expect(block).toContain('already offered, unless they changed');
+    expect(block).toContain('in place of a question that blocks the work');
+    // What: a few, and never a parameter made for the card.
+    expect(block).toContain('Offer the few parameters that matter, not all of them');
+    expect(block).toContain('never add a `param()` only to have something to offer');
+    expect(block).toContain('It does not wait for the user');
+    expect(block).toContain('`<param_changes>`');
+    // It sits after the variants block, and the standalone server still does not offer the tool.
+    expect(start).toBeGreaterThan(core.indexOf('### `propose_variants`'));
   });
 
   it('finds the skill files', () => {

@@ -419,6 +419,7 @@ app.use('/api', createAgentRoutes({
   renderState: agentRenderState,
   unit: projectUnitNow,
   loadPreferences,
+  modelParams: () => fluidCadServer.getParamDefinitions(),
 }));
 app.use('/api', MeshesRoute.router(core.meshes));
 app.use('/api', PackageEditGuard.errorHandler());

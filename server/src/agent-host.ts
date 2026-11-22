@@ -7,6 +7,7 @@
 
 import type { Router } from 'express';
 import type { Preferences } from './preferences.ts';
+import type { ParamDefinition } from '../../lib/dist/index.js';
 
 /** What the open model's last render came to, as the agent is told about it. */
 export type AgentRenderState = {
@@ -30,6 +31,13 @@ export type AgentHostDeps = {
   /** The project's length unit (`mm`, `in`, …). */
   unit(): string;
   loadPreferences(): Promise<Preferences>;
+  /**
+   * The parameters the model on screen declared in its last finished render,
+   * each with the value it has now (a session override included): what a
+   * chat's parameter card may offer. Absent on an engine that cannot say;
+   * the agent then has no parameters to offer.
+   */
+  modelParams?(): ParamDefinition[];
 };
 
 export type AgentModule = {

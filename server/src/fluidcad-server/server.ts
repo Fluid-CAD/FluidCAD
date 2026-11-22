@@ -3007,6 +3007,36 @@ export class FluidCadServer {
   }
 
   /**
+   * Drop the session overrides of `params` only, each named as
+   * {@link setParam} names a parameter, so those read their configuration
+   * cell or literal again and every other override stays. All or none: a
+   * label two parts declare, named without its part, is refused with the
+   * refusal's text and nothing is dropped (null when done). A parameter
+   * with no override is left as it is.
+   */
+  unsetParams(sessionId: string, params: { label: string; body?: string }[]): string | null {
+    sessionId = normalizePath(sessionId);
+    const session = this.paramSessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+    const keys: ParamKey[] = [];
+    for (const { label, body } of params) {
+      const resolved = session.keyFor(label, body);
+      if ('error' in resolved) {
+        return resolved.error;
+      }
+      keys.push(resolved.key);
+    }
+    for (const key of keys) {
+      // The baseline goes with it; the render that follows records it again.
+      session.forget(key);
+    }
+    this.lastRendered.delete(sessionId);
+    return null;
+  }
+
+  /**
    * Put a session's overrides back as {@link getParamOverrides} reported
    * them — for a route that switched the configuration for one capture
    * (`selectConfiguration` drops the overrides) and restores the session

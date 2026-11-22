@@ -371,8 +371,31 @@ export function createParamsRouter(
     });
   });
 
-  router.post('/reset-params', async (_req, res) => {
-    fluidCadServer.resetParams(fluidCadServer.getCurrentFileName());
+  // Without a body, every session override of the file on screen goes.
+  // `params: [{ label, body? }]` drops those overrides only, each named as
+  // `/set-param` names a parameter — what a chat's parameter card resets,
+  // leaving the values set elsewhere alone.
+  router.post('/reset-params', async (req, res) => {
+    const params: unknown = req.body?.params;
+    if (params === undefined || params === null) {
+      fluidCadServer.resetParams(fluidCadServer.getCurrentFileName());
+    } else {
+      const named = Array.isArray(params)
+        && params.every((p) => p && typeof p === 'object' && typeof p.label === 'string' && p.label !== ''
+          && (p.body === undefined || p.body === null || (typeof p.body === 'string' && p.body !== '')));
+      if (!named) {
+        res.status(400).json({ error: 'params must be a list of { label, body? }, each naming a parameter as /set-param does' });
+        return;
+      }
+      const refused = fluidCadServer.unsetParams(
+        fluidCadServer.getCurrentFileName(),
+        (params as { label: string; body?: string | null }[]).map((p) => ({ label: p.label, ...(p.body ? { body: p.body } : {}) })),
+      );
+      if (refused !== null) {
+        res.status(400).json({ error: refused });
+        return;
+      }
+    }
     if (await recomputeAndBroadcast(res)) {
       res.json({ success: true });
     }

@@ -81,6 +81,13 @@ import {
   proposeVariantsInputSchema,
   type McpProposeVariants,
 } from './propose-variants.ts';
+import {
+  OFFER_PARAMS_DESCRIPTION,
+  OFFER_PARAMS_TITLE,
+  OFFER_PARAMS_TOOL,
+  offerParamsInputSchema,
+  type McpOfferParams,
+} from './offer-params.ts';
 
 export type { McpToolCall, McpToolGate, McpToolGateDecision } from './tool-gate.ts';
 export {
@@ -97,6 +104,13 @@ export {
   type ProposedVariant,
   type ProposeVariantsInput,
 } from './propose-variants.ts';
+export {
+  MAX_OFFERED_PARAMS,
+  OFFER_PARAMS_TOOL,
+  type McpOfferParams,
+  type OfferParamsInput,
+  type OfferedParam,
+} from './offer-params.ts';
 export type { RegistryEntry } from './types.ts';
 // A host that builds many servers (one per agent chat session) loads the
 // indexes once and passes them to every `buildServer`.
@@ -332,6 +346,13 @@ export type BuildServerOptions = {
    * `toolGate`: the user's pick is the approval of the write.
    */
   proposeVariants?: McpProposeVariants;
+  /**
+   * Puts parameters of the model in front of the user as live controls.
+   * Set by a host with a chat to show them in: `offer_params` is offered
+   * only then. The call does not pass through `toolGate`: it writes
+   * nothing, and what the user does with the controls is their own action.
+   */
+  offerParams?: McpOfferParams;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
@@ -1721,6 +1742,28 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       async ({ path, question, variants }, extra) => {
         try {
           return await proposeVariants({ path, ...(question ? { question } : {}), variants }, extra.signal);
+        } catch (e) {
+          return toolError(e instanceof Error ? e.message : String(e));
+        }
+      },
+    );
+  }
+
+  const offerParams = options.offerParams;
+  if (offerParams) {
+    // Outside `registerTool` as `ask_user` is: it writes nothing, and the
+    // host shows the card. It does not wait for the user.
+    server.registerTool(
+      OFFER_PARAMS_TOOL,
+      {
+        title: OFFER_PARAMS_TITLE,
+        description: OFFER_PARAMS_DESCRIPTION,
+        inputSchema: offerParamsInputSchema,
+        annotations: { readOnlyHint: true },
+      },
+      async ({ params, note }, extra) => {
+        try {
+          return await offerParams({ ...(params ? { params } : {}), ...(note ? { note } : {}) }, extra.signal);
         } catch (e) {
           return toolError(e instanceof Error ? e.message : String(e));
         }

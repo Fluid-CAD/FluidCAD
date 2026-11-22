@@ -9,6 +9,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer, SERVER_INSTRUCTIONS, TOOL_CLASSES } from '../src/server.ts';
 import { MAX_SVG_CHARS } from '../src/ask-user.ts';
 import { PROPOSE_VARIANTS_DESCRIPTION, VARIANT_COUNT } from '../src/propose-variants.ts';
+import { MAX_OFFERED_PARAMS, MAX_PARAMS_NOTE_CHARS, OFFER_PARAMS_DESCRIPTION } from '../src/offer-params.ts';
 import { registryFilePath } from '../src/discovery.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
@@ -626,6 +627,112 @@ describe('propose_variants', () => {
     const client = await connectClient(server);
     try {
       const result = await client.callTool({ name: 'propose_variants', arguments: { path: 'bracket.fluid.js', variants } });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe('no chat');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
+describe('offer_params', () => {
+  const params = [{ label: 'Width' }, { label: 'Height', part: 'Lid' }];
+  const shown = '{"file":"bracket.fluid.js","params":[{"label":"Width","type":"slider","value":40,"min":20,"max":80}]}';
+
+  it('is not offered by a server without a chat to put the card in', async () => {
+    const chatWithoutCards = buildServer({ pinnedWorkspace: entry(), askUser: async () => ({ content: [] }), proposeVariants: async () => ({ content: [] }) });
+    for (const server of [buildServer(), buildServer({ pinnedWorkspace: entry() }), chatWithoutCards]) {
+      expect((await listToolSchemas(server)).map((t) => t.name)).not.toContain('offer_params');
+    }
+  });
+
+  it('is offered when the host can show the card, hands it the call, and returns its answer', async () => {
+    const offered: unknown[] = [];
+    const gated: string[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      toolGate: {
+        before: async (call) => {
+          gated.push(call.name);
+          return { allow: true };
+        },
+        after: () => {},
+      },
+      offerParams: async (input, signal) => {
+        offered.push(input);
+        expect(signal.aborted).toBe(false);
+        return { content: [{ type: 'text', text: shown }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'offer_params')!;
+      // It writes nothing: the controls set session values, and Keep is the user's own action.
+      expect(tool.annotations).toEqual({ readOnlyHint: true });
+      // Every argument is optional: no `params` means every parameter of the model.
+      expect((tool.inputSchema as any).required ?? []).toEqual([]);
+      expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['params', 'note']);
+      const result = await client.callTool({ name: 'offer_params', arguments: { params, note: '  Try a wider base.  ' } });
+      expect(result.isError).not.toBe(true);
+      expect(JSON.parse(textOf(result)).params[0].label).toBe('Width');
+      expect((await client.callTool({ name: 'offer_params', arguments: {} })).isError).not.toBe(true);
+      expect(offered).toEqual([{ params, note: 'Try a wider base.' }, {}]);
+      // The host shows the card; the gate around the other tools never sees the call.
+      expect(gated).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('bounds how many parameters a call names and how long its note is', async () => {
+    const offered: unknown[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      offerParams: async (input) => {
+        offered.push(input);
+        return { content: [{ type: 'text', text: shown }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const many = Array.from({ length: MAX_OFFERED_PARAMS + 1 }, (_, i) => ({ label: `P${i}` }));
+      for (const args of [{ params: many }, { params: [] }, { params: [{ label: '  ' }] }, { note: 'x'.repeat(MAX_PARAMS_NOTE_CHARS + 1) }]) {
+        expect((await client.callTool({ name: 'offer_params', arguments: args })).isError, JSON.stringify(args).slice(0, 60)).toBe(true);
+      }
+      expect(offered).toEqual([]);
+      expect((await client.callTool({ name: 'offer_params', arguments: { params: many.slice(1) } })).isError).not.toBe(true);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('says when to call it and when not to', () => {
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('Do NOT call it by default');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('does not wait for the user');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('plausibly going to tune');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('asks to play with the sizes');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('after every edit');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('gave exact values');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('no dimension worth tuning');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('already offered');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('in place of ask_user');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('Never add a param() only to have something to offer');
+    expect(OFFER_PARAMS_DESCRIPTION).toContain('the few parameters that matter');
+  });
+
+  it('reports a host that fails as a tool error', async () => {
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      offerParams: async () => {
+        throw new Error('no chat');
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const result = await client.callTool({ name: 'offer_params', arguments: { params } });
       expect(result.isError).toBe(true);
       expect(textOf(result)).toBe('no chat');
     } finally {

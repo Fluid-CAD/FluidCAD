@@ -677,6 +677,8 @@ export function toolTitle(name: string, input: unknown, workspacePath: string): 
       return 'Resolve a selection';
     case 'validate':
       return 'Validate the model';
+    case 'try_build':
+      return rel(i.path) ? `Try a build of ${rel(i.path)}` : 'Try a build';
     case 'interfere':
       return 'Check for interference';
     case 'measure':

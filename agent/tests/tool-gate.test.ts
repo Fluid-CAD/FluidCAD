@@ -19,6 +19,7 @@ import {
   needsApproval,
   toolClass,
   toolKind,
+  toolTitle,
   type GateTimers,
   type ToolGateHost,
 } from '../src/tool-gate.ts';
@@ -232,6 +233,13 @@ describe('ToolGate classification', () => {
     expect(toolKind('read_package_file')).toBe('read');
     expect(toolKind('install_package')).toBe('outside');
     expect(toolKind('not_a_tool')).toBe('other');
+  });
+
+  it('lets a scratch build through as a read, under a title naming the file', () => {
+    expect(toolKind('try_build')).toBe('read');
+    expect([needsApproval('try_build', 'ask'), needsApproval('try_build', 'auto-edits')]).toEqual([false, false]);
+    expect(toolTitle('try_build', { path: '/ws/parts/plate.part.js', content: '…' }, '/ws')).toBe('Try a build of parts/plate.part.js');
+    expect(toolTitle('try_build', {}, '/ws')).toBe('Try a build');
   });
 
   it('asks per class and permission mode (§12.1), for every tool', () => {

@@ -104,7 +104,8 @@ export class ChangePreviewView {
         this.el.append(this.offer(preview));
         return;
       case 'building':
-        this.el.append(this.tiles(preview, true), progress());
+        // The rows the facts will fill hold their place, so what is under the block moves little when it is ready.
+        this.el.append(this.tiles(preview, true), ...(preview.before === null ? [] : [pendingFacts()]), progress());
         return;
       case 'ready':
         this.paintReady(preview);
@@ -459,6 +460,22 @@ function lines(facts: string[]): HTMLElement {
   line.dataset.ref = 'preview-facts';
   line.textContent = facts.join(' · ');
   return line;
+}
+
+/** The facts' rows while the engine builds: their labels, and nothing to say yet. */
+function pendingFacts(): HTMLElement {
+  const table = document.createElement('div');
+  table.className = 'chat-change-facts';
+  table.dataset.ref = 'preview-facts-pending';
+  table.setAttribute('aria-hidden', 'true');
+  for (const label of ['Bodies', 'Size', 'Volume']) {
+    const row = document.createElement('div');
+    row.className = 'chat-change-fact';
+    row.dataset.tone = 'same';
+    row.append(cell('chat-change-fact-label', label), cell('chat-change-fact-values chat-change-fact-pending', '…'), cell('chat-change-fact-change', ''));
+    table.append(row);
+  }
+  return table;
 }
 
 function progress(): HTMLElement {

@@ -1494,6 +1494,10 @@
   white-space: nowrap;
 }
 
+[data-role='chat-panel'] .chat-change-fact-pending {
+  color: var(--chat-faint);
+}
+
 [data-role='chat-panel'] .chat-change-fact[data-tone='more'] .chat-change-fact-change {
   color: var(--color-success);
 }

@@ -1458,6 +1458,9 @@ describe('what a change does to the model, on its approval card (§25)', () => {
     expect(preview.dataset.state).toBe('building');
     expect(tilesOf(card).map((t) => [t.dataset.side, t.textContent!.trim()])).toEqual([['before', 'Building…Before'], ['after', 'QueuedAfter']]);
     expect(preview.querySelector('[data-ref="preview-progress"]')!.textContent).toContain('you can answer now');
+    // The facts' rows hold their place while it builds, with nothing in them yet.
+    expect([...preview.querySelectorAll('[data-ref="preview-facts-pending"] .chat-change-fact')].map((row) => row.textContent)).toEqual(['Bodies…', 'Size…', 'Volume…']);
+    expect(factsOf(card)).toEqual([]);
     // Above the diff, which is above the buttons — and the buttons are live.
     const approval = card.querySelector('[data-ref="approval"]')!;
     expect(preview.compareDocumentPosition(approval.querySelector('[data-ref="diff"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

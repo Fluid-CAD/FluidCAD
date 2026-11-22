@@ -12,6 +12,8 @@ import type {
   SendMessage,
   SessionSnapshot,
   SessionSummary,
+  VariantPicture,
+  VariantsReply,
 } from './chat-types';
 
 /** An answer from the agent API: the value, or why not (`status` 0: the engine did not answer). */
@@ -76,6 +78,17 @@ export interface ChatClient {
    * fit the questions, 404 when there is no such question.
    */
   answerQuestion(id: string, questionId: string, reply: QuestionReply): Promise<ChatAnswer<null>>;
+  /**
+   * Reply to a variants card: a pick, the user's own words, or a skip.
+   * Refused with 409 while the variants still build and once the card was
+   * settled, 400 when the reply does not fit it, 404 when there is none.
+   */
+  chooseVariant(id: string, variantsId: string, reply: VariantsReply): Promise<ChatAnswer<null>>;
+  /**
+   * Hand over the picture this page drew of a variant's tile, to be kept
+   * with the session. The first picture of a tile is the one kept.
+   */
+  saveVariantPicture(id: string, variantsId: string, picture: VariantPicture): Promise<ChatAnswer<null>>;
   /**
    * Revert `turnId` and every later turn that changed files, newest first
    * (§12.2). Refused with 409 while a turn or another revert runs.
@@ -169,6 +182,14 @@ export class HttpChatClient implements ChatClient {
 
   answerQuestion(id: string, questionId: string, reply: QuestionReply): Promise<ChatAnswer<null>> {
     return this.request('POST', `${this.session(id)}/questions/${encodeURIComponent(questionId)}`, reply);
+  }
+
+  chooseVariant(id: string, variantsId: string, reply: VariantsReply): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${this.session(id)}/variants/${encodeURIComponent(variantsId)}`, reply);
+  }
+
+  saveVariantPicture(id: string, variantsId: string, picture: VariantPicture): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${this.session(id)}/variants/${encodeURIComponent(variantsId)}/pictures`, picture);
   }
 
   revert(id: string, turnId: string): Promise<ChatAnswer<RevertResult>> {

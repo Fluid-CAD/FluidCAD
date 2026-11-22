@@ -17,6 +17,8 @@ import type {
   SessionSnapshot,
   SessionStatus,
   SessionSummary,
+  VariantPicture,
+  VariantsReply,
 } from '../../src/ui/chat/chat-types';
 
 const BUILT_INS = ['anthropic', 'openai', 'openrouter'];
@@ -63,6 +65,8 @@ export class FakeChatClient implements ChatClient {
   decideAnswer: ChatAnswer<null> | null = null;
   /** What `answerQuestion` answers (before the engine settles the card); null: 204 and the card settles. */
   questionAnswer: ChatAnswer<null> | null = null;
+  /** What `chooseVariant` answers (before the engine settles the card); null: 204 and the card settles. */
+  variantsAnswer: ChatAnswer<null> | null = null;
   private nextId = 1;
 
   static install(overrides: Partial<AgentInstall> = {}): AgentInstall {
@@ -407,6 +411,81 @@ export class FakeChatClient implements ChatClient {
       }
     }
     return { ok: false, status: 404, error: 'No such question.' };
+  });
+
+  /**
+   * Answers like the runtime: the waiting card settles (`picked`, with the
+   * write of the pick as a tool part after it; `answered`; `skipped`), the
+   * status goes back to `running`.
+   */
+  chooseVariant = vi.fn(async (id: string, variantsId: string, reply: VariantsReply): Promise<ChatAnswer<null>> => {
+    if (this.variantsAnswer) {
+      return this.variantsAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'variants' && part.id === variantsId) {
+          if (part.state === 'building') {
+            return { ok: false, status: 409, error: 'The variants are still building.' };
+          }
+          if (part.state !== 'awaiting-choice') {
+            return { ok: false, status: 409, error: 'These variants were already settled.' };
+          }
+          this.emit(id, {
+            type: 'part-update',
+            messageId: message.id,
+            partId: part.id,
+            patch: 'skip' in reply ? { state: 'skipped' } : 'pick' in reply ? { state: 'picked', picked: reply.pick } : { state: 'answered', text: reply.text },
+          });
+          if ('pick' in reply) {
+            this.emit(id, {
+              type: 'part-start',
+              messageId: message.id,
+              part: {
+                type: 'tool',
+                id: `${part.id}-write`,
+                source: 'fluidcad',
+                name: 'write_file',
+                title: `Apply "${reply.pick}" to ${part.file}`,
+                kind: 'edit',
+                state: 'running',
+                input: { path: part.file, variant: reply.pick },
+              },
+            });
+          }
+          const status = snapshot.status as SessionStatus & { turnId?: string };
+          this.emit(id, { type: 'status', status: { state: 'running', turnId: status.turnId ?? 'turn' } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such variants.' };
+  });
+
+  /** Keeps the first picture of a tile, as the runtime: the tile gains its `image` (`<label>.png`). */
+  saveVariantPicture = vi.fn(async (id: string, variantsId: string, picture: VariantPicture): Promise<ChatAnswer<null>> => {
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'variants' && part.id === variantsId) {
+          const tile = part.variants.find((t) => t.label === picture.label);
+          if (!tile) {
+            return { ok: false, status: 404, error: 'No such variant.' };
+          }
+          if (!tile.image) {
+            this.emit(id, {
+              type: 'part-update',
+              messageId: message.id,
+              partId: part.id,
+              patch: { variants: part.variants.map((t) => (t === tile ? { ...t, image: `${t.label}.png` } : t)) },
+            });
+          }
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such variants.' };
   });
 
   revert = vi.fn(async (id: string, turnId: string): Promise<ChatAnswer<RevertResult>> => {

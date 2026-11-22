@@ -124,7 +124,12 @@ export type SessionStatus =
   | { state: 'starting'; turnId: string }
   | { state: 'running'; turnId: string }
   | { state: 'awaiting-approval'; turnId: string; approvalIds: string[] }
-  /** The agent asked the user something (`ask_user`) and waits. An approval waiting at the same time wins. */
+  /**
+   * The agent asked the user something and waits: a question (`ask_user`)
+   * or a choice between variants (`propose_variants`, once both are built).
+   * `questionIds` are the ids of those cards. An approval waiting at the
+   * same time wins.
+   */
   | { state: 'awaiting-answer'; turnId: string; questionIds: string[] }
   /** The engine restarted while a turn was running. */
   | { state: 'interrupted'; reason: string }
@@ -209,6 +214,93 @@ export type QuestionReply = { answers: QuestionAnswer[] } | { skip: true };
 /** The longest answer the user may write to one question. */
 export const MAX_ANSWER_CHARS = 2000;
 
+/** What a built variant produces: the numbers its tile shows. */
+export type VariantFacts = {
+  /** How many solids it renders; in an assembly, counted once per instance showing them. */
+  solidCount: number;
+  /** Its overall extents along x, y and z, in `unit`; null when it renders no solid. */
+  size: [number, number, number] | null;
+  /** The solids' total volume, in `unit` cubed; null when it could not be measured. */
+  volume: number | null;
+  unit: string;
+  /** Assemblies: how many instances it places. */
+  instanceCount?: number;
+  /** False when the engine's soundness check found a problem in a solid; absent when it did not run. */
+  sound?: boolean;
+};
+
+/**
+ * `queued`: its build has not started; `building`: the engine is building
+ * it; `ready`: built, and it can be picked; `failed`: it does not compile,
+ * a feature of it does not build, or the engine refused it (`error` says
+ * which) — it cannot be picked; `cancelled`: the card ended before its
+ * build started or finished.
+ */
+export type VariantTileState = 'queued' | 'building' | 'ready' | 'failed' | 'cancelled';
+
+/**
+ * One variant of a `propose_variants` call, as its tile. `label` and
+ * `description` are the model's words: text, never markup.
+ */
+export type VariantTile = {
+  label: string;
+  description?: string;
+  state: VariantTileState;
+  /**
+   * The scratch build of it (`GET api/scratch-build/:id/meshes`): what the
+   * page draws the tile's picture and the viewport ghost from. The engine
+   * keeps a build's meshes for a while only, and not across a restart.
+   */
+  buildId?: string;
+  sceneKind?: 'part' | 'assembly';
+  facts?: VariantFacts;
+  /**
+   * The picture a page drew of the build, a PNG under the session's
+   * `files/`: what the tile shows from then on, in every tab, after a
+   * reload and after the engine has let the build go.
+   */
+  image?: string;
+  /** `failed`: why. */
+  error?: string;
+};
+
+/**
+ * `building`: the engine builds the variants, one after the other;
+ * `awaiting-choice`: built, waiting for the user; `picked`: the user picked
+ * `picked`, and its write follows as a tool part of its own; `answered`:
+ * they wrote `text` instead; `skipped`; `unanswered`: it ended with nobody
+ * choosing (stopped, timed out, the app closed), `reason` says which;
+ * `failed`: there was nothing to choose from or the pick could not be
+ * applied (neither variant built, the file changed meanwhile), `reason`
+ * says which.
+ */
+export type VariantsPartState = 'building' | 'awaiting-choice' | 'picked' | 'answered' | 'skipped' | 'unanswered' | 'failed';
+
+/**
+ * What the agent proposed through `propose_variants`, as one card of tiles.
+ * `id` is also what the choice and the tiles' pictures are posted to.
+ */
+export type VariantsPart = {
+  type: 'variants';
+  id: string;
+  state: VariantsPartState;
+  /** The model file the variants are versions of, workspace-relative. */
+  file: string;
+  question?: string;
+  variants: VariantTile[];
+  /** `picked`: the label of the variant the user picked. */
+  picked?: string;
+  /** `answered`: what the user wrote instead of picking. */
+  text?: string;
+  reason?: string;
+};
+
+/** Body of `POST api/agent/sessions/:id/variants/:variantsId`: the pick (a tile's label), the user's own words, or a skip. */
+export type VariantsReply = { pick: string } | { text: string } | { skip: true };
+
+/** Body of `POST api/agent/sessions/:id/variants/:variantsId/pictures`: the picture a page drew of the tile `label`. */
+export type VariantPicture = { label: string; image: { mediaType: 'image/png'; base64: string } };
+
 export type TextPart = { type: 'text'; id: string; text: string };
 export type ReasoningPart = { type: 'reasoning'; id: string; text: string };
 /** `name`: set for an image the user attached (its file name); absent: the references capture. */
@@ -223,7 +315,7 @@ export type NoticePart = { type: 'notice'; id: string; level: 'info' | 'warning'
 /** What a turn cost, as the CLI reported it at its end. */
 export type TurnUsage = { inputTokens?: number; outputTokens?: number; costUsd?: number };
 
-export type ChatPart = TextPart | ReasoningPart | ImagePart | ReferencesPart | ToolPart | QuestionPart | NoticePart;
+export type ChatPart = TextPart | ReasoningPart | ImagePart | ReferencesPart | ToolPart | QuestionPart | VariantsPart | NoticePart;
 
 export type ChatMessage = {
   id: string;

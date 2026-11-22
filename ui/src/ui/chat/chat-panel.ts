@@ -25,6 +25,7 @@ import {
   type QuestionReply,
   type SessionStatus,
   type TurnRecord,
+  type VariantsReply,
 } from './chat-types';
 import type { Colorizer } from './code-block';
 import { ImageAttachments, type ImagePreparer } from './image-attachments';
@@ -67,6 +68,15 @@ export type ChatConfirmOptions = {
   kind?: 'revert' | 'delete';
 };
 
+/** What draws a proposed variant from its scratch build: the tile's picture, and the ghost in the viewport. */
+export type ChatVariantsHost = {
+  /** A PNG data URL of scratch build `buildId`, or null when it can no longer be drawn (the engine let the build go). */
+  picture(buildId: string): Promise<string | null>;
+  /** Show the build over the model on screen, translucent; false when it cannot. */
+  showGhost(buildId: string): Promise<boolean>;
+  hideGhost(): void;
+};
+
 /** The permission modes as the panel names them (§12.1); Settings → Agent uses the same words. */
 export { PERMISSION_MODES } from './permission-modes';
 
@@ -102,6 +112,12 @@ export type ChatPanelDeps = {
    * idle selection, renders, the capture. Absent: no references.
    */
   scene?: ChatSceneHost;
+  /**
+   * Pictures and viewport ghosts of the variants the agent proposes (§24),
+   * drawn from their scratch builds. Absent: a variants card shows only the
+   * pictures the session kept, and offers no "Show in viewport".
+   */
+  variants?: ChatVariantsHost;
   /** The project's files, for naming one in a message with `@`; absent: no file mentions. */
   listFiles?(): Promise<MentionFile[]>;
   /** Makes an attached image ready to send (tests); absent: the browser's decoder and a canvas. */
@@ -266,6 +282,15 @@ export class ChatPanel {
       ...(deps.openSource ? { openSource: deps.openSource } : {}),
       decideApproval: (approvalId: string, decision: ApprovalDecision) => this.state.decideApproval(approvalId, decision),
       answerQuestion: (questionId: string, reply: QuestionReply) => this.state.answerQuestion(questionId, reply),
+      chooseVariant: (variantsId: string, reply: VariantsReply) => this.state.chooseVariant(variantsId, reply),
+      saveVariantPicture: (variantsId: string, label: string, dataUrl: string) => this.state.saveVariantPicture(variantsId, label, dataUrl),
+      ...(deps.variants
+        ? {
+            variantPicture: (buildId: string) => deps.variants!.picture(buildId),
+            showVariantGhost: (buildId: string) => deps.variants!.showGhost(buildId),
+            hideVariantGhost: () => deps.variants!.hideGhost(),
+          }
+        : {}),
     };
     this.transcript = new ChatTranscript(partContext);
     body.append(this.center, this.transcript.el);
@@ -338,6 +363,8 @@ export class ChatPanel {
     }
     this.open = false;
     this.el.classList.add('hidden');
+    // A variant shown in the viewport goes with the card that showed it.
+    this.transcript.releaseOverlays();
     this.deps.slot.release(this);
     this.deps.onOpenChange?.(false);
     this.syncReferences();

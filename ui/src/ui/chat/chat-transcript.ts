@@ -7,6 +7,7 @@ import { ReasoningPartView } from './parts/reasoning-part';
 import { ReferencesPartView } from './parts/references-part';
 import { TextPartView } from './parts/text-part';
 import { ToolPartView } from './parts/tool-part';
+import { VariantsPartView } from './parts/variants-part';
 
 /** Within this many pixels of the end counts as "at the bottom". */
 const STICK_SLACK_PX = 32;
@@ -62,6 +63,7 @@ export class ChatTranscript {
 
   /** Everything again, from a snapshot. `liveMessageId`: the message still streaming, if any. */
   render(messages: readonly ChatMessage[], liveMessageId: string | null): void {
+    this.disposeViews();
     this.list.replaceChildren();
     this.views.clear();
     for (const message of messages) {
@@ -144,8 +146,22 @@ export class ChatTranscript {
     this.follow();
   }
 
+  /** The panel is closing: what a card put outside the panel (a variant shown in the viewport) is taken back. */
+  releaseOverlays(): void {
+    for (const view of this.views.values()) {
+      view.releaseOverlays();
+    }
+  }
+
   destroy(): void {
+    this.disposeViews();
     this.resizeObserver?.disconnect();
+  }
+
+  private disposeViews(): void {
+    for (const view of this.views.values()) {
+      view.dispose();
+    }
   }
 
   private follow(): void {
@@ -252,6 +268,21 @@ export class MessageView {
     }
   }
 
+  /** See {@link ChatTranscript.releaseOverlays}. */
+  releaseOverlays(): void {
+    for (const view of this.parts.values()) {
+      if (view instanceof VariantsPartView) {
+        view.hideGhost();
+      }
+    }
+  }
+
+  dispose(): void {
+    for (const view of this.parts.values()) {
+      view.dispose?.();
+    }
+  }
+
   private createView(part: ChatPart): PartView {
     switch (part.type) {
       case 'text':
@@ -262,6 +293,8 @@ export class MessageView {
         return new ToolPartView(part, this.ctx);
       case 'question':
         return new QuestionPartView(part, this.ctx);
+      case 'variants':
+        return new VariantsPartView(part, this.ctx);
       case 'notice':
         return new NoticePartView(part);
       case 'image':

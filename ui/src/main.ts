@@ -1432,7 +1432,10 @@ function toggleAgentPanel(): void {
 }
 
 function loadAgentPanel(): Promise<ChatPanel> {
-  agentPanelLoading ??= import('./ui/chat/chat-panel').then(({ ChatPanel }) => {
+  agentPanelLoading ??= Promise.all([
+    import('./ui/chat/chat-panel'),
+    import('./ui/scratch-build/scratch-build-views'),
+  ]).then(([{ ChatPanel }, { ScratchBuildViews }]) => {
     agentPanel = new ChatPanel({
       container,
       client: chatClient,
@@ -1464,6 +1467,8 @@ function loadAgentPanel(): Promise<ChatPanel> {
       onEffortChosen: (kind, effort) => savePreference('agent', rememberEffort(kind, effort) as UserPreferences['agent']),
       confirm: ({ kind, ...options }) => confirmDialog({ ...options, icon: kind === 'delete' ? ICON_TRASH : ICON_UNDO }),
       onOpenChange: () => panelRail.sync(),
+      // The variants the agent proposes: each tile's picture, and the one shown over the model (§24).
+      variants: new ScratchBuildViews(viewer),
       // Attaching the selected geometry to a message (§11).
       scene: {
         selection: () => measureController.selection,

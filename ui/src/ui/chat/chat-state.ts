@@ -19,6 +19,7 @@ import {
   type SessionStatus,
   type SessionSummary,
   type TurnRecord,
+  type VariantsReply,
 } from './chat-types';
 
 /** The timer functions the state retries with (tests pass fake ones). */
@@ -535,6 +536,42 @@ export class ChatState {
       return false;
     }
     return true;
+  }
+
+  /**
+   * Reply to a variants card: a pick, the user's own words, or a skip.
+   * Resolves true once the engine took it; the card then changes through the
+   * event that follows. A card already settled elsewhere (another tab, a
+   * stop) is not an error: its event says how it ended.
+   */
+  async chooseVariant(variantsId: string, reply: VariantsReply): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.chooseVariant(id, variantsId, reply);
+    if (answer.ok === false) {
+      if (answer.status !== 409) {
+        this.error = answer.error;
+        this.emit({ kind: 'activity' });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Hand the engine the picture this page drew of a variant's tile (a PNG
+   * data URL), to be kept with the session. Best effort: a tile whose
+   * picture was not kept is drawn again by the next page that shows it.
+   */
+  saveVariantPicture(variantsId: string, label: string, dataUrl: string): void {
+    const id = this.session?.id;
+    const base64 = /^data:image\/png;base64,(.+)$/.exec(dataUrl)?.[1];
+    if (!id || !base64) {
+      return;
+    }
+    void this.client.saveVariantPicture(id, variantsId, { label, image: { mediaType: 'image/png', base64 } });
   }
 
   /** The turn record of `turnId` in the session on screen. */

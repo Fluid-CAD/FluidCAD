@@ -32,6 +32,8 @@ import iconTrash from '@tabler/icons/outline/trash.svg?raw';
 import iconLogin from '@tabler/icons/outline/login-2.svg?raw';
 import iconPin from '@tabler/icons/outline/pin.svg?raw';
 import iconPaperclip from '@tabler/icons/outline/paperclip.svg?raw';
+import iconEye from '@tabler/icons/outline/eye.svg?raw';
+import iconCubeOff from '@tabler/icons/outline/cube-off.svg?raw';
 
 export const ChatIcons = {
   SEND: iconArrowUp,
@@ -69,6 +71,10 @@ export const ChatIcons = {
   PIN: iconPin,
   /** Attach an image to the message. */
   ATTACH: iconPaperclip,
+  /** Show a proposed variant in the viewport. */
+  VIEW: iconEye,
+  /** A variant's tile with no picture to show. */
+  NO_PICTURE: iconCubeOff,
 
   /** `svg` in a span sized by `className`. */
   span(svg: string, className = '[&>svg]:size-4'): HTMLSpanElement {

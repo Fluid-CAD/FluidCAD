@@ -174,11 +174,19 @@ export type ToolPart = {
 /** Body of `POST api/agent/sessions/:id/approvals/:approvalId`. */
 export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
 
-/** One choice of a question. */
-export type QuestionOption = { label: string; description?: string };
+/**
+ * One choice of a question. `svg` is a drawing of it, written by the model:
+ * untrusted markup, shown only as an image (an `<img>` runs no script and
+ * loads nothing), never put into the page's own DOM.
+ */
+export type QuestionOption = { label: string; description?: string; svg?: string };
 
-/** One question of an `ask_user` call. Without `options` the user answers in their own words. */
-export type QuestionItem = { question: string; options?: QuestionOption[]; multiSelect?: boolean };
+/**
+ * One question of an `ask_user` call. Without `options` the user answers in
+ * their own words. `svg` is a figure the question refers to, untrusted as an
+ * option's is.
+ */
+export type QuestionItem = { question: string; svg?: string; options?: QuestionOption[]; multiSelect?: boolean };
 
 /**
  * The user's answer to one question: the labels they picked and what they

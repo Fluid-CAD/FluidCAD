@@ -21,12 +21,20 @@ export const QUESTION_SKIPPED_NOTE =
 /**
  * The questions of a call as the card shows them, or what is wrong with
  * them. The schema already bounds counts and lengths; this trims, drops
- * empty descriptions and refuses options one answer could not tell apart.
+ * empty descriptions, refuses options one answer could not tell apart and
+ * refuses a drawing the card could not show.
  */
 export function readQuestions(input: AskUserInput): { ok: true; questions: QuestionItem[] } | { ok: false; error: string } {
   const questions: QuestionItem[] = [];
   for (const q of input.questions) {
     const item: QuestionItem = { question: q.question.trim() };
+    if (q.svg !== undefined) {
+      const drawing = readSvg(q.svg);
+      if (drawing.ok === false) {
+        return { ok: false, error: `The \`svg\` of "${item.question}" ${drawing.error}` };
+      }
+      item.svg = drawing.svg;
+    }
     if (q.options && q.options.length > 0) {
       const seen = new Set<string>();
       item.options = [];
@@ -37,7 +45,15 @@ export function readQuestions(input: AskUserInput): { ok: true; questions: Quest
         }
         seen.add(label);
         const description = option.description?.trim();
-        item.options.push({ label, ...(description ? { description } : {}) });
+        let svg: string | undefined;
+        if (option.svg !== undefined) {
+          const drawing = readSvg(option.svg);
+          if (drawing.ok === false) {
+            return { ok: false, error: `The \`svg\` of the option "${label}" ${drawing.error}` };
+          }
+          svg = drawing.svg;
+        }
+        item.options.push({ label, ...(description ? { description } : {}), ...(svg ? { svg } : {}) });
       }
       if (q.multiSelect === true) {
         item.multiSelect = true;
@@ -46,6 +62,52 @@ export function readQuestions(input: AskUserInput): { ok: true; questions: Quest
     questions.push(item);
   }
   return { ok: true, questions };
+}
+
+const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
+
+/**
+ * A drawing as the card can show it, or what is wrong with it (the rest of a
+ * sentence that starts with whose drawing it is).
+ *
+ * The card shows it as an image, which needs one `<svg>` element that says
+ * its namespace (added here when the model left it out) and scales only with
+ * a `viewBox`. This is no sanitizer and the markup stays untrusted: what
+ * keeps a script or a remote reference in it from doing anything is that the
+ * page only ever shows it through an `<img>`.
+ */
+export function readSvg(raw: string): { ok: true; svg: string } | { ok: false; error: string } {
+  // An XML declaration ahead of the element is harmless: drop it.
+  const svg = raw.trim().replace(/^<\?xml[^>]*\?>\s*/i, '');
+  const open = openingTag(svg);
+  if (!/^<svg[\s>]/.test(svg) || !/<\/svg\s*>$/.test(svg) || open === null) {
+    return { ok: false, error: 'must be one `<svg …>…</svg>` element and nothing else (no code fence, no text around it).' };
+  }
+  if (!/\sviewBox\s*=/.test(open)) {
+    return { ok: false, error: 'needs a `viewBox` (for example `viewBox="0 0 120 90"`), or it cannot be scaled to the card.' };
+  }
+  if (/\sxmlns\s*=/.test(open)) {
+    return { ok: true, svg };
+  }
+  return { ok: true, svg: `<svg xmlns="${SVG_NAMESPACE}"${svg.slice('<svg'.length)}` };
+}
+
+/** The first tag of `markup`, up to its `>`; a `>` inside a quoted attribute is not the end. Null when it never closes. */
+function openingTag(markup: string): string | null {
+  let quote = '';
+  for (let i = 0; i < markup.length; i++) {
+    const char = markup[i];
+    if (quote) {
+      if (char === quote) {
+        quote = '';
+      }
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '>') {
+      return markup.slice(0, i + 1);
+    }
+  }
+  return null;
 }
 
 /**

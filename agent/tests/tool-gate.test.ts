@@ -24,7 +24,7 @@ import {
 } from '../src/tool-gate.ts';
 import type { Checkpoint } from '../src/session-store.ts';
 import { applyChatEvent } from '../src/transcript.ts';
-import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readQuestionReply } from '../src/questions.ts';
+import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readQuestionReply, readSvg } from '../src/questions.ts';
 import type { ChatEvent, ChatMessage, PermissionMode, QuestionItem, QuestionPart, ToolPart } from '../src/types.ts';
 
 // A stand-in for the engine the pinned server talks to: write_file and
@@ -843,6 +843,68 @@ describe('ToolGate: questions (ask_user, §22)', () => {
       const result = await client.callTool({ name: 'ask_user', arguments: { questions } });
       expect(result.isError, JSON.stringify(questions).slice(0, 60)).toBe(true);
     }
+    expect(host.events).toEqual([]);
+  });
+
+  it('carries the drawings of a question and its options to the card, namespaced', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { ask: true });
+    const round = '<svg viewBox="0 0 120 90"><path d="M20 70 V40 A20 20 0 0 1 40 20 H100" fill="none" stroke="#222" stroke-width="2"/></svg>';
+    const square = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90"><path d="M20 70 V20 H100" fill="none" stroke="#222" stroke-width="2"/></svg>';
+    const call = client.callTool({
+      name: 'ask_user',
+      arguments: {
+        questions: [{ question: 'Which corner?', svg: `  ${square}\n`, options: [{ label: 'Round', svg: round }, { label: 'Square', svg: square }, { label: 'Either' }] }],
+      },
+    });
+    const id = await host.asking();
+    expect(host.questions()[0].questions).toEqual([
+      {
+        question: 'Which corner?',
+        svg: square,
+        options: [
+          { label: 'Round', svg: round.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ') },
+          { label: 'Square', svg: square },
+          { label: 'Either' },
+        ],
+      },
+    ]);
+    expect(gate.answer(id, { answers: [{ selected: ['Round'] }] })).toEqual({ result: 'ok' });
+    // The drawings are for the user: the answer names the label only.
+    expect(JSON.parse(textOf(await call))).toEqual({ answers: [{ question: 'Which corner?', selected: ['Round'] }] });
+  });
+
+  it('reads a drawing: one svg element with a viewBox, given its namespace when it has none', () => {
+    const ns = 'xmlns="http://www.w3.org/2000/svg"';
+    expect(readSvg('<svg viewBox="0 0 10 10"/>').ok).toBe(false);
+    expect(readSvg('<svg viewBox="0 0 10 10"></svg>')).toEqual({ ok: true, svg: `<svg ${ns} viewBox="0 0 10 10"></svg>` });
+    expect(readSvg('<?xml version="1.0"?>\n<svg viewBox="0 0 10 10"></svg>')).toEqual({ ok: true, svg: `<svg ${ns} viewBox="0 0 10 10"></svg>` });
+    // A namespace of its own stays; `xmlns:xlink` alone is not one.
+    expect(readSvg(`<svg ${ns} viewBox="0 0 10 10"></svg>`)).toEqual({ ok: true, svg: `<svg ${ns} viewBox="0 0 10 10"></svg>` });
+    expect(readSvg('<svg xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"></svg>')).toMatchObject({
+      svg: `<svg ${ns} xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"></svg>`,
+    });
+    // The viewBox is the root's own: a `>` in an attribute does not end the tag, a nested svg's does not count.
+    expect(readSvg('<svg aria-label="a > b" viewBox="0 0 10 10"></svg>').ok).toBe(true);
+    expect(readSvg('<svg width="10" height="10"><svg viewBox="0 0 10 10"/></svg>')).toMatchObject({ ok: false, error: expect.stringContaining('viewBox') });
+    for (const bad of ['a circle', '```svg\n<svg viewBox="0 0 1 1"></svg>\n```', '<svg viewBox="0 0 1 1"></svg> or so', '<svgx viewBox="0 0 1 1"></svg>', '<div><svg viewBox="0 0 1 1"></svg></div>', '<svg viewBox="0 0 1 1"']) {
+      expect(readSvg(bad), bad).toMatchObject({ ok: false, error: expect.stringContaining('one `<svg …>…</svg>` element') });
+    }
+  });
+
+  it('refuses a drawing the card could not show, and says whose it is', async () => {
+    const host = new FakeHost();
+    const client = await connect(new ToolGate(host), { ask: true });
+    const ofOption = await client.callTool({
+      name: 'ask_user',
+      arguments: { questions: [{ question: 'Which corner?', options: [{ label: 'Round', svg: '<svg width="40" height="40"></svg>' }, { label: 'Square' }] }] },
+    });
+    expect(ofOption.isError).toBe(true);
+    expect(textOf(ofOption)).toBe('The `svg` of the option "Round" needs a `viewBox` (for example `viewBox="0 0 120 90"`), or it cannot be scaled to the card.');
+    const ofQuestion = await client.callTool({ name: 'ask_user', arguments: { questions: [{ question: 'How long?', svg: 'a bar with its length marked L' }] } });
+    expect(ofQuestion.isError).toBe(true);
+    expect(textOf(ofQuestion)).toContain('The `svg` of "How long?" must be one `<svg …>…</svg>` element');
     expect(host.events).toEqual([]);
   });
 

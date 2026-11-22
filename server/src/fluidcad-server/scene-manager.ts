@@ -81,6 +81,10 @@ export type SceneManager = {
   validate?(scene: any, request: ValidateSceneRequest): SceneValidationOutcome;
   // Optional: may predate interference checking.
   interfere?(scene: any, request: InterferenceRequest): SceneInterferenceOutcome;
+  // Optional: may predate scratch builds. The overall exact bounds of the
+  // solids the scene renders, in its unit — an assembly's with every
+  // instance where its mates put it; null when it renders no solid.
+  getRenderedBounds?(scene: any): { min: [number, number, number]; max: [number, number, number] } | null;
   // Optional: may predate the per-instance solid lookup. Instance id → the
   // rendered solids it shows (the pool validate / interfere address); null
   // for a part scene.

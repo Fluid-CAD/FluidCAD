@@ -44,6 +44,7 @@ import { PackagePins } from './packages/package-pins.ts';
 import { PackageRoots } from './packages/package-roots.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
+import { createScratchBuildRouter } from './routes/scratch-build.ts';
 import { createFeatureCatalogRouter } from './routes/feature-catalog.ts';
 import { FeatureCatalog } from './feature-catalog/catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
@@ -399,6 +400,7 @@ app.use('/api', createHubRouter({
 }));
 app.use('/api', createHostActionsRouter({ send: sendToHost, hasHost: () => hosts.effectiveCapabilities() !== null }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
+app.use('/api', createScratchBuildRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
 app.use('/api', createGlobalParamsRouter(globalParamsDeps));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));

@@ -91,6 +91,16 @@ import type {
   ScratchRender,
 } from './render-types.ts';
 import { SessionWrites } from './session-writes.ts';
+import { CompileErrors } from './compile-errors.ts';
+import {
+  ScratchBuildRefusal,
+  ScratchBuildReport,
+  ScratchBuildStore,
+  type ScratchBuildFacts,
+  type ScratchBuildMeshes,
+  type ScratchBuildOutcome,
+  type ScratchBuildRequest,
+} from './scratch-build.ts';
 import type { RenderClock } from './render-clock.ts';
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
@@ -291,6 +301,8 @@ export class FluidCadServer {
    * {@link previewTokenOf}); weak, so a replaced scene takes its mark along.
    */
   private readonly previewScenes = new WeakMap<object, string>();
+  /** The meshes of the scratch builds most recently made ({@link scratchBuild}), by build id. */
+  readonly scratchBuilds = new ScratchBuildStore();
 
   constructor(host: SceneHost = new LocalSceneHost()) {
     this.host = host;
@@ -2592,6 +2604,210 @@ export class FluidCadServer {
         }
       }
     });
+  }
+
+  /**
+   * Build a candidate version of a model file and report what it produces,
+   * touching nothing live: no file or editor buffer is written, no session
+   * state changes (the scene the viewer shows and its compare baseline, the
+   * current file, the override map and active configuration, the dedup and
+   * render caches, the fingerprints, the timeline, the compile error),
+   * nothing is broadcast, and the loader's record of the file's imports is
+   * put back (`SceneHost.holdModuleImports`).
+   *
+   * The candidate is `request.source`, evaluated as `request.file` through
+   * the render overlay (`SceneHost.setRenderOverlay`) — or, without one, the
+   * file as a render would read it now. It builds as a render of that file
+   * would at this moment: the file's session overrides and active
+   * configuration apply (read, never settled — an override the candidate's
+   * literal makes stale is dropped for the build only), with
+   * `request.params` on top for this build.
+   *
+   * Like a render it holds the engine's lock and its event loop for as long
+   * as the build takes, and a kernel abort ends the engine process. The
+   * scratch scene is freed before the answer; its rendered rows — plain
+   * arrays — are kept in {@link scratchBuilds} under the answered `id`.
+   *
+   * Null without an engine. A file that is no model or cannot be read, or a
+   * host that cannot evaluate text it does not hold, is a
+   * {@link ScratchBuildRefusal}.
+   */
+  async scratchBuild(request: ScratchBuildRequest): Promise<ScratchBuildOutcome | null> {
+    const file = normalizePath(request.file).replace('virtual:live-render:', '');
+    const sceneKind = detectKind(file);
+    if (sceneKind === null) {
+      throw new ScratchBuildRefusal(422, `${file} is not a model: a scratch build takes a .fluid.js, .part.js or .assembly.js file.`);
+    }
+    return this.serialized(async () => {
+      if (!this.sceneManager) {
+        return null;
+      }
+      if (typeof this.host.setRenderOverlay !== 'function') {
+        throw new ScratchBuildRefusal(501, 'This host cannot build a candidate: it evaluates only the text it holds.');
+      }
+      const manager = this.sceneManager;
+      const candidate = await this.scratchSource(file, request.source);
+      const startedAt = performance.now();
+      // Everything a render leaves behind on the engine side, captured to be
+      // put back (as `renderWithConfiguration` does).
+      const liveRegistry = getParamRegistry();
+      const liveUnits = getUnitRegistry();
+      const managerState = manager as unknown as { currentScene?: unknown; currentFile?: string; renderInputs?: unknown };
+      const liveScene = managerState.currentScene;
+      const liveFile = managerState.currentFile;
+      const liveInputs = managerState.renderInputs;
+      const restoreImports = this.host.holdModuleImports?.(file);
+      let scene: any = null;
+      try {
+        this.seatEngine();
+        scene = sceneKind === 'assembly' ? manager.startAssemblyScene() : manager.startScene();
+        manager.setCurrentFile(file);
+        this.host.setRenderOverlay({ code: new Map([[file, candidate.code]]), pins: {} });
+        this.invalidateModules();
+
+        const registry = createParamRegistry();
+        const session = this.paramSessions.get(file);
+        const extra = new Map(Object.entries(request.params ?? {}));
+        if (session) {
+          session.install(registry, extra);
+        } else if (extra.size > 0) {
+          registry.setOverrides(extra);
+        }
+        registry.setActiveConfiguration(this.activeConfigurations.get(file) ?? null);
+
+        // A breakpoint() stops the scratch build where it stops a render:
+        // what ran before it is what is built.
+        let breakpointHit = false;
+        try {
+          // The live-render id: the engine reads it as the file, and the
+          // session's next render loads it again whichever text this left.
+          await this.host.loadModule(`virtual:live-render:${file}`, FluidCadServer.entryExports(scene, file));
+          if (sceneKind !== 'assembly') {
+            (scene as { materializeLeftoverDefinitions?: () => void }).materializeLeftoverDefinitions?.();
+          }
+        } catch (e) {
+          if (!(e instanceof BreakpointHit)) {
+            throw e;
+          }
+          breakpointHit = true;
+        }
+        const dangling: string[] | undefined = breakpointHit
+          ? undefined
+          : (scene as { getDanglingDefinitionNames?: () => string[] }).getDanglingDefinitionNames?.();
+        if (dangling && dangling.length > 0) {
+          throw new Error(`assembly('${dangling[0]}') is defined but never rendered — export it, or insert() it from another assembly.`);
+        }
+
+        manager.renderScene(scene);
+        const objects = scene.getRenderedObjects() as any[];
+        for (const row of objects) {
+          if (row.sourceLocation) {
+            row.sourceLocation.filePath = row.sourceLocation.filePath.replace('virtual:live-render:', '');
+          }
+        }
+        this.stampPackageRows(objects);
+        const assembly = manager.getAssemblyData(scene);
+
+        const validated = manager.validate?.(scene, {});
+        const report = validated?.kind === 'report' ? validated.report : null;
+        const declared = registry.getDefinitions().filter(def => def.kind !== 'global');
+        const unusedParams = [...extra.keys()].filter((name) => {
+          const key = ParamKey.parse(name);
+          return !declared.some(def => def.label === key.label && (key.labelOnly || def.body === key.body));
+        });
+        const objectErrors = FluidCadServer.collectObjectErrors(objects);
+        const id = ScratchBuildStore.newId();
+        const unit = FluidCadServer.sceneUnitOf(scene);
+        const facts: ScratchBuildFacts = {
+          id,
+          file,
+          sceneKind,
+          unit,
+          durationMs: Math.round(performance.now() - startedAt),
+          builtFrom: candidate.from,
+          configuration: registry.getConfigurations().active,
+          sessionOverrides: session?.size ?? 0,
+          unusedParams,
+          ...ScratchBuildReport.solids(objects, report, assembly !== null),
+          bounds: manager.getRenderedBounds?.(scene) ?? null,
+          validation: ScratchBuildReport.validation(report),
+          ...(assembly ? { instanceCount: assembly.instances.length } : {}),
+          ...(breakpointHit ? { breakpointHit: true as const } : {}),
+        };
+        const meshes: ScratchBuildMeshes = {
+          id,
+          file,
+          sceneKind,
+          unit,
+          objects,
+          ...(assembly ? { assembly: { instances: assembly.instances, mates: assembly.mates, connectors: assembly.connectors ?? [] } } : {}),
+        };
+        this.scratchBuilds.put(meshes);
+        return objectErrors.length > 0
+          ? { state: 'build-error' as const, objectErrors, ...facts }
+          : { state: 'rendered' as const, ...facts };
+      } catch (error) {
+        // The candidate did not evaluate. Read before the modules are
+        // invalidated: that starts the resolver over.
+        const problems = FluidCadServer.problemsOf(this.host.packageProblems?.() ?? []);
+        return {
+          state: 'compile-error' as const,
+          file,
+          durationMs: Math.round(performance.now() - startedAt),
+          compileError: CompileErrors.describe(file, error, problems),
+        };
+      } finally {
+        this.host.setRenderOverlay(null);
+        if (scene) {
+          try {
+            manager.disposeScene?.(scene);
+          } catch {
+            // Disposal is best-effort; a failure must not mask the outcome.
+          }
+        }
+        // The module cache now holds the scratch evaluation; drop it so the
+        // next render (which always reloads) cannot see it, and put the
+        // live file's state back for what the server answers with.
+        this.invalidateModules();
+        restoreImports?.();
+        setParamRegistry(liveRegistry);
+        setUnitRegistry(liveUnits);
+        if (liveFile !== undefined) {
+          manager.setCurrentFile(liveFile);
+        }
+        if (liveScene !== undefined) {
+          managerState.currentScene = liveScene;
+        }
+        if (liveInputs !== undefined) {
+          managerState.renderInputs = liveInputs;
+        }
+      }
+    });
+  }
+
+  /**
+   * The text a scratch build evaluates as `file`: the candidate it was
+   * handed, else what a render would read — the editor's buffer, unless it
+   * is only this server's own copy of the disk (a seed, which may be behind
+   * its file), else the bytes on disk.
+   */
+  private async scratchSource(file: string, source: string | undefined): Promise<{ code: string; from: ScratchBuildFacts['builtFrom'] }> {
+    if (source !== undefined) {
+      return { code: source, from: 'source' };
+    }
+    const buffer = this.host.getBuffer(file);
+    const seed = this.diskSeeds.get(file);
+    if (buffer !== null && !(seed && seed.bufferHash === RenderInputs.hashOf(buffer))) {
+      return { code: buffer, from: 'buffer' };
+    }
+    try {
+      return { code: await readFile(file, 'utf8'), from: 'disk' };
+    } catch {
+      if (buffer !== null) {
+        return { code: buffer, from: 'buffer' };
+      }
+      throw new ScratchBuildRefusal(404, `${file} cannot be read, and no candidate source was given.`);
+    }
   }
 
   private static unknownConfiguration(name: string, names: string[]): string {

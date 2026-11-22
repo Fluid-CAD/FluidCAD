@@ -12,6 +12,17 @@ export type {
 } from './query-types.ts';
 export type { SerializedAssembly } from './assembly-types.ts';
 export type { ObjectBuildError, ObjectBuildWarning, PreviewRender, PreviewRendered, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
+export {
+  ScratchBuildRefusal,
+  ScratchBuildReport,
+  ScratchBuildStore,
+  type ScratchBuildBounds,
+  type ScratchBuildFacts,
+  type ScratchBuildMeshes,
+  type ScratchBuildOutcome,
+  type ScratchBuildRequest,
+  type ScratchBuildValidation,
+} from './scratch-build.ts';
 export { RenderClock, type RenderPhase } from './render-clock.ts';
 export { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection, type UnmappedShape } from './shape-export-selection.ts';
 export { PartPropertiesAggregator, type PartMaterialSummary, type PartProperties } from './part-properties.ts';

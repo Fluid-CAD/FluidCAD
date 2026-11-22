@@ -24,6 +24,7 @@ import type {
   SerializedAssemblyMate,
 } from '../../types';
 
+/** A thumbnail's side in pixels, unless its renderer was made for another. */
 const THUMB_SIZE = 160;
 const CAMERA_FOV = 35;
 
@@ -37,10 +38,19 @@ const CAMERA_FOV = 35;
  * instance groups), framed from the standard iso direction, rendered, and
  * read back synchronously. Call `dispose()` when the dialog closes to free
  * the GL context; the next render lazily recreates it.
+ *
+ * `size` is the side of the square picture in pixels: the Insert dialog's
+ * tiles take the default, a tile shown larger (a chat card's variant) asks
+ * for more.
  */
 export class PartThumbnailRenderer {
   private renderer: WebGLRenderer | null = null;
   private solver = new Solver();
+  private readonly size: number;
+
+  constructor(options: { size?: number } = {}) {
+    this.size = options.size ?? THUMB_SIZE;
+  }
 
   /** A single part: its rendered subtree, camera-framed. */
   render(objects: SceneObjectRender[], rootId: string): string | null {
@@ -200,7 +210,7 @@ export class PartThumbnailRenderer {
         alpha: true,
         preserveDrawingBuffer: true,
       });
-      this.renderer.setSize(THUMB_SIZE, THUMB_SIZE);
+      this.renderer.setSize(this.size, this.size);
       this.renderer.setPixelRatio(1);
       this.renderer.toneMapping = ACESFilmicToneMapping;
       this.renderer.outputColorSpace = SRGBColorSpace;

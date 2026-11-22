@@ -283,7 +283,8 @@ export const TRY_BUILD_DESCRIPTION = [
     'Call it when (1) you are choosing between real alternatives whose outcome differs and cannot be told from the source (which of ' +
     'two constructions builds, which is lighter, which fits a size); (2) a risky value may not build (a large fillet, a thin shell, ' +
     'a tight offset) and the edit that commits it waits for the user\'s approval; (3) you are about to offer the user several ' +
-    'variants, so every one offered is known to build. Do not call it before a write "to be safe", to re-check what a write just ' +
+    'variants in words, so every one offered is known to build (propose_variants, where you have it, builds its own two: do not try ' +
+    'those first). Do not call it before a write "to be safe", to re-check what a write just ' +
     'reported, or for anything measure, get_scene_summary or get_shape_properties already answer about the model as it is.',
   'Cost: every call is a full build from scratch (nothing is reused from the open model) and the engine does nothing else while it ' +
     'runs — the user\'s own renders wait behind it. A candidate that crashes the kernel restarts the engine, as a write of it would.',

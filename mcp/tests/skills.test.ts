@@ -56,7 +56,13 @@ function frontmatter(markdown: string): string {
 let registeredTools: Set<string>;
 
 beforeAll(async () => {
-  const server = buildServer();
+  // The skills ship to the in-app chat too, whose server offers two tools the
+  // standalone one does not (`ask_user`, `propose_variants`): a skill names
+  // those conditionally ("when your tools include …").
+  const server = buildServer({
+    askUser: async () => ({ content: [] }),
+    proposeVariants: async () => ({ content: [] }),
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'skills-test', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -71,6 +77,22 @@ beforeAll(async () => {
 
 describe('skills policy', () => {
   const files = listMarkdown(skillsDir);
+
+  it('names propose_variants as a tool only the in-app chat has, with when to call it, when not to and what it costs', () => {
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
+    const start = core.indexOf('### `propose_variants`');
+    expect(start).toBeGreaterThan(0);
+    const block = core.slice(start, core.indexOf('\n## ', start));
+    expect(block).toContain('When your tools include `propose_variants` (the in-app chat; a standalone MCP client does not have it)');
+    expect(block).toContain('**The default is not to call it.**');
+    expect(block).toContain('asks to see options or alternatives');
+    expect(block).toContain('a rib versus a gusset');
+    expect(block).toContain('differ only by a number');
+    expect(block).toContain('to confirm a plan');
+    expect(block).toContain('after every change');
+    expect(block).toContain('Two full builds from scratch');
+    expect(block).toContain('exactly two variants');
+  });
 
   it('finds the skill files', () => {
     const skillFiles = files.filter((f) => path.basename(f) === 'SKILL.md');

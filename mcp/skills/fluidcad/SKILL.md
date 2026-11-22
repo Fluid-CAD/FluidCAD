@@ -140,7 +140,7 @@ Call it when:
 
 - **You are choosing between real alternatives** whose outcome differs and cannot be told from the source: which of two constructions builds, which is lighter, which fits a size. Try each, compare the facts, write the one you keep.
 - **A risky value may not build** (a large fillet, a thin shell, a tight offset) and the edit that commits it waits for the user's approval. Find the value that builds, then ask once.
-- **You are about to offer the user several variants.** Every one offered is known to build.
+- **You are about to offer the user several variants in words.** Every one offered is known to build. (`propose_variants`, below, builds its own two: do not try those first.)
 
 Do not call it:
 
@@ -150,6 +150,31 @@ Do not call it:
 - to look at a candidate: the scratch scene is discarded, so nothing can screenshot or measure it. To inspect a candidate, write it.
 
 **What a call costs.** It is a full build from scratch (nothing is reused from the open model), and the engine does nothing else while it runs: the user's own renders wait behind it. A candidate that crashes the kernel restarts the engine, as a write of it would.
+
+### `propose_variants`: two built alternatives for the user to choose from
+
+When your tools include `propose_variants` (the in-app chat; a standalone MCP client does not have it), it builds two candidate versions of one model file, shows them to the user side by side as 3D tiles with their body count, overall size and volume, and waits. The variant the user picks is written and rendered for you: the pick is their approval, so do not write it again. A call carries exactly two variants, each a `label`, a one-sentence `description` of what differs, and the candidate as `content` or `edits`, as `try_build` takes one.
+
+**The default is not to call it.** An ordinary change is one write.
+
+Call it when:
+
+- **The user asks to see options or alternatives.**
+- **The request leaves the form or the layout genuinely open** and the two alternatives look different: a rib versus a gusset, two hole layouts, two handle shapes.
+
+Do not call it:
+
+- for a request with one sensible reading;
+- for variants that differ only by a number the user could simply state: a dimension is a question (`ask_user`) or a `param()`, not two variants;
+- to confirm a plan;
+- with a second option added only to fill the card, one you would not build yourself;
+- after every change.
+
+**What a call costs.** Two full builds from scratch, one after the other, and the app waits while each runs. The call builds both itself, so do not `try_build` them first. A variant that does not build is shown as failed and cannot be picked; when neither builds, the call returns an error instead of asking.
+
+**After it returns.** `{ picked, render }`: the picked variant is in the file, so check `render` as after any write and carry on from it. `{ skipped: true }`: decide yourself, write your choice, and say what you assumed. `{ answer }`: the user wrote what they want instead, and nothing was written. An error (the turn was stopped, an hour passed, the file changed while they were choosing): do not propose the same choice again in this turn.
+
+Without the tool, describe the alternatives in words and let the user say which.
 
 ## After writing the code
 

@@ -90,6 +90,8 @@ import type { ValidateSceneRequest, SceneValidationOutcome } from "./validation/
 import { SceneInterference } from "./validation/scene-interference.js";
 import type { InterferenceMesher, InterferenceRequest, SceneInterferenceOutcome } from "./validation/scene-interference.js";
 import { RenderedSolidPool } from "./validation/rendered-pool.js";
+import { SceneBounds } from "./validation/scene-bounds.js";
+import type { WorldBounds } from "./oc/shape-interference.js";
 import { MeshBuilder } from "./rendering/mesh-builder.js";
 import { ColoredSolids, type ColoredSolid } from "./common/colored-solid.js";
 import type { SceneObjectMesh } from "./rendering/scene.js";
@@ -545,6 +547,15 @@ class SceneManager {
    */
   validate(scene: Scene, request: ValidateSceneRequest = {}): SceneValidationOutcome {
     return SceneValidator.validate(scene, request);
+  }
+
+  /**
+   * The overall exact bounds of the solids the scene renders, in its unit —
+   * an assembly's with every instance where its mates put it; null when it
+   * renders no solid. See SceneBounds.
+   */
+  getRenderedBounds(scene: Scene): WorldBounds | null {
+    return SceneBounds.of(scene);
   }
 
   /**

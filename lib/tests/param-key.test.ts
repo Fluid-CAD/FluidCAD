@@ -295,6 +295,47 @@ describe("SessionParamOverrides", () => {
     session.forget(LID_WIDTH);
     expect(session.entries().map(e => e.key.id)).toEqual([ParamKey.of("Plate", "Breadth").id]);
   });
+
+  /** One pass with `extra` over the session's overrides, nothing settled — a scratch build's. */
+  function buildWith(session: SessionParamOverrides, extra: Record<string, unknown>, plateWidth = 100): Record<string, unknown> {
+    const registry = createParamRegistry();
+    session.install(registry, new Map(Object.entries(extra)));
+    const seen: Record<string, unknown> = {};
+    part("Plate", () => {
+      seen.plate = param("Width", plateWidth);
+      seen.depth = param("Depth", 5);
+    });
+    part("Lid", () => {
+      seen.lid = param("Width", 40);
+    });
+    getCurrentScene().materializeLeftoverDefinitions();
+    return seen;
+  }
+
+  it("installs one render's extra values over its own, and keeps none of them", () => {
+    const session = new SessionParamOverrides();
+    renderWith(session);
+    session.set(PLATE_WIDTH, 120);
+    session.set(LID_WIDTH, 50);
+
+    // A keyed extra replaces that part's override only; a bare label, every part's.
+    expect(buildWith(session, { [LID_WIDTH.id]: 30 })).toEqual({ plate: 120, depth: 5, lid: 30 });
+    expect(buildWith(session, { Width: 70, Depth: 9 })).toEqual({ plate: 70, depth: 9, lid: 70 });
+
+    expect(session.entries().map(e => [e.key.id, e.value])).toEqual([[PLATE_WIDTH.id, 120], [LID_WIDTH.id, 50]]);
+    expect(renderWith(session).seen).toEqual({ plate: 120, depth: 5, lid: 50 });
+  });
+
+  it("applies an extra value whatever default the source declares, and still drops a stale override beside it", () => {
+    const session = new SessionParamOverrides();
+    renderWith(session);
+    session.set(PLATE_WIDTH, 120);
+    session.set(ParamKey.of("Plate", "Depth"), 8);
+    // The source re-declares Plate's Width: the session's override of it is
+    // stale and the literal renders — unless the build names the parameter.
+    expect(buildWith(session, { Depth: 9 }, 150)).toEqual({ plate: 150, depth: 9, lid: 40 });
+    expect(buildWith(session, { Width: 70 }, 150)).toEqual({ plate: 70, depth: 8, lid: 70 });
+  });
 });
 
 describe("BrowserEngineHost — the same label in two parts", () => {

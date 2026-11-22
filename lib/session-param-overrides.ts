@@ -77,11 +77,42 @@ export class SessionParamOverrides {
     SessionParamOverrides.moveKey(this.baselines, key.id, to.id);
   }
 
-  /** Hand the overrides and their baselines to a render's fresh registry. */
-  install(registry: ParamRegistry): void {
-    if (this.overrides.size > 0) {
-      registry.setOverrides(new Map(this.overrides), new Map(this.baselines));
+  /**
+   * Hand the overrides and their baselines to a render's fresh registry.
+   *
+   * `extra` are values for this one render, by `ParamKey.id` or bare label,
+   * never kept by the session (a scratch build's): each takes the place of
+   * the session's override of the parameter it names — a bare label, of
+   * that label in every body — and is applied whatever default the source
+   * declares, so the baselines of those parameters are left out.
+   */
+  install(registry: ParamRegistry, extra?: ReadonlyMap<string, unknown>): void {
+    if (!extra || extra.size === 0) {
+      if (this.overrides.size > 0) {
+        registry.setOverrides(new Map(this.overrides), new Map(this.baselines));
+      }
+      return;
     }
+    const overrides = new Map(this.overrides);
+    const baselines = new Map(this.baselines);
+    for (const [name, value] of extra) {
+      const key = ParamKey.parse(name);
+      for (const id of [...overrides.keys()]) {
+        const held = ParamKey.parse(id);
+        if (held.label === key.label && (key.labelOnly || held.body === key.body)) {
+          overrides.delete(id);
+        }
+      }
+      // A label-only baseline stands for every body's, so it goes too.
+      for (const id of [...baselines.keys()]) {
+        const held = ParamKey.parse(id);
+        if (held.label === key.label && (key.labelOnly || held.labelOnly || held.body === key.body)) {
+          baselines.delete(id);
+        }
+      }
+      overrides.set(key.id, value);
+    }
+    registry.setOverrides(overrides, baselines);
   }
 
   /**

@@ -1040,6 +1040,75 @@
   opacity: 0.7;
 }
 
+/* A question answered by picking in the viewport (§27): the button that arms
+   it, what to click while it is armed, and the picks as reference chips. */
+[data-role='chat-panel'] .chat-question-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+[data-role='chat-panel'] .chat-question-pick-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-question-pick-button:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
+[data-role='chat-panel'] .chat-question-pick-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+[data-role='chat-panel'] .chat-question-pick-button[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-100));
+}
+
+[data-role='chat-panel'] .chat-question-pick-button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+[data-role='chat-panel'] .chat-question-pick-prompt {
+  flex: 1 1 0;
+  min-width: 12ch;
+  color: var(--chat-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+[data-role='chat-panel'] .chat-question-pick-unavailable {
+  color: var(--chat-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* The picks of a question: the composer's chips, on the card. */
+[data-role='chat-panel'] .chat-question-picked {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  vertical-align: middle;
+}
+
+[data-role='chat-panel'] .chat-question-picked:not(:last-child) {
+  margin-right: 6px;
+}
+
 [data-role='chat-panel'] .chat-question-actions {
   display: flex;
   flex-wrap: wrap;

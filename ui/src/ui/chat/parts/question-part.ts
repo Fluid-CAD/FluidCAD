@@ -1,9 +1,25 @@
+import { NO_SCENE_REASON, pickNoun, pickPrompt, type PickOwner } from '../answer-picks';
 import { ChatIcons } from '../chat-icons';
 import { MAX_ANSWER_CHARS, type ChatPart, type QuestionAnswer, type QuestionItem, type QuestionOption, type QuestionPart, type QuestionReply } from '../chat-types';
+import type { SceneReferences } from '../scene-references';
 import type { PartContext, PartView } from './part-view';
+import { referenceChip } from './references-part';
 
 /** What the user has picked and written for one question, before it is sent. */
 type Draft = { selected: Set<string>; text: string };
+
+/**
+ * A pick question's side of the card while it waits: its references (the
+ * composer's own picking, on this card), the handle it holds the viewport
+ * selection with while armed, and its controls.
+ */
+type PickSlot = {
+  refs: SceneReferences;
+  owner: PickOwner;
+  button: HTMLButtonElement;
+  prompt: HTMLSpanElement;
+  unavailable: HTMLDivElement;
+};
 
 /**
  * What the agent asked through `ask_user` (docs/agent-chat-plan.md §22), as
@@ -19,6 +35,14 @@ type Draft = { selected: Set<string>; text: string };
  * figure under its words; options with drawings lay out as tiles, the
  * drawing above the label.
  *
+ * A question may ask for a pick instead of offering options (§27): "Pick in
+ * the viewport" arms the composer's own picking for it, and what is clicked
+ * shows under the question as reference chips, removable until the answer is
+ * sent. One question is armed at a time; Done, Send, Skip and the card's
+ * end disarm it. When the model on screen cannot be picked from (an
+ * assembly, no model), the card says so in place of the button, and the
+ * question is answered in words or skipped like any other.
+ *
  * The state comes from the part, so a reloaded page or a second tab shows
  * the same card; the first answer wins and the others are refused by the
  * engine. Once settled the card keeps the questions with what was answered
@@ -32,6 +56,10 @@ export class QuestionPartView implements PartView {
   private sending: 'answer' | 'skip' | null = null;
   private sendButton: HTMLButtonElement | null = null;
   private skipButton: HTMLButtonElement | null = null;
+  /** One per question; null for a question that takes no pick, or once the card is settled. */
+  private slots: (PickSlot | null)[] = [];
+  /** A Send waiting for a click to resolve. */
+  private settling: Promise<void> | null = null;
 
   constructor(part: QuestionPart, private readonly ctx: PartContext) {
     this.part = part;
@@ -56,9 +84,14 @@ export class QuestionPartView implements PartView {
     this.paint();
   }
 
+  dispose(): void {
+    this.releaseSlots();
+  }
+
   private paint(): void {
     const part = this.part;
     this.el.dataset.state = part.state;
+    this.releaseSlots();
     this.el.replaceChildren();
     this.sendButton = null;
     this.skipButton = null;
@@ -92,8 +125,12 @@ export class QuestionPartView implements PartView {
         }
         item.append(options);
       }
-      if (canAnswer) {
-        item.append(this.textField(index, question));
+      const field = canAnswer ? this.textField(index, question) : null;
+      if (question.pick) {
+        this.paintPick(item, index, question, field);
+      }
+      if (field) {
+        item.append(field);
       }
       this.el.append(item);
     });
@@ -160,7 +197,7 @@ export class QuestionPartView implements PartView {
     input.maxLength = MAX_ANSWER_CHARS;
     input.autocomplete = 'off';
     input.spellcheck = true;
-    const hasOptions = !!question.options && question.options.length > 0;
+    const hasOptions = (!!question.options && question.options.length > 0) || !!question.pick;
     input.placeholder = hasOptions ? 'Or in your own words…' : 'Your answer…';
     input.setAttribute('aria-label', hasOptions ? `Your own answer to: ${question.question}` : question.question);
     input.value = this.drafts[index].text;
@@ -176,6 +213,170 @@ export class QuestionPartView implements PartView {
       }
     });
     return input;
+  }
+
+  // --- Picking (§27) ---------------------------------------------------------
+
+  /**
+   * The pick controls of question `index`: the button that arms it, what to
+   * click while it is armed, the chips of what was picked, or why the model
+   * on screen cannot be picked from. `field` is the question's own-words
+   * field: a chip's label puts its `[n]` there.
+   */
+  private paintPick(item: HTMLElement, index: number, question: QuestionItem, field: HTMLInputElement | null): void {
+    const pick = question.pick!;
+    const row = document.createElement('div');
+    row.className = 'chat-question-pick';
+    row.dataset.ref = 'pick';
+    const unavailable = document.createElement('div');
+    unavailable.className = 'chat-question-pick-unavailable hidden';
+    unavailable.dataset.ref = 'pick-unavailable';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'chat-question-pick-button';
+    button.dataset.ref = 'pick-button';
+    button.setAttribute('aria-pressed', 'false');
+    button.title = `Answer by clicking ${pickNoun(pick.kind, !!pick.multiple)} of the model`;
+    const prompt = document.createElement('span');
+    prompt.className = 'chat-question-pick-prompt hidden';
+    prompt.dataset.ref = 'pick-prompt';
+    prompt.textContent = pickPrompt(pick);
+    row.append(button, prompt);
+    item.append(row, unavailable);
+
+    const taker = this.ctx.picks;
+    const refs = taker && field
+      ? taker.references(
+          pick,
+          {
+            insertToken: (token) => {
+              const at = field.selectionStart ?? field.value.length;
+              field.setRangeText(token, at, field.selectionEnd ?? at, 'end');
+              field.dispatchEvent(new Event('input', { bubbles: true }));
+            },
+            focus: () => field.focus(),
+          },
+          () => this.pickChanged(index),
+        )
+      : null;
+    if (!refs) {
+      // Nothing to pick from here, or nothing to answer with: the question is answered in words.
+      row.classList.add('hidden');
+      if (field) {
+        unavailable.classList.remove('hidden');
+        unavailable.textContent = `${taker?.unavailable() ?? NO_SCENE_REASON} Answer in words.`;
+      }
+      return;
+    }
+    refs.el.classList.add('chat-question-picks');
+    item.append(refs.el);
+    this.slots[index] = { refs, owner: { released: () => this.released(index) }, button, prompt, unavailable };
+    button.addEventListener('click', () => void this.togglePick(index));
+    this.syncPick(index);
+  }
+
+  /** "Pick in the viewport" / "Done": arm question `index`, or let go of the selection. */
+  private async togglePick(index: number): Promise<void> {
+    const slot = this.slots[index];
+    const taker = this.ctx.picks;
+    if (!slot || !taker || this.sending !== null || this.part.state !== 'awaiting-answer') {
+      return;
+    }
+    if (taker.isArmed(slot.owner)) {
+      // A click still resolving is waited for, so Done keeps it.
+      await slot.refs.settle();
+      this.disarm(index);
+      return;
+    }
+    if (taker.unavailable() !== null) {
+      this.syncPick(index);
+      return;
+    }
+    taker.arm(slot.owner);
+    slot.refs.setActive(true);
+    this.syncPick(index);
+  }
+
+  /** Question `index` lets go of the selection; what it picked stays on the card. */
+  private disarm(index: number): void {
+    const slot = this.slots[index];
+    const taker = this.ctx.picks;
+    if (!slot || !taker?.isArmed(slot.owner)) {
+      return;
+    }
+    this.letGo(slot);
+    taker.disarm(slot.owner);
+    this.syncPick(index);
+  }
+
+  /** The selection went to another question, or the panel closed. */
+  private released(index: number): void {
+    const slot = this.slots[index];
+    if (slot) {
+      this.letGo(slot);
+      this.syncPick(index);
+    }
+  }
+
+  /** Keep what the selection stands for as a chip of its own, clear the selection, and stop following it. */
+  private letGo(slot: PickSlot): void {
+    if (!slot.refs.keep()) {
+      slot.refs.dismissLive();
+    }
+    slot.refs.setActive(false);
+  }
+
+  /** The references of question `index` changed (a pick resolved, a chip was removed, the model re-rendered). */
+  private pickChanged(index: number): void {
+    // The references paint once while they are being made, before the slot exists.
+    if (!this.slots[index]) {
+      return;
+    }
+    this.syncPick(index);
+    this.paintActions();
+  }
+
+  private syncPick(index: number): void {
+    const slot = this.slots[index];
+    const taker = this.ctx.picks;
+    if (!slot || !taker) {
+      return;
+    }
+    const reason = taker.unavailable();
+    if (reason !== null && taker.isArmed(slot.owner)) {
+      // The model on screen changed under an armed question (an assembly was opened).
+      slot.refs.setActive(false);
+      taker.disarm(slot.owner);
+    }
+    const armed = taker.isArmed(slot.owner);
+    slot.button.parentElement!.classList.toggle('hidden', reason !== null);
+    slot.unavailable.classList.toggle('hidden', reason === null);
+    slot.unavailable.textContent = reason === null ? '' : `${reason} Answer in words.`;
+    slot.button.setAttribute('aria-pressed', String(armed));
+    const label = armed ? 'Done' : slot.refs.size > 0 ? 'Pick again' : 'Pick in the viewport';
+    if (slot.button.dataset.label !== label) {
+      slot.button.dataset.label = label;
+      slot.button.replaceChildren(ChatIcons.span(armed ? ChatIcons.CHECK : ChatIcons.PICK, '[&>svg]:size-3.5'), text(label));
+    }
+    slot.prompt.classList.toggle('hidden', !armed);
+  }
+
+  /** The card is settled or leaves the screen: nothing of it follows the selection any more. */
+  private releaseSlots(): void {
+    const taker = this.ctx.picks;
+    const slots = this.slots;
+    this.slots = [];
+    for (const slot of slots) {
+      if (!slot) {
+        continue;
+      }
+      if (taker?.isArmed(slot.owner)) {
+        slot.refs.dismissLive();
+        slot.refs.setActive(false);
+        taker.disarm(slot.owner);
+      }
+      slot.refs.destroy();
+    }
   }
 
   private toggle(index: number, question: QuestionItem, label: string): void {
@@ -205,13 +406,14 @@ export class QuestionPartView implements PartView {
       // In the options' own order, whatever order they were clicked in.
       const selected = (question.options ?? []).map((o) => o.label).filter((label) => draft.selected.has(label));
       const written = draft.text.trim();
-      return { selected, ...(written ? { text: written } : {}) };
+      const picks = this.slots[index]?.refs.references ?? [];
+      return { selected, ...(written ? { text: written } : {}), ...(picks.length > 0 ? { picks } : {}) };
     });
   }
 
   private paintActions(): void {
     const busy = this.sending !== null;
-    const answered = this.answers().some((a) => a.selected.length > 0 || !!a.text);
+    const answered = this.answers().some(isAnswered);
     if (this.sendButton) {
       this.sendButton.disabled = busy || !answered;
       spin(this.sendButton, this.sending === 'answer', 'Send');
@@ -220,7 +422,7 @@ export class QuestionPartView implements PartView {
       this.skipButton.disabled = busy;
       spin(this.skipButton, this.sending === 'skip', 'Skip');
     }
-    for (const control of this.el.querySelectorAll<HTMLButtonElement | HTMLInputElement>('[data-ref="option"], [data-ref="text"]')) {
+    for (const control of this.el.querySelectorAll<HTMLButtonElement | HTMLInputElement>('[data-ref="option"], [data-ref="text"], [data-ref="pick-button"]')) {
       control.disabled = busy || !this.ctx.answerQuestion;
     }
   }
@@ -230,10 +432,19 @@ export class QuestionPartView implements PartView {
     if (this.sending !== null || !this.ctx.answerQuestion || part.state !== 'awaiting-answer') {
       return;
     }
+    if (kind === 'answer' && this.slots.some((slot) => slot)) {
+      // The answer carries what the chips show: a click still resolving is waited for.
+      this.settling ??= Promise.all(this.slots.map((slot) => slot?.refs.settle())).then(() => undefined);
+      await this.settling;
+      this.settling = null;
+      if (this.sending !== null || this.part !== part) {
+        return;
+      }
+    }
     let reply: QuestionReply = { skip: true };
     if (kind === 'answer') {
       const answers = this.answers();
-      if (!answers.some((a) => a.selected.length > 0 || !!a.text)) {
+      if (!answers.some(isAnswered)) {
         return;
       }
       reply = { answers };
@@ -303,14 +514,19 @@ function drawing(svg: string, ref: string): HTMLElement {
   return figure;
 }
 
-/** What the user answered to one question: the options picked, then their own words; "Left open" for neither. */
+function isAnswered(answer: QuestionAnswer): boolean {
+  return answer.selected.length > 0 || !!answer.text || (answer.picks?.length ?? 0) > 0;
+}
+
+/** What the user answered to one question: the options picked or the geometry clicked, then their own words; "Left open" for none. */
 function answerLine(answer: QuestionAnswer | undefined): HTMLElement {
   const line = document.createElement('div');
   line.className = 'chat-question-answer';
   line.dataset.ref = 'answer';
   const selected = answer?.selected ?? [];
   const written = answer?.text ?? '';
-  if (selected.length === 0 && !written) {
+  const picks = answer?.picks ?? [];
+  if (selected.length === 0 && !written && picks.length === 0) {
     line.dataset.open = 'true';
     line.textContent = 'Left open';
     return line;
@@ -318,7 +534,18 @@ function answerLine(answer: QuestionAnswer | undefined): HTMLElement {
   line.append(ChatIcons.span(ChatIcons.CHECK, '[&>svg]:size-3.5 mt-px'));
   const words = document.createElement('span');
   words.className = 'min-w-0 break-words whitespace-pre-wrap';
-  words.textContent = [selected.join(', '), written].filter((piece) => piece !== '').join(' — ');
+  if (picks.length > 0) {
+    // What was picked, as the chips it was sent with.
+    const chips = document.createElement('span');
+    chips.className = 'chat-question-picked';
+    chips.dataset.ref = 'picked';
+    chips.append(...picks.map(referenceChip));
+    words.append(chips);
+  }
+  const said = [selected.join(', '), written].filter((piece) => piece !== '').join(' — ');
+  if (said) {
+    words.append(text(said));
+  }
   line.append(words);
   return line;
 }

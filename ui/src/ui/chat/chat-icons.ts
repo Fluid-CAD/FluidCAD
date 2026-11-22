@@ -35,6 +35,7 @@ import iconPaperclip from '@tabler/icons/outline/paperclip.svg?raw';
 import iconEye from '@tabler/icons/outline/eye.svg?raw';
 import iconCubeOff from '@tabler/icons/outline/cube-off.svg?raw';
 import iconAdjustments from '@tabler/icons/outline/adjustments-horizontal.svg?raw';
+import iconPointer from '@tabler/icons/outline/pointer.svg?raw';
 
 export const ChatIcons = {
   SEND: iconArrowUp,
@@ -78,6 +79,8 @@ export const ChatIcons = {
   NO_PICTURE: iconCubeOff,
   /** A parameter card. */
   PARAMS: iconAdjustments,
+  /** Pick in the viewport: a question answered by clicking geometry. */
+  PICK: iconPointer,
 
   /** `svg` in a span sized by `className`. */
   span(svg: string, className = '[&>svg]:size-4'): HTMLSpanElement {

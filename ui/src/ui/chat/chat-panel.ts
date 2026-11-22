@@ -32,6 +32,7 @@ import type { Colorizer } from './code-block';
 import type { ParamCardHost } from './parts/params-part';
 import { ImageAttachments, type ImagePreparer } from './image-attachments';
 import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
+import { AnswerPicks } from './answer-picks';
 import { resetsText } from './time-format';
 import { usageText } from './usage';
 import './chat-panel.css';
@@ -195,6 +196,8 @@ export class ChatPanel {
   readonly references: SceneReferences | null;
   /** The images attached to the next message. */
   readonly images: ImageAttachments;
+  /** Which question card, if any, the viewport selection answers (§27). */
+  private readonly answerPicks: AnswerPicks;
   private readonly sessionButton: HTMLButtonElement;
   private readonly sessionTitle: HTMLSpanElement;
   private readonly agentSlot: HTMLSpanElement;
@@ -292,7 +295,10 @@ export class ChatPanel {
     this.center = document.createElement('div');
     this.center.className = 'chat-center hidden';
     this.center.dataset.ref = 'center';
+    // A question answered by picking takes the selection from the composer's references while it is armed (§27).
+    this.answerPicks = new AnswerPicks(deps.scene ?? null, () => this.syncReferences());
     const partContext = {
+      picks: this.answerPicks,
       openLink: (url: string) => deps.openExternal(url),
       colorizer: () => deps.colorizer?.() ?? null,
       fileUrl: (name: string) => (this.state.session ? deps.client.fileUrl(this.state.session.id, name) : ''),
@@ -1302,7 +1308,11 @@ export class ChatPanel {
 
   /** The selection attaches only while the panel is open and its composer usable (§11.1). */
   private syncReferences(): void {
-    this.references?.setActive(this.open && this.composerUsable);
+    if (!this.open) {
+      // Nothing picks into a card nobody sees.
+      this.answerPicks.release();
+    }
+    this.references?.setActive(this.open && this.composerUsable && !this.answerPicks.armed);
   }
 
   /** Sign in to `kind` from the app: the sign-in page opens in the browser, the panel waits for it. */

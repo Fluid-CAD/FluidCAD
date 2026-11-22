@@ -1507,6 +1507,15 @@ function loadAgentPanel(): Promise<ChatPanel> {
         clearSelection: () => measureController.clearSelection(),
         isRolledBack: () => sceneRolledBack,
         currentFile: () => currentSceneAbsPath,
+        // A question answered by picking (§27) says this in place of its pick
+        // button: the selector synthesis reads a part file's own geometry.
+        unpickable: () => {
+          const doc = sceneDocument.current;
+          if (!doc) {
+            return 'No model is on screen to pick from.';
+          }
+          return doc.kind === 'assembly' ? 'Faces and edges of an assembly cannot be picked yet.' : null;
+        },
         // The idle selection's amber is left out of the picture (back on
         // screen right after): when it goes with the message, `highlight`
         // draws it in its reference's colour instead.

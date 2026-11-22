@@ -1,6 +1,7 @@
 import type { Colorizer } from '../code-block';
 import type { ApprovalDecision, ChatPart, ParamKeptValue, QuestionReply, VariantsReply } from '../chat-types';
 import type { ParamCardHost } from './params-part';
+import type { PickTaker } from '../answer-picks';
 
 /** What a part's view needs from the page. */
 export type PartContext = {
@@ -24,6 +25,12 @@ export type PartContext = {
    * Absent: the card only says it waits.
    */
   answerQuestion?(questionId: string, reply: QuestionReply): Promise<boolean>;
+  /**
+   * Takes the viewport selection for a question answered by picking (§27).
+   * Absent: such a question says it cannot be picked here, and is answered
+   * in words.
+   */
+  picks?: PickTaker;
   /**
    * Reply to a variants card (a pick, the user's own words, a skip);
    * resolves true once the engine took it (the card then changes through

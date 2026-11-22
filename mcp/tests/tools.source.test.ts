@@ -14,6 +14,8 @@ import {
   listFluidFiles,
   previewSourceEdit,
   readFile,
+  resolveCandidate,
+  buildCandidate,
   tryBuild,
   writeFile,
 } from '../src/tools/source.ts';
@@ -1068,6 +1070,42 @@ describe('try_build', () => {
 
     scratchResponse = { status: 503, body: JSON.stringify({ error: 'Engine not initialized yet' }) };
     expect(await tryBuild({ path: 'block.part.js' })).toEqual({ ok: false, code: 'http-error', message: 'Engine not initialized yet', details: { statusCode: 503 } });
+  });
+
+  it('resolves a candidate to where it goes, the file as it is and its text, without building', async () => {
+    const target = path.join(workspace, 'block.part.js');
+    fs.writeFileSync(target, MODEL);
+    const edited = await resolveCandidate({
+      path: 'block.part.js',
+      edits: [{ start: { line: 0, column: 15 }, end: { line: 0, column: 17 }, newText: '45' }],
+    }, 'propose_variants');
+    expect(edited).toEqual({ ok: true, data: { absPath: target, existed: true, before: MODEL, text: 'const height = 45;\nextrude(height);\n' } });
+
+    const created = await resolveCandidate({ path: 'new.part.js', content: MODEL });
+    expect(created).toEqual({ ok: true, data: { absPath: path.join(workspace, 'new.part.js'), existed: false, before: '', text: MODEL } });
+    expect(scratchRequests).toEqual([]);
+
+    // A refusal names the tool that asked.
+    expect(await resolveCandidate({ path: 'notes.txt', content: '' }, 'propose_variants')).toMatchObject({
+      ok: false,
+      code: 'invalid-input',
+      message: expect.stringContaining('propose_variants builds a model file'),
+    });
+
+    expect(await buildCandidate({ absPath: target, text: 'extrude(1);\n' })).toEqual({ ok: true, data: SCRATCH_RENDERED });
+    expect(scratchRequests).toEqual([{ file: target, source: 'extrude(1);\n' }]);
+  });
+
+  it('refuses a candidate of a file with unsaved editor changes only for a caller that means to write it', async () => {
+    const target = path.join(workspace, 'block.part.js');
+    fs.writeFileSync(target, MODEL);
+    dirtyFiles = [{ path: target, lastModifiedMs: 1 }];
+    expect((await resolveCandidate({ path: 'block.part.js', content: MODEL })).ok).toBe(true);
+    expect(await resolveCandidate({ path: 'block.part.js', content: MODEL, refuseDirty: true })).toMatchObject({
+      ok: false,
+      code: 'dirty-buffer',
+      details: { dirtyFiles: [target] },
+    });
   });
 
   it('is a read: annotated read-only, with when to call it, when not to and what it costs in its description', async () => {

@@ -947,16 +947,41 @@ export type TryBuildOutput =
       compileError: { message: string; filePath?: string; sourceLocation?: { filePath: string; line: number; column: number } };
     };
 
+/** A candidate version of a model file, as `try_build` and `propose_variants` take one. */
+export type CandidateInput = WorkspaceArg & {
+  path: string;
+  /** The whole candidate text of the file, as `write_file` takes it. */
+  content?: string;
+  /** Or the candidate as replacements in the file on disk, each as `edit_range` takes one. */
+  edits?: RangeEdit[];
+  /**
+   * Also refuse a file the editor has unsaved changes for (`dirty-buffer`),
+   * as a write would: for a caller that means to write the candidate.
+   */
+  refuseDirty?: boolean;
+};
+
+/** A candidate that passed the checks a write of it would: where it goes, the file as it is, and its text. */
+export type Candidate = {
+  /** Canonical absolute path, as the write tools resolve it. */
+  absPath: string;
+  /** False when the file does not exist yet; `before` is then ''. */
+  existed: boolean;
+  /** The file on disk when the candidate was read. */
+  before: string;
+  /** The whole text of the candidate. */
+  text: string;
+};
+
 /**
- * Build a candidate version of a model file on the engine without writing
- * it (`POST /api/scratch-build`): the file as it would be with `content`,
- * or with `edits` applied to what is on disk, or as it is. The candidate
- * passes the lint guards `write_file` applies first, so one that builds
- * here is one a write would accept (the dirty-buffer guard aside: nothing
- * is written, so an unsaved editor buffer is not in the way). Nothing live
- * changes — see `FluidCadServer.scratchBuild`.
+ * The candidate an input names, checked as a write of it would be: the path
+ * confined to the workspace, a model file, `content` or `edits` (applied to
+ * the file on disk) or neither for the file as it is, then the lint guards
+ * `write_file` applies (`missing-imports`, `part-rules`, `unit-statement`).
+ * The dirty-buffer guard runs only on `refuseDirty`. Nothing is built or
+ * written. `tool` names the caller in a refusal.
  */
-export async function tryBuild(input: TryBuildInput): Promise<ToolResult<TryBuildOutput>> {
+export async function resolveCandidate(input: CandidateInput, tool: string = 'try_build'): Promise<ToolResult<Candidate>> {
   if (input?.content !== undefined && typeof input.content !== 'string') {
     return err('invalid-input', '`content` must be a string: the whole candidate text of the file.');
   }
@@ -968,44 +993,70 @@ export async function tryBuild(input: TryBuildInput): Promise<ToolResult<TryBuil
   }
   const entry = resolveEntry(input);
   if (entry.ok === false) {
-    return entry as ToolResult<TryBuildOutput>;
+    return entry as ToolResult<Candidate>;
   }
   // Only a whole candidate may be of a file that does not exist yet.
   const resolved = resolveWithinWorkspace(entry.data.workspacePath, input?.path, { mustExist: input.content === undefined });
   if (resolved.ok === false) {
-    return resolved as ToolResult<TryBuildOutput>;
+    return resolved as ToolResult<Candidate>;
   }
   const absPath = resolved.data.absPath;
   if (!isFluidScriptPath(absPath)) {
     return err(
       'invalid-input',
-      `try_build builds a model file (.fluid.js, .part.js, .assembly.js); "${input.path}" is not one. `
+      `${tool} builds a model file (.fluid.js, .part.js, .assembly.js); "${input.path}" is not one. `
         + 'To see what a change to another file does to a model, write it: the write reports the open model\'s render.',
     );
   }
-  let candidate = input.content;
-  if (candidate === undefined) {
-    let original: string;
-    try {
-      original = await fsp.readFile(absPath, 'utf8');
-    } catch (e: any) {
+  let before = '';
+  let existed = true;
+  try {
+    before = await fsp.readFile(absPath, 'utf8');
+  } catch (e: any) {
+    if (e?.code !== 'ENOENT' || input.content === undefined) {
       return err('internal', e?.message ?? String(e));
     }
-    const edited = input.edits ? applyRangeEdits(original, input.edits) : ok(original);
-    if (edited.ok === false) {
-      return edited as ToolResult<TryBuildOutput>;
-    }
-    candidate = edited.data;
+    existed = false;
   }
-  const guard = await assertImportsPresent(entry.data, absPath, candidate, false, 'build');
+  let text = input.content;
+  if (text === undefined) {
+    const edited = input.edits ? applyRangeEdits(before, input.edits) : ok(before);
+    if (edited.ok === false) {
+      return edited as ToolResult<Candidate>;
+    }
+    text = edited.data;
+  }
+  if (input.refuseDirty === true) {
+    const dirty = await assertNotDirty(entry.data, absPath, false);
+    if (dirty.ok === false) {
+      return dirty as ToolResult<Candidate>;
+    }
+  }
+  const guard = await assertImportsPresent(entry.data, absPath, text, false, 'build');
   if (guard.ok === false) {
-    return guard as ToolResult<TryBuildOutput>;
+    return guard as ToolResult<Candidate>;
+  }
+  return ok({ absPath, existed, before, text });
+}
+
+/**
+ * Build `text` as the model file `absPath` on the engine without writing it
+ * (`POST /api/scratch-build`). Nothing live changes — see
+ * `FluidCadServer.scratchBuild`. The text is built as given: check it with
+ * {@link resolveCandidate} first.
+ */
+export async function buildCandidate(
+  input: WorkspaceArg & { absPath: string; text: string; params?: TryBuildInput['params'] },
+): Promise<ToolResult<TryBuildOutput>> {
+  const entry = resolveEntry(input);
+  if (entry.ok === false) {
+    return entry as ToolResult<TryBuildOutput>;
   }
   const client = new FluidCadClient(entry.data);
   try {
     return ok(await client.postJson<TryBuildOutput>('/api/scratch-build', {
-      file: absPath,
-      source: candidate,
+      file: input.absPath,
+      source: input.text,
       ...(input.params !== undefined ? { params: input.params } : {}),
     }));
   } catch (e: any) {
@@ -1021,6 +1072,28 @@ export async function tryBuild(input: TryBuildInput): Promise<ToolResult<TryBuil
   } finally {
     await client.close().catch(() => {});
   }
+}
+
+/**
+ * Build a candidate version of a model file on the engine without writing
+ * it: the file as it would be with `content`, or with `edits` applied to
+ * what is on disk, or as it is. The candidate passes the lint guards
+ * `write_file` applies first ({@link resolveCandidate}), so one that builds
+ * here is one a write would accept (the dirty-buffer guard aside: nothing
+ * is written, so an unsaved editor buffer is not in the way).
+ */
+export async function tryBuild(input: TryBuildInput): Promise<ToolResult<TryBuildOutput>> {
+  const candidate = await resolveCandidate(input);
+  if (candidate.ok === false) {
+    return candidate as ToolResult<TryBuildOutput>;
+  }
+  return buildCandidate({
+    ...(input.pinnedWorkspace ? { pinnedWorkspace: input.pinnedWorkspace } : {}),
+    ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
+    absPath: candidate.data.absPath,
+    text: candidate.data.text,
+    ...(input.params !== undefined ? { params: input.params } : {}),
+  });
 }
 
 // ---------------------------------------------------------------------------

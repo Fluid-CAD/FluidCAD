@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer, SERVER_INSTRUCTIONS, TOOL_CLASSES } from '../src/server.ts';
 import { MAX_SVG_CHARS } from '../src/ask-user.ts';
+import { PROPOSE_VARIANTS_DESCRIPTION, VARIANT_COUNT } from '../src/propose-variants.ts';
 import { registryFilePath } from '../src/discovery.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
@@ -523,6 +524,110 @@ describe('ask_user', () => {
       const result = await client.callTool({ name: 'ask_user', arguments: { questions } });
       expect(result.isError).toBe(true);
       expect(textOf(result)).toBe('nobody home');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
+describe('propose_variants', () => {
+  const variants = [
+    { label: 'Rib', description: 'One rib under the arm.', content: 'rib();\n' },
+    { label: 'Gusset', edits: [{ start: { line: 3, column: 0 }, end: { line: 4, column: 0 }, newText: 'gusset();\n' }] },
+  ];
+
+  it('is not offered by a server without a chat to show the variants in', async () => {
+    for (const server of [buildServer(), buildServer({ pinnedWorkspace: entry() }), buildServer({ pinnedWorkspace: entry(), askUser: async () => ({ content: [] }) })]) {
+      expect((await listToolSchemas(server)).map((t) => t.name)).not.toContain('propose_variants');
+    }
+  });
+
+  it('is offered when the host can show them, hands it the call, and returns its answer', async () => {
+    const proposed: unknown[] = [];
+    const gated: string[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      toolGate: {
+        before: async (call) => {
+          gated.push(call.name);
+          return { allow: true };
+        },
+        after: () => {},
+      },
+      proposeVariants: async (input, signal) => {
+        proposed.push(input);
+        expect(signal.aborted).toBe(false);
+        return { content: [{ type: 'text', text: '{"picked":"Gusset","render":{"state":"rendered"}}' }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'propose_variants')!;
+      // It ends in a write of the picked variant.
+      expect(tool.annotations).toEqual({ readOnlyHint: false, destructiveHint: true });
+      const result = await client.callTool({ name: 'propose_variants', arguments: { path: 'bracket.fluid.js', question: 'Which stiffener?', variants } });
+      expect(result.isError).not.toBe(true);
+      expect(JSON.parse(textOf(result))).toEqual({ picked: 'Gusset', render: { state: 'rendered' } });
+      expect(proposed).toEqual([{ path: 'bracket.fluid.js', question: 'Which stiffener?', variants }]);
+      // The host builds, asks and writes; the gate around the other tools never sees the call.
+      expect(gated).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('takes exactly two variants', async () => {
+    const proposed: unknown[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      proposeVariants: async (input) => {
+        proposed.push(input);
+        return { content: [{ type: 'text', text: '{"skipped":true}' }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      expect(VARIANT_COUNT).toBe(2);
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'propose_variants')!;
+      const schema = (tool.inputSchema as any).properties.variants;
+      expect([schema.minItems, schema.maxItems]).toEqual([2, 2]);
+      expect((tool.inputSchema as any).required).toEqual(['path', 'variants']);
+      const third = { label: 'Web', content: 'web();\n' };
+      for (const list of [[variants[0]], [...variants, third]]) {
+        const refused = await client.callTool({ name: 'propose_variants', arguments: { path: 'bracket.fluid.js', variants: list } });
+        expect(refused.isError, `${list.length} variants`).toBe(true);
+      }
+      expect(proposed).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('says when to call it, when not to and what a call costs', () => {
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('Do NOT call it by default');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('asks to see options or alternatives');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('a rib versus a gusset');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('differ only by a number');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('to confirm a plan');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('after every change');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('Cost: two full builds');
+  });
+
+  it('reports a host that fails as a tool error', async () => {
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      proposeVariants: async () => {
+        throw new Error('no chat');
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const result = await client.callTool({ name: 'propose_variants', arguments: { path: 'bracket.fluid.js', variants } });
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe('no chat');
     } finally {
       await client.close();
       await server.close();

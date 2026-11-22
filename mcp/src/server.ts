@@ -74,6 +74,13 @@ import type { RegistryEntry, ToolResult } from './types.ts';
 import { gateToolHandler, toolError, type McpToolGate } from './tool-gate.ts';
 import { toolAnnotations } from './tool-classes.ts';
 import { ASK_USER_DESCRIPTION, ASK_USER_TITLE, ASK_USER_TOOL, askUserInputSchema, type McpAskUser } from './ask-user.ts';
+import {
+  PROPOSE_VARIANTS_DESCRIPTION,
+  PROPOSE_VARIANTS_TITLE,
+  PROPOSE_VARIANTS_TOOL,
+  proposeVariantsInputSchema,
+  type McpProposeVariants,
+} from './propose-variants.ts';
 
 export type { McpToolCall, McpToolGate, McpToolGateDecision } from './tool-gate.ts';
 export {
@@ -83,6 +90,13 @@ export {
   type AskUserQuestion,
   type McpAskUser,
 } from './ask-user.ts';
+export {
+  PROPOSE_VARIANTS_TOOL,
+  VARIANT_COUNT,
+  type McpProposeVariants,
+  type ProposedVariant,
+  type ProposeVariantsInput,
+} from './propose-variants.ts';
 export type { RegistryEntry } from './types.ts';
 // A host that builds many servers (one per agent chat session) loads the
 // indexes once and passes them to every `buildServer`.
@@ -90,13 +104,20 @@ export { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 export { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
 export { TOOL_CLASSES, isReadOnlyClass, type McpToolClass } from './tool-classes.ts';
 // The in-app agent's gate previews file edits and restores files the way
-// the tools write them.
+// the tools write them, and checks and builds the candidates of
+// `propose_variants` the way `try_build` does.
 export {
   writeFile,
   previewSourceEdit,
   applyRangeEdit,
+  resolveCandidate,
+  buildCandidate,
+  type Candidate,
+  type CandidateInput,
   type SourceEditPreview,
+  type TryBuildOutput,
   type WriteFileInput,
+  type WriteFileOutput,
   type EditRangeInput,
 } from './tools/source.ts';
 export type { ToolResult } from './types.ts';
@@ -300,6 +321,13 @@ export type BuildServerOptions = {
    * The call does not pass through `toolGate`.
    */
   askUser?: McpAskUser;
+  /**
+   * Builds two variants of a model file, shows them to the user and writes
+   * the one they pick. Set by a host with a chat to show them in:
+   * `propose_variants` is offered only then. The call does not pass through
+   * `toolGate`: the user's pick is the approval of the write.
+   */
+  proposeVariants?: McpProposeVariants;
 };
 
 export function buildServer(options: BuildServerOptions = {}): McpServer {
@@ -1666,6 +1694,29 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       async ({ questions }, extra) => {
         try {
           return await askUser({ questions }, extra.signal);
+        } catch (e) {
+          return toolError(e instanceof Error ? e.message : String(e));
+        }
+      },
+    );
+  }
+
+  const proposeVariants = options.proposeVariants;
+  if (proposeVariants) {
+    // Outside `registerTool` as `ask_user` is: the host builds, shows and
+    // writes, and the pick it waits for is the approval the gate would ask.
+    // Annotated as the write it ends in.
+    server.registerTool(
+      PROPOSE_VARIANTS_TOOL,
+      {
+        title: PROPOSE_VARIANTS_TITLE,
+        description: PROPOSE_VARIANTS_DESCRIPTION,
+        inputSchema: proposeVariantsInputSchema,
+        annotations: { readOnlyHint: false, destructiveHint: true },
+      },
+      async ({ path, question, variants }, extra) => {
+        try {
+          return await proposeVariants({ path, ...(question ? { question } : {}), variants }, extra.signal);
         } catch (e) {
           return toolError(e instanceof Error ? e.message : String(e));
         }

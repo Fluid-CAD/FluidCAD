@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Scene } from 'three';
 import { ScratchBuildViews } from '../src/ui/scratch-build/scratch-build-views';
-import type { ScratchBuildMeshes } from '../src/ui/scratch-build/scratch-builds';
+import { ScratchBuilds, type ScratchBuildMeshes } from '../src/ui/scratch-build/scratch-builds';
 import type { Viewer } from '../src/viewer';
 
 // A scratch build shown over the model on screen (a variant a chat card
@@ -99,5 +99,31 @@ describe('ScratchBuildViews', () => {
     await shown;
     expect(scene.children.flatMap((child) => child.children)).toHaveLength(0);
     views.dispose();
+  });
+
+  it('draws several builds together, and leaves out the ones the engine let go', async () => {
+    const fetched = vi.fn(async (url: string) => (url.includes('gone') ? answer(404, { error: 'No such scratch build' }) : answer(200, { ...MESHES, id: url.split('/')[2] })));
+    vi.stubGlobal('fetch', fetched);
+    const together = vi.spyOn(ScratchBuilds, 'thumbnails').mockImplementation((_renderer, builds) => builds.map((build) => `data:${build.id}`));
+    const views = new ScratchBuildViews(viewer().viewer);
+    // Both kept: one drawing of the two, in the order asked.
+    expect(await views.pictures(['before', 'after'])).toEqual(['data:before', 'data:after']);
+    expect(together).toHaveBeenCalledTimes(1);
+    expect(together.mock.calls[0][1].map((build) => build.id)).toEqual(['before', 'after']);
+    // One gone: the other is drawn alone, and the gone one has no picture.
+    expect(await views.pictures(['gone-1', 'after'])).toEqual([null, 'data:after']);
+    expect(together.mock.calls[1][1].map((build) => build.id)).toEqual(['after']);
+    // None kept: nothing is drawn at all.
+    expect(await views.pictures(['gone-1', 'gone-2'])).toEqual([null, null]);
+    expect(together).toHaveBeenCalledTimes(2);
+    // A drawing that fails is no picture, not an error.
+    together.mockImplementation(() => {
+      throw new Error('context lost');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(await views.pictures(['before'])).toEqual([null]);
+    warn.mockRestore();
+    views.dispose();
+    together.mockRestore();
   });
 });

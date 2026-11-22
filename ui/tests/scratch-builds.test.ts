@@ -65,4 +65,12 @@ describe('ScratchBuilds', () => {
     expect(ScratchBuilds.thumbnail(renderer as unknown as PartThumbnailRenderer, { ...MESHES, sceneKind: 'assembly', assembly })).toBe('data:assembly');
     expect(renderer.renderAssembly).toHaveBeenCalledWith(MESHES.objects, [], [], []);
   });
+
+  it('draws several builds from one camera, each as what it is', () => {
+    const renderer = { renderTogether: vi.fn(() => ['data:before', null]) };
+    const assembly = { instances: [], mates: [], connectors: [] };
+    const taller = { ...MESHES, id: 'taller', sceneKind: 'assembly' as const, assembly };
+    expect(ScratchBuilds.thumbnails(renderer as unknown as PartThumbnailRenderer, [MESHES, taller])).toEqual(['data:before', null]);
+    expect(renderer.renderTogether).toHaveBeenCalledWith([{ objects: MESHES.objects }, { objects: MESHES.objects, assembly }]);
+  });
 });

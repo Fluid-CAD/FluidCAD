@@ -134,4 +134,17 @@ export class ScratchBuilds {
     }
     return renderer.renderScene(meshes.objects);
   }
+
+  /**
+   * The pictures of several builds drawn from one camera, framed on what
+   * they draw together (`PartThumbnailRenderer.renderTogether`): two
+   * versions of a model at the same place and scale. One PNG data URL per
+   * build, null for one that shows nothing.
+   */
+  static thumbnails(renderer: PartThumbnailRenderer, builds: ScratchBuildMeshes[]): (string | null)[] {
+    return renderer.renderTogether(builds.map(meshes => ({
+      objects: meshes.objects,
+      ...(meshes.assembly ? { assembly: meshes.assembly } : {}),
+    })));
+  }
 }

@@ -1,5 +1,6 @@
 import {
   ACESFilmicToneMapping,
+  Box3,
   DirectionalLight,
   AmbientLight,
   Group,
@@ -27,6 +28,19 @@ import type {
 /** A thumbnail's side in pixels, unless its renderer was made for another. */
 const THUMB_SIZE = 160;
 const CAMERA_FOV = 35;
+
+/**
+ * What one picture shows: a model's rendered rows — and, for an assembly,
+ * the instances its rows are the part templates of.
+ */
+export type ThumbnailSubject = {
+  objects: SceneObjectRender[];
+  assembly?: {
+    instances: SerializedAssemblyInstance[];
+    mates: SerializedAssemblyMate[];
+    connectors?: SerializedAssemblyConnector[];
+  };
+};
 
 /**
  * Renders catalog entries to small PNG data-URLs for the Insert dialog.
@@ -74,6 +88,29 @@ export class PartThumbnailRenderer {
   }
 
   /**
+   * Several models, each its own picture, all from one camera: the same
+   * direction and one frame, the union of what they draw. Two versions of a
+   * model then sit at the same place and scale in their pictures, so a
+   * change of size or shape between them reads at a glance instead of each
+   * being zoomed to fit. Null for a subject that shows nothing.
+   */
+  renderTogether(subjects: ThumbnailSubject[]): (string | null)[] {
+    const camera = this.makeCamera();
+    const groups = subjects.map(subject => (subject.assembly
+      ? this.assemblyGroup(subject.objects, subject.assembly.instances, subject.assembly.mates, subject.assembly.connectors ?? [], camera)
+      : buildSceneMesh(subject.objects, null, camera)));
+    const frame = new Box3();
+    for (const group of groups) {
+      if (group) {
+        hideConnectors(group);
+        group.updateMatrixWorld(true);
+        frame.union(computeSceneBounds(group));
+      }
+    }
+    return groups.map(group => (group ? this.renderGroup(group, camera, frame) : null));
+  }
+
+  /**
    * A sub-assembly: one group per instance (same part-template building the
    * assembly view uses), posed at its warm-start transform, then refined by
    * the mate solver so the thumbnail shows the assembled arrangement rather
@@ -85,6 +122,27 @@ export class PartThumbnailRenderer {
     mates: SerializedAssemblyMate[],
     connectors: SerializedAssemblyConnector[] = [],
   ): string | null {
+    const camera = this.makeCamera();
+    const container = this.assemblyGroup(objects, instances, mates, connectors, camera);
+    return container ? this.renderGroup(container, camera) : null;
+  }
+
+  dispose(): void {
+    if (this.renderer) {
+      disposeEnvironmentOf(this.renderer);
+      this.renderer.dispose();
+    }
+    this.renderer = null;
+  }
+
+  /** An assembly's instances, each a group of its part template, posed and solved; null when none could be drawn. */
+  private assemblyGroup(
+    objects: SceneObjectRender[],
+    instances: SerializedAssemblyInstance[],
+    mates: SerializedAssemblyMate[],
+    connectors: SerializedAssemblyConnector[],
+    camera: PerspectiveCamera,
+  ): Group | null {
     const templates = new Map<string, SceneObjectRender>();
     for (const obj of objects) {
       if (obj.type === 'part' && obj.id) {
@@ -92,7 +150,6 @@ export class PartThumbnailRenderer {
       }
     }
 
-    const camera = this.makeCamera();
     const container = new Group();
     const groups = new Map<string, Group>();
     for (const inst of instances) {
@@ -138,19 +195,15 @@ export class PartThumbnailRenderer {
       // Keep warm-start poses.
     }
 
-    return this.renderGroup(container, camera);
+    return container;
   }
 
-  dispose(): void {
-    if (this.renderer) {
-      disposeEnvironmentOf(this.renderer);
-      this.renderer.dispose();
-    }
-    this.renderer = null;
-  }
-
-  /** Shared tail: frame the group, light it, render, read back, clean up. */
-  private renderGroup(group: Object3D, camera: PerspectiveCamera): string | null {
+  /**
+   * Shared tail: frame the group, light it, render, read back, clean up.
+   * `frame` is what the camera is fitted to in place of the group's own
+   * bounds (see {@link renderTogether}).
+   */
+  private renderGroup(group: Object3D, camera: PerspectiveCamera, frame?: Box3): string | null {
     const renderer = this.ensureRenderer();
     const scene = new Scene();
     scene.add(new AmbientLight(0xddeeff, 2.5));
@@ -161,12 +214,13 @@ export class PartThumbnailRenderer {
     scene.add(group);
     scene.updateMatrixWorld(true);
 
-    const box = computeSceneBounds(group);
-    if (box.isEmpty()) {
+    const own = computeSceneBounds(group);
+    if (own.isEmpty()) {
       scene.remove(group);
       disposeMaterials(group);
       return null;
     }
+    const box = frame && !frame.isEmpty() ? frame : own;
 
     const center = box.getCenter(new Vector3());
     const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;

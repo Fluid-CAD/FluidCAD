@@ -52,6 +52,31 @@ export class ScratchBuildViews {
   }
 
   /**
+   * PNG data URLs of several builds drawn from one camera and framed on
+   * what they draw together, so the same thing sits at the same place and
+   * scale in each (a change's before and after). One per id, in order; null
+   * for a build the engine no longer keeps, or that shows nothing — the
+   * others are framed without it.
+   */
+  async pictures(buildIds: string[]): Promise<(string | null)[]> {
+    const fetched = await Promise.all(buildIds.map(id => this.meshes(id)));
+    const kept = fetched.filter((meshes): meshes is ScratchBuildMeshes => meshes !== null);
+    if (kept.length === 0) {
+      return buildIds.map((): null => null);
+    }
+    this.renderer ??= new PartThumbnailRenderer({ size: PICTURE_SIZE });
+    try {
+      const drawn = ScratchBuilds.thumbnails(this.renderer, kept);
+      return fetched.map(meshes => (meshes ? drawn[kept.indexOf(meshes)] ?? null : null));
+    } catch (err) {
+      console.warn('FluidCAD: a change could not be drawn:', err);
+      return buildIds.map((): null => null);
+    } finally {
+      this.releaseRendererLater();
+    }
+  }
+
+  /**
    * Draw build `buildId` over the model on screen, in place of any other
    * shown this way. False when it cannot be: the engine no longer keeps it,
    * it has no solid, or it is an assembly (its instances are posed by a

@@ -71,6 +71,13 @@ const MAX_OUTPUT_CHARS = 20_000;
 const MAX_DIFF_CHARS = 200_000;
 /** How long a call waits for the user before it fails (§12.1; the CLIs' MCP timeouts are an hour too). */
 export const APPROVAL_TIMEOUT_MS = 60 * 60 * 1000;
+/**
+ * How long the engine is left free between the builds of two variants
+ * (§24). A build holds the engine's event loop; a page that has just heard
+ * a tile is built needs one request served (the build's meshes) to draw its
+ * picture, and without the pause that request could wait out the next build.
+ */
+export const BUILD_PAUSE_MS = 250;
 
 export const NO_TURN_MESSAGE = 'No chat turn is running in FluidCAD, so this tool call was not run.';
 export const DECLINED_MESSAGE = 'The user declined this action.';
@@ -136,6 +143,8 @@ export type ToolGateOptions = {
   /** Default one hour. */
   approvalTimeoutMs?: number;
   timers?: GateTimers;
+  /** Default {@link BUILD_PAUSE_MS}. */
+  buildPauseMs?: number;
 };
 
 export type ToolKind = ToolPart['kind'];
@@ -237,10 +246,12 @@ export class ToolGate implements McpToolGate {
   private readonly allowedForSession = new Set<string>();
   private readonly timeoutMs: number;
   private readonly timers: GateTimers;
+  private readonly buildPauseMs: number;
 
   constructor(host: ToolGateHost, options: ToolGateOptions = {}) {
     this.host = host;
     this.timeoutMs = options.approvalTimeoutMs ?? APPROVAL_TIMEOUT_MS;
+    this.buildPauseMs = options.buildPauseMs ?? BUILD_PAUSE_MS;
     this.timers = options.timers ?? {
       setTimeout: (fn, ms) => {
         const handle = setTimeout(fn, ms);
@@ -665,6 +676,12 @@ export class ToolGate implements McpToolGate {
       }
       setTile(index, (tile) => builtTile(tile, built));
       this.host.persist();
+      if (index < candidates.length - 1 && this.buildPauseMs > 0) {
+        // The engine is free for a moment: a page fetches the build it just heard of, to draw its tile.
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, this.buildPauseMs).unref?.();
+        });
+      }
     }
     if (!settled) {
       if (!tiles().some((tile) => tile.state === 'ready')) {

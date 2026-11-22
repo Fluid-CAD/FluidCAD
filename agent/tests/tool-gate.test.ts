@@ -1406,6 +1406,21 @@ describe('ToolGate: variants (propose_variants, §24)', () => {
     expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
   });
 
+  it('leaves the engine free for a moment between two builds, so a page can fetch the first to draw it', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host, { buildPauseMs: 120 });
+    const at: number[] = [];
+    scratchBuild = (source) => {
+      at.push(Date.now());
+      return builds(source);
+    };
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    const card = await host.variantsIn('awaiting-choice');
+    expect(at[1] - at[0]).toBeGreaterThanOrEqual(110);
+    gate.choose(card.id, { skip: true });
+    await pending;
+  });
+
   it('keeps a picture the page added to a tile while the other variant built', async () => {
     const host = new FakeHost();
     const gate = new ToolGate(host);

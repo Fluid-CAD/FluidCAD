@@ -115,11 +115,27 @@ When a choice is yours to make and the request leaves it open (a dimension, whic
 
 - A question with options: click one to pick it, click it again to take the pick back. A question that says **Pick any that apply** takes several.
 - The agent may draw what it means: a small sketch on each option (a fillet beside a chamfer, one layout beside another), or a figure under the question that marks the dimension it asks for. The sketches are the agent's own quick drawings, not views of your model, and the label under each says the same in words.
+- A question about a piece of the model ("which face is the mounting face?", "which edges get the fillet?") has a **Pick in the viewport** button instead of options. See [answering by picking](#answering-a-question-by-picking).
 - Every question also has a field for an answer in your own words. With options, what you write goes to the agent along with your pick, or instead of one.
 - **Send** (or Enter in a field) sends your answers. You can leave some questions open; the agent decides those itself.
 - **Skip** leaves all of them to the agent. It is told to choose sensibly and say what it assumed.
 
 Once answered, the card keeps the questions with what you answered. A card left unanswered for an hour times out, and **Stop** ends the turn with the question unanswered. Questions are part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer them to external agents, which have their own ways of asking.
+
+### Answering a question by picking
+
+When the answer is a face or some edges, and words would leave it open, the agent can ask you to click it. The agent is told to keep this for geometry your request leaves ambiguous: not when you already [attached it](#pointing-at-geometry) to your message, and not when what you wrote identifies it.
+
+- **Pick in the viewport** hands the viewport's selection to that question. The button reads **Done** while it does, with a line saying what to click. Until you press **Done**, a selection is not attached to your next message as it otherwise is.
+- Click the face or edge. It shows under the question as a chip, "[1] 1 face", in a colour of its own, with the selector code as its tooltip. This is the same reference a [selection attached to a message](#pointing-at-geometry) makes, so the agent gets the same thing: the selector that finds the geometry in the file, the features it comes from, the imports it needs, and its size and position.
+- A question that takes one face or edge keeps the last one you clicked. A second one added with Ctrl is not taken: the chip says **This question takes one face.** A face clicked for a question about edges is refused the same way.
+- A question that takes several says so: Ctrl-click adds to the pick, and the whole selection is one chip ("[2] 4 edges") with one selector. The pin on the chip keeps it and starts another.
+- The **×** on a chip removes it. **Done** keeps what you picked on the card; **Pick again** takes the selection back. One question picks at a time. The chips of a card are numbered together, and clicking a chip's label puts its `[1]` in that question's own-words field.
+- **Send** sends the picks with whatever else you answered. Once answered, the card keeps the chips.
+
+If the model re-renders while the card waits, what you picked is dropped with "The model changed — select again.", as it is in the message box. When FluidCAD cannot write a selector for what you clicked, the chip says why, and the question can still be answered in words.
+
+Picking has the limits of references: faces and edges only, and not in an assembly. With an assembly on screen, or no model, the card says so in place of the button, for example **Faces and edges of an assembly cannot be picked yet. Answer in words.**, and the field and **Skip** work as usual.
 
 ## Variants to choose from
 
@@ -185,6 +201,19 @@ References are not available:
 - for faces and edges of parts inserted in an assembly: open the part file and select them there,
 - for sketch entities, constraints, dimensions and vertices: a reference is made of faces and edges only,
 - while the timeline is rolled back: the chip asks you to roll the timeline forward to the last feature.
+
+### When the agent points back
+
+The agent can point too. When it means particular geometry (a problem it found on one face, the two candidates of a question, the edge a proposal would change), it can highlight those faces and edges in your viewport instead of describing where they are. The turn does not wait for this, and nothing in your files changes. The agent is told not to do it after every edit: you already see the model.
+
+- Each item is drawn over the model in its own colour, through whatever is in front of it, so a bore or a far-side face shows. The colours are the ones your own references use: `[1]` red, `[2]` blue, `[3]` green, and so on, up to eight.
+- A card in the chat, **In the viewport**, lists the items as numbered chips with the agent's label for each, and a line of its own if it wrote one. In its text the agent refers to them as `[1]`, `[2]`.
+- Hover a chip (or move to it with Tab) to see that item alone: the others turn faint in the viewport until you leave it.
+- **Clear** removes the highlight. **Show in viewport** on any such card brings its highlight back. One card is highlighted at a time: a newer one replaces the older one's highlight, and closing the panel or opening another chat clears it.
+
+The highlight follows the model. After each re-render the items are looked up again, so a face that moved is drawn where it is now. An item that is no longer in the model is not drawn: its chip is struck through and marked **stale**, and the card says which, for example **The model changed: [1] and [3] are no longer in it.** This happens when an edit removes the geometry, or rebuilds the feature the agent named it by. The card never highlights something else in its place. While another file is on screen the card says so and highlights nothing.
+
+The card is kept with the chat. After a reload, or a restart of the app, it lists its items with nothing highlighted, and **Show in viewport** highlights those that are still in the model. What the agent points at does not appear in the screenshots it takes for itself, nor in the image of your own references. Like questions, this is part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer it to external agents.
 
 ## Attaching images
 

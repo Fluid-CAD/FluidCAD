@@ -136,7 +136,12 @@ export interface EngineClient {
    * otherwise.
    */
   writeParam?(label: string, value: unknown, body?: string, configuration?: string): Promise<ConfigurationEditResult>;
-  resetParams(): void;
+  /**
+   * Drop the session's value overrides: all of them, or with `params` only
+   * those parameters' (each named as {@link setParam} names one), leaving
+   * the rest — what a chat's parameter card resets.
+   */
+  resetParams(params?: { label: string; body?: string }[]): void;
   /**
    * Show the named `configurations()` row (`'Default'` for the literals):
    * the session's overrides go, the file re-renders with the row's cells

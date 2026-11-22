@@ -132,8 +132,10 @@ export class HttpEngineClient implements EngineClient {
     }).catch(err => console.error('Set param failed:', err));
   }
 
-  resetParams(): void {
-    fetch('api/reset-params', { method: 'POST' })
+  resetParams(params?: { label: string; body?: string }[]): void {
+    fetch('api/reset-params', params === undefined
+      ? { method: 'POST' }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params }) })
       .catch(err => console.error('Reset params failed:', err));
   }
 

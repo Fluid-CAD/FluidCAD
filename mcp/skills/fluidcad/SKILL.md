@@ -130,6 +130,27 @@ The first goal is not a finished part. It is the smallest solid that proves the 
 
 From there, work down the plan's steps in order, one plan step (one feature, or one group of identical repeated features) per write. Say what is coming next ("base plate is done; next is the 4x 5 mm bolt pattern"). Never batch the whole part into one write: compile and build errors get harder to localize as the file grows, and a long silent stretch gives the user no chance to catch a mistake.
 
+### `try_build`: a candidate built without writing it
+
+`try_build` builds a candidate version of a model file in a throwaway scene and reports what it would produce: `state` (with `objectErrors` on a `build-error`), solid count, total volume, exact bounds and the `validate` verdict. It changes nothing: no file is written, the model on screen and the Parameters panel stay as they are, and no approval is asked. The candidate is `content` (the whole file), `edits` (replacements in the file on disk, each as `edit_range` takes one) or `params` (values by label), and it passes the guards a write passes, so a candidate that builds is one `write_file` accepts.
+
+**The default is not to call it.** Write the edit: `write_file` and `edit_range` already report the render.
+
+Call it when:
+
+- **You are choosing between real alternatives** whose outcome differs and cannot be told from the source: which of two constructions builds, which is lighter, which fits a size. Try each, compare the facts, write the one you keep.
+- **A risky value may not build** (a large fillet, a thin shell, a tight offset) and the edit that commits it waits for the user's approval. Find the value that builds, then ask once.
+- **You are about to offer the user several variants.** Every one offered is known to build.
+
+Do not call it:
+
+- before an ordinary write, "to be safe";
+- to re-check what a write just reported;
+- for anything `measure`, `get_scene_summary` or `get_shape_properties` already answer about the model as it is;
+- to look at a candidate: the scratch scene is discarded, so nothing can screenshot or measure it. To inspect a candidate, write it.
+
+**What a call costs.** It is a full build from scratch (nothing is reused from the open model), and the engine does nothing else while it runs: the user's own renders wait behind it. A candidate that crashes the kernel restarts the engine, as a write of it would.
+
 ## After writing the code
 
 `write_file` and `edit_range` return once the render settles. Check the outcome in this order:

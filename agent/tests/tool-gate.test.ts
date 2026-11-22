@@ -25,11 +25,12 @@ import {
 } from '../src/tool-gate.ts';
 import type { Checkpoint } from '../src/session-store.ts';
 import { applyChatEvent } from '../src/transcript.ts';
-import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readQuestionReply, readSvg } from '../src/questions.ts';
+import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readPick, readQuestionReply, readSvg } from '../src/questions.ts';
+import { formatSceneReferences } from '../src/instructions.ts';
 import { VARIANTS_ANSWERED_NOTE, VARIANTS_SKIPPED_NOTE, VARIANTS_STOPPED_MESSAGE, VARIANTS_TIMED_OUT_MESSAGE, readVariantsReply } from '../src/variants.ts';
 import { findPart } from '../src/transcript.ts';
 import type { ModelParam } from '../src/param-cards.ts';
-import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, ParamsPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
+import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, ParamsPart, PermissionMode, QuestionItem, QuestionPart, SceneReference, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
 
 // A stand-in for the engine the pinned server talks to: write_file and
 // edit_range ask it for dirty buffers, a lint and a render. Only the dirty
@@ -1046,6 +1047,153 @@ describe('ToolGate: questions (ask_user, §22)', () => {
     gate.answer(await host.asking(), { answers: [{ text: '3' }] });
     await pending;
     expect(timers.scheduled.size).toBe(0);
+  });
+});
+
+describe('ToolGate: picked answers (ask_user `pick`, §27)', () => {
+  const MOUNT = { question: 'Which face is the mounting face?', pick: { kind: 'face' as const } };
+  const RIM = { question: 'Which edges get the fillet?', pick: { kind: 'edge' as const, multiple: true } };
+  const WALL = { question: 'How thick should the wall be?' };
+
+  /** A reference as the page builds one from `api/resolve-selection` (ui/src/ui/chat/scene-references.ts). */
+  const reference = (over: Partial<SceneReference> = {}): SceneReference => ({
+    n: 1,
+    color: { name: 'red', hex: '#e5484d' },
+    kind: 'face',
+    count: 1,
+    file: '/ws/bracket.fluid.js',
+    selector: {
+      source: 'select(face().onPlane(e.endFaces()))',
+      producers: [{ variable: 'e', feature: 'Extrude 2', featureType: 'extrude', line: 12, bound: false }],
+      imports: ['select', 'face'],
+      alternatives: ["select(face().farthest('z'))"],
+    },
+    geometry: [{ form: 'plane', center: [20, 12.5, 30], normal: [0, 0, 1], area: 1000 }],
+    unit: 'mm',
+    ...over,
+  });
+  const RIM_EDGES = reference({
+    n: 2,
+    color: { name: 'blue', hex: '#2f6ff0' },
+    kind: 'edge',
+    count: 4,
+    selector: { source: 'e.endEdges()', producers: [{ variable: 'e', feature: 'Extrude 2', featureType: 'extrude', line: 12, bound: true }], imports: [], alternatives: [] },
+    geometry: [40, 40, 25, 25].map((length) => ({ form: 'line', center: [0, 0, 30], length })),
+  });
+
+  it('carries a pick question to the card, and refuses one that also offers options', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { ask: true });
+    const both = await client.callTool({
+      name: 'ask_user',
+      arguments: { questions: [{ question: 'Which face?', options: [{ label: 'Top' }, { label: 'Bottom' }], pick: { kind: 'face' } }] },
+    });
+    expect(both.isError).toBe(true);
+    expect(textOf(both)).toContain('has both `options` and `pick`');
+    expect(host.events).toEqual([]);
+
+    const call = client.callTool({ name: 'ask_user', arguments: { questions: [MOUNT, { ...RIM, pick: { kind: 'edge', multiple: true } }, { question: 'Either?', pick: { kind: 'any', multiple: false } }] } });
+    const id = await host.asking();
+    // `multiple: false` is the default: the card is told only when a question takes several.
+    expect(host.questions()[0].questions).toEqual([MOUNT, RIM, { question: 'Either?', pick: { kind: 'any' } }]);
+    gate.answer(id, { skip: true });
+    await call;
+  });
+
+  it('returns what the user picked in the words of a scene reference, and keeps it on the card', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const pending = gate.ask({ questions: [MOUNT, RIM, WALL] }, new AbortController().signal);
+    const id = await host.asking();
+    const face = reference();
+    expect(gate.answer(id, { answers: [{ picks: [{ ...face, shapeId: 'leaked', extra: 1 }] }, { picks: [RIM_EDGES], text: ' the top rim ' }, {}] })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await pending))).toEqual({
+      answers: [
+        {
+          question: MOUNT.question,
+          picks: [
+            {
+              n: 1,
+              color: 'red',
+              kind: 'face',
+              count: 1,
+              file: '/ws/bracket.fluid.js',
+              unit: 'mm',
+              selector: 'select(face().onPlane(e.endFaces()))',
+              imports: ['select', 'face'],
+              // Word for word the lines of a `<ref>` in `<scene_references>`.
+              producers: ['e: Extrude 2 (extrude), line 12 — not bound: add `const e = ` to that statement first'],
+              alternatives: ["select(face().farthest('z'))"],
+              geometry: 'plane, area 1000, center [20, 12.5, 30], normal [0, 0, 1]',
+            },
+          ],
+        },
+        {
+          question: RIM.question,
+          picks: [
+            {
+              n: 2,
+              color: 'blue',
+              kind: 'edge',
+              count: 4,
+              file: '/ws/bracket.fluid.js',
+              unit: 'mm',
+              selector: 'e.endEdges()',
+              producers: ['e: `const e = …` — Extrude 2 (extrude), line 12'],
+              geometry: '4 lines, length 40 / 40 / 25 / 25',
+            },
+          ],
+          text: 'the top rim',
+        },
+        { question: WALL.question, skipped: true },
+      ],
+    });
+    // The card keeps the references themselves, and nothing else the page sent with them.
+    expect(host.questions()[0]).toMatchObject({ state: 'answered', answers: [{ selected: [], picks: [face] }, { selected: [], picks: [RIM_EDGES], text: 'the top rim' }, { selected: [] }] });
+    // The same words as the block a user message carries.
+    const block = formatSceneReferences([face])!;
+    expect(block).toContain('    selector: select(face().onPlane(e.endFaces()))');
+    expect(block).toContain('    e: Extrude 2 (extrude), line 12 — not bound: add `const e = ` to that statement first');
+    expect(block).toContain('    geometry: plane, area 1000, center [20, 12.5, 30], normal [0, 0, 1]');
+  });
+
+  it('a pick question may be answered in words, and a pick alone answers the card', () => {
+    const questions: QuestionItem[] = [MOUNT, WALL];
+    expect(readQuestionReply(questions, { answers: [{ text: 'the one facing the wall' }, {}] })).toEqual({
+      ok: true,
+      reply: { answers: [{ selected: [], text: 'the one facing the wall' }, { selected: [] }] },
+    });
+    expect(readQuestionReply(questions, { answers: [{ picks: [reference()] }, {}] }).ok).toBe(true);
+    // No picks at all is an open question, as before.
+    expect(readQuestionReply(questions, { answers: [{ picks: [] }, {}] }).ok).toBe(false);
+  });
+
+  it('refuses picks that do not fit the question', () => {
+    const refused = (questions: QuestionItem[], answers: unknown[]) => {
+      const read = readQuestionReply(questions, { answers });
+      return read.ok === false ? read.error : 'taken';
+    };
+    expect(refused([WALL], [{ picks: [reference()] }])).toContain('does not take picked geometry');
+    expect(refused([MOUNT], [{ picks: [RIM_EDGES] }])).toContain('takes faces only');
+    expect(refused([RIM], [{ picks: [reference()] }])).toContain('takes edges only');
+    expect(refused([MOUNT], [{ picks: [reference(), reference({ n: 2 })] }])).toContain('takes one face');
+    expect(refused([MOUNT], [{ picks: [reference({ count: 3 })] }])).toContain('takes one face');
+    expect(refused([{ question: 'Which?', pick: { kind: 'any' } }], [{ picks: [reference({ kind: 'mixed', count: 2 })] }])).toContain('takes one face or edge');
+    expect(refused([RIM], [{ picks: [RIM_EDGES, { ...RIM_EDGES }] }])).toContain('share a number');
+    expect(refused([RIM], [{ picks: 'e.endEdges()' }])).toContain('at most 8 scene references');
+    expect(refused([RIM], [{ picks: Array.from({ length: 9 }, (_, i) => ({ ...RIM_EDGES, n: i + 1 })) }])).toContain('at most 8 scene references');
+    for (const broken of [null, {}, { ...RIM_EDGES, n: 0 }, { ...RIM_EDGES, kind: 'solid' }, { ...RIM_EDGES, selector: { ...RIM_EDGES.selector, source: ' ' } }, { ...RIM_EDGES, selector: { ...RIM_EDGES.selector, producers: [{ variable: 'e' }] } }]) {
+      expect(refused([RIM], [{ picks: [broken] }]), JSON.stringify(broken)).toContain('must be a scene reference');
+    }
+    // A question that takes several takes several references, each of any size, and either kind when it says so.
+    expect(refused([RIM], [{ picks: [RIM_EDGES, { ...RIM_EDGES, n: 3, count: 1 }] }])).toBe('taken');
+    expect(refused([{ question: 'Which?', pick: { kind: 'any', multiple: true } }], [{ picks: [reference(), RIM_EDGES, reference({ n: 3, kind: 'mixed', count: 2 })] }])).toBe('taken');
+  });
+
+  it('copies a pick field by field', () => {
+    const copy = readPick({ ...reference(), shapeId: 's1', selector: { ...reference().selector, expression: '$obj["x"].endFaces()' }, geometry: [{ form: 'plane' }, null, 'x'] });
+    expect(copy).toEqual({ ...reference(), geometry: [{ form: 'plane' }] });
   });
 });
 

@@ -1,10 +1,13 @@
 // The agent's questions to the user (`ask_user`, docs/agent-chat-plan.md §22):
 // what a call's input becomes on the card, what the page may answer, and
-// what the model is told.
+// what the model is told. A question may be answered by picking geometry in
+// the viewport (§27): the picks are scene references (§11), told to the
+// model in a reference's own words.
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { AskUserInput } from '../../mcp/dist/server.js';
-import { MAX_ANSWER_CHARS, type QuestionAnswer, type QuestionItem, type QuestionPart, type QuestionReply } from './types.ts';
+import { sceneReferenceWords } from './instructions.ts';
+import { MAX_ANSWER_CHARS, type QuestionAnswer, type QuestionItem, type QuestionPart, type QuestionReply, type SceneReference } from './types.ts';
 
 /** How a question ended. */
 export type QuestionOutcome =
@@ -21,8 +24,9 @@ export const QUESTION_SKIPPED_NOTE =
 /**
  * The questions of a call as the card shows them, or what is wrong with
  * them. The schema already bounds counts and lengths; this trims, drops
- * empty descriptions, refuses options one answer could not tell apart and
- * refuses a drawing the card could not show.
+ * empty descriptions, refuses options one answer could not tell apart,
+ * refuses a drawing the card could not show, and refuses a question that
+ * offers options and asks for a pick at once.
  */
 export function readQuestions(input: AskUserInput): { ok: true; questions: QuestionItem[] } | { ok: false; error: string } {
   const questions: QuestionItem[] = [];
@@ -58,6 +62,15 @@ export function readQuestions(input: AskUserInput): { ok: true; questions: Quest
       if (q.multiSelect === true) {
         item.multiSelect = true;
       }
+    }
+    if (q.pick !== undefined) {
+      if (item.options) {
+        return {
+          ok: false,
+          error: `"${item.question}" has both \`options\` and \`pick\`. A question is answered by choosing an option or by picking geometry in the viewport, not both: give one of them (or ask two questions).`,
+        };
+      }
+      item.pick = { kind: q.pick.kind, ...(q.pick.multiple === true ? { multiple: true } : {}) };
     }
     questions.push(item);
   }
@@ -110,11 +123,61 @@ function openingTag(markup: string): string | null {
   return null;
 }
 
+/** Picks one answer may carry: one colour each, as a message's references (§11.1). */
+export const MAX_PICKS = 8;
+/** The longest selector, name or line a pick may carry. */
+const MAX_PICK_TEXT = 4000;
+/** Entities one pick may summarize. */
+const MAX_PICK_GEOMETRY = 500;
+
+/**
+ * A scene reference the page sent as a pick, copied field by field (nothing
+ * else it sent rides along), or null when it is not one. The page builds it
+ * from `api/resolve-selection` exactly as it builds a message's references.
+ */
+export function readPick(raw: unknown): SceneReference | null {
+  const value = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
+  const selector = (value.selector && typeof value.selector === 'object' ? value.selector : {}) as Record<string, any>;
+  const text = (v: unknown): v is string => typeof v === 'string' && v.length <= MAX_PICK_TEXT;
+  const texts = (v: unknown, max: number): v is string[] => Array.isArray(v) && v.length <= max && v.every(text);
+  if (
+    !Number.isInteger(value.n) || value.n < 1 || value.n > MAX_PICKS ||
+    !text(value.color?.name) || !text(value.color?.hex) ||
+    !['face', 'edge', 'mixed'].includes(value.kind) ||
+    !Number.isInteger(value.count) || value.count < 1 ||
+    !text(value.file) || !text(value.unit) ||
+    !text(selector.source) || selector.source.trim() === '' ||
+    !texts(selector.imports, 16) || !texts(selector.alternatives, 8) ||
+    !Array.isArray(selector.producers) || selector.producers.length > 32 ||
+    !Array.isArray(value.geometry) || value.geometry.length > MAX_PICK_GEOMETRY
+  ) {
+    return null;
+  }
+  const producers: SceneReference['selector']['producers'] = [];
+  for (const p of selector.producers as any[]) {
+    if (!p || !text(p.variable) || !text(p.feature) || !text(p.featureType) || !(p.line === null || Number.isInteger(p.line))) {
+      return null;
+    }
+    producers.push({ variable: p.variable, feature: p.feature, featureType: p.featureType, line: p.line, bound: p.bound === true });
+  }
+  return {
+    n: value.n,
+    color: { name: value.color.name, hex: value.color.hex },
+    kind: value.kind,
+    count: value.count,
+    file: value.file,
+    selector: { source: selector.source, producers, imports: [...selector.imports], alternatives: [...selector.alternatives] },
+    geometry: value.geometry.filter((g: unknown) => !!g && typeof g === 'object'),
+    unit: value.unit,
+  };
+}
+
 /**
  * The page's answer to `questions`, checked: one answer per question, picks
  * that are options of that question (one unless it is `multiSelect`), text
- * of a bounded length, and at least one question answered (leaving all of
- * them open is a skip).
+ * of a bounded length, geometry only for a question that asked for a pick
+ * (of the kind it takes, one face or edge unless it takes several), and at
+ * least one question answered (leaving all of them open is a skip).
  */
 export function readQuestionReply(questions: QuestionItem[], body: unknown): { ok: true; reply: QuestionReply } | { ok: false; error: string } {
   const record = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
@@ -148,7 +211,32 @@ export function readQuestionReply(questions: QuestionItem[], body: unknown): { o
     if (text.length > MAX_ANSWER_CHARS) {
       return { ok: false, error: `Answer ${i + 1}: \`text\` is longer than ${MAX_ANSWER_CHARS} characters.` };
     }
-    answers.push({ selected, ...(text ? { text } : {}) });
+    const picks: SceneReference[] = [];
+    if (answer.picks !== undefined) {
+      if (!Array.isArray(answer.picks) || answer.picks.length > MAX_PICKS) {
+        return { ok: false, error: `Answer ${i + 1}: \`picks\` must be at most ${MAX_PICKS} scene references.` };
+      }
+      if (answer.picks.length > 0 && !question.pick) {
+        return { ok: false, error: `Answer ${i + 1}: the question does not take picked geometry.` };
+      }
+      for (const raw of answer.picks) {
+        const pick = readPick(raw);
+        if (!pick) {
+          return { ok: false, error: `Answer ${i + 1}: each of \`picks\` must be a scene reference.` };
+        }
+        if (question.pick!.kind !== 'any' && pick.kind !== question.pick!.kind) {
+          return { ok: false, error: `Answer ${i + 1}: the question takes ${question.pick!.kind}s only.` };
+        }
+        picks.push(pick);
+      }
+      if (!question.pick?.multiple && (picks.length > 1 || (picks[0]?.count ?? 1) > 1)) {
+        return { ok: false, error: `Answer ${i + 1}: the question takes one ${question.pick!.kind === 'any' ? 'face or edge' : question.pick!.kind}.` };
+      }
+      if (new Set(picks.map((p) => p.n)).size !== picks.length) {
+        return { ok: false, error: `Answer ${i + 1}: two of \`picks\` share a number.` };
+      }
+    }
+    answers.push({ selected, ...(text ? { text } : {}), ...(picks.length > 0 ? { picks } : {}) });
   }
   if (!answers.some(isAnswered)) {
     return { ok: false, error: 'Answer at least one question, or send `{ "skip": true }`.' };
@@ -157,7 +245,29 @@ export function readQuestionReply(questions: QuestionItem[], body: unknown): { o
 }
 
 export function isAnswered(answer: QuestionAnswer | undefined): boolean {
-  return !!answer && (answer.selected.length > 0 || !!answer.text);
+  return !!answer && (answer.selected.length > 0 || !!answer.text || (answer.picks?.length ?? 0) > 0);
+}
+
+/**
+ * A pick as the model reads it: the fields of a `<ref>` of
+ * `<scene_references>` (§11.3), in the same words, so what the preamble says
+ * of a reference holds for it. Empty fields are left out.
+ */
+export function pickForModel(pick: SceneReference): Record<string, unknown> {
+  const words = sceneReferenceWords(pick);
+  return {
+    n: pick.n,
+    color: pick.color.name,
+    kind: pick.kind,
+    count: pick.count,
+    ...(pick.file ? { file: pick.file } : {}),
+    unit: pick.unit,
+    selector: words.selector,
+    ...(words.imports.length > 0 ? { imports: words.imports } : {}),
+    ...(words.producers.length > 0 ? { producers: words.producers } : {}),
+    ...(words.alternatives.length > 0 ? { alternatives: words.alternatives } : {}),
+    ...(words.geometry ? { geometry: words.geometry } : {}),
+  };
 }
 
 /** What the card becomes when the question ends. */
@@ -191,6 +301,7 @@ export function questionResult(questions: QuestionItem[], outcome: QuestionOutco
           return {
             question: q.question,
             ...(answer.selected.length > 0 ? { selected: answer.selected } : {}),
+            ...(answer.picks && answer.picks.length > 0 ? { picks: answer.picks.map(pickForModel) } : {}),
             ...(answer.text ? { text: answer.text } : {}),
           };
         }),

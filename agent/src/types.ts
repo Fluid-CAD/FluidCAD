@@ -250,17 +250,26 @@ export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
 export type QuestionOption = { label: string; description?: string; svg?: string };
 
 /**
- * One question of an `ask_user` call. Without `options` the user answers in
- * their own words. `svg` is a figure the question refers to, untrusted as an
- * option's is.
+ * A question answered by clicking geometry in the viewport (§27): which kind
+ * of entity it takes, and whether it takes several.
  */
-export type QuestionItem = { question: string; svg?: string; options?: QuestionOption[]; multiSelect?: boolean };
+export type QuestionPick = { kind: 'face' | 'edge' | 'any'; multiple?: boolean };
 
 /**
- * The user's answer to one question: the labels they picked and what they
- * wrote. Neither (`selected` empty, no `text`) means they left it open.
+ * One question of an `ask_user` call. Without `options` the user answers in
+ * their own words. `svg` is a figure the question refers to, untrusted as an
+ * option's is. `pick` (never with `options`): the answer is geometry picked
+ * in the viewport.
  */
-export type QuestionAnswer = { selected: string[]; text?: string };
+export type QuestionItem = { question: string; svg?: string; options?: QuestionOption[]; multiSelect?: boolean; pick?: QuestionPick };
+
+/**
+ * The user's answer to one question: the labels they picked, what they
+ * wrote, and for a `pick` question the geometry they clicked, as the scene
+ * references a message carries (§11). None of them (`selected` empty, no
+ * `text`, no `picks`) means they left it open.
+ */
+export type QuestionAnswer = { selected: string[]; text?: string; picks?: SceneReference[] };
 
 /**
  * `unanswered`: it ended with nobody answering (the turn was stopped, the

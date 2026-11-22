@@ -7,6 +7,7 @@ import net from 'net';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer, SERVER_INSTRUCTIONS, TOOL_CLASSES } from '../src/server.ts';
+import { MAX_SVG_CHARS } from '../src/ask-user.ts';
 import { registryFilePath } from '../src/discovery.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
@@ -475,6 +476,35 @@ describe('ask_user', () => {
       expect(asked).toEqual([{ questions }]);
       // The host answers it; the gate around the other tools never sees it.
       expect(gated).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('takes a drawing for a question and for an option, of a bounded length', async () => {
+    const asked: any[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      askUser: async (input) => {
+        asked.push(input);
+        return { content: [{ type: 'text', text: '{"skipped":true}' }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'ask_user')!;
+      const question = (tool.inputSchema as any).properties.questions.items.properties;
+      expect(question.svg.maxLength).toBe(MAX_SVG_CHARS);
+      expect(question.options.items.properties.svg.maxLength).toBe(MAX_SVG_CHARS);
+      const svg = '<svg viewBox="0 0 120 90"><circle cx="60" cy="45" r="30"/></svg>';
+      const drawn = [{ question: 'Which corner?', svg, options: [{ label: 'Round', svg }, { label: 'Square', svg }] }];
+      expect((await client.callTool({ name: 'ask_user', arguments: { questions: drawn } })).isError).not.toBe(true);
+      expect(asked).toEqual([{ questions: drawn }]);
+      const long = `<svg viewBox="0 0 1 1">${' '.repeat(MAX_SVG_CHARS)}</svg>`;
+      const refused = await client.callTool({ name: 'ask_user', arguments: { questions: [{ question: 'Which corner?', svg: long }] } });
+      expect(refused.isError).toBe(true);
+      expect(asked).toHaveLength(1);
     } finally {
       await client.close();
       await server.close();

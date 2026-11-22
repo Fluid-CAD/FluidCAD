@@ -221,10 +221,15 @@ export type SceneReferencesOptions = {
    */
   accept?(picks: readonly ReferencePick[]): string | null;
   /**
-   * One reference at most: there is no pin, the live chip is always `[1]`,
-   * and a selection that synthesizes replaces the reference kept before it.
+   * One reference at most: there is no pin, and a selection that
+   * synthesizes replaces the reference kept before it (and takes its number).
    */
   single?: boolean;
+  /**
+   * Numbers (and so colours) taken elsewhere: by the other questions of the
+   * same card, so no two chips of a card share one.
+   */
+  reserved?(): readonly number[];
   /** Told after every change of what shows. */
   onChange?(): void;
 };
@@ -497,7 +502,7 @@ export class SceneReferences {
         this.live = { kind: 'hint', label, hint: ROLLED_BACK_HINT };
       } else if (this.options.accept?.(picks)) {
         this.live = { kind: 'hint', label, hint: this.options.accept(picks)! };
-      } else if (this.kept.length >= MAX_REFERENCES && !this.options.single) {
+      } else if (this.nextNumber() > MAX_REFERENCES) {
         this.live = { kind: 'hint', label, hint: FULL_HINT };
       } else {
         this.live = { kind: 'pending', n: this.nextNumber(), picks, label };
@@ -568,10 +573,8 @@ export class SceneReferences {
 
   /** The lowest number (and colour) no kept reference holds. */
   private nextNumber(): number {
-    if (this.options.single) {
-      return 1;
-    }
-    const used = new Set(this.kept.map((p) => p.reference.n));
+    // The one reference of a `single` takes the place of the one kept, number included.
+    const used = new Set([...(this.options.single ? [] : this.kept.map((p) => p.reference.n)), ...(this.options.reserved?.() ?? [])]);
     let n = 1;
     while (used.has(n)) {
       n++;

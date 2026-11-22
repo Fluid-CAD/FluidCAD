@@ -256,7 +256,11 @@ export class QuestionPartView implements PartView {
             },
             focus: () => field.focus(),
           },
-          () => this.pickChanged(index),
+          {
+            onChange: () => this.pickChanged(index),
+            // Every chip of the card has its own number and colour, whichever question it answers.
+            reserved: () => this.slots.flatMap((slot, other) => (slot && other !== index ? slot.refs.references.map((reference) => reference.n) : [])),
+          },
         )
       : null;
     if (!refs) {

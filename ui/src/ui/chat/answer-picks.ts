@@ -24,14 +24,21 @@ export const NO_SCENE_REASON = 'Picking in the viewport is not available here.';
 export type PickTaker = {
   /** Why nothing can be picked from the model on screen right now; null when it can. */
   unavailable(): string | null;
-  /** The references of one pick question: a `SceneReferences` over the page's scene, idle until armed. Null without a scene. */
-  references(question: QuestionPick, tokens: ReferenceTokenTarget, onChange: () => void): SceneReferences | null;
+  /**
+   * The references of one pick question: a `SceneReferences` over the page's
+   * scene, idle until armed. Null without a scene. `reserved`: the numbers
+   * the card's other questions hold, so every chip of a card has its own.
+   */
+  references(question: QuestionPick, tokens: ReferenceTokenTarget, hooks: PickHooks): SceneReferences | null;
   /** The selection is `owner`'s from now on; whoever had it is told to let go. */
   arm(owner: PickOwner): void;
   /** `owner` lets go of the selection (no-op when it is not the one armed). */
   disarm(owner: PickOwner): void;
   isArmed(owner: PickOwner): boolean;
 };
+
+/** What a question's references tell and ask its card. */
+export type PickHooks = { onChange(): void; reserved(): readonly number[] };
 
 /** One armed pick: told when another takes the selection, or the panel closes. */
 export type PickOwner = { released(): void };
@@ -61,8 +68,8 @@ export class AnswerPicks implements PickTaker {
     return this.host.unpickable?.() ?? null;
   }
 
-  references(question: QuestionPick, tokens: ReferenceTokenTarget, onChange: () => void): SceneReferences | null {
-    return this.host ? new SceneReferences(this.host, tokens, pickOptions(question, onChange)) : null;
+  references(question: QuestionPick, tokens: ReferenceTokenTarget, hooks: PickHooks): SceneReferences | null {
+    return this.host ? new SceneReferences(this.host, tokens, pickOptions(question, hooks)) : null;
   }
 
   arm(owner: PickOwner): void {
@@ -131,10 +138,11 @@ export function pickRefusal(question: QuestionPick, picks: readonly ReferencePic
   return null;
 }
 
-function pickOptions(question: QuestionPick, onChange: () => void): SceneReferencesOptions {
+function pickOptions(question: QuestionPick, hooks: PickHooks): SceneReferencesOptions {
   return {
     accept: (picks) => pickRefusal(question, picks),
     single: !question.multiple,
-    onChange,
+    onChange: hooks.onChange,
+    reserved: hooks.reserved,
   };
 }

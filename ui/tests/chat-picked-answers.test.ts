@@ -232,7 +232,19 @@ describe('a question answered by picking (§27)', () => {
     h.scene.select(edges(4));
     await h.resolved();
     expect(h.chips(0)).toEqual(['red:[1] 1 face']);
-    expect(h.chips(1)).toEqual(['red:[1] 4 edges(ready)']);
+    // Its own number and colour: no two chips of a card share one.
+    expect(h.chips(1)).toEqual(['blue:[2] 4 edges(ready)']);
+    // Picking the first again keeps its number, whatever the second holds.
+    h.button(0).click();
+    await settle();
+    expect(h.chips(1)).toEqual(['blue:[2] 4 edges']);
+    h.scene.answers = () => ({ ok: true, answer: topFace as ResolveSelectionAnswer });
+    h.scene.select([face(3)]);
+    await h.resolved();
+    expect(h.chips(0)).toEqual(['red:[1] 1 face(ready)']);
+    await h.send();
+    const reply = h.client.answerQuestion.mock.calls[0][2] as { answers: { picks?: SceneReference[] }[] };
+    expect(reply.answers.map((a) => (a.picks ?? []).map((p) => `${p.n}:${p.color.name}`))).toEqual([['1:red'], ['2:blue'], []]);
   });
 
   it('shows why a selection has no selector, and the question is still answered in words', async () => {

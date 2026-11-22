@@ -136,6 +136,21 @@ Nothing is written until you apply a tile. If the file has [unsaved changes in t
 
 Once answered, the card keeps both tiles with the one you picked marked. The pictures are kept with the chat, so they are still there after a reload or a restart of the app. A card left unanswered for an hour times out, and **Stop** ends the turn without applying anything; a variant whose build had not started is then not built. Like questions, variants are part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer them to external agents.
 
+## Parameters to tune
+
+When a model has a few dimensions you are likely to adjust (you said "roughly", gave a range, or asked to play with the sizes), the agent can put those [parameters](/docs/part/param) in the chat as a card of controls, so making the plate a bit wider is a drag instead of another message. The turn does not wait for the card: it ends as usual, and the card stays usable afterwards. The agent is told to keep this for dimensions worth tuning, not to offer a card after every edit, and to [ask](#questions-from-the-agent) instead when it cannot go on without your answer.
+
+- Each parameter has the control it has in the [Part Parameters panel](/docs/user-interface#parameters): a slider for a parameter declared as a slider, a number field, a select, a switch. A slider takes effect when you let go of it.
+- A control changes the model on screen and nothing else. The viewport re-renders, the Part Parameters panel shows the same value, and the file is not touched. A parameter whose value differs from the file has its label in bold, and the card counts them: **2 values changed, on screen only**. These values are part of the session: they are still there after a reload, and gone after the app restarts.
+- **Keep** writes the changed values into the source as each `param()`'s default, one parameter after the other. While a [configuration](/docs/part/configurations) other than Default is on screen, the values go into that configuration's row instead. The card then lists what it kept, and the agent is told with your next message, so it does not put the old values back.
+- **Reset** returns the card's changed parameters to the file's values. Values you changed elsewhere stay.
+
+Keep and Reset are your own actions, like an edit in the Parameters panel: nothing asks for approval, and [**Revert this turn**](#reverting-a-turn) does not undo a Keep. To take a kept value back, set it again on the card or in the Parameters panel, or edit the file.
+
+The card follows the model on screen, not the moment it was offered. If the agent or you later remove a parameter from the file, its row reads **No longer in the model** and the other controls keep working. While another file is on screen the card lists its parameters without controls and says which file to open. In a chat you reopen later, the card shows the values the file has now.
+
+A card holds up to twelve parameters of the model itself, declared in a `part()` or `assembly()` body. [Project parameters](/docs/extra/global-parameters) are not offered: they have no on-screen-only value, and you edit them in the Global Parameters panel. Like questions and variants, the card is part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer it to external agents.
+
 ## Packages from the hub
 
 The agent can look for a [package](/docs/packages) instead of modeling a standard part or writing a feature from scratch. Ask for it ("find a standoff package and use it on this plate"), or it may look on its own.

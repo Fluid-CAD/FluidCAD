@@ -36,6 +36,7 @@ import iconEye from '@tabler/icons/outline/eye.svg?raw';
 import iconCubeOff from '@tabler/icons/outline/cube-off.svg?raw';
 import iconAdjustments from '@tabler/icons/outline/adjustments-horizontal.svg?raw';
 import iconPointer from '@tabler/icons/outline/pointer.svg?raw';
+import iconMapPin from '@tabler/icons/outline/map-pin.svg?raw';
 
 export const ChatIcons = {
   SEND: iconArrowUp,
@@ -81,6 +82,8 @@ export const ChatIcons = {
   PARAMS: iconAdjustments,
   /** Pick in the viewport: a question answered by clicking geometry. */
   PICK: iconPointer,
+  /** What the agent points at in the viewport. */
+  POINT: iconMapPin,
 
   /** `svg` in a span sized by `className`. */
   span(svg: string, className = '[&>svg]:size-4'): HTMLSpanElement {

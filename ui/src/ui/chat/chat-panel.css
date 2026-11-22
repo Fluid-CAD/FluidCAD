@@ -1601,6 +1601,150 @@
   margin-left: auto;
 }
 
+/* --- What the agent points at (show_user) ----------------------------------- */
+
+[data-role='chat-panel'] .chat-show {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid var(--chat-line);
+  border-radius: 6px;
+  background: var(--chat-surface);
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-show-head {
+  display: flex;
+  align-items: center;
+  gap: 2px 10px;
+  min-width: 0;
+}
+
+[data-role='chat-panel'] .chat-show-title {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-show-title > span {
+  align-self: center;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-show-file {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--chat-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-show-toggle {
+  flex: none;
+  min-height: 22px;
+  padding: 1px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-show-toggle:hover {
+  border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
+[data-role='chat-panel'] .chat-show-toggle:focus-visible,
+[data-role='chat-panel'] .chat-show-chip:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+[data-role='chat-panel'] .chat-show-note {
+  color: var(--chat-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-show-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* A chip is its item's colour in the viewport: hovering it draws that item alone. */
+[data-role='chat-panel'] .chat-show-chip {
+  min-height: 22px;
+  background: var(--color-base-100);
+  cursor: default;
+  transition: border-color 120ms ease, background-color 120ms ease, opacity 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-show[data-shown='true'] .chat-show-chip[data-state='shown'] {
+  border-color: color-mix(in oklab, var(--chat-reference-color, var(--color-base-content)) 55%, transparent);
+}
+
+[data-role='chat-panel'] .chat-show[data-shown='true'] .chat-show-chip[data-emphasised='true'] {
+  border-color: var(--chat-reference-color, var(--color-base-content));
+  background: color-mix(in oklab, var(--chat-reference-color, var(--color-base-content)) 14%, var(--color-base-100));
+}
+
+/* Not the card shown: its chips are a legend, not a highlight. */
+[data-role='chat-panel'] .chat-show[data-shown='false'] .chat-show-chip .chat-reference-dot {
+  opacity: 0.55;
+}
+
+[data-role='chat-panel'] .chat-show-chip[data-state='resolving'] .chat-reference-dot {
+  animation: chat-reference-pending 1s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='chat-panel'] .chat-show-chip[data-state='resolving'] .chat-reference-dot {
+    animation: none;
+  }
+}
+
+/* Stale: the model changed and the item is no longer in it. Nothing is drawn for it. */
+[data-role='chat-panel'] .chat-show-chip[data-state='stale'] {
+  border-style: dashed;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-show-chip[data-state='stale'] .chat-reference-dot {
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--color-base-content) 40%, transparent);
+}
+
+[data-role='chat-panel'] .chat-show-chip[data-state='stale'] .chat-show-label {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
+}
+
+[data-role='chat-panel'] .chat-show-stale {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-warning) 22%, transparent);
+  color: var(--color-base-content);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+[data-role='chat-panel'] .chat-show-status {
+  color: var(--color-warning);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 /* --- What a change does to the model, on its approval card ------------------ */
 
 [data-role='chat-panel'] .chat-change {

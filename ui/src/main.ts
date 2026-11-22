@@ -69,6 +69,7 @@ import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
+import { LiveHighlight } from './scene/live-highlight';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, savePreferenceNow, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, pauseAfterStatement, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, getGlobalParams, setGlobalParam, EVERY_SOLID, type PauseAfterResult, type ShapeSelection, type UserPreferences } from './api';
@@ -407,6 +408,8 @@ let renderedConfigurations: UIConfigurations | null = null;
 let renderedParams: UIParamDefinition[] = [];
 /** Told after every render: the Agent panel's parameter cards follow the model on screen. */
 const modelParamsListeners = new Set<() => void>();
+/** What the Agent points at with `show_user` (docs/agent-chat-plan.md §27), drawn over the model until it is cleared. */
+const agentHighlight = new LiveHighlight(() => viewer.sceneContext);
 /**
  * `?configuration=Name` — a link that opens on a `configurations()` row.
  * Selected once, on the first render of a file, when that render shows
@@ -1473,6 +1476,19 @@ function loadAgentPanel(): Promise<ChatPanel> {
       onOpenChange: () => panelRail.sync(),
       // The variants the agent proposes (§24) and a change waiting for approval (§25): their pictures, and the one shown over the model.
       variants: new ScratchBuildViews(viewer),
+      // What the agent points at (§27): faces and edges of the model on
+      // screen, kept highlighted in the colours of their chips.
+      point: {
+        // Set before the render's listeners are told, unlike `currentSceneAbsPath`.
+        file: () => sceneDocument.current?.absPath ?? null,
+        draw: (highlight) => agentHighlight.draw(highlight),
+        addRenderListener: (fn) => {
+          sceneRenderedListeners.add(fn);
+          return () => {
+            sceneRenderedListeners.delete(fn);
+          };
+        },
+      },
       // The parameter cards the agent offers (§26): a control sets a session
       // value as a read-only host's Parameters panel does, Keep writes it as
       // this host's panel writes a committed value.
@@ -1519,13 +1535,14 @@ function loadAgentPanel(): Promise<ChatPanel> {
         // The idle selection's amber is left out of the picture (back on
         // screen right after): when it goes with the message, `highlight`
         // draws it in its reference's colour instead.
-        capture: (highlight) => measureController.withSelectionHidden(() => captureScreenshot(viewer.sceneContext, {
+        // Nor is what the agent pointed at: its colours are the references' own.
+        capture: (highlight) => agentHighlight.hidden(() => measureController.withSelectionHidden(() => captureScreenshot(viewer.sceneContext, {
           width: 1024,
           height: 768,
           view: { kind: 'current' },
           fitTo: 'highlight',
           highlight,
-        })),
+        }))),
       },
     });
     return agentPanel;
@@ -3536,9 +3553,12 @@ async function handleScreenshotRequest(ws: WebSocket, requestId: string, options
     const opts = { ...(options || {}) };
     const multi = !!opts.multi;
     delete opts.multi;
-    const blob = multi
-      ? await captureScreenshotMulti(viewer.sceneContext, opts)
-      : await captureScreenshot(viewer.sceneContext, opts);
+    // What the agent pointed at for the user (§27) is not part of a picture it
+    // asks for: a capture draws its own highlight. The render is synchronous;
+    // only the PNG encoding is awaited.
+    const blob = await agentHighlight.hidden(() => (multi
+      ? captureScreenshotMulti(viewer.sceneContext, opts)
+      : captureScreenshot(viewer.sceneContext, opts)));
 
     const buffer = await blob.arrayBuffer();
     const bytes = new Uint8Array(buffer);

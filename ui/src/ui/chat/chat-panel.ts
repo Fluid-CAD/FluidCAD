@@ -33,6 +33,7 @@ import type { ParamCardHost } from './parts/params-part';
 import { ImageAttachments, type ImagePreparer } from './image-attachments';
 import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
 import { AnswerPicks } from './answer-picks';
+import { Pointing, type ChatPointHost } from './pointing';
 import { resetsText } from './time-format';
 import { usageText } from './usage';
 import './chat-panel.css';
@@ -136,6 +137,12 @@ export type ChatPanelDeps = {
    * and Keep. Absent: a card lists its parameters without controls.
    */
   params?: ParamCardHost;
+  /**
+   * The viewport, for what the agent points at with `show_user` (§27): its
+   * items drawn over the model on screen, each in its chip's colour.
+   * Absent: a card lists its items, with nothing highlighted.
+   */
+  point?: ChatPointHost;
   /** The project's files, for naming one in a message with `@`; absent: no file mentions. */
   listFiles?(): Promise<MentionFile[]>;
   /** Makes an attached image ready to send (tests); absent: the browser's decoder and a canvas. */
@@ -198,6 +205,10 @@ export class ChatPanel {
   readonly images: ImageAttachments;
   /** Which question card, if any, the viewport selection answers (§27). */
   private readonly answerPicks: AnswerPicks;
+  /** Which `show_user` card is highlighted in the viewport (§27); null without a viewport. */
+  private readonly pointing: Pointing | null;
+  /** The chat the highlighted card belongs to. */
+  private pointedSession: string | null = null;
   private readonly sessionButton: HTMLButtonElement;
   private readonly sessionTitle: HTMLSpanElement;
   private readonly agentSlot: HTMLSpanElement;
@@ -297,8 +308,10 @@ export class ChatPanel {
     this.center.dataset.ref = 'center';
     // A question answered by picking takes the selection from the composer's references while it is armed (§27).
     this.answerPicks = new AnswerPicks(deps.scene ?? null, () => this.syncReferences());
+    this.pointing = deps.point ? new Pointing(deps.point) : null;
     const partContext = {
       picks: this.answerPicks,
+      ...(this.pointing ? { pointer: this.pointing } : {}),
       openLink: (url: string) => deps.openExternal(url),
       colorizer: () => deps.colorizer?.() ?? null,
       fileUrl: (name: string) => (this.state.session ? deps.client.fileUrl(this.state.session.id, name) : ''),
@@ -390,6 +403,8 @@ export class ChatPanel {
       return;
     }
     this.open = false;
+    // What the agent pointed at goes with the card that says so.
+    this.pointing?.clearAll();
     this.el.classList.add('hidden');
     // A variant or a change shown in the viewport goes with the card that showed it.
     this.transcript.releaseOverlays();
@@ -423,6 +438,7 @@ export class ChatPanel {
     window.removeEventListener('resize', this.onResize);
     this.unsubscribe();
     this.references?.destroy();
+    this.pointing?.destroy();
     this.images.destroy();
     this.state.dispose();
     this.transcript.destroy();
@@ -754,6 +770,11 @@ export class ChatPanel {
     const messages = session?.messages ?? [];
     const last = messages[messages.length - 1];
     const live = session && isBusy(session.status) && last?.role === 'assistant' ? last.id : null;
+    if ((session?.id ?? null) !== this.pointedSession) {
+      // Another chat is on screen: what the last one pointed at is not its to show.
+      this.pointedSession = session?.id ?? null;
+      this.pointing?.clearAll();
+    }
     this.transcript.render(messages, live);
     void this.state.loadModels(this.state.agent);
     this.paintAll();

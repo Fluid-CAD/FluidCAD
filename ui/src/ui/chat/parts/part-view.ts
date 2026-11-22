@@ -2,6 +2,7 @@ import type { Colorizer } from '../code-block';
 import type { ApprovalDecision, ChatPart, ParamKeptValue, QuestionReply, VariantsReply } from '../chat-types';
 import type { ParamCardHost } from './params-part';
 import type { PickTaker } from '../answer-picks';
+import type { Pointer } from '../pointing';
 
 /** What a part's view needs from the page. */
 export type PartContext = {
@@ -31,6 +32,12 @@ export type PartContext = {
    * in words.
    */
   picks?: PickTaker;
+  /**
+   * Draws what a `show_user` card points at in the viewport, one card at a
+   * time, and says how its items stand against the model on screen (§27).
+   * Absent: a card lists its items, with nothing to show them in.
+   */
+  pointer?: Pointer;
   /**
    * Reply to a variants card (a pick, the user's own words, a skip);
    * resolves true once the engine took it (the card then changes through

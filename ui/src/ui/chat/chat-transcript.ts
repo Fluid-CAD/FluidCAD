@@ -6,6 +6,7 @@ import type { PartContext, PartView } from './parts/part-view';
 import { QuestionPartView } from './parts/question-part';
 import { ReasoningPartView } from './parts/reasoning-part';
 import { ReferencesPartView } from './parts/references-part';
+import { ShowPartView } from './parts/show-part';
 import { TextPartView } from './parts/text-part';
 import { ToolPartView } from './parts/tool-part';
 import { VariantsPartView } from './parts/variants-part';
@@ -298,6 +299,8 @@ export class MessageView {
         return new VariantsPartView(part, this.ctx);
       case 'params':
         return new ParamsPartView(part, this.ctx);
+      case 'show':
+        return new ShowPartView(part, this.ctx, this.live);
       case 'notice':
         return new NoticePartView(part);
       case 'image':

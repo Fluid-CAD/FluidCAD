@@ -12,6 +12,22 @@ describe('instructions', () => {
     expect(IN_APP_PREAMBLE).toContain('dirty-buffer');
   });
 
+  it('says in three lines when to propose variants, when not to and what it costs', () => {
+    const lines = IN_APP_PREAMBLE.split('\n');
+    const start = lines.findIndex((line) => line.startsWith('propose_variants '));
+    expect(start).toBeGreaterThan(0);
+    // Its own paragraph: three lines between two empty ones.
+    expect([lines[start - 1], lines[start + 3]]).toEqual(['', '']);
+    const words = lines.slice(start, start + 3).join(' ');
+    expect(words).toContain('Not by default');
+    expect(words).toContain('ask to see options');
+    expect(words).toContain('a rib versus a gusset');
+    expect(words).toContain('never for a number they could state, to confirm a plan, or after every change');
+    expect(words).toContain('two full builds');
+    // Every agent is told, the API agent included.
+    expect(inAppPreamble('api')).toContain(words.slice(0, 60));
+  });
+
   it('appends the workspace state to the user\'s words', () => {
     const text = buildCliText({
       text: '  what is in this model?\n',

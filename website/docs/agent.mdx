@@ -97,7 +97,7 @@ When the change that waits is to a model file (`.fluid.js`, `.part.js`, `.assemb
 
 Each of the two builds is a full build, and the app waits while one runs. FluidCAD keeps recent builds and reuses them: the **After** of a change you allowed is the **Before** of the next one, so from the second change on a card usually costs one build. When the file's last build took more than two seconds, nothing is built until you ask: the card says how long that build took and offers **Preview the change**. Your answer, **Stop** and the end of the turn cancel a build that has not started; one that is running finishes first, so an answer clicked during a build is taken when that build ends.
 
-Once you answer, the pictures and the facts stay with the card: click the card to open its details. The pictures are kept with the chat, so they are still there after a reload or a restart of the app. A card whose preview was never built shows none. In **Apply edits automatically** nothing waits, so nothing is previewed: the viewport shows the result.
+Once you answer, the pictures and the facts stay with the card: click the card to open its details. The pictures are kept with the chat, so they are still there after a reload or a restart of the app. A card whose preview was never built shows none. In **Apply edits automatically**, and for a tool you allowed for the session, nothing waits, so nothing is previewed: the viewport shows the result.
 
 ### Unsaved changes in the editor
 

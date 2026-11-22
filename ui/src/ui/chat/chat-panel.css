@@ -1390,6 +1390,239 @@
   color: var(--color-error);
 }
 
+/* --- What a change does to the model, on its approval card ------------------ */
+
+[data-role='chat-panel'] .chat-change {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  container-type: inline-size;
+}
+
+/* Not built unasked: one line, and the button that builds it. */
+[data-role='chat-panel'] .chat-change-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 8px;
+  border: 1px dashed var(--chat-line);
+  border-radius: 5px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-change-offer-words {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+/* Before and after side by side; one under the other only in a very narrow panel. */
+[data-role='chat-panel'] .chat-change-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-change-tiles[data-count='1'] {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 260px;
+}
+
+@container (max-width: 250px) {
+  [data-role='chat-panel'] .chat-change-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+[data-role='chat-panel'] .chat-change-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+}
+
+[data-role='chat-panel'] .chat-change-caption {
+  color: var(--chat-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+[data-role='chat-panel'] .chat-change-tile[data-side='after'] .chat-change-caption {
+  color: var(--color-base-content);
+}
+
+/* What did build of a change whose features fail steps back, as a failed variant's does. */
+[data-role='chat-panel'] .chat-change-tile[data-state='failed'] .chat-variant-picture > img {
+  opacity: 0.45;
+}
+
+/* The facts as differences: what it is, what it was and is, and by how much. */
+[data-role='chat-panel'] .chat-change-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  color: var(--chat-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+[data-role='chat-panel'] .chat-change-fact {
+  display: contents;
+}
+
+[data-role='chat-panel'] .chat-change-fact-label {
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-change-fact-values {
+  min-width: 0;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-change-fact-change {
+  text-align: right;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-change-fact[data-tone='more'] .chat-change-fact-change {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-change-fact[data-tone='less'] .chat-change-fact-change {
+  color: var(--color-error);
+}
+
+[data-role='chat-panel'] .chat-change-fact[data-tone='same'] .chat-change-fact-change {
+  color: var(--chat-faint);
+}
+
+/* In a narrow panel the difference goes under its values. */
+@container (max-width: 300px) {
+  [data-role='chat-panel'] .chat-change-facts {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  [data-role='chat-panel'] .chat-change-fact-change {
+    grid-column: 2;
+    text-align: left;
+    white-space: normal;
+  }
+}
+
+[data-role='chat-panel'] .chat-change-lines {
+  color: var(--chat-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-change-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.45;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-change-note[data-kind='same'] {
+  font-weight: 500;
+}
+
+[data-role='chat-panel'] .chat-change-note[data-icon='check'] > span:first-child {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-change-note[data-icon='plain'] {
+  color: var(--chat-muted);
+  font-weight: 400;
+}
+
+/* The line is long: the spinner keeps its size beside it. */
+[data-role='chat-panel'] .chat-change-progress {
+  align-items: flex-start;
+  line-height: 1.45;
+}
+
+[data-role='chat-panel'] .chat-change-progress > .loading {
+  flex: none;
+  margin-top: 2px;
+}
+
+[data-role='chat-panel'] .chat-change-note[data-kind='unsound'] {
+  color: var(--color-warning);
+  font-size: 11px;
+}
+
+/* A change that does not build: said first, and not to be missed. */
+[data-role='chat-panel'] .chat-change-problems {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in oklab, var(--color-error) 45%, transparent);
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--color-error) 9%, transparent);
+  color: var(--color-base-content);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-change-problems-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-weight: 600;
+}
+
+[data-role='chat-panel'] .chat-change-problems-title > span:first-child {
+  color: var(--color-error);
+}
+
+[data-role='chat-panel'] .chat-change-problems ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 0 0 20px;
+  list-style: none;
+  font-size: 11.5px;
+}
+
+[data-role='chat-panel'] .chat-change-problem-line {
+  margin-left: 6px;
+  color: var(--chat-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-change-problems-more,
+[data-role='chat-panel'] .chat-change-problems-also {
+  color: var(--chat-muted);
+  font-size: 11px;
+}
+
+[data-role='chat-panel'] .chat-change-problems-also {
+  padding-left: 20px;
+}
+
+/* Show in viewport: the variants' toggle, as a row of its own under the facts. */
+[data-role='chat-panel'] .chat-change-show {
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+}
+
 /* A write refused for unsaved changes. */
 [data-role='chat-panel'] .chat-tool-dirty {
   display: flex;

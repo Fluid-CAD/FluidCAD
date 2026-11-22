@@ -12,6 +12,7 @@ import type {
   SendMessage,
   SessionSnapshot,
   SessionSummary,
+  ChangePreviewPictures,
   VariantPicture,
   VariantsReply,
 } from './chat-types';
@@ -72,6 +73,17 @@ export interface ChatClient {
    * session" is not offered, 404 when there is no such approval.
    */
   decideApproval(id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>>;
+  /**
+   * Ask for the preview an approval card offers instead of building it
+   * unasked (§25). Refused with 409 when it is not offered (building or
+   * built already) or the approval was settled, 404 when there is none.
+   */
+  requestPreview(id: string, approvalId: string): Promise<ChatAnswer<null>>;
+  /**
+   * Hand over the pictures this page drew of the two sides of a change, to
+   * be kept with the session. The first picture of a side is the one kept.
+   */
+  savePreviewPictures(id: string, approvalId: string, pictures: ChangePreviewPictures): Promise<ChatAnswer<null>>;
   /**
    * Answer (or skip) a question the agent asked. Refused with 409 when it
    * was already settled (another tab, a stop), 400 when the reply does not
@@ -178,6 +190,14 @@ export class HttpChatClient implements ChatClient {
 
   decideApproval(id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>> {
     return this.request('POST', `${this.session(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision });
+  }
+
+  requestPreview(id: string, approvalId: string): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${this.session(id)}/approvals/${encodeURIComponent(approvalId)}/preview`, {});
+  }
+
+  savePreviewPictures(id: string, approvalId: string, pictures: ChangePreviewPictures): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${this.session(id)}/approvals/${encodeURIComponent(approvalId)}/preview/pictures`, pictures);
   }
 
   answerQuestion(id: string, questionId: string, reply: QuestionReply): Promise<ChatAnswer<null>> {

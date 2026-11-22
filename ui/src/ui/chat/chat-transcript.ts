@@ -146,7 +146,7 @@ export class ChatTranscript {
     this.follow();
   }
 
-  /** The panel is closing: what a card put outside the panel (a variant shown in the viewport) is taken back. */
+  /** The panel is closing: what a card put outside the panel (a variant, or a change waiting for approval, shown in the viewport) is taken back. */
   releaseOverlays(): void {
     for (const view of this.views.values()) {
       view.releaseOverlays();
@@ -271,7 +271,7 @@ export class MessageView {
   /** See {@link ChatTranscript.releaseOverlays}. */
   releaseOverlays(): void {
     for (const view of this.parts.values()) {
-      if (view instanceof VariantsPartView) {
+      if (view instanceof VariantsPartView || view instanceof ToolPartView) {
         view.hideGhost();
       }
     }

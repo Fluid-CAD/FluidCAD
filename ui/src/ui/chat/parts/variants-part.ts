@@ -1,6 +1,9 @@
 import { ChatIcons } from '../chat-icons';
-import { MAX_ANSWER_CHARS, type ChatPart, type VariantFacts, type VariantTile, type VariantsPart, type VariantsReply } from '../chat-types';
+import { MAX_ANSWER_CHARS, type ChatPart, type VariantTile, type VariantsPart, type VariantsReply } from '../chat-types';
+import { factLines } from './build-facts';
 import type { PartContext, PartView } from './part-view';
+
+export { factLines };
 
 /**
  * What the agent proposed through `propose_variants`
@@ -469,30 +472,6 @@ export class VariantsPartView implements PartView {
         return outcomeLine(ChatIcons.DENIED, part.reason ?? 'Not chosen.', 'unanswered');
     }
   }
-}
-
-/** A tile's facts, a line each: bodies (and instances), overall size, volume, with their unit. */
-export function factLines(facts: VariantFacts): string[] {
-  const lines: string[] = [];
-  const bodies = `${facts.solidCount} ${facts.solidCount === 1 ? 'body' : 'bodies'}`;
-  lines.push(facts.instanceCount !== undefined ? `${facts.instanceCount} ${facts.instanceCount === 1 ? 'instance' : 'instances'}, ${bodies}` : bodies);
-  if (facts.size) {
-    lines.push(`${facts.size.map((extent) => number(extent, 2)).join(' × ')} ${facts.unit}`);
-  }
-  if (facts.volume !== null) {
-    lines.push(`${significant(facts.volume)} ${facts.unit}³`);
-  }
-  return lines;
-}
-
-/** `value` with at most `decimals` decimals, no trailing zeros. */
-function number(value: number, decimals: number): string {
-  return new Intl.NumberFormat('en-US', { maximumFractionDigits: decimals }).format(value);
-}
-
-/** A volume: five significant digits tell two variants apart without a row of decimals. */
-function significant(value: number): string {
-  return new Intl.NumberFormat('en-US', { maximumSignificantDigits: 5 }).format(value);
 }
 
 /** What a tile shows in place of a picture. */

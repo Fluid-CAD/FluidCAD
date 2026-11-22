@@ -17,6 +17,8 @@ import type {
   SessionSnapshot,
   SessionStatus,
   SessionSummary,
+  ChangePreview,
+  ChangePreviewPictures,
   VariantPicture,
   VariantsReply,
 } from '../../src/ui/chat/chat-types';
@@ -486,6 +488,54 @@ export class FakeChatClient implements ChatClient {
       }
     }
     return { ok: false, status: 404, error: 'No such variants.' };
+  });
+
+  /** What `requestPreview` answers (before the engine starts the builds); null: 204 and the card builds. */
+  previewAnswer: ChatAnswer<null> | null = null;
+
+  /** Answers like the runtime: an offered preview starts building; anything else is refused. */
+  requestPreview = vi.fn(async (id: string, approvalId: string): Promise<ChatAnswer<null>> => {
+    if (this.previewAnswer) {
+      return this.previewAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'tool' && part.approval?.id === approvalId) {
+          if (part.state !== 'awaiting-approval') {
+            return { ok: false, status: 409, error: 'This approval was already settled.' };
+          }
+          if (part.preview?.state !== 'offered') {
+            return { ok: false, status: 409, error: 'This approval offers no preview to build.' };
+          }
+          const preview: ChangePreview = { state: 'building', ...(part.preview.before === null ? { before: null } : {}) };
+          this.emit(id, { type: 'part-update', messageId: message.id, partId: part.id, patch: { preview } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such approval.' };
+  });
+
+  /** Keeps the first picture of each side, as the runtime: the side gains its `image` (`<side>-<build>.png`). */
+  savePreviewPictures = vi.fn(async (id: string, approvalId: string, pictures: ChangePreviewPictures): Promise<ChatAnswer<null>> => {
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'tool' && part.approval?.id === approvalId && part.preview) {
+          const preview: ChangePreview = { ...part.preview };
+          for (const side of ['before', 'after'] as const) {
+            const built = preview[side];
+            if (pictures[side] && built?.buildId && !built.image) {
+              preview[side] = { ...built, image: `${side}-${built.buildId}.png` };
+            }
+          }
+          this.emit(id, { type: 'part-update', messageId: message.id, partId: part.id, patch: { preview } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such approval.' };
   });
 
   revert = vi.fn(async (id: string, turnId: string): Promise<ChatAnswer<RevertResult>> => {

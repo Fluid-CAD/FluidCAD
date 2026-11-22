@@ -38,13 +38,29 @@ export type PartContext = {
   /** Hands the picture drawn for a tile to the engine, which keeps it with the session. */
   saveVariantPicture?(variantsId: string, label: string, dataUrl: string): void;
   /**
-   * Shows a variant's scratch build over the model in the viewport, as a
-   * translucent ghost; resolves false when it cannot. Absent: no "Show in
-   * viewport" on the tiles.
+   * Shows a scratch build over the model in the viewport, as a translucent
+   * ghost — a variant, or the file with a change waiting for approval;
+   * resolves false when it cannot. Absent: no "Show in viewport".
    */
   showVariantGhost?(buildId: string): Promise<boolean>;
   /** Takes the ghost out of the viewport. */
   hideVariantGhost?(): void;
+  /**
+   * Asks the engine to build the preview an approval card offers instead of
+   * building it unasked (§25); resolves true once the engine took it (the
+   * card then changes through the part's next update). Absent: the card
+   * only says the change was not previewed.
+   */
+  requestPreview?(approvalId: string): Promise<boolean>;
+  /**
+   * Draws several scratch builds from one camera, framed on what they draw
+   * together — the two sides of a change: a PNG data URL each, in order,
+   * null for one that can no longer be drawn. Absent: the card shows only
+   * the pictures the session kept.
+   */
+  buildPictures?(buildIds: string[]): Promise<(string | null)[]>;
+  /** Hands the pictures drawn of a change's sides (PNG data URLs) to the engine, which keeps them with the session. */
+  savePreviewPictures?(approvalId: string, pictures: { before?: string; after?: string }): void;
 };
 
 /**

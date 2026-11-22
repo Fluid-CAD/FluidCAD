@@ -1467,7 +1467,7 @@ function loadAgentPanel(): Promise<ChatPanel> {
       onEffortChosen: (kind, effort) => savePreference('agent', rememberEffort(kind, effort) as UserPreferences['agent']),
       confirm: ({ kind, ...options }) => confirmDialog({ ...options, icon: kind === 'delete' ? ICON_TRASH : ICON_UNDO }),
       onOpenChange: () => panelRail.sync(),
-      // The variants the agent proposes: each tile's picture, and the one shown over the model (§24).
+      // The variants the agent proposes (§24) and a change waiting for approval (§25): their pictures, and the one shown over the model.
       variants: new ScratchBuildViews(viewer),
       // Attaching the selected geometry to a message (§11).
       scene: {

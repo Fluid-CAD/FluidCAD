@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel, type ChatConfirmOptions, type ChatPanelDeps, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
-import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChatMessage, PermissionMode, QuestionPart, SessionStatus, ToolPart, TurnRecord, VariantTile, VariantsPart } from '../src/ui/chat/chat-types';
+import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChangePreview, ChangePreviewSide, ChatMessage, PermissionMode, QuestionPart, SessionStatus, ToolPart, TurnRecord, VariantTile, VariantsPart } from '../src/ui/chat/chat-types';
+import { factChanges } from '../src/ui/chat/parts/build-facts';
+import { duration } from '../src/ui/chat/parts/change-preview';
 import { factLines } from '../src/ui/chat/parts/variants-part';
 import { LeftSlot } from '../src/ui/left-slot';
 import { closePopupMenu } from '../src/ui/popup-menu';
@@ -1415,6 +1417,328 @@ function askingSession(client: FakeChatClient, part: QuestionPart = questionPart
   });
 }
 
+const BEFORE_SIDE: ChangePreviewSide = {
+  state: 'built',
+  buildId: 'build-before',
+  sceneKind: 'part',
+  facts: { solidCount: 1, size: [60, 40, 30], volume: 72000, unit: 'mm', sound: true },
+  bounds: { min: [-30, -20, 0], max: [30, 20, 30] },
+};
+const AFTER_SIDE: ChangePreviewSide = {
+  state: 'built',
+  buildId: 'build-after',
+  sceneKind: 'part',
+  facts: { solidCount: 2, size: [60, 40, 36], volume: 73256.6, unit: 'mm', sound: true },
+  bounds: { min: [-30, -20, 0], max: [30, 20, 36] },
+};
+const READY_PREVIEW: ChangePreview = { state: 'ready', same: false, before: BEFORE_SIDE, after: AFTER_SIDE };
+
+describe('what a change does to the model, on its approval card (§25)', () => {
+  const previewOf = (card: Element) => card.querySelector<HTMLElement>('[data-ref="preview"]');
+  const tilesOf = (card: Element) => [...card.querySelectorAll<HTMLElement>('[data-ref="preview-tile"]')];
+  const factsOf = (card: Element) => [...card.querySelectorAll<HTMLElement>('[data-ref="preview-fact"]')].map((row) => [...row.children].map((c) => c.textContent));
+  const setPreview = (client: FakeChatClient, preview: ChangePreview) =>
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'edit', patch: { preview } });
+  const settled = (preview: ChangePreview | undefined, overrides: Partial<ToolPart> = {}) =>
+    editPart({ state: 'done', approval: { id: 'ap1', canAllowSession: true, decision: 'allow' }, output: { text: '{"render":{"state":"rendered"}}' }, ...(preview ? { preview } : {}), ...overrides });
+
+  it('fills in while the buttons already work: placeholders as the engine builds, then both sides from one camera and the facts as differences', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client);
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    // The card as it always was until the engine says a preview is coming.
+    expect(previewOf(card)).toBeNull();
+
+    setPreview(client, { state: 'building' });
+    await settle();
+    const preview = previewOf(card)!;
+    expect(preview.dataset.state).toBe('building');
+    expect(tilesOf(card).map((t) => [t.dataset.side, t.textContent!.trim()])).toEqual([['before', 'Building…Before'], ['after', 'QueuedAfter']]);
+    expect(preview.querySelector('[data-ref="preview-progress"]')!.textContent).toContain('you can answer now');
+    // Above the diff, which is above the buttons — and the buttons are live.
+    const approval = card.querySelector('[data-ref="approval"]')!;
+    expect(preview.compareDocumentPosition(approval.querySelector('[data-ref="diff"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect([...approval.querySelectorAll<HTMLButtonElement>('.chat-approval-buttons button')].map((b) => b.disabled)).toEqual([false, false, false]);
+    expect(host.pictures).not.toHaveBeenCalled();
+
+    setPreview(client, { state: 'building', before: BEFORE_SIDE });
+    await settle();
+    expect(tilesOf(card).map((t) => t.textContent!.trim())).toEqual(['BuiltBefore', 'Building…After']);
+    // One side alone is not drawn: the two share a camera.
+    expect(host.pictures).not.toHaveBeenCalled();
+
+    setPreview(client, READY_PREVIEW);
+    await settle();
+    expect(previewOf(card)!.dataset.state).toBe('ready');
+    expect(host.pictures).toHaveBeenCalledTimes(1);
+    expect(host.pictures).toHaveBeenCalledWith(['build-before', 'build-after']);
+    expect(tilesOf(card).map((t) => [t.dataset.side, t.querySelector('img')!.getAttribute('src'), t.textContent])).toEqual([
+      ['before', host.png('build-before'), 'Before'],
+      ['after', host.png('build-after'), 'After'],
+    ]);
+    // Handed over together, to be kept with the session.
+    expect(client.savePreviewPictures).toHaveBeenCalledTimes(1);
+    expect(client.savePreviewPictures).toHaveBeenCalledWith('s', 'ap1', {
+      before: { mediaType: 'image/png', base64: btoa('build-before') },
+      after: { mediaType: 'image/png', base64: btoa('build-after') },
+    });
+    expect(factsOf(card)).toEqual([
+      ['Bodies', '1 → 2', '+1'],
+      ['Size', '60 × 40 × 30 mm → 60 × 40 × 36 mm', 'Z +6 mm'],
+      ['Volume', '72,000 mm³ → 73,257 mm³', '+1,257 mm³ (+1.7%)'],
+    ]);
+    expect(card.querySelector('[data-ref="preview-problems"]')).toBeNull();
+    // The kept pictures arriving changes nothing on screen, and nothing is drawn again.
+    await settle();
+    expect(tilesOf(card).map((t) => t.querySelector('img')!.getAttribute('src'))).toEqual([host.png('build-before'), host.png('build-after')]);
+    expect(host.pictures).toHaveBeenCalledTimes(1);
+    expect(client.savePreviewPictures).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the change over the model on request, takes it out on the answer, and keeps the tiles with the details', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ preview: READY_PREVIEW }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    const show = card.querySelector<HTMLButtonElement>('[data-ref="preview-show"]')!;
+    expect(show.textContent!.trim()).toBe('Show in viewport');
+    expect(show.getAttribute('aria-pressed')).toBe('false');
+    show.click();
+    await settle();
+    expect(host.showGhost).toHaveBeenCalledWith('build-after');
+    expect(host.ghost).toBe('build-after');
+    expect(card.querySelector('[data-ref="preview-show"]')!.getAttribute('aria-pressed')).toBe('true');
+    card.querySelector<HTMLButtonElement>('[data-ref="preview-show"]')!.click();
+    expect(host.ghost).toBeNull();
+    card.querySelector<HTMLButtonElement>('[data-ref="preview-show"]')!.click();
+    await settle();
+    expect(host.ghost).toBe('build-after');
+
+    card.querySelector<HTMLButtonElement>('[data-ref="allow"]')!.click();
+    await settle();
+    // Answered: the ghost goes, the approval slot says so in one line, and the tiles wait in the details.
+    expect(host.ghost).toBeNull();
+    expect(card.querySelector('[data-ref="approval"]')!.textContent!.trim()).toBe('You allowed this');
+    expect(card.querySelector('[data-ref="preview"]')).toBeNull();
+    card.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    const details = card.querySelector('[data-ref="details"]')!;
+    expect(tilesOf(details).map((t) => t.dataset.side)).toEqual(['before', 'after']);
+    expect(tilesOf(details).every((t) => t.querySelector('img') !== null)).toBe(true);
+    expect(factsOf(details)).toHaveLength(3);
+    // Nothing to click on a settled card's preview.
+    expect(details.querySelector('[data-ref="preview"]')!.querySelectorAll('button')).toHaveLength(0);
+    expect([...details.querySelectorAll('.chat-tool-section-label')].map((l) => l.textContent)).toEqual(['Before and after', 'Input', 'Change']);
+
+    // A panel that closes takes a shown change out of the viewport too.
+    const other = new FakeChatClient();
+    waitingSession(other, editPart({ preview: READY_PREVIEW }));
+    const otherHost = variantsHost();
+    const o = mount(other, {}, { variants: otherHost });
+    await opened(o);
+    o.$<HTMLButtonElement>('[data-ref="preview-show"]')!.click();
+    await settle();
+    expect(otherHost.ghost).toBe('build-after');
+    o.panel.close();
+    expect(otherHost.ghost).toBeNull();
+  });
+
+  it('says first that a change does not build, with the reasons, and leaves the answer to the user', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({
+      preview: { state: 'ready', same: false, before: BEFORE_SIDE, after: { state: 'failed', problems: [{ title: 'Compile error', message: 'rib is not defined', line: 14 }] } },
+    }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    const problems = card.querySelector<HTMLElement>('[data-ref="preview-problems"]')!;
+    expect(problems.getAttribute('role')).toBe('alert');
+    expect(problems.querySelector('.chat-change-problems-title')!.textContent!.trim()).toBe('This change does not build');
+    expect([...problems.querySelectorAll('[data-ref="preview-problem"]')].map((p) => p.textContent)).toEqual(['Compile error: rib is not definedline 14']);
+    // It is the first thing in the approval, before the diff and the buttons.
+    expect(card.querySelector('[data-ref="approval"]')!.firstElementChild!.firstElementChild).toBe(problems);
+    // Nothing built with the change: no pictures, no facts, nothing to show in the viewport.
+    expect(tilesOf(card)).toHaveLength(0);
+    expect(card.querySelector('[data-ref="preview-facts"]')).toBeNull();
+    expect(card.querySelector('[data-ref="preview-show"]')).toBeNull();
+    expect(host.pictures).not.toHaveBeenCalled();
+    expect([...card.querySelectorAll<HTMLButtonElement>('.chat-approval-buttons button')].map((b) => [b.dataset.ref, b.disabled])).toEqual([
+      ['allow', false], ['allow-session', false], ['deny', false],
+    ]);
+
+    // Features that fail: what did build is drawn beside the file as it is, the reasons listed and the rest counted.
+    const failing: ChangePreviewSide = {
+      ...AFTER_SIDE,
+      state: 'failed',
+      problems: [{ title: 'Fillet 2 failed', message: 'the radius is too large', line: 22 }, { title: 'Shell 1 failed', message: 'no face to open' }],
+      moreProblems: 3,
+    };
+    setPreview(client, { state: 'ready', same: false, before: { ...BEFORE_SIDE, state: 'failed', problems: [{ title: 'Fillet 1 failed', message: 'x' }] }, after: failing });
+    await settle();
+    // The failed features are left out of the build, which can leave the model as it is: said without a green tick.
+    setPreview(client, { state: 'ready', same: true, before: BEFORE_SIDE, after: { ...failing, facts: BEFORE_SIDE.facts } });
+    await settle();
+    expect(card.querySelector<HTMLElement>('[data-ref="preview-same"]')!.textContent!.trim()).toBe('What does build is the same geometry as now.');
+    expect(card.querySelector<HTMLElement>('[data-ref="preview-same"]')!.dataset.icon).toBe('plain');
+    expect(tilesOf(card)).toHaveLength(0);
+    setPreview(client, { state: 'ready', same: false, before: { ...BEFORE_SIDE, state: 'failed', problems: [{ title: 'Fillet 1 failed', message: 'x' }] }, after: failing });
+    await settle();
+    const listed = [...card.querySelectorAll('[data-ref="preview-problems"] li')].map((p) => p.textContent);
+    expect(listed).toEqual(['Fillet 2 failed: the radius is too largeline 22', 'Shell 1 failed: no face to open', 'and 3 more']);
+    expect(card.querySelector('[data-ref="preview-before-failed"]')!.textContent).toBe('The file as it is does not build either.');
+    expect(tilesOf(card).map((t) => [t.dataset.side, t.dataset.state])).toEqual([['before', 'failed'], ['after', 'failed']]);
+
+    // The other way round: the change is what makes the file build.
+    setPreview(client, { state: 'ready', same: false, before: { state: 'failed', problems: [{ title: 'Compile error', message: 'x' }] }, after: AFTER_SIDE });
+    await settle();
+    expect(card.querySelector('[data-ref="preview-problems"]')).toBeNull();
+    expect(card.querySelector('[data-ref="preview-fixes"]')!.textContent!.trim()).toBe('The file as it is does not build; with this change it does.');
+    expect(tilesOf(card).map((t) => t.dataset.side)).toEqual(['after']);
+    expect(card.querySelector('[data-ref="preview-facts"]')!.textContent).toBe('2 bodies · 60 × 40 × 36 mm · 73,257 mm³');
+  });
+
+  it('says "No change to the geometry" instead of two identical pictures', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ preview: { state: 'ready', same: true, before: BEFORE_SIDE, after: { ...BEFORE_SIDE, buildId: 'build-after' } } }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    expect(card.querySelector('[data-ref="preview-same"]')!.textContent!.trim()).toBe('No change to the geometry');
+    expect(card.querySelector('[data-ref="preview-facts"]')!.textContent).toBe('1 body · 60 × 40 × 30 mm · 72,000 mm³');
+    expect(tilesOf(card)).toHaveLength(0);
+    expect(card.querySelector('[data-ref="preview-show"]')).toBeNull();
+    expect(host.pictures).not.toHaveBeenCalled();
+    expect(client.savePreviewPictures).not.toHaveBeenCalled();
+  });
+
+  it('shows one picture for a file the change creates', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ name: 'write_file', title: 'Create rib.part.js', preview: { state: 'building', before: null } }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    expect(tilesOf(card).map((t) => t.textContent!.trim())).toEqual(['Building…New file']);
+    setPreview(client, { state: 'ready', before: null, after: AFTER_SIDE });
+    await settle();
+    expect(host.pictures).toHaveBeenCalledWith(['build-after']);
+    expect(tilesOf(card).map((t) => [t.dataset.side, t.querySelector('img') !== null, t.textContent])).toEqual([['after', true, 'New file']]);
+    expect(card.querySelector('[data-ref="preview-facts"]')!.textContent).toBe('2 bodies · 60 × 40 × 36 mm · 73,257 mm³');
+    expect(client.savePreviewPictures).toHaveBeenCalledWith('s', 'ap1', { after: { mediaType: 'image/png', base64: btoa('build-after') } });
+    // The model on screen is another file's: nothing to draw this one over.
+    expect(card.querySelector('[data-ref="preview-show"]')).toBeNull();
+  });
+
+  it('offers a button instead of building a slow file unasked, and builds when it is clicked', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ preview: { state: 'offered', estimateMs: 6240 } }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    expect(card.querySelector('[data-ref="preview-offer"]')!.textContent).toBe("Not previewed: this file's last build took 6.2 s.");
+    const button = card.querySelector<HTMLButtonElement>('[data-ref="preview-build"]')!;
+    expect(button.textContent!.trim()).toBe('Preview the change');
+    expect(button.title).toContain('The app waits while they build');
+    expect(tilesOf(card)).toHaveLength(0);
+    // Refused for a reason that is not "already building": the button comes back.
+    client.previewAnswer = { ok: false, status: 500, error: 'The engine is busy.' };
+    button.click();
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="preview-build"]')!.disabled).toBe(true);
+    await settle();
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="preview-build"]')!.disabled).toBe(false);
+
+    client.previewAnswer = null;
+    card.querySelector<HTMLButtonElement>('[data-ref="preview-build"]')!.click();
+    await settle();
+    expect(client.requestPreview).toHaveBeenLastCalledWith('s', 'ap1');
+    expect(previewOf(card)!.dataset.state).toBe('building');
+    expect(card.querySelector('[data-ref="preview-build"]')).toBeNull();
+    expect(tilesOf(card)).toHaveLength(2);
+    // The approval was never in the way.
+    expect(card.dataset.state).toBe('awaiting-approval');
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="allow"]')!.disabled).toBe(false);
+  });
+
+  it('a reloaded card shows the pictures the session kept without drawing them, and nothing for a preview that never ran', async () => {
+    const client = new FakeChatClient();
+    const kept: ChangePreview = { state: 'ready', same: false, before: { ...BEFORE_SIDE, image: 'before-kept.png' }, after: { ...AFTER_SIDE, image: 'after-kept.png' } };
+    waitingSession(client, settled(kept));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    // Collapsed with the card's details.
+    expect(tilesOf(card)).toHaveLength(0);
+    card.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    expect(tilesOf(card).map((t) => t.querySelector('img')!.getAttribute('src'))).toEqual([client.fileUrl('s', 'before-kept.png'), client.fileUrl('s', 'after-kept.png')]);
+    expect(host.pictures).not.toHaveBeenCalled();
+    expect(client.savePreviewPictures).not.toHaveBeenCalled();
+
+    // Cancelled by the answer, a stop or a restart: no tile, no placeholder, no button, no section.
+    for (const preview of [{ state: 'cancelled' }, { state: 'cancelled', estimateMs: 6200 }, { state: 'cancelled', before: BEFORE_SIDE }, undefined] as (ChangePreview | undefined)[]) {
+      const other = new FakeChatClient();
+      waitingSession(other, settled(preview, { state: 'error', error: 'The app restarted while this was running; its effect is unknown.', output: undefined }));
+      const otherHost = variantsHost();
+      const o = mount(other, {}, { variants: otherHost });
+      await opened(o);
+      const restored = o.$('[data-part="tool"]')!;
+      restored.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+      expect(restored.querySelector('[data-ref="preview"]')).toBeNull();
+      expect(restored.querySelector('[data-ref="preview-placeholder"]')).toBeNull();
+      expect([...restored.querySelectorAll('.chat-tool-section-label')].map((l) => l.textContent)).not.toContain('Before and after');
+      expect(otherHost.pictures).not.toHaveBeenCalled();
+    }
+
+    // Built, never drawn, and the engine has let the builds go: the facts alone, no empty picture frames.
+    const gone = new FakeChatClient();
+    waitingSession(gone, settled(READY_PREVIEW));
+    const goneHost = variantsHost({ 'build-before': null, 'build-after': null });
+    const g = mount(gone, {}, { variants: goneHost });
+    await opened(g);
+    const facts = g.$('[data-part="tool"]')!;
+    facts.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    await settle();
+    expect(tilesOf(facts)).toHaveLength(0);
+    expect(facts.querySelector('[data-ref="preview-placeholder"]')).toBeNull();
+    expect(factsOf(facts)).toHaveLength(3);
+    expect(gone.savePreviewPictures).not.toHaveBeenCalled();
+  });
+
+  it('words the facts as differences, each with its unit', () => {
+    const base = { solidCount: 1, size: [60, 40, 30] as [number, number, number], volume: 72000, unit: 'mm' };
+    // Material removed, on two axes; a body gone.
+    expect(factChanges({ ...base, solidCount: 2 }, { solidCount: 1, size: [50, 40, 27.5], volume: 55000, unit: 'mm' })).toEqual([
+      { label: 'Bodies', before: '2', after: '1', change: '−1', tone: 'less' },
+      { label: 'Size', before: '60 × 40 × 30 mm', after: '50 × 40 × 27.5 mm', change: 'X −10, Z −2.5 mm', tone: 'less' },
+      { label: 'Volume', before: '72,000 mm³', after: '55,000 mm³', change: '−17,000 mm³ (−24%)', tone: 'less' },
+    ]);
+    // Nothing moved: no difference to name. A hole moved keeps every number.
+    expect(factChanges(base, base).map((f) => [f.change, f.tone])).toEqual([['', 'same'], ['', 'same'], ['', 'same']]);
+    // Grew one way and shrank another: neither more nor less.
+    expect(factChanges(base, { ...base, size: [70, 30, 30] })[1]).toMatchObject({ change: 'X +10, Y −10 mm', tone: 'same' });
+    // A change too small for the digits shown is not called one; a small one is still signed.
+    expect(factChanges(base, { ...base, volume: 72000.0004 })[2]).toMatchObject({ change: '', tone: 'same' });
+    expect(factChanges(base, { ...base, volume: 72010 })[2]).toMatchObject({ before: '72,000 mm³', after: '72,010 mm³', change: '+10 mm³ (+<0.1%)' });
+    // An assembly counts its instances; a side with no solid has no size or volume to compare.
+    expect(factChanges({ ...base, instanceCount: 2 }, { solidCount: 0, size: null, volume: null, unit: 'mm', instanceCount: 3 })).toEqual([
+      { label: 'Instances', before: '2', after: '3', change: '+1', tone: 'more' },
+      { label: 'Bodies', before: '1', after: '0', change: '−1', tone: 'less' },
+      { label: 'Size', before: '60 × 40 × 30 mm', after: 'none', change: '', tone: 'same' },
+      { label: 'Volume', before: '72,000 mm³', after: 'none', change: '', tone: 'same' },
+    ]);
+    // A change of unit is shown, and not subtracted across.
+    expect(factChanges(base, { solidCount: 1, size: [2.36, 1.57, 1.18], volume: 4.39, unit: 'in' }).map((f) => f.change)).toEqual(['', '', '']);
+    expect([duration(850), duration(6240), duration(59960), duration(80000), duration(120000)]).toEqual(['850 ms', '6.2 s', '60 s', '1 min 20 s', '2 min']);
+  });
+});
+
 describe('question cards (§22)', () => {
   const pressed = (card: Element, index: number) =>
     [...card.querySelectorAll<HTMLButtonElement>(`[data-ref="question"][data-index="${index}"] [data-ref="option"]`)]
@@ -1682,6 +2006,7 @@ function variantsHost(pictures: Record<string, string | null> = {}) {
   const host = {
     ghost: null as string | null,
     picture: vi.fn(async (buildId: string) => (buildId in pictures ? pictures[buildId] : png(buildId))),
+    pictures: vi.fn(async (buildIds: string[]) => buildIds.map((buildId) => (buildId in pictures ? pictures[buildId] : png(buildId)))),
     showGhost: vi.fn(async (buildId: string) => {
       host.ghost = buildId;
       return true;

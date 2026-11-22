@@ -517,6 +517,49 @@ export class ChatState {
   }
 
   /**
+   * Ask for the preview an approval card offers (§25). Resolves true once
+   * the engine took it; the card then fills in through the events that
+   * follow. One that is building already, or whose approval was settled
+   * elsewhere, is not an error: its events say so.
+   */
+  async requestPreview(approvalId: string): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.requestPreview(id, approvalId);
+    if (answer.ok === false) {
+      if (answer.status !== 409) {
+        this.error = answer.error;
+        this.emit({ kind: 'activity' });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Hand the engine the pictures this page drew of the two sides of a
+   * change (PNG data URLs), to be kept with the session. Best effort: a
+   * side whose picture was not kept is drawn again by the next page that
+   * shows it, while the engine has its build.
+   */
+  savePreviewPictures(approvalId: string, pictures: { before?: string; after?: string }): void {
+    const id = this.session?.id;
+    const body: { before?: { mediaType: 'image/png'; base64: string }; after?: { mediaType: 'image/png'; base64: string } } = {};
+    for (const side of ['before', 'after'] as const) {
+      const base64 = /^data:image\/png;base64,(.+)$/.exec(pictures[side] ?? '')?.[1];
+      if (base64) {
+        body[side] = { mediaType: 'image/png', base64 };
+      }
+    }
+    if (!id || (!body.before && !body.after)) {
+      return;
+    }
+    void this.client.savePreviewPictures(id, approvalId, body);
+  }
+
+  /**
    * Answer (or skip) a question the agent asked. Resolves true once the
    * engine took it; the card then changes through the event that follows. A
    * question already settled elsewhere (another tab, a stop) is not an

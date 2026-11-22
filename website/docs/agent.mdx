@@ -107,6 +107,21 @@ When a choice is yours to make and the request leaves it open (a dimension, whic
 
 Once answered, the card keeps the questions with what you answered. A card left unanswered for an hour times out, and **Stop** ends the turn with the question unanswered. Questions are part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer them to external agents, which have their own ways of asking.
 
+## Variants to choose from
+
+When you ask to see options, or a request leaves the shape open (a rib or a gusset, one hole layout or another), the agent can build two versions of a model file and show them side by side instead of picking one for you. They show as a card of two tiles, and the turn waits for you. The agent is told to keep this for alternatives that look different: a change with one sensible reading is written directly, and a dimension is a [question](#questions-from-the-agent), not two variants.
+
+- The engine builds the two variants one after the other. Each is a full build, and the app waits while one runs, so on a model that takes ten seconds to render the card takes about twenty to fill in. A tile shows **Building…** or **Queued** until its build ends.
+- A built tile has a picture of the variant, its label, a line on what differs, and three facts: the number of bodies, the overall size along X, Y and Z, and the volume, in the project's unit.
+- **Show in viewport** draws that variant over the model on screen as a translucent green ghost, so you can compare it with what is there now. Click it again to take it out; it also goes when you answer the card or close the panel. It is offered for a part, not for an assembly.
+- Click a tile to pick it, then **Apply**. The picked variant is written to the file and rendered. Your pick is the approval: no second card asks, also in **Ask before edits**. The write shows as its own card under the tiles, with its diff, and [**Revert this turn**](#reverting-a-turn) undoes it like any other change of the turn.
+- A variant that does not compile, or in which a feature does not build, is marked with the reason and cannot be picked. When neither builds, no choice is offered and the agent is told why.
+- The field under the tiles takes an answer in your own words instead of a pick ("neither, make the base thicker"). **Skip** applies neither and leaves the decision to the agent, which is told to say what it assumed.
+
+Nothing is written until you apply a tile. If the file has [unsaved changes in the editor](#unsaved-changes-in-the-editor), the variants are not built; if you save an edit of your own while the card waits, the pick is refused instead of overwriting it, and the agent is told to read the file again.
+
+Once answered, the card keeps both tiles with the one you picked marked. The pictures are kept with the chat, so they are still there after a reload or a restart of the app. A card left unanswered for an hour times out, and **Stop** ends the turn without applying anything; a variant whose build had not started is then not built. Like questions, variants are part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer them to external agents.
+
 ## Packages from the hub
 
 The agent can look for a [package](/docs/packages) instead of modeling a standard part or writing a feature from scratch. Ask for it ("find a standoff package and use it on this plate"), or it may look on its own.

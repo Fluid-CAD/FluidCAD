@@ -19,6 +19,7 @@ import { SessionStore, type Checkpoint, type SessionRecord } from './session-sto
 import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from './tool-gate.ts';
 import { applyChatEvent, findMessage, findPart } from './transcript.ts';
 import { cancelUnbuilt, VARIANTS_RESTART_BUILDING_REASON, VARIANTS_RESTART_REASON } from './variants.ts';
+import { cancelUnfinishedPreview } from './change-preview.ts';
 import { ASK_USER_TOOL, PROPOSE_VARIANTS_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
 import type {
   AgentKind,
@@ -182,6 +183,10 @@ export class AgentSession {
           if (part.type === 'tool' && (part.state === 'running' || part.state === 'awaiting-approval')) {
             part.state = 'error';
             part.error = RESTART_TOOL_ERROR;
+            // A preview the restart cut off was not built: the card shows none (§25).
+            if (part.preview) {
+              part.preview = cancelUnfinishedPreview(part.preview);
+            }
           } else if (part.type === 'question' && part.state === 'awaiting-answer') {
             part.state = 'unanswered';
             part.reason = RESTART_QUESTION_REASON;
@@ -396,14 +401,65 @@ export class AgentSession {
     if (result !== 'not-found') {
       return result;
     }
+    return this.findApproval(approvalId) ? 'already-decided' : 'not-found';
+  }
+
+  /**
+   * The user asked for the preview an approval card offers (§25).
+   * `already-decided`: the call no longer waits; `not-offered`: its card has
+   * no preview to build.
+   */
+  requestPreview(approvalId: string): 'ok' | 'not-found' | 'already-decided' | 'not-offered' {
+    const result = this.gate.requestPreview(approvalId);
+    if (result !== 'not-found') {
+      return result;
+    }
+    return this.findApproval(approvalId) ? 'already-decided' : 'not-found';
+  }
+
+  /**
+   * Keeps the pictures a page drew of the two sides of a change (PNGs, from
+   * one camera) with the session, and names them on the card's preview:
+   * every tab shows them from then on, and they outlive the engine's own
+   * copy of the builds (§25). The first picture of a side is kept; a later
+   * one is dropped. Taken after the approval was settled too, while the
+   * engine still has the builds. `not-found`: no such approval;
+   * `not-built`: no side given has a build to be a picture of.
+   */
+  savePreviewPictures(approvalId: string, pictures: { before?: Buffer; after?: Buffer }): { result: 'ok'; kept: number } | { result: 'not-found' | 'not-built' } {
+    const found = this.findApproval(approvalId);
+    if (!found) {
+      return { result: 'not-found' };
+    }
+    const preview = found.part.preview;
+    const sides = (['before', 'after'] as const).filter((side) => pictures[side] && preview?.[side]?.buildId);
+    if (!preview || sides.length === 0) {
+      return { result: 'not-built' };
+    }
+    const next = { ...preview };
+    let kept = 0;
+    for (const side of sides) {
+      if (!next[side]!.image) {
+        next[side] = { ...next[side]!, image: this.saveImage(pictures[side]!, 'image/png') };
+        kept += 1;
+      }
+    }
+    if (kept > 0) {
+      this.emit({ type: 'part-update', messageId: found.messageId, partId: found.part.id, patch: { preview: next } });
+      this.persist();
+    }
+    return { result: 'ok', kept };
+  }
+
+  private findApproval(approvalId: string): { messageId: string; part: ToolPart } | null {
     for (const message of this.record.messages) {
       for (const part of message.parts) {
         if (part.type === 'tool' && part.approval?.id === approvalId) {
-          return 'already-decided';
+          return { messageId: message.id, part };
         }
       }
     }
-    return 'not-found';
+    return null;
   }
 
   /**
@@ -783,7 +839,11 @@ export class AgentSession {
             type: 'part-update',
             messageId: turn.assistantMessageId,
             partId: part.id,
-            patch: { state: 'error', error: reason === 'interrupted' ? 'Stopped.' : 'The turn ended before this finished.' },
+            patch: {
+              state: 'error',
+              error: reason === 'interrupted' ? 'Stopped.' : 'The turn ended before this finished.',
+              ...(part.preview ? { preview: cancelUnfinishedPreview(part.preview) } : {}),
+            },
           });
         } else if (part.type === 'question' && part.state === 'awaiting-answer') {
           this.emit({

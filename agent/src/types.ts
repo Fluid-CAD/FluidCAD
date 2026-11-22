@@ -174,6 +174,69 @@ export type ToolPart = {
    * the workspace). `decision` is set once the user answered.
    */
   approval?: { id: string; canAllowSession: boolean; decision?: ApprovalDecision };
+  /**
+   * What the change does to the model, built without writing it: set for a
+   * `write_file` or `edit_range` on a model file that waits for approval
+   * (§25). Absent for every other call, and on an engine that cannot build
+   * a candidate.
+   */
+  preview?: ChangePreview;
+};
+
+/** One reason a side of a change does not build: a compile error, or a feature that failed. `line` is 1-based. */
+export type ChangePreviewProblem = { title: string; message: string; line?: number };
+
+/**
+ * One side of a change, built: the file as it is (`before`) or with the
+ * change (`after`). `failed`: it does not compile, a feature of it does not
+ * build, or the engine refused it — `problems` says which; a side with
+ * failed features still has its build, of what did build.
+ */
+export type ChangePreviewSide = {
+  state: 'built' | 'failed';
+  /** The scratch build of it (`GET api/scratch-build/:id/meshes`), while the engine keeps it. */
+  buildId?: string;
+  sceneKind?: 'part' | 'assembly';
+  facts?: VariantFacts;
+  /** The exact bounds of what it renders: the two sides are drawn framed on the union of theirs. */
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
+  /** The picture a page drew of the build, a PNG under the session's `files/`. */
+  image?: string;
+  /** `failed`: why, the first few. */
+  problems?: ChangePreviewProblem[];
+  /** How many more problems there are than `problems` lists. */
+  moreProblems?: number;
+};
+
+/**
+ * `offered`: not built, because the file's last build took `estimateMs` —
+ * the card has a button that builds it; `building`: the engine builds the
+ * sides it does not already keep, `before` then `after`, each set as it
+ * ends; `ready`: both are known; `cancelled`: the approval was settled (a
+ * decision, Stop, the end of the turn, a restart) before it was built.
+ */
+export type ChangePreviewState = 'offered' | 'building' | 'ready' | 'cancelled';
+
+/** The before and after of a change waiting for approval (§25). */
+export type ChangePreview = {
+  state: ChangePreviewState;
+  /** `offered`: how long the file's last build took, in ms. */
+  estimateMs?: number;
+  /** The file as it is now; null when the change creates it. */
+  before?: ChangePreviewSide | null;
+  /** The file with the change. */
+  after?: ChangePreviewSide;
+  /** `ready`: both sides draw the same meshes — the change moves no geometry. */
+  same?: boolean;
+};
+
+/**
+ * Body of `POST api/agent/sessions/:id/approvals/:approvalId/preview/pictures`:
+ * the pictures a page drew of the two sides, from one camera.
+ */
+export type ChangePreviewPictures = {
+  before?: { mediaType: 'image/png'; base64: string };
+  after?: { mediaType: 'image/png'; base64: string };
 };
 
 /** Body of `POST api/agent/sessions/:id/approvals/:approvalId`. */

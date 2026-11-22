@@ -290,6 +290,69 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
     }
   });
 
+  // --- What a change does to the model (§25) ----------------------------------
+
+  // The preview an approval card offers instead of building it unasked.
+  router.post('/sessions/:id/approvals/:approvalId/preview', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    switch (session.requestPreview(String(req.params.approvalId))) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'not-offered':
+        res.status(409).json({ error: 'This approval offers no preview to build.' });
+        return;
+      case 'already-decided':
+        res.status(409).json({ error: 'This approval was already settled.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such approval.' });
+        return;
+    }
+  });
+
+  // The pictures a page drew of the two sides of a change, kept with the
+  // session so the card still shows them after a reload and after the engine
+  // let the builds go.
+  router.post('/sessions/:id/approvals/:approvalId/preview/pictures', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const pictures: { before?: Buffer; after?: Buffer } = {};
+    for (const side of ['before', 'after'] as const) {
+      const image = req.body?.[side];
+      if (image === undefined) {
+        continue;
+      }
+      const bytes = image && image.mediaType === 'image/png' && typeof image.base64 === 'string' ? Buffer.from(image.base64, 'base64') : null;
+      if (!bytes || bytes.length === 0 || bytes.length > MAX_VARIANT_PICTURE_BYTES || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+        res.status(400).json({ error: `\`${side}\` is not { mediaType: "image/png", base64 } of a PNG, or is too large.` });
+        return;
+      }
+      pictures[side] = bytes;
+    }
+    if (!pictures.before && !pictures.after) {
+      res.status(400).json({ error: 'Expected { before?, after? }, each { mediaType: "image/png", base64 }.' });
+      return;
+    }
+    const saved = session.savePreviewPictures(String(req.params.approvalId), pictures);
+    switch (saved.result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'not-built':
+        res.status(409).json({ error: 'That change has no build to be a picture of.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such approval.' });
+        return;
+    }
+  });
+
   // --- Questions (§22) -------------------------------------------------------
 
   router.post('/sessions/:id/questions/:questionId', (req, res) => {

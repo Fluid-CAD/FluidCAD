@@ -151,6 +151,8 @@ let prefs: any;
 let dirtyFiles: string[] = [];
 /** What this test engine's scratch build answers for a candidate text (propose_variants); null: 404, an engine without them. */
 let scratchBuild: ((source: string) => unknown) | null = null;
+/** What it answers a build of a candidate text would cost (the preview of a change waiting for approval); null: 404. */
+let scratchCost: ((source: string) => unknown) | null = null;
 
 async function start(options: { idleMs?: number } = {}): Promise<void> {
   backend = new FakeBackend();
@@ -167,6 +169,13 @@ async function start(options: { idleMs?: number } = {}): Promise<void> {
       return;
     }
     res.json(scratchBuild(req.body.source));
+  });
+  app.post('/api/scratch-build/cost', (req, res) => {
+    if (!scratchCost) {
+      res.status(404).json({ error: 'not here' });
+      return;
+    }
+    res.json(scratchCost(req.body.source));
   });
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
@@ -192,6 +201,7 @@ beforeEach(async () => {
   workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-agent-runtime-')));
   dirtyFiles = [];
   scratchBuild = null;
+  scratchCost = null;
   prefs = { agent: { defaultAgent: null, permissionMode: 'ask' } };
   await start();
 });
@@ -1224,5 +1234,165 @@ describe('images attached to a message', () => {
     await idle(id);
     expect(backend.runs[0].images[1]).toEqual([]);
     expect(backend.runs[0].sent[1]).not.toContain('attached_images');
+  });
+});
+
+describe('what a change does to the model (§25)', () => {
+  const BEFORE = 'base();\n';
+  const AFTER = 'base();\nrib();\n';
+  const built = (id: string, height: number, volume: number) => ({
+    state: 'rendered',
+    id,
+    file: 'plate.part.js',
+    sceneKind: 'part',
+    unit: 'mm',
+    durationMs: 9,
+    builtFrom: 'source',
+    configuration: 'Default',
+    sessionOverrides: 0,
+    unusedParams: [],
+    solidCount: 1,
+    bounds: { min: [0, 0, 0], max: [80, 40, height] },
+    volume,
+    validation: { ok: true, checked: 1, findings: [], skipped: 0 },
+    geometry: `digest-${id}`,
+  });
+  const BEFORE_ID = '11111111-1111-4111-8111-111111111111';
+  const AFTER_ID = '22222222-2222-4222-8222-222222222222';
+  const previewOf = (snap: SessionSnapshot) => toolParts(snap).at(-1)?.preview;
+  const withPreview = (id: string, state: string) => until(() => snapshot(id), (s) => previewOf(s)?.state === state);
+
+  beforeEach(() => {
+    fs.writeFileSync(inWorkspace('plate.part.js'), BEFORE);
+    scratchBuild = (source) => (source === BEFORE ? built(BEFORE_ID, 30, 96000) : built(AFTER_ID, 36, 97500));
+    scratchCost = () => ({ reusable: null, lastBuildMs: 120 });
+  });
+
+  it('fills the approval card with the before and after, keeps the pictures a page draws, and keeps both once decided', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('plate.part.js', AFTER)), mode: 'ask' });
+    const ready = await withPreview(id, 'ready');
+    const [part] = toolParts(ready);
+    // The approval still waits: the preview is beside it.
+    expect(ready.status.state).toBe('awaiting-approval');
+    expect(part).toMatchObject({
+      state: 'awaiting-approval',
+      preview: {
+        state: 'ready',
+        same: false,
+        before: { state: 'built', buildId: BEFORE_ID, facts: { solidCount: 1, size: [80, 40, 30], volume: 96000, unit: 'mm' } },
+        after: { state: 'built', buildId: AFTER_ID, facts: { solidCount: 1, size: [80, 40, 36], volume: 97500, unit: 'mm' } },
+      },
+    });
+    // Saved with the card: a restart finds it.
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    expect(store.read(id)!.messages.flatMap((m) => m.parts).some((p) => p.type === 'tool' && p.preview?.state === 'ready')).toBe(true);
+    // It was not offered: there is nothing to ask for.
+    const approval = `${base}/sessions/${id}/approvals/${part.approval!.id}`;
+    expect((await json('POST', `${approval}/preview`)).status).toBe(409);
+    expect((await json('POST', `${base}/sessions/${id}/approvals/nope/preview`)).status).toBe(404);
+
+    // The page draws both sides from one camera and hands them over together.
+    const png = { mediaType: 'image/png', base64: PNG_BYTES.toString('base64') };
+    expect((await json('POST', `${approval}/preview/pictures`, { before: png, after: png })).status).toBe(204);
+    const drawn = previewOf(await snapshot(id))!;
+    expect(drawn.before!.image).toMatch(/^[0-9a-f-]+\.png$/);
+    expect(drawn.after!.image).toMatch(/^[0-9a-f-]+\.png$/);
+    expect(drawn.after!.image).not.toBe(drawn.before!.image);
+    const served = await fetch(`${base}/sessions/${id}/files/${drawn.after!.image}`);
+    expect(served.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await served.arrayBuffer()).equals(PNG_BYTES)).toBe(true);
+    // The first pictures are the ones kept (a second tab drew them too).
+    expect((await json('POST', `${approval}/preview/pictures`, { before: png, after: png })).status).toBe(204);
+    expect(previewOf(await snapshot(id))).toEqual(drawn);
+    expect((await json('POST', `${approval}/preview/pictures`, {})).status).toBe(400);
+    expect((await json('POST', `${approval}/preview/pictures`, { after: { mediaType: 'image/png', base64: JPEG_BYTES.toString('base64') } })).status).toBe(400);
+    expect((await json('POST', `${base}/sessions/${id}/approvals/nope/preview/pictures`, { after: png })).status).toBe(404);
+
+    expect((await json('POST', approval, { decision: 'allow' })).status).toBe(204);
+    const done = await idle(id);
+    expect(readFile('plate.part.js')).toBe(AFTER);
+    expect(toolParts(done)[0]).toMatchObject({ state: 'done', approval: { decision: 'allow' }, preview: drawn });
+    expect((await json('POST', `${approval}/preview`)).status).toBe(409);
+  });
+
+  it('offers the preview of a file that is slow to build, builds it when asked, and takes its pictures after the decision too', async () => {
+    scratchCost = () => ({ reusable: null, lastBuildMs: 7400 });
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('plate.part.js', AFTER)), mode: 'ask' });
+    const offered = await withPreview(id, 'offered');
+    expect(previewOf(offered)).toEqual({ state: 'offered', estimateMs: 7400 });
+    const approval = `${base}/sessions/${id}/approvals/${toolParts(offered)[0].approval!.id}`;
+    const png = { mediaType: 'image/png', base64: PNG_BYTES.toString('base64') };
+    // Nothing is built yet, so there is nothing to be a picture of.
+    expect((await json('POST', `${approval}/preview/pictures`, { after: png })).status).toBe(409);
+
+    expect((await json('POST', `${approval}/preview`)).status).toBe(204);
+    await withPreview(id, 'ready');
+    expect((await json('POST', approval, { decision: 'deny' })).status).toBe(204);
+    await idle(id);
+    expect(readFile('plate.part.js')).toBe(BEFORE);
+    // The engine still has the builds: a page that draws them now is kept.
+    expect((await json('POST', `${approval}/preview/pictures`, { after: png })).status).toBe(204);
+    const kept = previewOf(await snapshot(id))!;
+    expect(kept.after!.image).toMatch(/\.png$/);
+    expect(kept.before!.image).toBeUndefined();
+  });
+
+  it('a stop ends a preview nobody asked for, and the card shows none', async () => {
+    scratchCost = () => ({ reusable: null, lastBuildMs: 7400 });
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('plate.part.js', AFTER)), mode: 'ask' });
+    const offered = await withPreview(id, 'offered');
+    const approval = `${base}/sessions/${id}/approvals/${toolParts(offered)[0].approval!.id}`;
+    expect((await json('POST', `${base}/sessions/${id}/cancel`)).status).toBe(204);
+    const stopped = await idle(id);
+    expect(toolParts(stopped)[0]).toMatchObject({ state: 'denied', preview: { state: 'cancelled' } });
+    expect((await json('POST', `${approval}/preview`)).status).toBe(409);
+  });
+
+  it('a preview a restart cut off is not built, and one that was ready keeps its pictures', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000004';
+    const side = (buildId: string, image?: string) => ({ state: 'built' as const, buildId, sceneKind: 'part' as const, facts: { solidCount: 1, size: [80, 40, 30] as [number, number, number], volume: 96000, unit: 'mm' }, ...(image ? { image } : {}) });
+    const tool = (partId: string, preview: ToolPart['preview']): ToolPart => ({
+      type: 'tool', id: partId, source: 'fluidcad', name: 'write_file', title: 'Write plate.part.js', kind: 'edit', state: 'awaiting-approval',
+      input: { path: 'plate.part.js' }, approval: { id: `approval-${partId}`, canAllowSession: true }, ...(preview ? { preview } : {}),
+    });
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-22T10:00:00.000Z',
+      updatedAt: '2026-11-22T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'Add a rib' }] },
+        {
+          id: 'a',
+          role: 'assistant',
+          turnId: 't',
+          createdAt: '',
+          parts: [
+            tool('ready', { state: 'ready', same: false, before: side(BEFORE_ID, 'before.png'), after: side(AFTER_ID, 'after.png') }),
+            // The engine went down inside the second build.
+            tool('building', { state: 'building', before: side(BEFORE_ID) }),
+            tool('offered', { state: 'offered', estimateMs: 7400 }),
+            tool('none', undefined),
+          ],
+        },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+    });
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(toolParts(snap).map((p) => [p.state, p.preview?.state])).toEqual([
+      ['error', 'ready'],
+      ['error', 'cancelled'],
+      ['error', 'cancelled'],
+      ['error', undefined],
+    ]);
+    expect(toolParts(snap)[0].preview).toMatchObject({ before: { image: 'before.png' }, after: { image: 'after.png' } });
+    expect((await json('POST', `${base}/sessions/${id}/approvals/approval-offered/preview`)).status).toBe(409);
   });
 });

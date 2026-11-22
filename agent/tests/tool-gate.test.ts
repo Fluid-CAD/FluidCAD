@@ -28,7 +28,7 @@ import { applyChatEvent } from '../src/transcript.ts';
 import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readQuestionReply, readSvg } from '../src/questions.ts';
 import { VARIANTS_ANSWERED_NOTE, VARIANTS_SKIPPED_NOTE, VARIANTS_STOPPED_MESSAGE, VARIANTS_TIMED_OUT_MESSAGE, readVariantsReply } from '../src/variants.ts';
 import { findPart } from '../src/transcript.ts';
-import type { ChatEvent, ChatMessage, ChatPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
+import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
 
 // A stand-in for the engine the pinned server talks to: write_file and
 // edit_range ask it for dirty buffers, a lint and a render. Only the dirty
@@ -45,7 +45,14 @@ let hubInstalls: any[] = [];
  * the build until the test lets it end.
  */
 let scratchBuild: ((source: string) => unknown | Promise<unknown>) | null = null;
-let scratchBuilds: { file: string; source: string }[] = [];
+let scratchBuilds: { file: string; source: string; reuse?: boolean }[] = [];
+/**
+ * What the engine's `POST /api/scratch-build/cost` answers for a candidate
+ * text (the preview of a change waiting for approval); null answers 404, an
+ * engine without it.
+ */
+let scratchCost: ((source: string) => unknown | Promise<unknown>) | null = null;
+let scratchCosts: string[] = [];
 /** What the engine's lint says of a candidate text; null answers 404 (the tools then carry on). */
 let lint: ((code: string) => unknown) | null = null;
 let workspace: string;
@@ -58,17 +65,22 @@ beforeEach(async () => {
   hubInstalls = [];
   scratchBuild = null;
   scratchBuilds = [];
+  scratchCost = null;
+  scratchCosts = [];
   lint = null;
   engine = http.createServer((req, res) => {
-    if ((req.url === '/api/scratch-build' && scratchBuild) || (req.url === '/api/lint-fluid-js' && lint)) {
+    if ((req.url === '/api/scratch-build' && scratchBuild) || (req.url === '/api/scratch-build/cost' && scratchCost) || (req.url === '/api/lint-fluid-js' && lint)) {
       const chunks: Buffer[] = [];
       req.on('data', (c) => chunks.push(c));
       req.on('end', async () => {
         const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         let answer: unknown;
         if (req.url === '/api/scratch-build') {
-          scratchBuilds.push({ file: body.file, source: body.source });
+          scratchBuilds.push({ file: body.file, source: body.source, ...(body.reuse !== undefined ? { reuse: body.reuse } : {}) });
           answer = await scratchBuild!(body.source);
+        } else if (req.url === '/api/scratch-build/cost') {
+          scratchCosts.push(body.source);
+          answer = await scratchCost!(body.source);
         } else {
           answer = lint!(body.code);
         }
@@ -1443,5 +1455,426 @@ describe('ToolGate: variants (propose_variants, §24)', () => {
     gate.choose(card.id, { skip: true });
     await pending;
     expect(host.variants()[0].variants[0].image).toBe('rib.png');
+  });
+});
+
+describe('ToolGate: what a change does to the model (§25)', () => {
+  const BEFORE = 'base();\n';
+  const AFTER = 'base();\nrib();\n';
+  /** The change as the model makes it: a line appended. */
+  const edit = (name = 'bracket.fluid.js', newText = 'rib();\n') => ({
+    name: 'edit_range',
+    arguments: { path: name, start: { line: 1, column: 0 }, end: { line: 1, column: 0 }, newText },
+  });
+
+  /** A scratch build that rendered, as the engine answers one. */
+  const rendered = (id: string, size: [number, number, number], volume: number, geometry: string) => ({
+    state: 'rendered',
+    id,
+    file: 'bracket.fluid.js',
+    sceneKind: 'part',
+    unit: 'mm',
+    durationMs: 12,
+    builtFrom: 'source',
+    configuration: 'Default',
+    sessionOverrides: 0,
+    unusedParams: [],
+    solidCount: 1,
+    bounds: { min: [0, 0, 0], max: size },
+    volume,
+    validation: { ok: true, checked: 1, findings: [], skipped: 0 },
+    geometry,
+  });
+  const BEFORE_BUILD = rendered('11111111-1111-4111-8111-111111111111', [80, 40, 30], 96000, 'digest-before');
+  const AFTER_BUILD = rendered('22222222-2222-4222-8222-222222222222', [80, 40, 36], 97500, 'digest-after');
+  const COMPILE_ERROR = {
+    state: 'compile-error',
+    file: 'x',
+    durationMs: 2,
+    compileError: { message: 'rib is not defined\n    at eval', sourceLocation: { filePath: 'x', line: 2, column: 1 } },
+  };
+  const builds = (source: string) => (source === BEFORE ? BEFORE_BUILD : source === AFTER ? AFTER_BUILD : COMPILE_ERROR);
+  /** Nothing kept, and the file's last build took `lastBuildMs`. */
+  const costs = (lastBuildMs: number | null, kept: string[] = []) => (source: string) =>
+    ({ reusable: kept.includes(source) ? { ...builds(source), reused: true } : null, lastBuildMs });
+  const previewIn = async (host: FakeHost, state: ChangePreview['state'], index = 0): Promise<ChangePreview> => {
+    for (let i = 0; i < 400; i++) {
+      const preview = host.tools()[index]?.preview;
+      if (preview?.state === state) {
+        return preview;
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`no preview is ${state}: ${JSON.stringify(host.tools()[index])}`);
+  };
+  /** Lets every request already on its way to the stand-in engine be answered. */
+  const settled = () => new Promise((r) => setTimeout(r, 60));
+
+  beforeEach(() => {
+    fs.writeFileSync(file('bracket.fluid.js'), BEFORE);
+    scratchBuild = builds;
+    scratchCost = costs(140);
+  });
+
+  it('shows the card at once, then builds the file as it is and with the change, and says what differs', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchCost = async (source) => {
+      await held;
+      return costs(140)(source);
+    };
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    // The approval waits with its diff before anything is known of the preview, and is saved.
+    expect(host.tools()[0]).toMatchObject({ state: 'awaiting-approval', approval: { id }, diff: expect.stringContaining('+rib();') });
+    expect(host.tools()[0].preview).toBeUndefined();
+    expect(host.persisted).toBeGreaterThanOrEqual(1);
+    expect(scratchBuilds).toEqual([]);
+    release();
+
+    const preview = await previewIn(host, 'ready');
+    expect(preview).toEqual({
+      state: 'ready',
+      same: false,
+      before: {
+        state: 'built',
+        buildId: BEFORE_BUILD.id,
+        sceneKind: 'part',
+        facts: { solidCount: 1, size: [80, 40, 30], volume: 96000, unit: 'mm', sound: true },
+        bounds: { min: [0, 0, 0], max: [80, 40, 30] },
+      },
+      after: {
+        state: 'built',
+        buildId: AFTER_BUILD.id,
+        sceneKind: 'part',
+        facts: { solidCount: 1, size: [80, 40, 36], volume: 97500, unit: 'mm', sound: true },
+        bounds: { min: [0, 0, 0], max: [80, 40, 36] },
+      },
+    });
+    // Asked what each side costs, then each built once, the file as it is first, a kept build welcome.
+    expect(scratchCosts).toEqual([BEFORE, AFTER]);
+    expect(scratchBuilds).toEqual([
+      { file: file('bracket.fluid.js'), source: BEFORE, reuse: true },
+      { file: file('bracket.fluid.js'), source: AFTER, reuse: true },
+    ]);
+    // The card said it was building in between.
+    const previews = host.events.flatMap((e) => (e.type === 'part-update' && (e.patch as Partial<ToolPart>).preview ? [(e.patch as Partial<ToolPart>).preview!] : []));
+    expect(previews.map((p) => [p.state, p.before?.state, p.after?.state])).toEqual([
+      ['building', undefined, undefined],
+      ['building', 'built', undefined],
+      ['building', 'built', 'built'],
+      ['ready', 'built', 'built'],
+    ]);
+    // Nothing was written, and the approval is still the user's.
+    expect(read('bracket.fluid.js')).toBe(BEFORE);
+    expect(host.tools()[0].state).toBe('awaiting-approval');
+    expect(gate.decide(id, 'allow')).toBe('ok');
+    await call;
+    expect(read('bracket.fluid.js')).toBe(AFTER);
+    // Settled, the card keeps what it showed.
+    expect(host.tools()[0]).toMatchObject({ approval: { decision: 'allow' }, preview: { state: 'ready', before: { buildId: BEFORE_BUILD.id }, after: { buildId: AFTER_BUILD.id } } });
+  });
+
+  it('builds only the file with the change when the change creates it', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'write_file', arguments: { path: 'new.part.js', content: AFTER } });
+    const id = await host.waiting();
+    const preview = await previewIn(host, 'ready');
+    expect(preview.before).toBeNull();
+    expect(preview.same).toBeUndefined();
+    expect(preview.after).toMatchObject({ state: 'built', buildId: AFTER_BUILD.id });
+    expect(scratchCosts).toEqual([AFTER]);
+    expect(scratchBuilds).toEqual([{ file: file('new.part.js'), source: AFTER, reuse: true }]);
+    gate.decide(id, 'deny');
+    await call;
+    expect(host.tools()[0]).toMatchObject({ state: 'denied', preview: { state: 'ready', before: null } });
+  });
+
+  it('says a change does not build, with the reasons, and still lets the user answer', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool(edit('bracket.fluid.js', 'rib(;\n'));
+    const id = await host.waiting();
+    const preview = await previewIn(host, 'ready');
+    expect(preview.before).toMatchObject({ state: 'built' });
+    // No build, so no picture and no facts: the reason, and its line.
+    expect(preview.after).toEqual({ state: 'failed', problems: [{ title: 'Compile error', message: 'rib is not defined', line: 2 }] });
+    expect(preview.same).toBe(false);
+    expect(host.tools()[0].state).toBe('awaiting-approval');
+    expect(gate.decide(id, 'allow')).toBe('ok');
+    await call;
+
+    // Features that fail: what did build is kept and drawn, the first few failures are listed and the rest counted.
+    const failures = Array.from({ length: 7 }, (_, i) => ({
+      index: i, id: `f${i}`, name: `Fillet ${i + 1}`, uniqueKind: 'fillet', message: `radius ${i} is too large\nBRep_API: command not done`,
+      sourceLocation: { filePath: 'x', line: 10 + i, column: 3 },
+    }));
+    scratchBuild = (source) => (source === BEFORE ? BEFORE_BUILD : { ...AFTER_BUILD, state: 'build-error', geometry: 'digest-before', objectErrors: failures });
+    fs.writeFileSync(file('bracket.fluid.js'), BEFORE);
+    const second = client.callTool(edit());
+    const secondId = await host.waiting(1);
+    const failed = await previewIn(host, 'ready', 1);
+    expect(failed.after).toMatchObject({
+      state: 'failed',
+      buildId: AFTER_BUILD.id,
+      facts: { volume: 97500 },
+      problems: [
+        { title: 'Fillet 1 failed', message: 'radius 0 is too large', line: 10 },
+        { title: 'Fillet 2 failed', message: 'radius 1 is too large', line: 11 },
+        { title: 'Fillet 3 failed', message: 'radius 2 is too large', line: 12 },
+        { title: 'Fillet 4 failed', message: 'radius 3 is too large', line: 13 },
+        { title: 'Fillet 5 failed', message: 'radius 4 is too large', line: 14 },
+      ],
+      moreProblems: 2,
+    });
+    // The failed features were skipped: what builds is what was there.
+    expect(failed.same).toBe(true);
+    gate.decide(secondId, 'deny');
+    await second;
+
+    // A build the engine refuses is a reason too.
+    scratchBuild = null;
+    const third = client.callTool(edit());
+    const thirdId = await host.waiting(2);
+    const refused = await previewIn(host, 'ready', 2);
+    expect(refused.after).toEqual({ state: 'failed', problems: [{ title: 'Not built', message: expect.stringContaining('no scratch builds') }] });
+    gate.decide(thirdId, 'deny');
+    await third;
+  });
+
+  it('says so when the change moves no geometry', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    scratchBuild = (source) => (source === BEFORE ? BEFORE_BUILD : { ...AFTER_BUILD, bounds: BEFORE_BUILD.bounds, volume: 96000, geometry: 'digest-before' });
+    const call = client.callTool(edit('bracket.fluid.js', '// a rib goes here\n'));
+    const id = await host.waiting();
+    expect(await previewIn(host, 'ready')).toMatchObject({ same: true, before: { state: 'built' }, after: { state: 'built' } });
+    gate.decide(id, 'deny');
+    await call;
+
+    // An engine that does not digest its builds never says two are the same.
+    const { geometry: _geometry, ...plain } = BEFORE_BUILD;
+    scratchBuild = () => plain;
+    const second = client.callTool(edit('bracket.fluid.js', '// a rib goes here\n'));
+    const secondId = await host.waiting(1);
+    expect((await previewIn(host, 'ready', 1)).same).toBe(false);
+    gate.decide(secondId, 'deny');
+    await second;
+
+    // A change that leaves the text as it is: one build is both sides.
+    scratchBuilds = [];
+    scratchBuild = builds;
+    const third = client.callTool({ name: 'write_file', arguments: { path: 'bracket.fluid.js', content: BEFORE } });
+    const thirdId = await host.waiting(2);
+    expect((await previewIn(host, 'ready', 2)).same).toBe(true);
+    expect(scratchBuilds).toHaveLength(1);
+    gate.decide(thirdId, 'deny');
+    await third;
+  });
+
+  it('previews only a model file, and only a change that waits', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    // A file that is no model: the approval as it always was.
+    fs.writeFileSync(file('helper.js'), BEFORE);
+    fs.writeFileSync(file('dims.params.js'), BEFORE);
+    for (const [index, name] of ['helper.js', 'dims.params.js'].entries()) {
+      const call = client.callTool(edit(name));
+      const id = await host.waiting(index);
+      await settled();
+      expect(host.tools()[index].preview).toBeUndefined();
+      gate.decide(id, 'deny');
+      await call;
+    }
+    // Allowed for the session: the write no longer waits, and the viewport shows the result.
+    const first = client.callTool(edit());
+    const firstId = await host.waiting(2);
+    await previewIn(host, 'ready', 2);
+    gate.decide(firstId, 'allow-session');
+    await first;
+    scratchCosts = [];
+    scratchBuilds = [];
+    await client.callTool(edit());
+    await settled();
+    expect(host.tools()[3].preview).toBeUndefined();
+
+    // Auto-apply edits: nothing waits, nothing is previewed.
+    const auto = new FakeHost();
+    auto.turn = { turnId: 't1', mode: 'auto-edits' };
+    const autoClient = await connect(new ToolGate(auto));
+    await autoClient.callTool(edit());
+    await settled();
+    expect(auto.tools()[0].preview).toBeUndefined();
+    expect(scratchCosts).toEqual([]);
+    expect(scratchBuilds).toEqual([]);
+  });
+
+  it('offers the preview instead of building it when the file is slow to build, and builds it when asked', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    scratchCost = costs(6200);
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    expect(await previewIn(host, 'offered')).toEqual({ state: 'offered', estimateMs: 6200 });
+    await settled();
+    expect(scratchBuilds).toEqual([]);
+    expect(gate.requestPreview('nope')).toBe('not-found');
+
+    expect(gate.requestPreview(id)).toBe('ok');
+    // Asked once: a second click finds it building.
+    expect(gate.requestPreview(id)).toBe('not-offered');
+    expect(await previewIn(host, 'ready')).toMatchObject({ before: { state: 'built' }, after: { state: 'built' } });
+    expect(scratchBuilds).toHaveLength(2);
+    expect(gate.requestPreview(id)).toBe('not-offered');
+    gate.decide(id, 'deny');
+    await call;
+    expect(gate.requestPreview(id)).toBe('not-found');
+
+    // The threshold is the gate's: at it the preview is built, past it offered.
+    scratchBuilds = [];
+    const atLimit = new FakeHost();
+    const atLimitGate = new ToolGate(atLimit, { autoPreviewMaxBuildMs: 6200 });
+    const atLimitCall = (await connect(atLimitGate)).callTool(edit());
+    const atLimitId = await atLimit.waiting();
+    await previewIn(atLimit, 'ready');
+    atLimitGate.decide(atLimitId, 'deny');
+    await atLimitCall;
+  });
+
+  it('builds unasked however slow the file is when the engine already keeps both builds, or has never built the file', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    // Both kept (the before from the last change, the after from a try_build): nothing to wait for.
+    scratchCost = costs(9000, [BEFORE, AFTER]);
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    await previewIn(host, 'ready');
+    gate.decide(id, 'deny');
+    await call;
+
+    // Only the before is kept: the after is one slow build, so it is offered.
+    scratchCost = costs(9000, [BEFORE]);
+    const second = client.callTool(edit());
+    const secondId = await host.waiting(1);
+    expect(await previewIn(host, 'offered', 1)).toEqual({ state: 'offered', estimateMs: 9000 });
+    gate.decide(secondId, 'deny');
+    await second;
+    // An offered preview nobody asked for ends with the approval, and the card shows none.
+    expect(host.tools()[1].preview).toEqual({ state: 'cancelled', estimateMs: 9000 });
+
+    // A file this engine has not built yet: nothing says it is slow.
+    scratchCost = costs(null);
+    const third = client.callTool(edit());
+    const thirdId = await host.waiting(2);
+    await previewIn(host, 'ready', 2);
+    gate.decide(thirdId, 'deny');
+    await third;
+  });
+
+  it('does not start a build once the approval is settled: a decision, a stop, the client giving up', async () => {
+    for (const end of ['allow', 'deny', 'stop', 'abort'] as const) {
+      fs.writeFileSync(file('bracket.fluid.js'), BEFORE);
+      scratchBuilds = [];
+      const host = new FakeHost();
+      const gate = new ToolGate(host);
+      const client = await connect(gate);
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      scratchBuild = async (source) => {
+        await held;
+        return builds(source);
+      };
+      const controller = new AbortController();
+      const call = client.callTool(edit(), undefined, { signal: controller.signal }).catch(() => null);
+      const id = await host.waiting();
+      // The file as it is is building.
+      await expect.poll(() => scratchBuilds.length).toBe(1);
+      expect(host.tools()[0].preview).toEqual({ state: 'building' });
+      if (end === 'stop') {
+        host.turn = null;
+        gate.settleAll('stopped');
+      } else if (end === 'abort') {
+        controller.abort();
+        await expect.poll(() => host.tools()[0].state).toBe('error');
+      } else {
+        gate.decide(id, end);
+      }
+      // The card says so at once, in the same change as the approval's own outcome.
+      expect(host.tools()[0].preview, end).toEqual({ state: 'cancelled' });
+      release();
+      await call;
+      await settled();
+      // The build in progress ran to its end and is dropped; the file with the change was never built.
+      expect(scratchBuilds, end).toEqual([{ file: file('bracket.fluid.js'), source: BEFORE, reuse: true }]);
+      expect(host.tools()[0].preview, end).toEqual({ state: 'cancelled' });
+      expect(read('bracket.fluid.js'), end).toBe(end === 'allow' ? AFTER : BEFORE);
+    }
+  });
+
+  it('shows no preview when the approval is settled before the engine said what one costs, or cannot say', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchCost = async (source) => {
+      await held;
+      return costs(140)(source);
+    };
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    await expect.poll(() => scratchCosts.length).toBe(1);
+    gate.decide(id, 'deny');
+    release();
+    await call;
+    await settled();
+    expect(host.tools()[0].preview).toBeUndefined();
+    expect(scratchBuilds).toEqual([]);
+
+    // An engine without scratch builds: the card is the approval card it always was.
+    scratchCost = null;
+    const second = client.callTool(edit());
+    const secondId = await host.waiting(1);
+    await settled();
+    expect(host.tools()[1].preview).toBeUndefined();
+    expect(scratchBuilds).toEqual([]);
+    gate.decide(secondId, 'allow');
+    await second;
+    expect(read('bracket.fluid.js')).toBe(AFTER);
+  });
+
+  it('keeps a picture the page added to one side while the other built', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchBuild = async (source) => {
+      if (source === AFTER) {
+        await held;
+      }
+      return builds(source);
+    };
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    await expect.poll(() => host.tools()[0].preview?.before?.state).toBe('built');
+    // As the session's picture route does: the side gains its `image` in the transcript.
+    const card = host.tools()[0];
+    host.emit({ type: 'part-update', messageId: 'a1', partId: card.id, patch: { preview: { ...card.preview!, before: { ...card.preview!.before!, image: 'before.png' } } } });
+    release();
+    const preview = await previewIn(host, 'ready');
+    expect([preview.before?.image, preview.after?.image]).toEqual(['before.png', undefined]);
+    gate.decide(id, 'deny');
+    await call;
   });
 });

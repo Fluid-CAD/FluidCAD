@@ -11,6 +11,10 @@
 // as the user cancels, is refused. Codex keeps an MCP call pending through
 // `turn/interrupt` (§19): the session settles pending approvals on cancel.
 //
+// A change to a model file that waits for approval is also built, without
+// being written, so its card shows what it does to the model (§25): the
+// preview fills in beside the wait and never holds it.
+//
 // It also answers the two tools that do not pass through `before`. `ask_user`
 // (§22): the question is a card of its own, and the call waits for the user
 // the way an approval does. `propose_variants` (§24): the gate builds the
@@ -40,6 +44,7 @@ import {
   type SourceEditPreview,
 } from '../../mcp/dist/server.js';
 import type { Checkpoint } from './session-store.ts';
+import { AUTO_PREVIEW_MAX_BUILD_MS, ChangePreviewJob, isModelFile } from './change-preview.ts';
 import { failure, questionPatch, questionResult, readQuestionReply, readQuestions, type QuestionOutcome } from './questions.ts';
 import {
   builtTile,
@@ -55,6 +60,7 @@ import {
 } from './variants.ts';
 import type {
   ApprovalDecision,
+  ChangePreview,
   ChatEvent,
   ChatPart,
   PermissionMode,
@@ -145,6 +151,8 @@ export type ToolGateOptions = {
   timers?: GateTimers;
   /** Default {@link BUILD_PAUSE_MS}. */
   buildPauseMs?: number;
+  /** Default {@link AUTO_PREVIEW_MAX_BUILD_MS}: the longest last build of a file whose change is previewed unasked (§25). */
+  autoPreviewMaxBuildMs?: number;
 };
 
 export type ToolKind = ToolPart['kind'];
@@ -160,6 +168,8 @@ type PendingApproval = {
   turnId: string;
   name: string;
   canAllowSession: boolean;
+  /** The preview of the change the call would make, when it is one to a model file (§25). */
+  preview?: ChangePreviewJob;
   settle(outcome: ApprovalOutcome): void;
 };
 
@@ -247,11 +257,13 @@ export class ToolGate implements McpToolGate {
   private readonly timeoutMs: number;
   private readonly timers: GateTimers;
   private readonly buildPauseMs: number;
+  private readonly autoPreviewMaxBuildMs: number;
 
   constructor(host: ToolGateHost, options: ToolGateOptions = {}) {
     this.host = host;
     this.timeoutMs = options.approvalTimeoutMs ?? APPROVAL_TIMEOUT_MS;
     this.buildPauseMs = options.buildPauseMs ?? BUILD_PAUSE_MS;
+    this.autoPreviewMaxBuildMs = options.autoPreviewMaxBuildMs ?? AUTO_PREVIEW_MAX_BUILD_MS;
     this.timers = options.timers ?? {
       setTimeout: (fn, ms) => {
         const handle = setTimeout(fn, ms);
@@ -337,7 +349,23 @@ export class ToolGate implements McpToolGate {
     const update = (patch: Partial<ToolPart>) => this.host.emit({ type: 'part-update', messageId, partId: part.id, patch });
 
     if (needsApproval(call.name, turn.mode) && !this.allowedForSession.has(call.name)) {
-      const outcome = await this.waitForApproval(turn.turnId, call.name, update, signal);
+      // A change to a model file: what it does to the model fills in on the card while it waits (§25).
+      const changePreview = preview && isModelFile(preview.absPath)
+        ? new ChangePreviewJob(
+            {
+              pinnedWorkspace: () => this.host.pinnedWorkspace(),
+              read: () => {
+                const current = this.host.part(messageId, part.id);
+                return current?.type === 'tool' ? current.preview : undefined;
+              },
+              write: (shown: ChangePreview) => update({ preview: shown }),
+              persist: () => this.host.persist(),
+            },
+            preview,
+            this.autoPreviewMaxBuildMs,
+          )
+        : undefined;
+      const outcome = await this.waitForApproval(turn.turnId, call.name, update, signal, changePreview);
       if (outcome !== 'allow' && outcome !== 'allow-session') {
         this.host.persist();
         return { allow: false, message: outcomeMessage(outcome) };
@@ -459,6 +487,20 @@ export class ToolGate implements McpToolGate {
     }
     pending.settle(decision);
     return 'ok';
+  }
+
+  /**
+   * The user asked for the preview an approval card offers (§25): the two
+   * builds start, and the card fills in. `not-found`: no call waits on that
+   * id; `not-offered`: its card offers no preview to build (it has none, or
+   * it is building or built already).
+   */
+  requestPreview(approvalId: string): 'ok' | 'not-found' | 'not-offered' {
+    const pending = this.pending.get(approvalId);
+    if (!pending) {
+      return 'not-found';
+    }
+    return pending.preview?.request() ? 'ok' : 'not-offered';
   }
 
   /** Settles every pending approval, question and variants card without the user: the turn was stopped or ended, or the engine is going away. */
@@ -772,6 +814,7 @@ export class ToolGate implements McpToolGate {
     name: string,
     update: (patch: Partial<ToolPart>) => void,
     signal: AbortSignal,
+    preview?: ChangePreviewJob,
   ): Promise<ApprovalOutcome> {
     const id = randomUUID();
     const canAllowSession = canAllowForSession(name);
@@ -788,18 +831,23 @@ export class ToolGate implements McpToolGate {
         this.pending.delete(id);
         this.timers.clearTimeout(timer);
         signal.removeEventListener('abort', onAbort);
-        update(outcomePatch(outcome, { id, canAllowSession }));
+        // The preview ends with the wait, whatever ended it: a build that has not started is not started.
+        const unfinished = preview?.cancel();
+        update({ ...outcomePatch(outcome, { id, canAllowSession }), ...(unfinished ? { preview: unfinished } : {}) });
         this.host.approvalsChanged(turnId, this.pendingApprovalIds(turnId));
         resolve(outcome);
       };
-      this.pending.set(id, { id, turnId, name, canAllowSession, settle });
+      this.pending.set(id, { id, turnId, name, canAllowSession, ...(preview ? { preview } : {}), settle });
       signal.addEventListener('abort', onAbort, { once: true });
       this.host.approvalsChanged(turnId, this.pendingApprovalIds(turnId));
       // Saved while waiting: an engine restart now finds the card and says so.
       this.host.persist();
       if (signal.aborted) {
         settle('aborted');
+        return;
       }
+      // After the card is out and saved: the preview is never in the way of either.
+      preview?.start();
     });
   }
 

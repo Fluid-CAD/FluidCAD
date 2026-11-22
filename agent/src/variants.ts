@@ -5,7 +5,8 @@
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { VARIANT_COUNT, type ProposeVariantsInput, type ProposedVariant, type ToolResult, type TryBuildOutput } from '../../mcp/dist/server.js';
-import { MAX_ANSWER_CHARS, type VariantFacts, type VariantTile, type VariantsPart, type VariantsReply } from './types.ts';
+import { buildFacts, cut, firstLine } from './build-facts.ts';
+import { MAX_ANSWER_CHARS, type VariantTile, type VariantsPart, type VariantsReply } from './types.ts';
 
 /** How a variants card ended. */
 export type VariantsOutcome =
@@ -29,9 +30,6 @@ export const VARIANTS_ANSWERED_NOTE =
   'The user wrote this instead of picking a variant, and nothing was written. Act on what they wrote.';
 export const VARIANTS_RESTART_REASON = 'The app restarted before you chose.';
 export const VARIANTS_RESTART_BUILDING_REASON = 'The app restarted while these were building.';
-
-/** Longest reason a failed tile carries. */
-const MAX_REASON_CHARS = 400;
 
 /** One variant of a call, checked: its label and description as the tile shows them, and how its candidate was given. */
 export type ReadVariant = { label: string; description?: string; candidate: Pick<ProposedVariant, 'content' | 'edits'> };
@@ -104,17 +102,7 @@ export function builtTile(tile: VariantTile, built: ToolResult<TryBuildOutput>):
     const at = outcome.compileError.sourceLocation;
     return { ...base, state: 'failed', error: cut(`It does not compile: ${firstLine(outcome.compileError.message)}${at ? ` (line ${at.line})` : ''}`) };
   }
-  const facts: VariantFacts = {
-    solidCount: outcome.solidCount,
-    size: outcome.bounds
-      ? [0, 1, 2].map((axis) => round(outcome.bounds!.max[axis] - outcome.bounds!.min[axis])) as [number, number, number]
-      : null,
-    volume: outcome.volume,
-    unit: outcome.unit,
-    ...(outcome.instanceCount !== undefined ? { instanceCount: outcome.instanceCount } : {}),
-    ...(outcome.validation ? { sound: outcome.validation.ok } : {}),
-  };
-  const built_ = { ...base, buildId: outcome.id, sceneKind: outcome.sceneKind, facts };
+  const built_ = { ...base, buildId: outcome.id, sceneKind: outcome.sceneKind, facts: buildFacts(outcome) };
   if (outcome.state === 'build-error') {
     const [first, ...rest] = outcome.objectErrors;
     const more = rest.length > 0 ? `, and ${rest.length} more` : '';
@@ -246,17 +234,4 @@ function failure(message: string): CallToolResult {
 /** A tool error in the shape FluidCAD's tools give theirs: `{ code, message, details }` as JSON. */
 export function toolError(error: { code: string; message: string; details?: unknown }): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: JSON.stringify(error) }] };
-}
-
-function firstLine(text: string): string {
-  return (text ?? '').split('\n')[0].trim();
-}
-
-function cut(text: string): string {
-  return text.length > MAX_REASON_CHARS ? `${text.slice(0, MAX_REASON_CHARS - 1)}…` : text;
-}
-
-/** Extents come out of exact bounds with float noise in the last places: six decimals is past any unit's precision. */
-function round(value: number): number {
-  return Math.round(value * 1e6) / 1e6;
 }

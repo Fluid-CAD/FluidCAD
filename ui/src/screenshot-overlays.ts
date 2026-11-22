@@ -141,6 +141,26 @@ export class ScreenshotHighlightOverlay {
     this.owned.length = 0;
   }
 
+  /**
+   * Draw everything at `opacity` (the live viewport's items that are not the
+   * one pointed at, docs/agent-chat-plan.md §27). The materials are this
+   * overlay's own.
+   */
+  fade(opacity: number): void {
+    for (const obj of this.added) {
+      const material = (obj as Mesh).material as Material;
+      material.transparent = true;
+      material.opacity = opacity;
+    }
+  }
+
+  /** Take the overlay out of the picture without letting go of it (a capture that must not show it), or put it back. */
+  setVisible(visible: boolean): void {
+    for (const obj of this.added) {
+      obj.visible = visible;
+    }
+  }
+
   /** `#rgb` / `#rrggbb` as a three.js colour; anything else is no colour (the theme's highlight). */
   static parseColor(value: string | undefined): Color | null {
     if (typeof value !== 'string' || !/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value)) {

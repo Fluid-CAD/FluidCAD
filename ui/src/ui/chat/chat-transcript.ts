@@ -1,6 +1,7 @@
 import type { ChatEvent, ChatMessage, ChatPart } from './chat-types';
 import { ImagePartView } from './parts/image-part';
 import { NoticePartView } from './parts/notice-part';
+import { ParamsPartView } from './parts/params-part';
 import type { PartContext, PartView } from './parts/part-view';
 import { QuestionPartView } from './parts/question-part';
 import { ReasoningPartView } from './parts/reasoning-part';
@@ -295,6 +296,8 @@ export class MessageView {
         return new QuestionPartView(part, this.ctx);
       case 'variants':
         return new VariantsPartView(part, this.ctx);
+      case 'params':
+        return new ParamsPartView(part, this.ctx);
       case 'notice':
         return new NoticePartView(part);
       case 'image':

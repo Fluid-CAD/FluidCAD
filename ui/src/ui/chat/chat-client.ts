@@ -6,6 +6,7 @@ import type {
   ApprovalDecision,
   ChatEventEnvelope,
   LoginStatus,
+  ParamsKept,
   PermissionMode,
   QuestionReply,
   RevertResult,
@@ -101,6 +102,12 @@ export interface ChatClient {
    * with the session. The first picture of a tile is the one kept.
    */
   saveVariantPicture(id: string, variantsId: string, picture: VariantPicture): Promise<ChatAnswer<null>>;
+  /**
+   * Tell the session what Keep wrote into the source from a parameter card
+   * (§26). Refused with 400 when a value is not one of the card's or not a
+   * value a parameter holds, 404 when there is no such card.
+   */
+  paramsKept(id: string, paramsId: string, kept: ParamsKept): Promise<ChatAnswer<null>>;
   /**
    * Revert `turnId` and every later turn that changed files, newest first
    * (§12.2). Refused with 409 while a turn or another revert runs.
@@ -210,6 +217,10 @@ export class HttpChatClient implements ChatClient {
 
   saveVariantPicture(id: string, variantsId: string, picture: VariantPicture): Promise<ChatAnswer<null>> {
     return this.request('POST', `${this.session(id)}/variants/${encodeURIComponent(variantsId)}/pictures`, picture);
+  }
+
+  paramsKept(id: string, paramsId: string, kept: ParamsKept): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${this.session(id)}/params/${encodeURIComponent(paramsId)}`, kept);
   }
 
   revert(id: string, turnId: string): Promise<ChatAnswer<RevertResult>> {

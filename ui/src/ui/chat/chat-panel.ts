@@ -21,6 +21,7 @@ import {
   type ApiProviderStatus,
   type ApprovalDecision,
   type Effort,
+  type ParamKeptValue,
   type PermissionMode,
   type QuestionReply,
   type SessionStatus,
@@ -28,6 +29,7 @@ import {
   type VariantsReply,
 } from './chat-types';
 import type { Colorizer } from './code-block';
+import type { ParamCardHost } from './parts/params-part';
 import { ImageAttachments, type ImagePreparer } from './image-attachments';
 import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
 import { resetsText } from './time-format';
@@ -82,6 +84,9 @@ export type ChatVariantsHost = {
   hideGhost(): void;
 };
 
+/** The model on screen as a parameter card reads and sets it (§26). */
+export type { ParamCardHost as ChatParamsHost } from './parts/params-part';
+
 /** The permission modes as the panel names them (§12.1); Settings → Agent uses the same words. */
 export { PERMISSION_MODES } from './permission-modes';
 
@@ -124,6 +129,12 @@ export type ChatPanelDeps = {
    * offers no "Show in viewport".
    */
   variants?: ChatVariantsHost;
+  /**
+   * The parameters of the model on screen, for the cards the agent offers
+   * them on (§26): their values, a session value set from a control, Reset
+   * and Keep. Absent: a card lists its parameters without controls.
+   */
+  params?: ParamCardHost;
   /** The project's files, for naming one in a message with `@`; absent: no file mentions. */
   listFiles?(): Promise<MentionFile[]>;
   /** Makes an attached image ready to send (tests); absent: the browser's decoder and a canvas. */
@@ -292,6 +303,8 @@ export class ChatPanel {
       saveVariantPicture: (variantsId: string, label: string, dataUrl: string) => this.state.saveVariantPicture(variantsId, label, dataUrl),
       requestPreview: (approvalId: string) => this.state.requestPreview(approvalId),
       savePreviewPictures: (approvalId: string, pictures: { before?: string; after?: string }) => this.state.savePreviewPictures(approvalId, pictures),
+      paramsKept: (paramsId: string, kept: ParamKeptValue[]) => this.state.paramsKept(paramsId, kept),
+      ...(deps.params ? { params: deps.params } : {}),
       ...(deps.variants
         ? {
             variantPicture: (buildId: string) => deps.variants!.picture(buildId),

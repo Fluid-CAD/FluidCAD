@@ -1,5 +1,6 @@
 import type { Colorizer } from '../code-block';
-import type { ApprovalDecision, ChatPart, QuestionReply, VariantsReply } from '../chat-types';
+import type { ApprovalDecision, ChatPart, ParamKeptValue, QuestionReply, VariantsReply } from '../chat-types';
+import type { ParamCardHost } from './params-part';
 
 /** What a part's view needs from the page. */
 export type PartContext = {
@@ -61,6 +62,18 @@ export type PartContext = {
   buildPictures?(buildIds: string[]): Promise<(string | null)[]>;
   /** Hands the pictures drawn of a change's sides (PNG data URLs) to the engine, which keeps them with the session. */
   savePreviewPictures?(approvalId: string, pictures: { before?: string; after?: string }): void;
+  /**
+   * The model on screen as a parameter card reads and sets it (§26): its
+   * parameters, their session values, Reset and Keep. Absent: a card lists
+   * its parameters as they were offered, with nothing to drag.
+   */
+  params?: ParamCardHost;
+  /**
+   * Tells the engine what Keep wrote into the source from a parameter card,
+   * so the card says so in every tab and the agent is told with the next
+   * message; resolves true once the engine took it.
+   */
+  paramsKept?(paramsId: string, kept: ParamKeptValue[]): Promise<boolean>;
 };
 
 /**

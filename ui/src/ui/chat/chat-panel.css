@@ -1390,6 +1390,148 @@
   color: var(--color-error);
 }
 
+/* --- Parameter cards (offer_params) ----------------------------------------- */
+
+[data-role='chat-panel'] .chat-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 0;
+  border: 1px solid var(--chat-line);
+  border-radius: 6px;
+  background: var(--chat-surface);
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-params-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+[data-role='chat-panel'] .chat-params-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-params-title > span {
+  align-self: center;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-params-file {
+  max-width: 100%;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--chat-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-params-note {
+  padding: 0 12px;
+  color: var(--chat-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* The rows are the Parameters panel's own (param-row.ts), on the panel's surface. */
+[data-role='chat-panel'] .chat-params-rows {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 0;
+  border-top: 1px solid var(--chat-line);
+  border-bottom: 1px solid var(--chat-line);
+  background: var(--color-base-100);
+}
+
+[data-role='chat-panel'] .chat-params-row label {
+  overflow-wrap: anywhere;
+}
+
+/* A value that is on screen only: its label carries the weight a set row's does in the panel. */
+[data-role='chat-panel'] .chat-params-row[data-changed='true'] > div > div:first-child > label {
+  font-weight: 600;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-params-missing {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-params-missing-label {
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-params-missing-owner {
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-params-missing-why {
+  flex-shrink: 0;
+}
+
+[data-role='chat-panel'] .chat-params-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+[data-role='chat-panel'] .chat-params-kept {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.45;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-params-kept > span:first-child {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-params-error {
+  line-height: 1.45;
+  color: var(--color-error);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-params-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+[data-role='chat-panel'] .chat-params-status {
+  flex: 1 1 140px;
+  min-width: 0;
+  color: var(--chat-muted);
+  line-height: 1.45;
+}
+
+[data-role='chat-panel'] .chat-params-buttons {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
 /* --- What a change does to the model, on its approval card ------------------ */
 
 [data-role='chat-panel'] .chat-change {

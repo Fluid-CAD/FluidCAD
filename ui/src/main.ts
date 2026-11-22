@@ -95,7 +95,7 @@ import { AssemblyConnectorCopyService } from './interactive/assembly-connector-c
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
-import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
+import type { ConnectorData, SceneObjectRender, UIConfigurations, UIParamDefinition } from './types';
 import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SEARCH, ICON_SHARE, ICON_TRASH, ICON_UNDO } from './ui/icons';
 import { HubPanelState } from './ui/hub/hub-panel-state';
 import { escapeHtml } from './ui/expression-core';
@@ -403,6 +403,10 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
 
 /** The rendered file's `configurations()` table as its last render reported it — the export and share dialogs read it. */
 let renderedConfigurations: UIConfigurations | null = null;
+/** The rendered file's parameters as its last render reported them — what a chat's parameter card draws its controls from. */
+let renderedParams: UIParamDefinition[] = [];
+/** Told after every render: the Agent panel's parameter cards follow the model on screen. */
+const modelParamsListeners = new Set<() => void>();
 /**
  * `?configuration=Name` — a link that opens on a `configurations()` row.
  * Selected once, on the first render of a file, when that render shows
@@ -1469,6 +1473,27 @@ function loadAgentPanel(): Promise<ChatPanel> {
       onOpenChange: () => panelRail.sync(),
       // The variants the agent proposes (§24) and a change waiting for approval (§25): their pictures, and the one shown over the model.
       variants: new ScratchBuildViews(viewer),
+      // The parameter cards the agent offers (§26): a control sets a session
+      // value as a read-only host's Parameters panel does, Keep writes it as
+      // this host's panel writes a committed value.
+      params: {
+        model: () => ({
+          file: currentSceneAbsPath,
+          params: renderedParams,
+          configuration: renderedConfigurations?.active ?? 'Default',
+        }),
+        onModelChange: (listener) => {
+          modelParamsListeners.add(listener);
+          return () => {
+            modelParamsListeners.delete(listener);
+          };
+        },
+        set: (label, value, body) => engineClient.setParam(label, value, body),
+        reset: (params) => engineClient.resetParams(params),
+        ...(engineClient.writeParam
+          ? { keep: (label, value, body, configuration) => engineClient.writeParam!(label, value, body, configuration) }
+          : {}),
+      },
       // Attaching the selected geometry to a message (§11).
       scene: {
         selection: () => measureController.selection,
@@ -3861,8 +3886,13 @@ function applySceneRendered(msg: any): void {
     if (msg.params !== undefined) {
       (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? [], msg.configurations);
       renderedConfigurations = msg.configurations ?? null;
+      renderedParams = msg.params;
       exportDialog.setConfigurations(renderedConfigurations);
       selectUrlConfiguration(msg.absPath);
+    }
+    // After the file and its parameters are both this render's.
+    for (const listener of [...modelParamsListeners]) {
+      listener();
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     if (msg.compileError?.packageProblems?.length) {

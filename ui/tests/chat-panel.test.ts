@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChatPanel, type ChatConfirmOptions, type ChatPanelDeps, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
-import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChangePreview, ChangePreviewSide, ChatMessage, PermissionMode, QuestionPart, SessionStatus, ToolPart, TurnRecord, VariantTile, VariantsPart } from '../src/ui/chat/chat-types';
+import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChangePreview, ChangePreviewSide, ChatMessage, ParamsPart, PermissionMode, QuestionPart, SessionStatus, ToolPart, TurnRecord, VariantTile, VariantsPart } from '../src/ui/chat/chat-types';
+import type { ParamCardDefinition, ParamCardHost, ParamCardModel } from '../src/ui/chat/parts/params-part';
 import { factChanges } from '../src/ui/chat/parts/build-facts';
 import { duration } from '../src/ui/chat/parts/change-preview';
 import { factLines } from '../src/ui/chat/parts/variants-part';
@@ -2401,6 +2402,459 @@ describe('variants cards (§24)', () => {
     expect(apply(card).disabled).toBe(false);
     expect(pressed(card)).toEqual(['Gusset']);
     expect(h.$('[data-ref="status"]')!.textContent).toContain('FluidCAD did not answer.');
+  });
+});
+
+// --- Parameters the agent offers (offer_params, §26) -------------------------
+
+// jsdom ships no CSS.escape, and a part's row key (`["Plate","Width"]`) needs
+// its quotes escaped inside the attribute selector the panel's rows use.
+if (typeof globalThis.CSS === 'undefined' || globalThis.CSS.escape('"') === '"') {
+  (globalThis as any).CSS = { escape: (value: string) => value.replace(/["\\]/g, '\\$&') };
+}
+
+const PLATE_FILE = '/ws/plate.part.js';
+const WIDTH: ParamCardDefinition = { label: 'Width', kind: 'part', body: 'Plate', defaultValue: 40, currentValue: 40, controlType: 'slider', min: 20, max: 80, step: 5 };
+const DEPTH: ParamCardDefinition = { label: 'Depth', kind: 'part', body: 'Plate', defaultValue: 5, currentValue: 5, controlType: 'auto', description: 'Plate thickness' };
+const STYLE: ParamCardDefinition = {
+  label: 'Style',
+  kind: 'part',
+  body: 'Plate',
+  defaultValue: 'round',
+  currentValue: 'round',
+  controlType: 'select',
+  options: [{ label: 'Round', value: 'round' }, { label: 'Square', value: 'square' }],
+};
+const RIBBED: ParamCardDefinition = { label: 'Ribbed', kind: 'part', body: 'Plate', defaultValue: false, currentValue: false, controlType: 'checkbox' };
+
+function paramsPart(overrides: Partial<ParamsPart> = {}): ParamsPart {
+  return {
+    type: 'params',
+    id: 'p1',
+    file: 'plate.part.js',
+    absPath: PLATE_FILE,
+    note: 'Wider plates need the ribs.',
+    params: [
+      { label: 'Width', part: 'Plate' },
+      { label: 'Depth', part: 'Plate' },
+      { label: 'Style', part: 'Plate' },
+      { label: 'Ribbed', part: 'Plate' },
+    ],
+    ...overrides,
+  };
+}
+
+/** A session whose last turn, ended, left `part` in the chat: a card is used after its turn. */
+function offeringSession(client: FakeChatClient, part: ParamsPart = paramsPart()) {
+  return client.addSession({
+    id: 's',
+    title: 'Plate',
+    status: { state: 'idle' },
+    messages: [
+      { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'u1t', text: 'a plate, roughly 40 wide' }] },
+      { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [part] },
+    ],
+    turns: [{ id: 't1', userMessageId: 'u1', revertible: false, endedAt: '2026-11-22T10:00:00.000Z', endReason: 'done' }],
+  });
+}
+
+/**
+ * The model on screen as the page gives it to a card, standing in for the
+ * engine: a session value shows in the render that follows it, Reset puts
+ * the file's value back, Keep makes the value the declared default.
+ */
+function paramsHost(model: Partial<ParamCardModel> = {}, options: { keep?: boolean; refuse?: Record<string, string> } = {}) {
+  const listeners = new Set<() => void>();
+  const same = (p: ParamCardDefinition, label: string, body?: string) => p.label === label && p.body === body;
+  const host = {
+    current: { file: PLATE_FILE, params: [WIDTH, DEPTH, STYLE, RIBBED], configuration: 'Default', ...model } as ParamCardModel,
+    listeners,
+    /** A render: the model on screen is now `next`. */
+    render(next: Partial<ParamCardModel>) {
+      host.current = { ...host.current, ...next };
+      for (const listener of [...listeners]) {
+        listener();
+      }
+    },
+    model: () => host.current,
+    onModelChange: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    set: vi.fn((label: string, value: unknown, body?: string) => {
+      host.render({ params: host.current.params.map((p) => (same(p, label, body) ? { ...p, currentValue: value as never } : p)) });
+    }),
+    reset: vi.fn((params: { label: string; body?: string }[]) => {
+      host.render({
+        params: host.current.params.map((p) => (params.some((r) => same(p, r.label, r.body)) ? { ...p, currentValue: p.configuredValue ?? p.defaultValue } : p)),
+      });
+    }),
+    keep: vi.fn(async (label: string, value: unknown, body: string | undefined, _configuration: string) => {
+      const reason = options.refuse?.[label];
+      if (reason) {
+        return { success: false, reason };
+      }
+      host.render({ params: host.current.params.map((p) => (same(p, label, body) ? { ...p, defaultValue: value as never, currentValue: value as never } : p)) });
+      return { success: true };
+    }),
+  };
+  const deps: ParamCardHost = options.keep === false ? { model: host.model, onModelChange: host.onModelChange, set: host.set, reset: host.reset } : host;
+  return { host, deps };
+}
+
+describe('parameter cards (§26)', () => {
+  const rows = (card: Element) => [...card.querySelectorAll<HTMLElement>('[data-ref="param"]')];
+  const row = (card: Element, label: string) => rows(card).find((r) => r.dataset.label === label)!;
+  const control = <T extends HTMLElement = HTMLInputElement>(card: Element, label: string) => row(card, label).querySelector<T>('[data-param-key]')!;
+  const status = (card: Element) => card.querySelector('[data-ref="params-status"]')!.textContent;
+  const reset = (card: Element) => card.querySelector<HTMLButtonElement>('[data-ref="params-reset"]')!;
+  const keep = (card: Element) => card.querySelector<HTMLButtonElement>('[data-ref="params-keep"]')!;
+  const changed = (card: Element) => rows(card).filter((r) => r.dataset.changed === 'true').map((r) => r.dataset.label);
+  /** Drag a slider to `value` and let go. */
+  const slide = (input: HTMLInputElement, value: string) => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const choose = (select: HTMLSelectElement, value: string) => {
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  it('draws a control per parameter, as the Parameters panel draws them, with the file and the note', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost();
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(card.dataset.live).toBe('true');
+    expect(card.querySelector('[data-ref="params-file"]')!.textContent).toBe('plate.part.js');
+    expect(card.querySelector('[data-ref="params-note"]')!.textContent).toBe('Wider plates need the ribs.');
+    expect(rows(card).map((r) => r.dataset.label)).toEqual(['Width', 'Depth', 'Style', 'Ribbed']);
+
+    // The panel's own rows: a slider with its range and the value beside it, a number field, a select, a switch.
+    const width = control(card, 'Width');
+    expect([width.type, width.min, width.max, width.step, width.value, width.dataset.paramType]).toEqual(['range', '20', '80', '5', '40', 'slider']);
+    expect(row(card, 'Width').querySelector('[data-param-display]')!.textContent).toBe('40');
+    const depth = control(card, 'Depth');
+    expect([depth.type, depth.value, depth.dataset.paramType]).toEqual(['number', '5', 'number']);
+    expect(row(card, 'Depth').textContent).toContain('Plate thickness');
+    const style = control<HTMLSelectElement>(card, 'Style');
+    expect([...style.options].map((o) => [o.value, o.textContent, o.selected])).toEqual([['round', 'Round', true], ['square', 'Square', false]]);
+    const ribbed = control(card, 'Ribbed');
+    expect([ribbed.type, ribbed.checked, ribbed.dataset.paramType]).toEqual(['checkbox', false, 'checkbox']);
+    // No pencil: a card edits values, not declarations.
+    expect(card.querySelector('[data-param-edit]')).toBeNull();
+
+    // Nothing differs from the file yet: nothing to reset or keep. The turn is over, and the card is usable.
+    expect(status(card)).toBe('The values are the file\'s.');
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([true, true]);
+    expect(changed(card)).toEqual([]);
+    expect(h.panel.el.dataset.status).toBe('idle');
+    expect(host.set).not.toHaveBeenCalled();
+  });
+
+  it('a control sets a session value, typed as the parameter is, and the card follows the render', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost();
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    const width = control(card, 'Width');
+
+    // Dragging moves the number beside the slider; letting go sets the value.
+    width.value = '55';
+    width.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(row(card, 'Width').querySelector('[data-param-display]')!.textContent).toBe('55');
+    expect(host.set).not.toHaveBeenCalled();
+    width.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(host.set.mock.calls).toEqual([['Width', 55, 'Plate']]);
+    // The render that followed: the same control (it kept the focus it had), its row marked, the count said.
+    expect(control(card, 'Width')).toBe(width);
+    expect(width.value).toBe('55');
+    expect(changed(card)).toEqual(['Width']);
+    expect(status(card)).toBe('1 value changed, on screen only.');
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([false, false]);
+
+    choose(control<HTMLSelectElement>(card, 'Style'), 'square');
+    control(card, 'Ribbed').click();
+    expect(host.set.mock.calls.slice(1)).toEqual([['Style', 'square', 'Plate'], ['Ribbed', true, 'Plate']]);
+    expect(changed(card)).toEqual(['Width', 'Style', 'Ribbed']);
+    expect(status(card)).toBe('3 values changed, on screen only.');
+    // Nothing was written, and the session was told nothing.
+    expect(host.keep).not.toHaveBeenCalled();
+    expect(client.paramsKept).not.toHaveBeenCalled();
+  });
+
+  it('shows a value set elsewhere, and leaves a field being typed into as the user has it', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost();
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    const width = control(card, 'Width');
+    const depth = control(card, 'Depth');
+
+    // The Parameters panel (or a second tab) moved Width and Style: the card draws the render.
+    host.render({ params: [{ ...WIDTH, currentValue: 70 }, DEPTH, { ...STYLE, currentValue: 'square' }, RIBBED] });
+    expect(control(card, 'Width')).toBe(width);
+    expect(width.value).toBe('70');
+    expect(row(card, 'Width').querySelector('[data-param-display]')!.textContent).toBe('70');
+    expect(control<HTMLSelectElement>(card, 'Style').value).toBe('square');
+    expect(changed(card)).toEqual(['Width', 'Style']);
+
+    // Typing a depth: a render that lands meanwhile does not overwrite the keystrokes.
+    depth.focus();
+    depth.value = '7';
+    host.render({ params: [{ ...WIDTH, currentValue: 75 }, DEPTH, STYLE, RIBBED] });
+    expect(depth.value).toBe('7');
+    expect(width.value).toBe('75');
+    // Leaving the field sends what was typed, as a number.
+    depth.dispatchEvent(new Event('input', { bubbles: true }));
+    depth.dispatchEvent(new Event('blur'));
+    expect(host.set.mock.calls).toEqual([['Depth', 7, 'Plate']]);
+
+    // The file's declaration changed (the agent gave Width another range): the control is drawn again.
+    host.render({ params: [{ ...WIDTH, max: 120 }, DEPTH, STYLE, RIBBED] });
+    expect(control(card, 'Width')).not.toBe(width);
+    expect(control(card, 'Width').max).toBe('120');
+  });
+
+  it('Reset drops the session values of the card\'s changed parameters, and those only', async () => {
+    const client = new FakeChatClient();
+    // The card offers two of the model's four parameters.
+    offeringSession(client, paramsPart({ params: [{ label: 'Width', part: 'Plate' }, { label: 'Style', part: 'Plate' }] }));
+    const { host, deps } = paramsHost({ params: [{ ...WIDTH, currentValue: 60 }, { ...DEPTH, currentValue: 9 }, STYLE, RIBBED] });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(rows(card).map((r) => r.dataset.label)).toEqual(['Width', 'Style']);
+    expect(changed(card)).toEqual(['Width']);
+
+    reset(card).click();
+    // Depth is changed too, but it is not this card's; Style has nothing to drop.
+    expect(host.reset.mock.calls).toEqual([[[{ label: 'Width', body: 'Plate' }]]]);
+    expect(control(card, 'Width').value).toBe('40');
+    expect(changed(card)).toEqual([]);
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([true, true]);
+    expect(host.current.params.find((p) => p.label === 'Depth')!.currentValue).toBe(9);
+    expect(host.keep).not.toHaveBeenCalled();
+    expect(client.paramsKept).not.toHaveBeenCalled();
+  });
+
+  it('Keep writes each changed value into the file, tells the session, and says what was kept', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost({ params: [{ ...WIDTH, currentValue: 55 }, DEPTH, { ...STYLE, currentValue: 'square' }, RIBBED] });
+    let release!: () => void;
+    const first = new Promise<void>((resolve) => (release = resolve));
+    const write = host.keep.getMockImplementation()!;
+    host.keep.mockImplementationOnce(async (...args) => {
+      await first;
+      return write(...args);
+    });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(keep(card).title).toBe('Write these values into the file, as the parameters\' defaults');
+
+    keep(card).click();
+    await settle();
+    // One write at a time; while they go, neither button answers.
+    expect(host.keep.mock.calls).toEqual([['Width', 55, 'Plate', 'Default']]);
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([true, true]);
+    expect(keep(card).querySelector('.loading')).not.toBeNull();
+    release();
+    await settle();
+    expect(host.keep.mock.calls).toEqual([['Width', 55, 'Plate', 'Default'], ['Style', 'square', 'Plate', 'Default']]);
+    // The session is told what went into the file: the agent hears it with the next message.
+    expect(client.paramsKept.mock.calls).toEqual([['s', 'p1', { kept: [{ label: 'Width', part: 'Plate', value: 55 }, { label: 'Style', part: 'Plate', value: 'square' }] }]]);
+    // The values are the file's now: nothing differs, and the card says what it kept.
+    expect(changed(card)).toEqual([]);
+    expect(card.querySelector('[data-ref="params-kept"]')!.textContent).toBe('Kept in the file: Width 55, Style square');
+    expect(card.querySelector('[data-ref="params-error"]')).toBeNull();
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([true, true]);
+    expect(control(card, 'Width').value).toBe('55');
+    // Keep is the user's own action: no turn started, nothing to approve.
+    expect(h.panel.el.dataset.status).toBe('idle');
+    expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it('keeps into the configuration on screen, and a value the file refuses stays on screen with the reason', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    // The row "Large" is on screen: it sets Width to 60, and a session value sits on that and on Depth.
+    const { host, deps } = paramsHost(
+      { configuration: 'Large', params: [{ ...WIDTH, configuredValue: 60, currentValue: 65 }, { ...DEPTH, currentValue: 8 }, STYLE, RIBBED] },
+      { refuse: { Depth: 'the default of Depth is not a plain value' } },
+    );
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    // A value that is the row's own is not a change, whatever the literal says.
+    host.render({ params: [{ ...WIDTH, configuredValue: 60, currentValue: 60 }, { ...DEPTH, currentValue: 8 }, STYLE, RIBBED] });
+    expect(changed(card)).toEqual(['Depth']);
+    host.render({ params: [{ ...WIDTH, configuredValue: 60, currentValue: 65 }, { ...DEPTH, currentValue: 8 }, STYLE, RIBBED] });
+    expect(changed(card)).toEqual(['Width', 'Depth']);
+    expect(status(card)).toBe('2 values changed from Large, on screen only.');
+    expect(keep(card).title).toBe('Write these values into the configuration Large');
+
+    keep(card).click();
+    await settle();
+    expect(host.keep.mock.calls).toEqual([['Width', 65, 'Plate', 'Large'], ['Depth', 8, 'Plate', 'Large']]);
+    // Only what was written is reported, with its configuration.
+    expect(client.paramsKept.mock.calls).toEqual([['s', 'p1', { kept: [{ label: 'Width', part: 'Plate', value: 65, configuration: 'Large' }] }]]);
+    expect(card.querySelector('[data-ref="params-kept"]')!.textContent).toBe('Kept in the file: Width 65 (Large)');
+    // The refused value was set again (the write may have dropped it), and the card says why it is not in the file.
+    expect(host.set.mock.calls).toEqual([['Depth', 8, 'Plate']]);
+    expect(card.querySelector('[data-ref="params-error"]')!.textContent).toBe('Not written: Depth (the default of Depth is not a plain value).');
+    expect(control(card, 'Depth').value).toBe('8');
+    expect(keep(card).disabled).toBe(false);
+  });
+
+  it('a parameter the model no longer declares is unavailable, and so is the whole card while another file is on screen', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost({ params: [{ ...WIDTH, currentValue: 55 }, DEPTH, STYLE, RIBBED] });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+
+    // The agent rewrote the file: Depth is gone, and a part named Lid now has a Width of its own.
+    host.render({ params: [{ ...WIDTH, currentValue: 55 }, { ...WIDTH, body: 'Lid', currentValue: 30, defaultValue: 30 }, STYLE, RIBBED] });
+    expect(rows(card).map((r) => [r.dataset.label, r.dataset.missing ?? 'live'])).toEqual([['Width', 'live'], ['Depth', 'true'], ['Style', 'live'], ['Ribbed', 'live']]);
+    expect(row(card, 'Depth').querySelector('[data-ref="param-why"]')!.textContent).toBe('No longer in the model');
+    expect(row(card, 'Depth').querySelector('input, select, button')).toBeNull();
+    // The Plate's Width is still the card's, not the Lid's.
+    expect(control(card, 'Width').value).toBe('55');
+    expect([card.dataset.live, reset(card).disabled]).toEqual(['true', false]);
+
+    // Another file comes on screen: no control to drag and no value (the card has none of its own), and what to do.
+    host.render({ file: '/ws/other.part.js', params: [{ ...WIDTH, body: 'Other', currentValue: 99 }] });
+    expect(card.dataset.live).toBe('false');
+    expect(card.querySelectorAll('[data-param-key]')).toHaveLength(0);
+    expect(rows(card).map((r) => r.textContent)).toEqual(['Width', 'Depth', 'Style', 'Ribbed']);
+    expect(status(card)).toBe('Open plate.part.js to use these controls.');
+    expect([reset(card), keep(card)]).toEqual([null, null]);
+
+    // No model at all, then the card's file again: the controls are back, at the values the model has.
+    host.render({ file: null, params: [] });
+    expect(status(card)).toBe('Open plate.part.js to use these controls.');
+    host.render({ file: 'virtual:live-render:/ws/plate.part.js', params: [WIDTH, DEPTH, STYLE, RIBBED] });
+    expect(card.dataset.live).toBe('true');
+    expect(rows(card).every((r) => r.dataset.missing === undefined)).toBe(true);
+    expect(control(card, 'Width').value).toBe('40');
+
+    // The file declares none of them any more.
+    host.render({ params: [] });
+    expect(card.dataset.live).toBe('false');
+    expect(status(card)).toBe('The model no longer declares these parameters.');
+    expect([reset(card), keep(card)]).toEqual([null, null]);
+  });
+
+  it('an old chat\'s card reopens on the model as it is now, with what was kept', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client, paramsPart({ kept: [{ label: 'Width', part: 'Plate', value: 55 }, { label: 'Style', part: 'Plate', value: 'square', configuration: 'Large' }] }));
+    // Since the card was offered, the file's Width became 55 (the kept value) and a session value moved it to 60.
+    const { deps } = paramsHost({ params: [{ ...WIDTH, defaultValue: 55, currentValue: 60 }, DEPTH, STYLE, RIBBED] }, { keep: false });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(control(card, 'Width').value).toBe('60');
+    expect(changed(card)).toEqual(['Width']);
+    expect(card.querySelector('[data-ref="params-kept"]')!.textContent).toBe('Kept in the file: Width 55, Style square (Large)');
+    // A host that cannot edit source offers Reset and no Keep.
+    expect(reset(card).disabled).toBe(false);
+    expect(keep(card)).toBeNull();
+
+    // Kept in another tab: this card says so from the event.
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'p1', patch: { kept: [{ label: 'Width', part: 'Plate', value: 60 }] } });
+    await settle();
+    expect(card.querySelector('[data-ref="params-kept"]')!.textContent).toBe('Kept in the file: Width 60');
+    expect(control(card, 'Width').value).toBe('60');
+  });
+
+  it('without a model to read, lists the parameters by name', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(card.dataset.live).toBe('false');
+    expect(rows(card).map((r) => r.textContent)).toEqual(['Width', 'Depth', 'Style', 'Ribbed']);
+    expect(card.querySelectorAll('input, select, button')).toHaveLength(0);
+    expect(status(card)).toBe('The controls need the model on screen.');
+  });
+
+  it('takes labels, option texts and the note as text, and a range that is not a number as no range', async () => {
+    const client = new FakeChatClient();
+    const markup = '<img src=x onerror="window.pwned=1">';
+    const hostile: ParamCardDefinition = {
+      label: `W"${markup}`,
+      kind: 'part',
+      body: `P${markup}`,
+      defaultValue: 4,
+      currentValue: 4,
+      controlType: 'slider',
+      min: `0" autofocus onfocus="window.pwned=1` as never,
+      max: 10,
+      description: markup,
+    };
+    const select: ParamCardDefinition = { ...STYLE, label: 'Kind', options: [{ label: markup, value: `a"${markup}` }], currentValue: `a"${markup}`, defaultValue: `a"${markup}` };
+    offeringSession(client, paramsPart({
+      note: markup,
+      file: `plate${markup}.part.js`,
+      params: [
+        { label: hostile.label, part: hostile.body },
+        { label: 'Kind', part: 'Plate' },
+        { label: `Gone${markup}`, part: `P${markup}` },
+      ],
+    }));
+    const { host, deps } = paramsHost({ params: [hostile, select] });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    // Nothing of it became an element or an attribute.
+    expect(card.querySelectorAll('img')).toHaveLength(0);
+    expect(card.querySelector('[onerror], [onfocus], [autofocus]')).toBeNull();
+    expect(card.querySelector('[data-ref="params-note"]')!.textContent).toBe(markup);
+    expect(card.querySelector('[data-ref="params-file"]')!.textContent).toBe(`plate${markup}.part.js`);
+    const slider = rows(card)[0].querySelector<HTMLInputElement>('[data-param-key]')!;
+    expect(slider.dataset.paramLabel).toBe(hostile.label);
+    // The range that was no number is left out (the slider's own default), the one that was stays.
+    expect([slider.min, slider.max]).toEqual(['0', '10']);
+    expect(rows(card)[0].textContent).toContain(markup);
+    expect([...rows(card)[1].querySelectorAll('option')].map((o) => [o.textContent, o.value])).toEqual([[markup, `a"${markup}`]]);
+    expect(rows(card)[2].textContent).toBe(`Gone${markup}No longer in the model`);
+    // The control still names its parameter exactly.
+    slide(slider, '7');
+    expect(host.set.mock.calls).toEqual([[hostile.label, 7, hostile.body]]);
+    expect((window as unknown as { pwned?: number }).pwned).toBeUndefined();
+  });
+
+  it('stops following the model when its chat leaves the screen', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    client.addSession({ id: 'other', title: 'Other', updatedAt: '2026-11-16T10:00:00.000Z' });
+    const { host, deps } = paramsHost();
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    expect(host.listeners.size).toBe(1);
+    await h.panel.state.openSession('other');
+    await settle();
+    expect(h.$('[data-part="params"]')).toBeNull();
+    expect(host.listeners.size).toBe(0);
+    // Back on the chat, its card follows again; closing the panel for good lets go.
+    await h.panel.state.openSession('s');
+    await settle();
+    expect(host.listeners.size).toBe(1);
+    h.panel.destroy();
+    expect(host.listeners.size).toBe(0);
   });
 });
 

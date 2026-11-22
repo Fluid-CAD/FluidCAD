@@ -10,6 +10,7 @@ import type {
   ChatEvent,
   ChatPart,
   LoginStatus,
+  ParamsKept,
   PermissionMode,
   QuestionReply,
   RevertResult,
@@ -488,6 +489,30 @@ export class FakeChatClient implements ChatClient {
       }
     }
     return { ok: false, status: 404, error: 'No such variants.' };
+  });
+
+  /** What `paramsKept` answers; null: 204 and the card says what was kept. */
+  keptAnswer: ChatAnswer<null> | null = null;
+
+  /** Answers like the runtime: the card keeps the last value kept of each parameter. */
+  paramsKept = vi.fn(async (id: string, paramsId: string, body: ParamsKept): Promise<ChatAnswer<null>> => {
+    if (this.keptAnswer) {
+      return this.keptAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'params' && part.id === paramsId) {
+          const kept = new Map((part.kept ?? []).map((k) => [JSON.stringify([k.part ?? null, k.label]), k]));
+          for (const value of body.kept) {
+            kept.set(JSON.stringify([value.part ?? null, value.label]), value);
+          }
+          this.emit(id, { type: 'part-update', messageId: message.id, partId: part.id, patch: { kept: [...kept.values()] } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such parameter card.' };
   });
 
   /** What `requestPreview` answers (before the engine starts the builds); null: 204 and the card builds. */

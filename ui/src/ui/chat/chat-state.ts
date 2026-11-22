@@ -11,6 +11,7 @@ import {
   type ChatEvent,
   type ChatEventEnvelope,
   type ChatMessage,
+  type ParamKeptValue,
   type PermissionMode,
   type QuestionReply,
   type RevertResult,
@@ -615,6 +616,26 @@ export class ChatState {
       return;
     }
     void this.client.saveVariantPicture(id, variantsId, { label, image: { mediaType: 'image/png', base64 } });
+  }
+
+  /**
+   * Tell the engine what Keep wrote into the source from a parameter card
+   * (§26). Resolves true once the engine took it: the card then says what
+   * was kept through the event that follows, and the agent is told with the
+   * next message. The values are in the file either way.
+   */
+  async paramsKept(paramsId: string, kept: ParamKeptValue[]): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.paramsKept(id, paramsId, { kept });
+    if (answer.ok === false) {
+      this.error = answer.error;
+      this.emit({ kind: 'activity' });
+      return false;
+    }
+    return true;
   }
 
   /** The turn record of `turnId` in the session on screen. */

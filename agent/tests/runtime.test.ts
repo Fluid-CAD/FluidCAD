@@ -16,7 +16,7 @@ import { RESTART_REASON } from '../src/session.ts';
 import { SessionStore, type SessionRecord } from '../src/session-store.ts';
 import { NO_TURN_MESSAGE, STOPPED_MESSAGE } from '../src/tool-gate.ts';
 import type { ModelParam } from '../src/param-cards.ts';
-import type { ChatEventEnvelope, ParamsPart, QuestionPart, SessionSnapshot, ToolPart, VariantsPart } from '../src/types.ts';
+import type { ChatEventEnvelope, ParamsPart, QuestionPart, SessionSnapshot, ShowPart, ToolPart, VariantsPart } from '../src/types.ts';
 
 // The runtime end to end, with a fake backend in place of a CLI: the fake run
 // connects to the session's MCP endpoint over HTTP the way Claude Code does,
@@ -157,6 +157,8 @@ let scratchCost: ((source: string) => unknown) | null = null;
 
 /** What this test engine's model on screen (plate.part.js) declared in its last render. */
 let modelParams: ModelParam[] = [];
+/** What this test engine's `POST /api/resolve-selection` answers (show_user); null: 404. */
+let resolveSelection: ((body: any) => { status: number; json: unknown }) | null = null;
 
 async function start(options: { idleMs?: number } = {}): Promise<void> {
   backend = new FakeBackend();
@@ -173,6 +175,14 @@ async function start(options: { idleMs?: number } = {}): Promise<void> {
       return;
     }
     res.json(scratchBuild(req.body.source));
+  });
+  app.post('/api/resolve-selection', (req, res) => {
+    if (!resolveSelection) {
+      res.status(404).json({ error: 'not here' });
+      return;
+    }
+    const answer = resolveSelection(req.body);
+    res.status(answer.status).json(answer.json);
   });
   app.post('/api/scratch-build/cost', (req, res) => {
     if (!scratchCost) {
@@ -208,6 +218,7 @@ beforeEach(async () => {
   scratchBuild = null;
   scratchCost = null;
   modelParams = [];
+  resolveSelection = null;
   prefs = { agent: { defaultAgent: null, permissionMode: 'ask' } };
   await start();
 });
@@ -1316,6 +1327,80 @@ describe('parameter cards (offer_params, §26)', () => {
     // What was kept before the restart, and since, is told with the continue.
     expect(sent).toContain('<param_changes>');
     expect(sent).toContain('- plate.part.js: "Width" of "Plate" = 48\n</param_changes>');
+  });
+});
+
+
+describe('pointing at the model (show_user, §27)', () => {
+  const show = (args: object) => ({ name: 'show_user', arguments: args });
+  const showCards = (snap: SessionSnapshot) => snap.messages.flatMap((m) => m.parts).filter((p): p is ShowPart => p.type === 'show');
+  const face = { shapeId: 'sh-1', kind: 'face', index: 5, sceneObjectId: 'ex-1', sceneObjectName: 'extrude', part: null, summary: { form: 'plane', center: [0, 0, 5] } };
+
+  it('puts the card in the chat without waiting, refuses an item that resolves to nothing, and a restart leaves the card as it is', async () => {
+    resolveSelection = (body) => ({
+      status: 200,
+      json: { ok: true, count: body.expression === 'face().cylinder(4)' ? 0 : 1, matches: body.expression === 'face().cylinder(4)' ? [] : [face], scope: { kind: 'root' }, unit: 'mm' },
+    });
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, {
+      text: calls(
+        show({ items: [{ label: 'the mounting face', expression: 'face().onPlane("xy", 5)' }], note: 'The holes go here.' }),
+        show({ items: [{ label: 'the bore', expression: 'face().cylinder(4)' }] }),
+      ),
+    });
+    // Nothing waits for the user: the turn ends by itself.
+    const done = await idle(id);
+    expect(done.status).toEqual({ state: 'idle' });
+    const [card] = showCards(done);
+    expect(showCards(done)).toHaveLength(1);
+    expect(card).toEqual({
+      type: 'show',
+      id: expect.any(String),
+      file: 'plate.part.js',
+      absPath: path.join(workspace, 'plate.part.js'),
+      note: 'The holes go here.',
+      items: [{ n: 1, color: 'red', label: 'the mounting face', target: { expression: 'face().onPlane("xy", 5)' }, faces: 1, edges: 0 }],
+    });
+    expect(toolParts(done)).toEqual([]);
+    expect(done.turns.map((t) => t.revertible)).toEqual([false]);
+    const [shown, refused] = backend.runs[0].results;
+    expect(JSON.parse(textOf(shown))).toEqual({ shown: [{ n: 1, color: 'red', label: 'the mounting face', faces: 1, edges: 0 }] });
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toBe('Item 1 ("the bore"): the expression matches nothing in the current model. Nothing was shown.');
+    // The card is in the stored session, as it is in the snapshot.
+    expect(runtime.store.read(id)!.messages.flatMap((m) => m.parts).filter((p) => p.type === 'show')).toEqual([card]);
+
+  });
+
+  it('a stored card is left as it is by a restart, and a cut-off turn\'s continue note lists the call', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000027';
+    const card: ShowPart = {
+      type: 'show',
+      id: 'show-old',
+      file: 'plate.part.js',
+      absPath: path.join(workspace, 'plate.part.js'),
+      items: [{ n: 1, color: 'red', label: 'the mounting face', target: { pick: { shapeId: 'sh-1', kind: 'face', index: 5 } }, faces: 1, edges: 0 }],
+    };
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-22T10:00:00.000Z',
+      updatedAt: '2026-11-22T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'Where do the holes go?' }] },
+        { id: 'a', role: 'assistant', turnId: 't', createdAt: '', parts: [card] },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+    });
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(showCards(snap)).toEqual([card]);
+    expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(202);
+    await idle(id);
+    expect(backend.runs[0].sent[0]).toContain('- show_user plate.part.js — done: the items are on a card in the chat');
   });
 });
 

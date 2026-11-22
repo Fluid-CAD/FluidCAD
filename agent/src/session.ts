@@ -21,7 +21,7 @@ import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from '
 import { applyChatEvent, findMessage, findPart } from './transcript.ts';
 import { cancelUnbuilt, VARIANTS_RESTART_BUILDING_REASON, VARIANTS_RESTART_REASON } from './variants.ts';
 import { cancelUnfinishedPreview } from './change-preview.ts';
-import { ASK_USER_TOOL, OFFER_PARAMS_TOOL, PROPOSE_VARIANTS_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
+import { ASK_USER_TOOL, OFFER_PARAMS_TOOL, PROPOSE_VARIANTS_TOOL, SHOW_USER_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
 import type {
   AgentKind,
   ApprovalDecision,
@@ -380,6 +380,8 @@ export class AgentSession {
           calls.push({ name: PROPOSE_VARIANTS_TOOL, target: part.file, outcome: variantsOutcome(part) });
         } else if (part.type === 'params') {
           calls.push({ name: OFFER_PARAMS_TOOL, target: part.file, outcome: 'done: the card is in the chat' });
+        } else if (part.type === 'show') {
+          calls.push({ name: SHOW_USER_TOOL, target: part.file, outcome: 'done: the items are on a card in the chat' });
         }
       }
     }
@@ -740,6 +742,7 @@ export class AgentSession {
         askUser: (input, signal) => this.gate.ask(input, signal),
         proposeVariants: (input, signal) => this.gate.propose(input, signal),
         offerParams: (input) => this.gate.offer(input),
+        showUser: (input) => this.gate.show(input),
         indexes: this.deps.indexes,
         port: this.deps.port,
       });

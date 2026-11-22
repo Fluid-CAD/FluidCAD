@@ -27,10 +27,11 @@ import type { Checkpoint } from '../src/session-store.ts';
 import { applyChatEvent } from '../src/transcript.ts';
 import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readPick, readQuestionReply, readSvg } from '../src/questions.ts';
 import { formatSceneReferences } from '../src/instructions.ts';
+import { NO_MODEL_TO_SHOW_MESSAGE } from '../src/show.ts';
 import { VARIANTS_ANSWERED_NOTE, VARIANTS_SKIPPED_NOTE, VARIANTS_STOPPED_MESSAGE, VARIANTS_TIMED_OUT_MESSAGE, readVariantsReply } from '../src/variants.ts';
 import { findPart } from '../src/transcript.ts';
 import type { ModelParam } from '../src/param-cards.ts';
-import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, ParamsPart, PermissionMode, QuestionItem, QuestionPart, SceneReference, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
+import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, ParamsPart, PermissionMode, QuestionItem, QuestionPart, SceneReference, ShowPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
 
 // A stand-in for the engine the pinned server talks to: write_file and
 // edit_range ask it for dirty buffers, a lint and a render. Only the dirty
@@ -57,6 +58,9 @@ let scratchCost: ((source: string) => unknown | Promise<unknown>) | null = null;
 let scratchCosts: string[] = [];
 /** What the engine's lint says of a candidate text; null answers 404 (the tools then carry on). */
 let lint: ((code: string) => unknown) | null = null;
+/** What the engine's `POST /api/resolve-selection` answers (show_user); null answers 404 like any other route. */
+let resolveSelection: ((body: any) => { status: number; json: unknown } | Promise<{ status: number; json: unknown }>) | null = null;
+let resolveSelections: any[] = [];
 let workspace: string;
 let pinned: RegistryEntry;
 
@@ -70,7 +74,21 @@ beforeEach(async () => {
   scratchCost = null;
   scratchCosts = [];
   lint = null;
+  resolveSelection = null;
+  resolveSelections = [];
   engine = http.createServer((req, res) => {
+    if (req.url === '/api/resolve-selection' && resolveSelection) {
+      const chunks: Buffer[] = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', async () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        resolveSelections.push(body);
+        const answer = await resolveSelection!(body);
+        res.writeHead(answer.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(answer.json));
+      });
+      return;
+    }
     if ((req.url === '/api/scratch-build' && scratchBuild) || (req.url === '/api/scratch-build/cost' && scratchCost) || (req.url === '/api/lint-fluid-js' && lint)) {
       const chunks: Buffer[] = [];
       req.on('data', (c) => chunks.push(c));
@@ -198,6 +216,9 @@ class FakeHost implements ToolGateHost {
   paramCards(): ParamsPart[] {
     return (this.messages[0]?.parts ?? []).filter((p): p is ParamsPart => p.type === 'params');
   }
+  showCards(): ShowPart[] {
+    return (this.messages[0]?.parts ?? []).filter((p): p is ShowPart => p.type === 'show');
+  }
   tools(): ToolPart[] {
     return (this.messages[0]?.parts ?? []).filter((p): p is ToolPart => p.type === 'tool');
   }
@@ -264,7 +285,7 @@ class ManualTimers implements GateTimers {
 
 const clients: Client[] = [];
 
-async function connect(gate: ToolGate, options: { ask?: boolean; variants?: boolean; params?: boolean } = {}): Promise<Client> {
+async function connect(gate: ToolGate, options: { ask?: boolean; variants?: boolean; params?: boolean; show?: boolean } = {}): Promise<Client> {
   const server = buildServer({
     pinnedWorkspace: pinned,
     toolGate: gate,
@@ -272,6 +293,7 @@ async function connect(gate: ToolGate, options: { ask?: boolean; variants?: bool
     ...(options.ask ? { askUser: (input, signal) => gate.ask(input, signal) } : {}),
     ...(options.variants ? { proposeVariants: (input, signal) => gate.propose(input, signal) } : {}),
     ...(options.params ? { offerParams: (input) => gate.offer(input) } : {}),
+    ...(options.show ? { showUser: (input) => gate.show(input) } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -1768,6 +1790,127 @@ describe('ToolGate: parameter cards (offer_params, §26)', () => {
     expect(late.isError).toBe(true);
     expect(textOf(late)).toBe(NO_TURN_MESSAGE);
     for (const host of [none, bare, idle]) {
+      expect(host.events).toEqual([]);
+    }
+  });
+});
+
+describe('ToolGate: pointing at the model (show_user, §27)', () => {
+  const match = (shapeId: string, kind: string, index: number) => ({ shapeId, kind, index, sceneObjectId: 'ex-1', sceneObjectName: 'extrude', part: null, summary: { form: 'plane', center: [0, 0, 0] } });
+  const found = (...matches: unknown[]) => ({ status: 200, json: { ok: true, count: matches.length, matches, scope: { kind: 'root' }, unit: 'mm' } });
+  const show = (client: Client, args: object) => client.callTool({ name: 'show_user', arguments: args as Record<string, unknown> });
+
+  function hostWithModel(): FakeHost {
+    const host = new FakeHost();
+    host.modelFile = 'parts/plate.part.js';
+    return host;
+  }
+
+  it('is offered by a chat session\'s server only, as a read-only tool outside the class table', async () => {
+    const plain = await connect(new ToolGate(new FakeHost()), { ask: true, variants: true, params: true });
+    expect((await plain.listTools()).tools.map((t) => t.name)).not.toContain('show_user');
+    const showing = await connect(new ToolGate(new FakeHost()), { show: true });
+    const tool = (await showing.listTools()).tools.find((t) => t.name === 'show_user')!;
+    expect(tool.annotations).toEqual({ readOnlyHint: true });
+    expect(toolClass('show_user')).toBeUndefined();
+    expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['items', 'note']);
+  });
+
+  it('puts the items on a card with a number and a colour each, and returns at once with what they resolved to', async () => {
+    const host = hostWithModel();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { show: true });
+    const ref = { shapeId: 'sh-1', kind: 'edge', index: 4 };
+    resolveSelection = (body) => {
+      if (body.picks) {
+        return { status: 200, json: { ...found(match('sh-1', 'edge', 4)).json, synthesized: { ok: true, expression: '$obj["ex-1"].endEdges(0)', source: 'e.endEdges(0)' } } };
+      }
+      return body.expression === '$obj["ex-1"].endEdges(0)' ? found(match('sh-1', 'edge', 4)) : found(match('sh-1', 'face', 5), match('sh-1', 'face', 6));
+    };
+    const result = await show(client, {
+      items: [{ label: ' the two\n mounting faces ', expression: 'face().onPlane("xy", 30)' }, { label: '<b>this edge</b>', ref }],
+      note: '  Which one\n carries the load?  ',
+    });
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toEqual({
+      shown: [
+        { n: 1, color: 'red', label: 'the two mounting faces', faces: 2, edges: 0 },
+        { n: 2, color: 'blue', label: '<b>this edge</b>', faces: 0, edges: 1 },
+      ],
+    });
+    // The card carries what to resolve again, never the shape ids a selector resolved to; a ref goes on as its verified selector.
+    const card = host.showCards()[0];
+    expect(card).toEqual({
+      type: 'show',
+      id: card.id,
+      file: 'parts/plate.part.js',
+      absPath: path.join(workspace, 'parts/plate.part.js'),
+      note: 'Which one carries the load?',
+      items: [
+        { n: 1, color: 'red', label: 'the two mounting faces', target: { expression: 'face().onPlane("xy", 30)' }, faces: 2, edges: 0 },
+        { n: 2, color: 'blue', label: '<b>this edge</b>', target: { expression: '$obj["ex-1"].endEdges(0)' }, faces: 0, edges: 1 },
+      ],
+    });
+    expect(card.id).toMatch(/^show-/);
+    // A card of its own, never a tool card; nothing to approve, nothing to wait for, nothing kept to revert.
+    expect(host.tools()).toEqual([]);
+    expect(host.approvalChanges).toEqual([]);
+    expect(host.questionChanges).toEqual([]);
+    expect(host.checkpoints.size).toBe(0);
+    expect(host.persisted).toBeGreaterThan(0);
+  });
+
+  it('keeps a ref as the ref when no selector resolves back to it', async () => {
+    const host = hostWithModel();
+    const client = await connect(new ToolGate(host), { show: true });
+    const ref = { shapeId: 'sh-1', kind: 'face', index: 5 };
+    resolveSelection = () => ({ status: 200, json: { ...found(match('sh-1', 'face', 5)).json, synthesized: { ok: false, reason: 'geometry from a loop' } } });
+    expect((await show(client, { items: [{ label: 'this face', ref }] })).isError).not.toBe(true);
+    expect(host.showCards()[0].items).toEqual([{ n: 1, color: 'red', label: 'this face', target: { pick: ref }, faces: 1, edges: 0 }]);
+    expect(host.showCards()[0].note).toBeUndefined();
+  });
+
+  it('refuses a call with an item that resolves to nothing, naming it, and shows nothing', async () => {
+    const host = hostWithModel();
+    const client = await connect(new ToolGate(host), { show: true });
+    resolveSelection = (body) => (body.expression === 'face().cylinder(4)' ? found() : found(match('sh-1', 'face', 5)));
+    const empty = await show(client, { items: [{ label: 'top', expression: 'face().onPlane("xy", 30)' }, { label: 'the bore', expression: 'face().cylinder(4)' }] });
+    expect(empty.isError).toBe(true);
+    expect(textOf(empty)).toBe('Item 2 ("the bore"): the expression matches nothing in the current model. Nothing was shown.');
+    resolveSelection = () => ({ status: 422, json: { error: 'face().nope is not a function', code: 'evaluation-error' } });
+    const broken = await show(client, { items: [{ label: 'the bore', expression: 'face().nope()' }] });
+    expect(textOf(broken)).toBe('Item 1 ("the bore"): face().nope is not a function. Nothing was shown.');
+    const both = await show(client, { items: [{ label: 'both', expression: 'face()', ref: { shapeId: 'sh-1', kind: 'face', index: 0 } }] });
+    expect(textOf(both)).toContain('Item 1 ("both"): give exactly one of `expression`');
+    expect(host.events).toEqual([]);
+  });
+
+  it('shows nothing without a model, outside a turn, or once the turn was stopped while the items resolved', async () => {
+    resolveSelection = () => found(match('sh-1', 'face', 5));
+    const items = [{ label: 'top', expression: 'face().onPlane("xy", 30)' }];
+
+    const none = new FakeHost();
+    none.modelFile = null;
+    const noModel = await show(await connect(new ToolGate(none), { show: true }), { items });
+    expect(noModel.isError).toBe(true);
+    expect(textOf(noModel)).toBe(NO_MODEL_TO_SHOW_MESSAGE);
+
+    const idle = hostWithModel();
+    idle.turn = null;
+    const late = await show(await connect(new ToolGate(idle), { show: true }), { items });
+    expect(late.isError).toBe(true);
+    expect(textOf(late)).toBe(NO_TURN_MESSAGE);
+    expect(resolveSelections).toEqual([]);
+
+    const stopped = hostWithModel();
+    resolveSelection = () => {
+      stopped.turn = null;
+      return found(match('sh-1', 'face', 5));
+    };
+    const cut = await show(await connect(new ToolGate(stopped), { show: true }), { items });
+    expect(cut.isError).toBe(true);
+    expect(textOf(cut)).toBe(STOPPED_MESSAGE);
+    for (const host of [none, idle, stopped]) {
       expect(host.events).toEqual([]);
     }
   });

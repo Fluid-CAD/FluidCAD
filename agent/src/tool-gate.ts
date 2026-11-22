@@ -21,7 +21,8 @@
 // variants, shows them as a card, waits for the pick and writes the picked
 // one itself — the pick is the approval. `offer_params` (§26) is the third:
 // it puts the model's parameters in the chat as a card of controls and
-// returns at once, with nothing to approve and nothing to wait for.
+// returns at once, with nothing to approve and nothing to wait for; and
+// `show_user` (§27) the fourth: what the agent points at, as a card.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -42,6 +43,7 @@ import {
   type McpToolGate,
   type McpToolGateDecision,
   type OfferParamsInput,
+  type ShowUserInput,
   type ProposeVariantsInput,
   type RegistryEntry,
   type SourceEditPreview,
@@ -50,6 +52,7 @@ import type { Checkpoint } from './session-store.ts';
 import { AUTO_PREVIEW_MAX_BUILD_MS, ChangePreviewJob, isModelFile } from './change-preview.ts';
 import { failure, questionPatch, questionResult, readQuestionReply, readQuestions, type QuestionOutcome } from './questions.ts';
 import { offerResult, readOffer, type ParamCardModel } from './param-cards.ts';
+import { readShow, showResult } from './show.ts';
 import {
   builtTile,
   candidateRefusal,
@@ -62,7 +65,7 @@ import {
   variantsResult,
   type VariantsOutcome,
 } from './variants.ts';
-import type { ApprovalDecision, ChangePreview, ChatEvent, ChatPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart, ParamsPart } from './types.ts';
+import type { ApprovalDecision, ChangePreview, ChatEvent, ChatPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart, ParamsPart, ShowPart } from './types.ts';
 
 /** Longest tool output text kept in the transcript. */
 const MAX_OUTPUT_CHARS = 20_000;
@@ -580,6 +583,38 @@ export class ToolGate implements McpToolGate {
     this.host.emit({ type: 'part-start', messageId: this.host.assistantMessageId(), part });
     this.host.persist();
     return offerResult(read);
+  }
+
+  /**
+   * `show_user` (§27): resolves what the agent points at against the model
+   * on screen, puts the items in the chat as a card of numbered, coloured
+   * chips and resolves at once with each item's number, colour and counts,
+   * or with what is wrong with the call (an item that resolves to nothing,
+   * by name). The page that shows the card draws the highlight. It waits
+   * for nothing and changes no file: no approval, no checkpoint. Nothing is
+   * shown outside a running turn.
+   */
+  async show(input: ShowUserInput): Promise<CallToolResult> {
+    const turn = this.host.activeTurn();
+    if (!turn) {
+      return failure(NO_TURN_MESSAGE);
+    }
+    const read = await readShow(input, {
+      pinnedWorkspace: this.host.pinnedWorkspace(),
+      file: this.host.model().file,
+      relative: (absPath) => relativeTo(this.host.workspacePath, absPath),
+    });
+    // The items were resolved over a wait: the turn may have been stopped meanwhile.
+    if (!this.isActive(turn.turnId)) {
+      return failure(STOPPED_MESSAGE);
+    }
+    if (read.ok === false) {
+      return failure(read.error);
+    }
+    const part: ShowPart = { type: 'show', id: `show-${randomUUID()}`, ...read.card };
+    this.host.emit({ type: 'part-start', messageId: this.host.assistantMessageId(), part });
+    this.host.persist();
+    return showResult(part);
   }
 
   /**

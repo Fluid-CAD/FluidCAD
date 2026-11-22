@@ -46,6 +46,37 @@ describe('instructions', () => {
     expect(inAppPreamble('api')).toContain(words.slice(0, 60));
   });
 
+  it('says in five lines when to point with show_user and when not to', () => {
+    const lines = IN_APP_PREAMBLE.split('\n');
+    const start = lines.findIndex((line) => line.startsWith('show_user '));
+    expect(start).toBeGreaterThan(0);
+    // Its own paragraph, after the parameters': five lines between two empty ones.
+    expect([lines[start - 1], lines[start + 5]]).toEqual(['', '']);
+    expect(lines[start - 2]).toContain('Never add a param() only to have something to offer');
+    const words = lines.slice(start, start + 5).join(' ');
+    expect(words).toContain('write `[1]`, `[2]` in your text to refer to them');
+    expect(words).toContain('does not wait and changes nothing');
+    expect(words).toContain('Not by default');
+    expect(words).toContain('only when words would not locate the geometry reliably');
+    expect(words).toContain('a problem on a particular face or edge, the candidates of a question, a proposal touching particular geometry');
+    expect(words).toContain('Never after every edit, to illustrate what you just built, for a whole body, or again in the same turn');
+    expect(words).toContain('the few items your text refers to');
+    // Every agent is told, the API agent included.
+    expect(inAppPreamble('api')).toContain(words.slice(0, 60));
+  });
+
+  it('says in three lines when a question is answered by picking, with the question tool\'s own paragraph', () => {
+    const lines = IN_APP_PREAMBLE.split('\n');
+    const start = lines.findIndex((line) => line.startsWith('A question may take `pick`'));
+    expect(lines[start - 3].startsWith('ask_user ')).toBe(true);
+    expect(lines[start + 3]).toBe('');
+    const words = lines.slice(start, start + 3).join(' ');
+    expect(words).toContain('clicking a face or edges in the viewport');
+    expect(words).toContain('Only when the answer is a piece of the model the request leaves open and a wrong guess costs rework');
+    expect(words).toContain('not when they attached it as a scene reference, when what they said identifies it (resolve_selection finds it), or when there is one candidate');
+    expect(inAppPreamble('api')).toContain(words.slice(0, 60));
+  });
+
   it('tells the CLI which values the user kept from a parameter card, after a revert\'s files', () => {
     const paramChanges = [
       { file: 'plate.part.js', label: 'Width', part: 'Plate', value: 42 },

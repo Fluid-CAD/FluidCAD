@@ -18,6 +18,7 @@ import {
   type McpHttpRequest,
   type McpOfferParams,
   type McpProposeVariants,
+  type McpShowUser,
   type McpToolGate,
   type RegistryEntry,
   type SkillsIndex,
@@ -48,6 +49,8 @@ export type McpEndpointOptions = {
   proposeVariants: McpProposeVariants;
   /** Answers `offer_params` (§26): the session's gate puts the parameters in the chat as a card and returns. */
   offerParams: McpOfferParams;
+  /** Answers `show_user` (§27): the session's gate resolves the items and puts their card in the chat. */
+  showUser: McpShowUser;
   indexes: SharedMcpIndexes;
   /** The engine's port, for the URL the CLI is given. */
   port: number;
@@ -72,6 +75,7 @@ export class McpEndpoint {
           askUser: options.askUser,
           proposeVariants: options.proposeVariants,
           offerParams: options.offerParams,
+          showUser: options.showUser,
           docsIndex: options.indexes.docsIndex,
           skillsIndex: options.indexes.skillsIndex,
         }),

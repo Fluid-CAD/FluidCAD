@@ -193,11 +193,12 @@ describe('the API agent', () => {
     expect(composeInstructions('api')).toContain('Read files with read_file.');
     expect(composeInstructions('api')).not.toContain('fluidcad_app');
     expect(first.tools.map((t: any) => t.name)).toContain('write_file');
-    // FluidCAD's 43 tools, and the three only a chat offers: ask_user (§22), propose_variants (§24) and offer_params (§26).
+    // FluidCAD's 43 tools, and the four only a chat offers: ask_user (§22), propose_variants (§24), offer_params (§26) and show_user (§27).
     expect(first.tools.map((t: any) => t.name)).toContain('ask_user');
     expect(first.tools.map((t: any) => t.name)).toContain('propose_variants');
     expect(first.tools.map((t: any) => t.name)).toContain('offer_params');
-    expect(first.tools).toHaveLength(46);
+    expect(first.tools.map((t: any) => t.name)).toContain('show_user');
+    expect(first.tools).toHaveLength(47);
     expect(first.providerOptions.anthropic.cacheControl).toEqual({ type: 'ephemeral' });
     expect(first.temperature).toBeUndefined();
     expect(JSON.stringify(first.prompt[1])).toContain('<workspace_state');
@@ -478,7 +479,7 @@ describe('the API agent on a local OpenAI-compatible server', () => {
       expect(first.model).toBe('tiny:1b');
       expect(first.stream_options).toEqual({ include_usage: true });
       expect(first.temperature).toBeUndefined();
-      expect(first.tools).toHaveLength(46);
+      expect(first.tools).toHaveLength(47);
       expect(first.messages[0]).toEqual({ role: 'system', content: composeInstructions('api') });
       // The user's image and the capture went with their words, each under its own type.
       expect(first.messages[1].role).toBe('user');

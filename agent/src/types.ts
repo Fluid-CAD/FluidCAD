@@ -440,6 +440,45 @@ export type ParamsKept = { kept: ParamKeptValue[] };
  */
 export type ParamChange = ParamKeptValue & { file: string };
 
+/** Where a selector is evaluated, as `resolve_selection` takes it. */
+export type ShowScope = { sceneObjectId: string } | { part: string } | { instanceId: string };
+
+/**
+ * What a page resolves (`POST api/resolve-selection`) to draw an item the
+ * agent points at: a selector in the tool's own `$obj["<id>"]` form, which
+ * follows the geometry through later renders, or one face or edge of the
+ * render it was shown in, which a later render may no longer hold. Never
+ * carried as resolved shape ids: those are one render's.
+ */
+export type ShowTarget = { expression: string; scope?: ShowScope } | { pick: { shapeId: string; kind: 'face' | 'edge'; index: number } };
+
+/**
+ * One item of a `show_user` call: chip `n` (1-based; what `[n]` in the
+ * agent's text means) in the colour of that number in the reference palette
+ * (`color` is its name, as the agent was told it), the agent's label (text,
+ * never markup), what to resolve to draw it, and how many faces and edges
+ * that was when it was shown.
+ */
+export type ShowItem = { n: number; color: string; label: string; target: ShowTarget; faces: number; edges: number };
+
+/**
+ * What the agent pointed at through `show_user`, as one card (§27). It has no
+ * state of its own: which card's items are highlighted, and which of them
+ * still resolve, is the page's to know from the model on screen, so a card
+ * stays readable after its turn and can be shown again after a reload.
+ */
+export type ShowPart = {
+  type: 'show';
+  id: string;
+  /** The model file the items are of, workspace-relative. */
+  file: string;
+  /** The same file as the engine names the model on screen (absolute): what a page compares with the file it shows. */
+  absPath: string;
+  /** One line from the agent: text, never markup. */
+  note?: string;
+  items: ShowItem[];
+};
+
 export type ChatPart =
   | { type: 'text'; id: string; text: string }
   | { type: 'reasoning'; id: string; text: string }
@@ -454,6 +493,7 @@ export type ChatPart =
   | QuestionPart
   | VariantsPart
   | ParamsPart
+  | ShowPart
   | NoticePart;
 
 /**

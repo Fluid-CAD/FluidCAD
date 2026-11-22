@@ -11,7 +11,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { SceneIndex } from '../../helpers/scene-index';
-import { buildObjectMesh } from '../../meshes/mesh-factory';
+import { buildObjectMesh, buildSceneMesh } from '../../meshes/mesh-factory';
 import { disposeEnvironmentOf, environmentFor } from '../../meshes/appearance/environment';
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
@@ -51,6 +51,16 @@ export class PartThumbnailRenderer {
     const camera = this.makeCamera();
     const group = buildObjectMesh(root, objects, null, camera, false);
     return this.renderGroup(group, camera);
+  }
+
+  /**
+   * A whole model: every root row of a rendered scene with what is under
+   * it — a file's parts, or the bare statements of a model without one (a
+   * scratch build's rows).
+   */
+  renderScene(objects: SceneObjectRender[]): string | null {
+    const camera = this.makeCamera();
+    return this.renderGroup(buildSceneMesh(objects, null, camera), camera);
   }
 
   /**

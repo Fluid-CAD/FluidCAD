@@ -9,10 +9,12 @@ import { buildServer } from '../src/server.ts';
 import { registryFilePath } from '../src/discovery.ts';
 import {
   applyRangeEdit,
+  applyRangeEdits,
   editRange,
   listFluidFiles,
   previewSourceEdit,
   readFile,
+  tryBuild,
   writeFile,
 } from '../src/tools/source.ts';
 import type { RegistryEntry } from '../src/types.ts';
@@ -39,10 +41,31 @@ let recomputeResponse: { status: number; body: string; contentType?: string } = 
   status: 200,
   body: JSON.stringify({ success: true, state: 'rendered', objectErrors: [], uiApplied: true }),
 };
+// The fake `/api/scratch-build`: what try_build asks the engine to build.
+let scratchRequests: { file: string; source?: string; params?: Record<string, unknown> }[] = [];
+let scratchResponse: { status: number; body: string; contentType?: string } = { status: 200, body: '{}' };
 let lintRequests: { code: string; filePath?: string }[] = [];
 let lintResponse: { status: number; body: unknown } = {
   status: 200,
   body: { missing: [], suggestion: '' },
+};
+
+/** A scratch build that rendered, as the engine answers one. */
+const SCRATCH_RENDERED = {
+  state: 'rendered',
+  id: '0b0e7d0c-5f0e-4c58-9d55-0f3f1a1c2d3e',
+  file: '',
+  sceneKind: 'part',
+  unit: 'mm',
+  durationMs: 21,
+  builtFrom: 'source',
+  configuration: 'Default',
+  sessionOverrides: 0,
+  unusedParams: [],
+  solidCount: 1,
+  bounds: { min: [0, 0, 0], max: [40, 40, 30] },
+  volume: 48000,
+  validation: { ok: true, checked: 1, findings: [], skipped: 0 },
 };
 
 function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
@@ -107,6 +130,16 @@ function startFakeServer(): Promise<number> {
         });
         return;
       }
+      if (url === '/api/scratch-build' && req.method === 'POST') {
+        const chunks: Buffer[] = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => {
+          scratchRequests.push(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+          res.writeHead(scratchResponse.status, { 'content-type': scratchResponse.contentType ?? 'application/json' });
+          res.end(scratchResponse.body);
+        });
+        return;
+      }
       if (url === '/api/lint-fluid-js' && req.method === 'POST') {
         const chunks: Buffer[] = [];
         req.on('data', (c) => chunks.push(c));
@@ -154,6 +187,8 @@ beforeEach(async () => {
     status: 200,
     body: { missing: [], suggestion: '' },
   };
+  scratchRequests = [];
+  scratchResponse = { status: 200, body: JSON.stringify(SCRATCH_RENDERED) };
   fakePort = await startFakeServer();
   writeRegistry([entry()]);
 });
@@ -880,6 +915,195 @@ describe('previewSourceEdit', () => {
       newText: '',
     });
     expect(backwards).toMatchObject({ ok: false, code: 'invalid-input' });
+  });
+});
+
+describe('applyRangeEdits', () => {
+  const TEXT = 'const a = 1;\nconst b = 2;\nconst c = 3;\n';
+
+  it('applies every edit against the original text, whatever order they come in', () => {
+    const edits = [
+      { start: { line: 2, column: 10 }, end: { line: 2, column: 11 }, newText: '30' },
+      { start: { line: 0, column: 10 }, end: { line: 0, column: 11 }, newText: '100' },
+    ];
+    const expected = 'const a = 100;\nconst b = 2;\nconst c = 30;\n';
+    expect(applyRangeEdits(TEXT, edits)).toEqual({ ok: true, data: expected });
+    expect(applyRangeEdits(TEXT, [...edits].reverse())).toEqual({ ok: true, data: expected });
+    // One edit is what edit_range writes.
+    expect(applyRangeEdits(TEXT, [edits[0]])).toEqual({ ok: true, data: applyRangeEdit(TEXT, edits[0].start, edits[0].end, '30') });
+  });
+
+  it('takes an insertion beside a replaced range, and refuses ranges that overlap', () => {
+    const beside = applyRangeEdits(TEXT, [
+      { start: { line: 1, column: 0 }, end: { line: 1, column: 0 }, newText: '// two\n' },
+      { start: { line: 1, column: 0 }, end: { line: 1, column: 12 }, newText: 'const b = 20;' },
+    ]);
+    expect(beside).toEqual({ ok: true, data: 'const a = 1;\n// two\nconst b = 20;\nconst c = 3;\n' });
+
+    const overlap = applyRangeEdits(TEXT, [
+      { start: { line: 0, column: 0 }, end: { line: 1, column: 5 }, newText: '' },
+      { start: { line: 1, column: 0 }, end: { line: 1, column: 12 }, newText: '' },
+    ]);
+    expect(overlap).toMatchObject({ ok: false, code: 'invalid-input', message: expect.stringContaining('overlap') });
+  });
+
+  it('refuses a malformed or inverted edit, naming it', () => {
+    expect(applyRangeEdits(TEXT, [{ start: { line: 0, column: 0 }, end: { line: 0, column: 1 } } as any]))
+      .toMatchObject({ ok: false, code: 'invalid-input', message: expect.stringContaining('edits[0]') });
+    expect(applyRangeEdits(TEXT, [
+      { start: { line: 0, column: 0 }, end: { line: 0, column: 1 }, newText: '' },
+      { start: { line: 2, column: 0 }, end: { line: 1, column: 0 }, newText: '' },
+    ])).toMatchObject({ ok: false, code: 'invalid-input', message: expect.stringContaining('edits[1]') });
+  });
+});
+
+describe('try_build', () => {
+  const MODEL = 'const height = 30;\nextrude(height);\n';
+
+  it('sends the whole candidate to the engine, surfaces what it would produce, and writes nothing', async () => {
+    const target = path.join(workspace, 'block.part.js');
+    fs.writeFileSync(target, MODEL);
+    const result = await tryBuild({ path: 'block.part.js', content: 'const height = 60;\nextrude(height);\n', params: { Wall: 2, Vented: true } });
+
+    expect(result).toEqual({ ok: true, data: SCRATCH_RENDERED });
+    expect(scratchRequests).toEqual([
+      { file: target, source: 'const height = 60;\nextrude(height);\n', params: { Wall: 2, Vented: true } },
+    ]);
+    expect(fs.readFileSync(target, 'utf8')).toBe(MODEL);
+    expect(fs.readdirSync(workspace)).toEqual(['block.part.js']);
+    // Nothing is rendered as the model, and no buffer is asked about.
+    expect(renderRequests).toEqual([]);
+    expect(recomputeRequests).toEqual([]);
+  });
+
+  it('builds edits against the file on disk, and the file as it is without a candidate', async () => {
+    fs.writeFileSync(path.join(workspace, 'block.part.js'), MODEL);
+    await tryBuild({
+      path: 'block.part.js',
+      edits: [
+        { start: { line: 1, column: 8 }, end: { line: 1, column: 14 }, newText: 'height * 2' },
+        { start: { line: 0, column: 15 }, end: { line: 0, column: 17 }, newText: '45' },
+      ],
+    });
+    expect(scratchRequests.at(-1)?.source).toBe('const height = 45;\nextrude(height * 2);\n');
+
+    await tryBuild({ path: 'block.part.js' });
+    expect(scratchRequests.at(-1)).toEqual({ file: path.join(workspace, 'block.part.js'), source: MODEL });
+  });
+
+  it('surfaces a candidate that fails as its outcome, not as an error', async () => {
+    fs.writeFileSync(path.join(workspace, 'block.part.js'), MODEL);
+    const buildError = {
+      ...SCRATCH_RENDERED,
+      state: 'build-error',
+      objectErrors: [{ index: 3, id: 'x', name: 'Fillet 1', uniqueKind: 'fillet', message: 'the radius may be too large' }],
+    };
+    scratchResponse = { status: 200, body: JSON.stringify(buildError) };
+    expect(await tryBuild({ path: 'block.part.js', content: MODEL })).toEqual({ ok: true, data: buildError });
+
+    const compileError = { state: 'compile-error', file: 'x', durationMs: 2, compileError: { message: 'extrude is not defined' } };
+    scratchResponse = { status: 200, body: JSON.stringify(compileError) };
+    expect(await tryBuild({ path: 'block.part.js', content: MODEL })).toEqual({ ok: true, data: compileError });
+  });
+
+  it('applies write_file\'s guards to the candidate, so one that builds is one a write accepts', async () => {
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [{ symbol: 'extrude', module: 'fluidcad/core', line: 1, column: 0 }],
+        suggestion: 'import { extrude } from "fluidcad/core";',
+      },
+    };
+    const missing = await tryBuild({ path: 'new.fluid.js', content: MODEL });
+    expect(missing).toMatchObject({ ok: false, code: 'missing-imports', details: { suggestion: 'import { extrude } from "fluidcad/core";' } });
+    if (missing.ok) { return; }
+    // It is no write: the refusal says what a write would meet, and offers no force.
+    expect(missing.message).toContain('Not built: write_file would refuse this candidate');
+    expect(missing.message).not.toContain('force');
+
+    lintResponse = {
+      status: 200,
+      body: { missing: [], suggestion: '', diagnostics: [{ message: "part('Lid') is not exported", line: 2, column: 0, rule: 'part-export' }] },
+    };
+    expect(await tryBuild({ path: 'new.fluid.js', content: MODEL })).toMatchObject({ ok: false, code: 'part-rules' });
+
+    expect(lintRequests).toEqual([
+      { code: MODEL, filePath: path.join(workspace, 'new.fluid.js') },
+      { code: MODEL, filePath: path.join(workspace, 'new.fluid.js') },
+    ]);
+    expect(scratchRequests).toEqual([]);
+  });
+
+  it('builds a file that does not exist yet from its content, and needs the file for edits', async () => {
+    expect((await tryBuild({ path: 'parts/new.part.js', content: MODEL })).ok).toBe(true);
+    expect(scratchRequests.at(-1)?.file).toBe(path.join(workspace, 'parts/new.part.js'));
+    expect(fs.existsSync(path.join(workspace, 'parts'))).toBe(false);
+
+    const edit = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 }, newText: '' };
+    expect(await tryBuild({ path: 'parts/new.part.js', edits: [edit] })).toMatchObject({ ok: false, code: 'invalid-input' });
+    expect(await tryBuild({ path: 'parts/new.part.js' })).toMatchObject({ ok: false, code: 'invalid-input' });
+  });
+
+  it('refuses what is no candidate of a model in the workspace', async () => {
+    fs.writeFileSync(path.join(workspace, 'block.part.js'), MODEL);
+    fs.writeFileSync(path.join(workspace, 'project.params.js'), '');
+    const edit = { start: { line: 0, column: 0 }, end: { line: 0, column: 0 }, newText: '' };
+    for (const input of [
+      { path: '../escape.part.js', content: MODEL },
+      { path: 'project.params.js', content: '' },
+      { path: 'gear.feature.js', content: '' },
+      { path: 'block.part.js', content: MODEL, edits: [edit] },
+      { path: 'block.part.js', edits: [] },
+      { path: 'block.part.js', content: 5 as any },
+    ]) {
+      expect(await tryBuild(input), JSON.stringify(input).slice(0, 60)).toMatchObject({ ok: false, code: 'invalid-input' });
+    }
+    expect(scratchRequests).toEqual([]);
+  });
+
+  it('says so when the engine has no scratch builds, and passes the engine\'s refusals on', async () => {
+    fs.writeFileSync(path.join(workspace, 'block.part.js'), MODEL);
+    scratchResponse = { status: 404, body: '<pre>Cannot POST /api/scratch-build</pre>', contentType: 'text/html' };
+    expect(await tryBuild({ path: 'block.part.js' })).toMatchObject({ ok: false, code: 'http-error', message: expect.stringContaining('upgrade fluidcad') });
+
+    scratchResponse = { status: 503, body: JSON.stringify({ error: 'Engine not initialized yet' }) };
+    expect(await tryBuild({ path: 'block.part.js' })).toEqual({ ok: false, code: 'http-error', message: 'Engine not initialized yet', details: { statusCode: 503 } });
+  });
+
+  it('is a read: annotated read-only, with when to call it, when not to and what it costs in its description', async () => {
+    const server = buildServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'try_build')!;
+      expect(tool.annotations).toEqual({ readOnlyHint: true });
+      expect(Object.keys((tool.inputSchema as any).properties).sort()).toEqual(['content', 'edits', 'params', 'path', 'workspace']);
+      expect((tool.inputSchema as any).required).toEqual(['path']);
+      for (const said of [
+        'It changes nothing',
+        'Do NOT call it by default',
+        'choosing between real alternatives',
+        'a risky value may not build',
+        'several variants',
+        '"to be safe"',
+        're-check what a write just reported',
+        'full build from scratch',
+        'the engine does nothing else while it runs',
+        'one write_file accepts',
+      ]) {
+        expect(tool.description, said).toContain(said);
+      }
+
+      fs.writeFileSync(path.join(workspace, 'block.part.js'), MODEL);
+      const called = await client.callTool({ name: 'try_build', arguments: { path: 'block.part.js', params: { Height: 12 } } });
+      expect(called.isError).toBeFalsy();
+      expect(JSON.parse((called.content as { text: string }[])[0].text)).toMatchObject({ state: 'rendered', volume: 48000 });
+      expect(scratchRequests.at(-1)).toEqual({ file: path.join(workspace, 'block.part.js'), source: MODEL, params: { Height: 12 } });
+    } finally {
+      await client.close();
+      await server.close();
+    }
   });
 });
 

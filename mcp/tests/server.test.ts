@@ -536,7 +536,7 @@ describe('tool annotations', () => {
 
   it('annotates every tool as read-only or mutating, and classifies every tool', async () => {
     const tools = await listToolSchemas(buildServer({ pinnedWorkspace: entry() }));
-    expect(tools).toHaveLength(42);
+    expect(tools).toHaveLength(43);
     expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(TOOL_CLASSES).sort());
     for (const tool of tools) {
       const annotations = tool.annotations ?? {};

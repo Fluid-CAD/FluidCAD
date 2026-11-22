@@ -1446,8 +1446,8 @@ describe('question cards (§22)', () => {
     expect(card.querySelectorAll('[data-ref="question"][data-index="2"] [data-ref="option"]')).toHaveLength(0);
     expect(field(card, 0).placeholder).toBe('Or in your own words…');
     expect(field(card, 2).placeholder).toBe('Your answer…');
-    expect(card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.disabled).toBe(true);
-    expect(card.querySelector<HTMLButtonElement>('[data-ref="skip"]')!.disabled).toBe(false);
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.disabled).toBe(true);
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="question-skip"]')!.disabled).toBe(false);
     expect(h.$('[data-ref="activity"]')!.textContent).toBe('Waiting for your answer…');
     expect(h.panel.el.dataset.status).toBe('awaiting-answer');
     expect(h.panel.el.dataset.busy).toBe('true');
@@ -1467,7 +1467,7 @@ describe('question cards (§22)', () => {
     option(card, 1, 'Sides').click();
     option(card, 1, 'Top').click();
     expect(pressed(card, 1)).toEqual(['Top', 'Sides']);
-    expect(card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.disabled).toBe(false);
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.disabled).toBe(false);
   });
 
   it('Send posts one answer per question, in order, and the card settles to what was answered', async () => {
@@ -1480,7 +1480,7 @@ describe('question cards (§22)', () => {
     option(card, 1, 'Sides').click();
     option(card, 1, 'Top').click();
     write(field(card, 1), '  only the outer edges ');
-    card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.click();
+    card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.click();
     await settle();
     expect(client.answerQuestion).toHaveBeenCalledWith('s', 'q1', {
       answers: [{ selected: ['M4'] }, { selected: ['Top', 'Sides'], text: 'only the outer edges' }, { selected: [] }],
@@ -1518,7 +1518,7 @@ describe('question cards (§22)', () => {
     const h = mount(client);
     await opened(h);
     const card = h.$('[data-part="question"]')!;
-    card.querySelector<HTMLButtonElement>('[data-ref="skip"]')!.click();
+    card.querySelector<HTMLButtonElement>('[data-ref="question-skip"]')!.click();
     await settle();
     expect(client.answerQuestion).toHaveBeenCalledWith('s', 'q1', { skip: true });
     expect(card.dataset.state).toBe('skipped');
@@ -1550,13 +1550,13 @@ describe('question cards (§22)', () => {
     await opened(h);
     const card = h.$('[data-part="question"]')!;
     option(card, 0, 'M5').click();
-    card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.click();
+    card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.click();
     await settle();
     // While it goes, everything waits.
     expect([...card.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input')].every((c) => c.disabled)).toBe(true);
     release();
     await settle();
-    expect(card.querySelector<HTMLButtonElement>('[data-ref="send"]')!.disabled).toBe(false);
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.disabled).toBe(false);
     expect(option(card, 0, 'M5').disabled).toBe(false);
     expect(pressed(card, 0)).toEqual(['M5']);
     expect(h.$('[data-ref="status"]')!.textContent).toContain('FluidCAD did not answer.');

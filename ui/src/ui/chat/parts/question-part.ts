@@ -102,10 +102,10 @@ export class QuestionPartView implements PartView {
     if (canAnswer) {
       const buttons = document.createElement('div');
       buttons.className = 'chat-question-buttons';
-      this.skipButton = actionButton('skip', 'Skip', 'btn-ghost chat-approval-secondary');
+      this.skipButton = actionButton('question-skip', 'Skip', 'btn-ghost chat-approval-secondary');
       this.skipButton.title = 'Let the agent decide';
       this.skipButton.addEventListener('click', () => void this.send('skip'));
-      this.sendButton = actionButton('send', 'Send', 'btn-primary');
+      this.sendButton = actionButton('question-send', 'Send', 'btn-primary');
       this.sendButton.addEventListener('click', () => void this.send('answer'));
       buttons.append(this.skipButton, this.sendButton);
       actions.append(buttons);

@@ -94,6 +94,7 @@ export {
   ASK_USER_TOOL,
   type AskUserInput,
   type AskUserOption,
+  type AskUserPick,
   type AskUserQuestion,
   type McpAskUser,
 } from './ask-user.ts';

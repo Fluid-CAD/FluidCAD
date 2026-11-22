@@ -25,14 +25,22 @@ export type AskUserOption = {
   svg?: string;
 };
 
+/**
+ * A question answered by clicking geometry in the viewport: which kind of
+ * entity the answer is, and whether it may be several.
+ */
+export type AskUserPick = { kind: 'face' | 'edge' | 'any'; multiple?: boolean };
+
 export type AskUserQuestion = {
   question: string;
   /** A figure the question refers to, as SVG markup. */
   svg?: string;
-  /** Absent: the user answers in their own words. */
+  /** Absent: the user answers in their own words (or by picking, with `pick`). */
   options?: AskUserOption[];
   /** Several options may be picked. */
   multiSelect?: boolean;
+  /** The answer is a piece of the model, picked in the viewport. Never together with `options`. */
+  pick?: AskUserPick;
 };
 
 export type AskUserInput = { questions: AskUserQuestion[] };
@@ -54,7 +62,9 @@ export const ASK_USER_DESCRIPTION =
   'Give `options` whenever the answers can be listed: two to six short, concrete, mutually exclusive choices (set `multiSelect` when several may apply), the one you recommend first. Never add an "Other" option: the user can always write their own answer. Leave `options` out for an open question (a name, a free dimension). ' +
   'Add `svg` when a picture tells the choices apart faster than words do: a shape, a cross-section, a layout, which side or which direction. Give every option of the question a drawing or none; a question\'s own `svg` is a figure the question refers to (the dimension it asks for, labelled). ' +
   'A drawing is a small line sketch, not decoration: one `<svg viewBox="0 0 120 90">` element (the same viewBox for all options of a question), a few shapes, dark strokes about 2 wide on a transparent background (it is shown on a light tile, and adapted to a dark theme for you), a second colour only to mark what differs, text only for a label the drawing needs (10 or larger). No scripts, no animation, no external images or fonts. The label and description must still say everything: the drawing may fail to show. ' +
-  'Returns `{ answers: [{ question, selected?, text?, skipped? }] }`, one per question in order: `selected` are the labels picked, `text` is what the user wrote (it adds to or replaces the options), `skipped: true` means they left that one open. `{ skipped: true }` alone means they skipped every question. ' +
+  'Give `pick` instead of `options` when the answer is a piece of the model and words or drawings would leave it ambiguous ("which face is the mounting face?", "which edges get the fillet?"): `{ kind: "face" | "edge" | "any", multiple? }`. The user answers by clicking in the viewport. Only when the request leaves that geometry open and a wrong guess costs rework: not when they already attached it as a scene reference, when what they said identifies it (find it with resolve_selection), or when there is one candidate. A question takes `pick` or `options`, never both. ' +
+  'Returns `{ answers: [{ question, selected?, picks?, text?, skipped? }] }`, one per question in order: `selected` are the labels picked, `text` is what the user wrote (it adds to or replaces the options or the picks), `skipped: true` means they left that one open. `{ skipped: true }` alone means they skipped every question. ' +
+  '`picks` is what the user clicked for a `pick` question, each entry reading as a `<ref>` of `<scene_references>` does: `selector` is the code to write for that geometry (copy it exactly; add its `imports`; a `producers` line saying "not bound" means add `const <variable> = ` to that statement first), with `alternatives`, `geometry` and how many faces or edges it is (`kind`, `count`). A pick question the user answered in words has `text` and no `picks`: an assembly\'s faces and edges cannot be picked yet. ' +
   'A skipped question is yours to decide: choose sensibly, carry on, and state the assumption you made. An error means nobody answered (the turn was stopped, or an hour passed): do not ask again in this turn.';
 
 export const askUserInputSchema = {
@@ -76,6 +86,13 @@ export const askUserInputSchema = {
           .optional()
           .describe('The choices to pick from. Omit for an open question the user answers in their own words.'),
         multiSelect: z.boolean().optional().describe('Whether several options may be picked (default: one).'),
+        pick: z
+          .object({
+            kind: z.enum(['face', 'edge', 'any']).describe('What the user picks: faces, edges, or either.'),
+            multiple: z.boolean().optional().describe('Whether several may be picked (default: one face or edge).'),
+          })
+          .optional()
+          .describe('The answer is geometry the user clicks in the viewport. Not together with `options`.'),
       }),
     )
     .min(1)

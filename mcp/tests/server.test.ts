@@ -513,6 +513,36 @@ describe('ask_user', () => {
     }
   });
 
+  it('takes a question answered by picking in the viewport, and says when to ask one', async () => {
+    const asked: any[] = [];
+    const server = buildServer({
+      pinnedWorkspace: entry(),
+      askUser: async (input) => {
+        asked.push(input);
+        return { content: [{ type: 'text', text: '{"skipped":true}' }] };
+      },
+    });
+    const client = await connectClient(server);
+    try {
+      const tool = (await client.listTools()).tools.find((t) => t.name === 'ask_user')!;
+      const pick = (tool.inputSchema as any).properties.questions.items.properties.pick;
+      expect(pick.properties.kind.enum).toEqual(['face', 'edge', 'any']);
+      expect(pick.required).toEqual(['kind']);
+      expect(tool.description).toContain('which face is the mounting face?');
+      expect(tool.description).toContain('never both');
+      const picked = [{ question: 'Which edges get the fillet?', pick: { kind: 'edge', multiple: true } }];
+      expect((await client.callTool({ name: 'ask_user', arguments: { questions: picked } })).isError).not.toBe(true);
+      expect(asked).toEqual([{ questions: picked }]);
+      // Vertices and sketch entities are not in the idle selection: no such kind.
+      const refused = await client.callTool({ name: 'ask_user', arguments: { questions: [{ question: 'Which corner?', pick: { kind: 'vertex' } }] } });
+      expect(refused.isError).toBe(true);
+      expect(asked).toHaveLength(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it('reports a host that fails as a tool error', async () => {
     const server = buildServer({
       pinnedWorkspace: entry(),

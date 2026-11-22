@@ -16,6 +16,7 @@ import {
   readFile,
   resolveCandidate,
   buildCandidate,
+  candidateCost,
   tryBuild,
   writeFile,
 } from '../src/tools/source.ts';
@@ -44,7 +45,7 @@ let recomputeResponse: { status: number; body: string; contentType?: string } = 
   body: JSON.stringify({ success: true, state: 'rendered', objectErrors: [], uiApplied: true }),
 };
 // The fake `/api/scratch-build`: what try_build asks the engine to build.
-let scratchRequests: { file: string; source?: string; params?: Record<string, unknown> }[] = [];
+let scratchRequests: { file: string; source?: string; params?: Record<string, unknown>; reuse?: boolean; cost?: boolean }[] = [];
 let scratchResponse: { status: number; body: string; contentType?: string } = { status: 200, body: '{}' };
 let lintRequests: { code: string; filePath?: string }[] = [];
 let lintResponse: { status: number; body: unknown } = {
@@ -132,11 +133,12 @@ function startFakeServer(): Promise<number> {
         });
         return;
       }
-      if (url === '/api/scratch-build' && req.method === 'POST') {
+      if ((url === '/api/scratch-build' || url === '/api/scratch-build/cost') && req.method === 'POST') {
         const chunks: Buffer[] = [];
         req.on('data', (c) => chunks.push(c));
         req.on('end', () => {
-          scratchRequests.push(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'));
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+          scratchRequests.push(url.endsWith('/cost') ? { ...body, cost: true } : body);
           res.writeHead(scratchResponse.status, { 'content-type': scratchResponse.contentType ?? 'application/json' });
           res.end(scratchResponse.body);
         });
@@ -1094,6 +1096,29 @@ describe('try_build', () => {
 
     expect(await buildCandidate({ absPath: target, text: 'extrude(1);\n' })).toEqual({ ok: true, data: SCRATCH_RENDERED });
     expect(scratchRequests).toEqual([{ file: target, source: 'extrude(1);\n' }]);
+  });
+
+  it('asks for a kept build with `reuse`, asks what a build costs without building, and keeps the digest from the model', async () => {
+    const target = path.join(workspace, 'block.part.js');
+    fs.writeFileSync(target, MODEL);
+    const kept = { ...SCRATCH_RENDERED, geometry: 'a1b2', reused: true };
+    scratchResponse = { status: 200, body: JSON.stringify(kept) };
+    // A host comparing two builds reads the digest.
+    expect(await buildCandidate({ absPath: target, text: MODEL, reuse: true })).toEqual({ ok: true, data: kept });
+    expect(scratchRequests).toEqual([{ file: target, source: MODEL, reuse: true }]);
+    // The model does not.
+    const tried = await tryBuild({ path: 'block.part.js' });
+    expect(tried).toEqual({ ok: true, data: { ...SCRATCH_RENDERED, reused: true } });
+    expect(scratchRequests[1]).toEqual({ file: target, source: MODEL });
+
+    scratchRequests = [];
+    scratchResponse = { status: 200, body: JSON.stringify({ reusable: kept, lastBuildMs: 840 }) };
+    expect(await candidateCost({ absPath: target, text: MODEL })).toEqual({ ok: true, data: { reusable: kept, lastBuildMs: 840 } });
+    expect(scratchRequests).toEqual([{ file: target, source: MODEL, cost: true }]);
+    scratchResponse = { status: 404, body: '<pre>Cannot POST /api/scratch-build/cost</pre>', contentType: 'text/html' };
+    expect(await candidateCost({ absPath: target, text: MODEL })).toMatchObject({ ok: false, code: 'http-error', message: expect.stringContaining('upgrade fluidcad') });
+    scratchResponse = { status: 503, body: JSON.stringify({ error: 'Engine not initialized yet' }) };
+    expect(await candidateCost({ absPath: target, text: MODEL })).toEqual({ ok: false, code: 'http-error', message: 'Engine not initialized yet', details: { statusCode: 503 } });
   });
 
   it('refuses a candidate of a file with unsaved editor changes only for a caller that means to write it', async () => {

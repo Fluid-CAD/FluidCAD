@@ -104,15 +104,18 @@ export { loadDocsIndex, type DocsIndex } from './docs-index.ts';
 export { loadSkillsIndex, type SkillsIndex } from './skills-index.ts';
 export { TOOL_CLASSES, isReadOnlyClass, type McpToolClass } from './tool-classes.ts';
 // The in-app agent's gate previews file edits and restores files the way
-// the tools write them, and checks and builds the candidates of
-// `propose_variants` the way `try_build` does.
+// the tools write them, checks and builds the candidates of
+// `propose_variants` the way `try_build` does, and builds a change waiting
+// for approval to show what it does to the model.
 export {
   writeFile,
   previewSourceEdit,
   applyRangeEdit,
   resolveCandidate,
   buildCandidate,
+  candidateCost,
   type Candidate,
+  type CandidateCost,
   type CandidateInput,
   type SourceEditPreview,
   type TryBuildOutput,

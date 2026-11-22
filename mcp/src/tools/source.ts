@@ -933,6 +933,15 @@ export type TryBuildFacts = {
     findings: { kind: string; shapeId: string; sceneObjectId: string; part: string | null; message: string }[];
     skipped: number;
   } | null;
+  /**
+   * A digest of what the build draws: equal for two builds that render the
+   * same meshes. For a host comparing two builds (the approval card's
+   * before and after); `try_build` leaves it out of what the model reads.
+   * Absent from an engine that predates it.
+   */
+  geometry?: string;
+  /** The answer is a build the engine kept of the same inputs (`reuse`): nothing was built for it. */
+  reused?: true;
   instanceCount?: number;
   breakpointHit?: true;
 };
@@ -1043,10 +1052,11 @@ export async function resolveCandidate(input: CandidateInput, tool: string = 'tr
  * Build `text` as the model file `absPath` on the engine without writing it
  * (`POST /api/scratch-build`). Nothing live changes — see
  * `FluidCadServer.scratchBuild`. The text is built as given: check it with
- * {@link resolveCandidate} first.
+ * {@link resolveCandidate} first. `reuse`: a build of the same inputs the
+ * engine still keeps is the answer (`reused: true`) and nothing is built.
  */
 export async function buildCandidate(
-  input: WorkspaceArg & { absPath: string; text: string; params?: TryBuildInput['params'] },
+  input: WorkspaceArg & { absPath: string; text: string; params?: TryBuildInput['params']; reuse?: boolean },
 ): Promise<ToolResult<TryBuildOutput>> {
   const entry = resolveEntry(input);
   if (entry.ok === false) {
@@ -1058,12 +1068,49 @@ export async function buildCandidate(
       file: input.absPath,
       source: input.text,
       ...(input.params !== undefined ? { params: input.params } : {}),
+      ...(input.reuse === true ? { reuse: true } : {}),
     }));
   } catch (e: any) {
     if (e instanceof HttpError && e.statusCode === 404) {
       // The candidate always travels, so the route itself never answers 404:
       // an engine without the route does.
       return err('http-error', 'This FluidCAD engine has no scratch builds (upgrade fluidcad).', { statusCode: 404 });
+    }
+    if (e instanceof HttpError) {
+      return err(e.statusCode === 400 || e.statusCode === 422 ? 'invalid-input' : 'http-error', OpenModelRender.messageOf(e.body), { statusCode: e.statusCode });
+    }
+    return err('internal', e?.message ?? String(e));
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+/**
+ * What a build of a candidate would cost, as the engine answers it without
+ * building (`POST /api/scratch-build/cost`): `reusable` is the build it
+ * keeps of the same inputs — what {@link buildCandidate} with `reuse`
+ * would answer at once — or null; `lastBuildMs` is how long the file's last
+ * build took in this engine process, or null when it has not built it.
+ */
+export type CandidateCost = {
+  reusable: Exclude<TryBuildOutput, { state: 'compile-error' }> | null;
+  lastBuildMs: number | null;
+};
+
+/** Ask the engine what building `text` as `absPath` would cost. Nothing is built. */
+export async function candidateCost(
+  input: WorkspaceArg & { absPath: string; text: string },
+): Promise<ToolResult<CandidateCost>> {
+  const entry = resolveEntry(input);
+  if (entry.ok === false) {
+    return entry as ToolResult<CandidateCost>;
+  }
+  const client = new FluidCadClient(entry.data);
+  try {
+    return ok(await client.postJson<CandidateCost>('/api/scratch-build/cost', { file: input.absPath, source: input.text }));
+  } catch (e: any) {
+    if (e instanceof HttpError && e.statusCode === 404) {
+      return err('http-error', 'This FluidCAD engine cannot say what a build costs (upgrade fluidcad).', { statusCode: 404 });
     }
     if (e instanceof HttpError) {
       return err(e.statusCode === 400 || e.statusCode === 422 ? 'invalid-input' : 'http-error', OpenModelRender.messageOf(e.body), { statusCode: e.statusCode });
@@ -1087,13 +1134,19 @@ export async function tryBuild(input: TryBuildInput): Promise<ToolResult<TryBuil
   if (candidate.ok === false) {
     return candidate as ToolResult<TryBuildOutput>;
   }
-  return buildCandidate({
+  const built = await buildCandidate({
     ...(input.pinnedWorkspace ? { pinnedWorkspace: input.pinnedWorkspace } : {}),
     ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
     absPath: candidate.data.absPath,
     text: candidate.data.text,
     ...(input.params !== undefined ? { params: input.params } : {}),
   });
+  if (built.ok && built.data.state !== 'compile-error' && built.data.geometry !== undefined) {
+    // A digest for a host comparing two builds: nothing the model can read.
+    const { geometry: _geometry, ...facts } = built.data;
+    return ok(facts);
+  }
+  return built;
 }
 
 // ---------------------------------------------------------------------------

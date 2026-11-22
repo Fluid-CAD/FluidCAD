@@ -56,14 +56,15 @@ function frontmatter(markdown: string): string {
 let registeredTools: Set<string>;
 
 beforeAll(async () => {
-  // The skills ship to the in-app chat too, whose server offers three tools
+  // The skills ship to the in-app chat too, whose server offers four tools
   // the standalone one does not (`ask_user`, `propose_variants`,
-  // `offer_params`): a skill names those conditionally ("when your tools
-  // include …").
+  // `offer_params`, `show_user`): a skill names those conditionally ("when
+  // your tools include …").
   const server = buildServer({
     askUser: async () => ({ content: [] }),
     proposeVariants: async () => ({ content: [] }),
     offerParams: async () => ({ content: [] }),
+    showUser: async () => ({ content: [] }),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'skills-test', version: '0.0.0' });
@@ -119,6 +120,59 @@ describe('skills policy', () => {
     expect(block).toContain('`<param_changes>`');
     // It sits after the variants block, and the standalone server still does not offer the tool.
     expect(start).toBeGreaterThan(core.indexOf('### `propose_variants`'));
+  });
+
+  it('names a pick question as something only the in-app chat can ask, with when to ask one and when not to', () => {
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
+    const start = core.indexOf('### A pick question');
+    expect(start).toBeGreaterThan(0);
+    const block = core.slice(start, core.indexOf('\n### ', start + 5));
+    expect(block).toContain('When your tools include `ask_user` (the in-app chat; a standalone MCP client does not have it)');
+    expect(block).toContain('**The default is not to ask one.**');
+    // When: all three.
+    expect(block).toContain('only when all three hold');
+    expect(block).toContain('The answer is a piece of the model');
+    expect(block).toContain('The request leaves it genuinely ambiguous');
+    expect(block).toContain('A wrong guess costs rework');
+    // When not.
+    expect(block).toContain('already attached the geometry to their message as a scene reference');
+    expect(block).toContain('find it with `resolve_selection`');
+    expect(block).toContain('when only one candidate exists');
+    expect(block).toContain('a sensible default');
+    // How, and what a client without it does.
+    expect(block).toContain('`pick` or `options`, never both');
+    expect(block).toContain('Without the tool, ask in words');
+    // It belongs with naming geometry, after the resolve-first procedure.
+    expect(start).toBeGreaterThan(core.indexOf('## Naming geometry'));
+    expect(start).toBeLessThan(core.indexOf('## When something is wrong'));
+  });
+
+  it('names show_user as a tool only the in-app chat has, with when to point and when not to', () => {
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
+    const start = core.indexOf('### `show_user`');
+    expect(start).toBeGreaterThan(0);
+    const block = core.slice(start, core.indexOf('\n## ', start));
+    expect(block).toContain('When your tools include `show_user` (the in-app chat; a standalone MCP client does not have it)');
+    expect(block).toContain('**The default is not to call it.**');
+    expect(block).toContain('The user already sees the viewport');
+    expect(block).toContain('It does not wait for the user');
+    // When: the three triggers.
+    expect(block).toContain('only when words would not locate the geometry reliably');
+    expect(block).toContain('A problem you found on a particular face or edge');
+    expect(block).toContain('The candidates of a question');
+    expect(block).toContain('A proposal that touches particular geometry');
+    // When not.
+    expect(block).toContain('after every edit');
+    expect(block).toContain('to illustrate what you just built');
+    expect(block).toContain('for a whole body');
+    expect(block).toContain('again in the same turn');
+    // What: few items, by selector.
+    expect(block).toContain('Show the few items your text refers to');
+    expect(block).toContain('rather than a `ref`');
+    expect(block).toContain('Without the tool');
+    // After the pick question, in the same section.
+    expect(start).toBeGreaterThan(core.indexOf('### A pick question'));
+    expect(start).toBeLessThan(core.indexOf('## When something is wrong'));
   });
 
   it('finds the skill files', () => {

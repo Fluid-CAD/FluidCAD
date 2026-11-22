@@ -253,6 +253,52 @@ The selector you write is the one the tool verified. Never edit the user's file 
 
 Indices from `hit_test` and the scene summary still work as a fallback, but they renumber after every feature; a filter survives edits, and an accessor survives more.
 
+### A pick question: the user clicks the geometry
+
+When your tools include `ask_user` (the in-app chat; a standalone MCP client does not have it), one of its questions may take `pick` instead of options: the user answers by clicking a face or edges in the viewport, and the answer carries the selector for what they clicked.
+
+**The default is not to ask one.** The clarification policy above still decides whether to ask at all.
+
+Ask one only when all three hold:
+
+- **The answer is a piece of the model**: "which of these faces is the mounting face?", "which edges get the fillet?".
+- **The request leaves it genuinely ambiguous**: several faces or edges fit what the user said.
+- **A wrong guess costs rework**: features will be built on it.
+
+Do not ask one:
+
+- when the user already attached the geometry to their message as a scene reference (`<scene_references>`): that is the answer;
+- when what they said identifies it ("the top face", "the four vertical edges"): find it with `resolve_selection` and read the count;
+- when only one candidate exists;
+- for a choice with a sensible default: take it and say so.
+
+A question takes `pick` or `options`, never both. Each pick reads as a scene reference does: its `selector` is the code to write, copied exactly, with its `imports` added and a producer that says "not bound" bound first. In an assembly, faces and edges cannot be picked yet: the user answers in words.
+
+Without the tool, ask in words, and tell the candidates apart by what `resolve_selection` says of them (the feature, the plane and its normal, the size).
+
+### `show_user`: pointing at geometry in the user's viewport
+
+When your tools include `show_user` (the in-app chat; a standalone MCP client does not have it), it highlights faces and edges of the model in the user's own viewport, each in its own colour, and lists them in the chat as numbered chips with your labels; your text then refers to them as `[1]`, `[2]`. It does not wait for the user: it returns at once, and it changes no file.
+
+**The default is not to call it.** The user already sees the viewport.
+
+Call it only when words would not locate the geometry reliably:
+
+- **A problem you found on a particular face or edge**: a wall thinner than it should be, an edge a fillet refuses.
+- **The candidates of a question**: "this face [1] or that one [2]?".
+- **A proposal that touches particular geometry**, before you make the change.
+
+Do not call it:
+
+- after every edit;
+- to illustrate what you just built;
+- for a whole body, or everything a feature made;
+- again in the same turn, unless what you point at changed.
+
+Show the few items your text refers to, not everything near them. Give an item the `expression` that `resolve_selection` verified rather than a `ref`: a selector keeps pointing at the geometry when the model re-renders, and an item that no longer resolves is shown to the user as stale. An item that matches nothing refuses the whole call, so resolve it first.
+
+Without the tool, say where the geometry is by what `resolve_selection` returns for it (the feature, the plane and its normal, the size).
+
 ## When something is wrong, roll the scene back and look
 
 When a feature comes out wrong, or a later feature fails because an earlier one was already wrong, do not re-read the source harder. Step the scene back to the state that produced the problem and look.

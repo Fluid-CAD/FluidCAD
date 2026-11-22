@@ -19,7 +19,9 @@
 // (§22): the question is a card of its own, and the call waits for the user
 // the way an approval does. `propose_variants` (§24): the gate builds the
 // variants, shows them as a card, waits for the pick and writes the picked
-// one itself — the pick is the approval.
+// one itself — the pick is the approval. `offer_params` (§26) is the third:
+// it puts the model's parameters in the chat as a card of controls and
+// returns at once, with nothing to approve and nothing to wait for.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -39,6 +41,7 @@ import {
   type McpToolClass,
   type McpToolGate,
   type McpToolGateDecision,
+  type OfferParamsInput,
   type ProposeVariantsInput,
   type RegistryEntry,
   type SourceEditPreview,
@@ -46,6 +49,7 @@ import {
 import type { Checkpoint } from './session-store.ts';
 import { AUTO_PREVIEW_MAX_BUILD_MS, ChangePreviewJob, isModelFile } from './change-preview.ts';
 import { failure, questionPatch, questionResult, readQuestionReply, readQuestions, type QuestionOutcome } from './questions.ts';
+import { offerResult, readOffer, type ParamCardModel } from './param-cards.ts';
 import {
   builtTile,
   candidateRefusal,
@@ -58,18 +62,7 @@ import {
   variantsResult,
   type VariantsOutcome,
 } from './variants.ts';
-import type {
-  ApprovalDecision,
-  ChangePreview,
-  ChatEvent,
-  ChatPart,
-  PermissionMode,
-  QuestionItem,
-  QuestionPart,
-  ToolPart,
-  VariantTile,
-  VariantsPart,
-} from './types.ts';
+import type { ApprovalDecision, ChangePreview, ChatEvent, ChatPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart, ParamsPart } from './types.ts';
 
 /** Longest tool output text kept in the transcript. */
 const MAX_OUTPUT_CHARS = 20_000;
@@ -137,6 +130,8 @@ export type ToolGateHost = {
   checkpoint(turnId: string, checkpoint: Checkpoint): boolean;
   /** Drops the turn's checkpoint of `filePath`: the write it was taken for did not happen. */
   dropCheckpoint(turnId: string, filePath: string): void;
+  /** The model on screen and the parameters its last render declared: what a parameter card is made from (§26). */
+  model(): ParamCardModel;
 };
 
 /** Timers, injectable for tests. */
@@ -561,6 +556,30 @@ export class ToolGate implements McpToolGate {
     });
     this.host.persist();
     return questionResult(read.questions, outcome, CANCELLED_MESSAGE);
+  }
+
+  /**
+   * `offer_params` (§26): puts parameters of the model on screen in the chat
+   * as a card of live controls and resolves at once with what the card
+   * shows, or with what is wrong with the call (a label the model does not
+   * declare, with the ones it does). It waits for nothing and writes
+   * nothing: a control sets a session value through the engine's own
+   * routes, and Keep and Reset are the user's actions on the page — no
+   * approval, no checkpoint, and the card stays usable after the turn.
+   * Nothing is offered outside a running turn.
+   */
+  async offer(input: OfferParamsInput): Promise<CallToolResult> {
+    if (!this.host.activeTurn()) {
+      return failure(NO_TURN_MESSAGE);
+    }
+    const read = readOffer(input, this.host.model(), (absPath) => relativeTo(this.host.workspacePath, absPath));
+    if (read.ok === false) {
+      return failure(read.error);
+    }
+    const part: ParamsPart = { type: 'params', id: `params-${randomUUID()}`, ...read.card };
+    this.host.emit({ type: 'part-start', messageId: this.host.assistantMessageId(), part });
+    this.host.persist();
+    return offerResult(read);
   }
 
   /**

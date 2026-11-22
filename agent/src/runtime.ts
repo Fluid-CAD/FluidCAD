@@ -393,6 +393,8 @@ export class AgentRuntime {
         render: this.deps.renderState().state,
         unit: this.deps.unit(),
       }),
+      // An engine that cannot list its parameters has none to offer.
+      model: () => ({ file: this.deps.currentFile(), params: this.deps.modelParams?.() ?? [] }),
       instructions: () => {
         let text = this.instructionsText.get(kind);
         if (text === undefined) {

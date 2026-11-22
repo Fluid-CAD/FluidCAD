@@ -378,6 +378,59 @@ export type VariantPicture = { label: string; image: { mediaType: 'image/png'; b
 /** The largest picture of a tile, decoded. */
 export const MAX_VARIANT_PICTURE_BYTES = 2_000_000;
 
+/** A value a parameter holds: what `param()` takes as its default. */
+export type ParamCardValue = string | number | boolean | (string | number)[];
+
+/**
+ * One parameter of a parameter card: which parameter, and no more. Its
+ * control, range and value are the model's on screen, read when the card is
+ * drawn, so a card never shows a value the file has moved on from. `label`
+ * and `part` are the model file's words: text, never markup.
+ */
+export type ParamCardItem = {
+  label: string;
+  /** The `part()` or `assembly()` that declares it, by name (the definition's `body`). */
+  part?: string;
+};
+
+/**
+ * A value the user kept from a card: written into the source as the
+ * parameter's default, or as the cell of `configuration` when a row of the
+ * file's `configurations()` table was on screen.
+ */
+export type ParamKeptValue = { label: string; part?: string; value: ParamCardValue; configuration?: string };
+
+/**
+ * What the agent offered through `offer_params`, as one card of live
+ * controls (§26). It has no state of its own: a control sets a session
+ * override in the engine, which every page reads back from the render, so
+ * the card is a view of the model on screen and stays usable after its turn.
+ * `id` is also what the kept values are posted to.
+ */
+export type ParamsPart = {
+  type: 'params';
+  id: string;
+  /** The model file the parameters belong to, workspace-relative. */
+  file: string;
+  /** The same file as the engine names the model on screen (absolute): what a page compares with the file it shows. */
+  absPath: string;
+  /** One line from the agent: text, never markup. */
+  note?: string;
+  params: ParamCardItem[];
+  /** What Keep last wrote, one entry per parameter kept so far. */
+  kept?: ParamKeptValue[];
+};
+
+/** Body of `POST api/agent/sessions/:id/params/:paramsId`: the values the page wrote into the source on Keep. */
+export type ParamsKept = { kept: ParamKeptValue[] };
+
+/**
+ * A kept value the agent has not been told about yet: the next user message
+ * carries it in `<param_changes>`. `file` is where it was written,
+ * workspace-relative.
+ */
+export type ParamChange = ParamKeptValue & { file: string };
+
 export type ChatPart =
   | { type: 'text'; id: string; text: string }
   | { type: 'reasoning'; id: string; text: string }
@@ -391,6 +444,7 @@ export type ChatPart =
   | ToolPart
   | QuestionPart
   | VariantsPart
+  | ParamsPart
   | NoticePart;
 
 /**

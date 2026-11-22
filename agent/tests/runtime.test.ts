@@ -15,7 +15,8 @@ import { McpEndpoints } from '../src/mcp-endpoint.ts';
 import { RESTART_REASON } from '../src/session.ts';
 import { SessionStore, type SessionRecord } from '../src/session-store.ts';
 import { NO_TURN_MESSAGE, STOPPED_MESSAGE } from '../src/tool-gate.ts';
-import type { ChatEventEnvelope, QuestionPart, SessionSnapshot, ToolPart, VariantsPart } from '../src/types.ts';
+import type { ModelParam } from '../src/param-cards.ts';
+import type { ChatEventEnvelope, ParamsPart, QuestionPart, SessionSnapshot, ToolPart, VariantsPart } from '../src/types.ts';
 
 // The runtime end to end, with a fake backend in place of a CLI: the fake run
 // connects to the session's MCP endpoint over HTTP the way Claude Code does,
@@ -154,6 +155,9 @@ let scratchBuild: ((source: string) => unknown) | null = null;
 /** What it answers a build of a candidate text would cost (the preview of a change waiting for approval); null: 404. */
 let scratchCost: ((source: string) => unknown) | null = null;
 
+/** What this test engine's model on screen (plate.part.js) declared in its last render. */
+let modelParams: ModelParam[] = [];
+
 async function start(options: { idleMs?: number } = {}): Promise<void> {
   backend = new FakeBackend();
   const app = express();
@@ -191,6 +195,7 @@ async function start(options: { idleMs?: number } = {}): Promise<void> {
       renderState: () => ({ state: 'rendered' }),
       unit: () => 'mm',
       loadPreferences: async () => prefs,
+      modelParams: () => modelParams,
     },
     { backends: { claude: backend }, env: { PATH: '/bin', ANTHROPIC_API_KEY: 'sk-x' }, ...options },
   );
@@ -202,6 +207,7 @@ beforeEach(async () => {
   dirtyFiles = [];
   scratchBuild = null;
   scratchCost = null;
+  modelParams = [];
   prefs = { agent: { defaultAgent: null, permissionMode: 'ask' } };
   await start();
 });
@@ -1150,6 +1156,166 @@ describe('variants (propose_variants, §24)', () => {
         + '- propose_variants plate.part.js — not chosen: it was waiting for the user when the app restarted\n'
         + '- propose_variants arm.part.js — not shown: the app restarted while the variants were building',
     );
+  });
+});
+
+describe('parameter cards (offer_params, §26)', () => {
+  const offer = (args: object = {}) => ({ name: 'offer_params', arguments: args });
+  const paramCards = (snap: SessionSnapshot) => snap.messages.flatMap((m) => m.parts).filter((p): p is ParamsPart => p.type === 'params');
+  const model = (): ModelParam[] => [
+    {
+      label: 'Width',
+      kind: 'part',
+      body: 'Plate',
+      defaultValue: 40,
+      currentValue: 40,
+      controlType: 'slider',
+      min: 20,
+      max: 80,
+      // Declared in a file the model imports.
+      sourceLocation: { filePath: `virtual:live-render:${path.join(workspace, 'lib', 'sizes.part.js')}`, line: 3, column: 16 },
+    },
+    { label: 'Style', kind: 'part', body: 'Plate', defaultValue: 'round', currentValue: 'round', controlType: 'select', options: [{ label: 'Round', value: 'round' }, { label: 'Square', value: 'square' }] },
+    { label: 'Ribbed', kind: 'part', body: 'Plate', defaultValue: false, currentValue: false, controlType: 'checkbox' },
+  ];
+
+  it('puts the card in the chat without waiting, and the turn goes on', async () => {
+    modelParams = model();
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(offer({ params: [{ label: 'Width' }, { label: 'Style' }], note: 'Try it wider.' }), offer({ params: [{ label: 'Lenght' }] })) });
+    // Nothing waits for the user: the turn ends by itself.
+    const done = await idle(id);
+    expect(done.status).toEqual({ state: 'idle' });
+    const [card] = paramCards(done);
+    expect(paramCards(done)).toHaveLength(1);
+    expect(card).toEqual({
+      type: 'params',
+      id: expect.any(String),
+      file: 'plate.part.js',
+      absPath: path.join(workspace, 'plate.part.js'),
+      note: 'Try it wider.',
+      params: [
+        { label: 'Width', part: 'Plate' },
+        { label: 'Style', part: 'Plate' },
+      ],
+    });
+    expect(toolParts(done)).toEqual([]);
+    const [shown, refused] = backend.runs[0].results;
+    expect(JSON.parse(textOf(shown))).toEqual({
+      file: 'plate.part.js',
+      params: [
+        { label: 'Width', part: 'Plate', type: 'slider', value: 40, min: 20, max: 80 },
+        { label: 'Style', part: 'Plate', type: 'select', value: 'round', options: ['round', 'square'] },
+      ],
+    });
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toBe(
+      'No parameter labelled "Lenght". The model on screen (plate.part.js) declares: "Width" (part "Plate"), "Style" (part "Plate"), "Ribbed" (part "Plate").',
+    );
+    // The card is in the stored session, as it is in the snapshot.
+    expect(runtime.store.read(id)!.messages.flatMap((m) => m.parts).filter((p) => p.type === 'params')).toEqual([card]);
+  });
+
+  it('takes what the page kept after the turn, says so on the card, and tells the agent once with the next message', async () => {
+    modelParams = model();
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(offer()) });
+    const [card] = paramCards(await idle(id));
+    const url = `${base}/sessions/${id}/params/${card.id}`;
+
+    expect((await json('POST', `${base}/sessions/${id}/params/nope`, { kept: [{ label: 'Width', part: 'Plate', value: 55 }] })).status).toBe(404);
+    for (const body of [
+      {},
+      { kept: [] },
+      { kept: [{ label: 'Height', part: 'Plate', value: 5 }] },
+      // The card's Width is the Plate's: another part's, or none, is not on it.
+      { kept: [{ label: 'Width', part: 'Lid', value: 5 }] },
+      { kept: [{ label: 'Width', value: 5 }] },
+      { kept: [{ label: 'Width', part: 'Plate', value: { nested: true } }] },
+      { kept: [{ label: 'Width', part: 'Plate', value: Number.NaN }] },
+      { kept: [{ label: 'Width', part: 'Plate', value: 5, configuration: 7 }] },
+    ]) {
+      const refused = await json('POST', url, body);
+      expect(refused.status, JSON.stringify(body)).toBe(400);
+      expect(typeof refused.body.error).toBe('string');
+    }
+    expect(paramCards(await snapshot(id))[0].kept).toBeUndefined();
+    expect(runtime.store.read(id)?.paramChanges).toBeUndefined();
+
+    // Keep, after the turn ended: the user's own action, with no turn to belong to.
+    expect((await json('POST', url, { kept: [{ label: 'Width', part: 'Plate', value: 55 }, { label: 'Ribbed', part: 'Plate', value: true, configuration: 'Default' }] })).status).toBe(204);
+    // Kept again before the next message, one of them on a configuration row: the card keeps the last of each.
+    expect((await json('POST', url, { kept: [{ label: 'Width', part: 'Plate', value: 60 }, { label: 'Style', part: 'Plate', value: 'square', configuration: 'Large' }] })).status).toBe(204);
+    const kept = await snapshot(id);
+    expect(kept.status).toEqual({ state: 'idle' });
+    expect(paramCards(kept)[0].kept).toEqual([
+      { label: 'Width', part: 'Plate', value: 60 },
+      { label: 'Ribbed', part: 'Plate', value: true },
+      { label: 'Style', part: 'Plate', value: 'square', configuration: 'Large' },
+    ]);
+    // Not a change of a turn: nothing to revert, no checkpoint.
+    expect(kept.turns.map((t) => t.revertible)).toEqual([false]);
+    // Saved: a restart before the next message still tells the agent.
+    expect(runtime.store.read(id)?.paramChanges).toHaveLength(3);
+
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'now add holes' });
+    await idle(id);
+    const told = backend.runs[0].sent[1];
+    expect(told.startsWith('now add holes\n\n<param_changes>\n')).toBe(true);
+    // The default is where the parameter is declared; a configuration's value is in the file on screen.
+    expect(told).toContain(
+      '- lib/sizes.part.js: "Width" of "Plate" = 60\n' +
+        '- plate.part.js: "Ribbed" of "Plate" = true\n' +
+        '- plate.part.js: "Style" of "Plate" = "square" (configuration "Large")\n' +
+        '</param_changes>\n<workspace_state',
+    );
+    expect(told).not.toContain('= 55');
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'again' });
+    await idle(id);
+    expect(backend.runs[0].sent[2]).not.toContain('param_changes');
+    expect(runtime.store.read(id)?.paramChanges).toBeUndefined();
+  });
+
+  it('a stored card is as usable after a restart, and a cut-off turn\'s continue note lists the offer', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000026';
+    const card: ParamsPart = {
+      type: 'params',
+      id: 'params-old',
+      file: 'plate.part.js',
+      absPath: path.join(workspace, 'plate.part.js'),
+      params: [{ label: 'Width', part: 'Plate' }],
+      kept: [{ label: 'Width', part: 'Plate', value: 44 }],
+    };
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-22T10:00:00.000Z',
+      updatedAt: '2026-11-22T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'A plate, roughly 40 wide' }] },
+        { id: 'a', role: 'assistant', turnId: 't', createdAt: '', parts: [card] },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+      paramChanges: [{ file: 'plate.part.js', label: 'Width', part: 'Plate', value: 44 }],
+    });
+    // The restart leaves the card alone: it waited for nothing.
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(paramCards(snap)).toEqual([card]);
+    // The model on screen no longer declares it: keeping from the card is still taken (the page decides what is live).
+    expect((await json('POST', `${base}/sessions/${id}/params/params-old`, { kept: [{ label: 'Width', part: 'Plate', value: 48 }] })).status).toBe(204);
+    expect(paramCards(await snapshot(id))[0].kept).toEqual([{ label: 'Width', part: 'Plate', value: 48 }]);
+
+    expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(202);
+    await idle(id);
+    const sent = backend.runs[0].sent[0];
+    expect(sent).toContain('- offer_params plate.part.js — done: the card is in the chat');
+    // What was kept before the restart, and since, is told with the continue.
+    expect(sent).toContain('<param_changes>');
+    expect(sent).toContain('- plate.part.js: "Width" of "Plate" = 48\n</param_changes>');
   });
 });
 

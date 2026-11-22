@@ -7,7 +7,7 @@
 
 import { SERVER_INSTRUCTIONS } from '../../mcp/dist/server.js';
 import type { AgentRenderState } from '../../server/dist/agent-host.js';
-import type { AgentKind, SceneReference } from './types.ts';
+import type { AgentKind, ParamChange, SceneReference } from './types.ts';
 
 /** What the CLI's own tools may do, per agent. */
 const OWN_TOOLS: Record<Exclude<AgentKind, 'api'>, string> = {
@@ -57,6 +57,11 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     'default: only when they ask to see options, or the form is open and the two look different (a rib versus a gusset);',
     'never for a number they could state, to confirm a plan, or after every change. It costs two full builds; the app waits.',
     '',
+    'offer_params puts a few parameters of the rendered model in the chat as live controls, and does not wait. Not by default:',
+    'only when a new or reworked model has dimensions the user is likely to tune (they said "roughly", gave a range, are',
+    'exploring) or they ask to play with the sizes; never after every edit, for values they fixed, twice for the same',
+    'parameters, or in place of a question that blocks the work. Never add a param() only to have something to offer.',
+    '',
     '`@path` in the user\'s text names a file of the project by its path from the project\'s root (in quotes when',
     'it has a space: `@"my parts/plate.part.js"`): that file is what they mean. Read it when what they ask depends',
     'on its contents.',
@@ -79,6 +84,9 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     '  features it names, resolve it again before relying on it.',
     '- `<reverted_changes>`, when the user reverted changes you made in an earlier turn: those files are back to',
     '  what they were before that turn, whatever your history shows. Read them again before editing them.',
+    '- `<param_changes>`, when the user kept values from a parameter card: each listed `param()` now has that default',
+    '  in its file (or, where a configuration is named, that value in the configuration), whatever your history',
+    '  shows. Read a file again before editing it, and do not put the old values back.',
     '- `<interrupted_turn>`, when the app restarted while you were working: what you had been asked and how each of',
     '  your tool calls in that turn ended. Check the files and the model, then carry on from where you were.',
   ].join('\n');
@@ -246,6 +254,32 @@ export function revertedChangesNote(files: string[]): string {
   );
 }
 
+/**
+ * The note the CLI gets with the next message after the user kept values
+ * from a parameter card (§26): its own history still holds the old defaults.
+ * Labels, part names and values are the model file's and the user's: each
+ * stays on its line and opens or closes no tag.
+ */
+export function paramChangesNote(changes: ParamChange[]): string {
+  const list = changes.map((change) => {
+    const where = change.part ? ` of ${quoted(change.part)}` : '';
+    const row = change.configuration ? ` (configuration ${quoted(change.configuration)})` : '';
+    return `- ${oneLine(change.file).replace(/[<>]/g, '')}: ${quoted(change.label)}${where} = ${quoted(change.value)}${row}`;
+  });
+  return (
+    '<param_changes>\n' +
+    'The user kept these values from a parameter card in the chat. Each is now in the source, as the default of its ' +
+    'param() (or, where a configuration is named, as that configuration\'s value), whatever your history shows:\n' +
+    `${list.join('\n')}\n` +
+    '</param_changes>'
+  );
+}
+
+/** A label or a value as JSON, on one line, with nothing a tag could start with. */
+function quoted(value: unknown): string {
+  return JSON.stringify(value).replace(/[<>]/g, '');
+}
+
 /** One tool call of an interrupted turn, as the continue note lists it. */
 export type InterruptedToolCall = {
   name: string;
@@ -299,6 +333,8 @@ export function buildCliText(input: {
   workspace: WorkspaceState;
   /** Files reverted since the CLI was last told (§12.2). */
   revertedFiles?: string[];
+  /** Values kept from a parameter card since the CLI was last told (§26). */
+  paramChanges?: ParamChange[];
   /** The note about a turn an engine restart cut off ({@link interruptedTurnNote}), when continuing it. */
   interruptedTurn?: string;
 }): string {
@@ -311,6 +347,9 @@ export function buildCliText(input: {
   }
   if (input.revertedFiles && input.revertedFiles.length > 0) {
     tail.push(revertedChangesNote(input.revertedFiles));
+  }
+  if (input.paramChanges && input.paramChanges.length > 0) {
+    tail.push(paramChangesNote(input.paramChanges));
   }
   if (input.attachedImages && input.attachedImages.length > 0) {
     tail.push(attachedImagesTag(input.attachedImages));

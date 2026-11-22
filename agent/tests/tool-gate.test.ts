@@ -28,7 +28,8 @@ import { applyChatEvent } from '../src/transcript.ts';
 import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readQuestionReply, readSvg } from '../src/questions.ts';
 import { VARIANTS_ANSWERED_NOTE, VARIANTS_SKIPPED_NOTE, VARIANTS_STOPPED_MESSAGE, VARIANTS_TIMED_OUT_MESSAGE, readVariantsReply } from '../src/variants.ts';
 import { findPart } from '../src/transcript.ts';
-import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
+import type { ModelParam } from '../src/param-cards.ts';
+import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, ParamsPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
 
 // A stand-in for the engine the pinned server talks to: write_file and
 // edit_range ask it for dirty buffers, a lint and a render. Only the dirty
@@ -138,6 +139,9 @@ class FakeHost implements ToolGateHost {
   readonly checkpoints = new Map<string, Map<string, Checkpoint>>();
   turn: { turnId: string; mode: PermissionMode } | null = { turnId: 't1', mode: 'ask' };
   persisted = 0;
+  /** The model on screen (workspace-relative; null: none) and what its last render declared. */
+  modelFile: string | null = null;
+  modelParams: ModelParam[] = [];
   private messageId: string | null = null;
 
   get workspacePath(): string {
@@ -186,6 +190,12 @@ class FakeHost implements ToolGateHost {
   }
   dropCheckpoint(turnId: string, filePath: string): void {
     this.checkpoints.get(turnId)?.delete(filePath);
+  }
+  model() {
+    return { file: this.modelFile === null ? null : path.join(workspace, this.modelFile), params: this.modelParams };
+  }
+  paramCards(): ParamsPart[] {
+    return (this.messages[0]?.parts ?? []).filter((p): p is ParamsPart => p.type === 'params');
   }
   tools(): ToolPart[] {
     return (this.messages[0]?.parts ?? []).filter((p): p is ToolPart => p.type === 'tool');
@@ -253,13 +263,14 @@ class ManualTimers implements GateTimers {
 
 const clients: Client[] = [];
 
-async function connect(gate: ToolGate, options: { ask?: boolean; variants?: boolean } = {}): Promise<Client> {
+async function connect(gate: ToolGate, options: { ask?: boolean; variants?: boolean; params?: boolean } = {}): Promise<Client> {
   const server = buildServer({
     pinnedWorkspace: pinned,
     toolGate: gate,
     // As a chat session's endpoint builds it (mcp-endpoint.ts).
     ...(options.ask ? { askUser: (input, signal) => gate.ask(input, signal) } : {}),
     ...(options.variants ? { proposeVariants: (input, signal) => gate.propose(input, signal) } : {}),
+    ...(options.params ? { offerParams: (input) => gate.offer(input) } : {}),
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -1455,6 +1466,162 @@ describe('ToolGate: variants (propose_variants, §24)', () => {
     gate.choose(card.id, { skip: true });
     await pending;
     expect(host.variants()[0].variants[0].image).toBe('rib.png');
+  });
+});
+
+describe('ToolGate: parameter cards (offer_params, §26)', () => {
+  const WIDTH: ModelParam = { label: 'Width', kind: 'part', body: 'Plate', defaultValue: 40, currentValue: 40, controlType: 'slider', min: 20, max: 80, step: 1 };
+  // Declared with no control (`param('Depth', 5)`), and showing a session value.
+  const DEPTH: ModelParam = { label: 'Depth', kind: 'part', body: 'Plate', defaultValue: 5, currentValue: 6, controlType: 'auto' };
+  const STYLE: ModelParam = {
+    label: 'Style',
+    kind: 'part',
+    body: 'Plate',
+    defaultValue: 'round',
+    currentValue: 'round',
+    controlType: 'select',
+    options: [{ label: 'Round', value: 'round' }, { label: 'Square', value: 'square' }],
+  };
+  const RIBBED: ModelParam = { label: 'Ribbed', kind: 'part', body: 'Plate', defaultValue: true, currentValue: true, controlType: 'auto' };
+  const LID_WIDTH: ModelParam = { label: 'Width', kind: 'part', body: 'Lid', defaultValue: 30, currentValue: 30, controlType: 'number', min: 10 };
+  const WALL: ModelParam = { label: 'Wall', kind: 'global', defaultValue: 2, currentValue: 2, controlType: 'number' };
+
+  function hostWith(...params: ModelParam[]): FakeHost {
+    const host = new FakeHost();
+    host.modelFile = 'parts/plate.part.js';
+    host.modelParams = params;
+    return host;
+  }
+  const offer = (client: Client, args: object = {}) => client.callTool({ name: 'offer_params', arguments: args as Record<string, unknown> });
+
+  it('is offered by a chat session\'s server only, as a read-only tool outside the class table', async () => {
+    const plain = await connect(new ToolGate(new FakeHost()), { ask: true, variants: true });
+    expect((await plain.listTools()).tools.map((t) => t.name)).not.toContain('offer_params');
+    const offering = await connect(new ToolGate(new FakeHost()), { params: true });
+    const tool = (await offering.listTools()).tools.find((t) => t.name === 'offer_params')!;
+    expect(tool.annotations).toEqual({ readOnlyHint: true });
+    expect(toolClass('offer_params')).toBeUndefined();
+    expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['params', 'note']);
+  });
+
+  it('puts the named parameters on a card and returns at once with what it shows', async () => {
+    const host = hostWith(WIDTH, DEPTH, STYLE, RIBBED, LID_WIDTH);
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { params: true });
+    const result = await offer(client, {
+      params: [{ label: 'Style' }, { label: 'Width', part: 'Plate' }, { label: 'Depth' }, { label: 'Ribbed' }, { label: 'Style' }],
+      note: '  Wider plates\n need the ribs.  ',
+    });
+    expect(result.isError).not.toBe(true);
+    // What the model is told: each parameter with its control and range; a value that is not the declared default says so.
+    expect(JSON.parse(textOf(result))).toEqual({
+      file: 'parts/plate.part.js',
+      params: [
+        { label: 'Style', part: 'Plate', type: 'select', value: 'round', options: ['round', 'square'] },
+        { label: 'Width', part: 'Plate', type: 'slider', value: 40, min: 20, max: 80, step: 1 },
+        { label: 'Depth', part: 'Plate', type: 'number', value: 6, default: 5 },
+        { label: 'Ribbed', part: 'Plate', type: 'checkbox', value: true },
+      ],
+    });
+    // The card: in the order asked, a parameter named twice once, the note on one line.
+    expect(host.paramCards()).toEqual([
+      {
+        type: 'params',
+        id: expect.stringMatching(/^params-/),
+        file: 'parts/plate.part.js',
+        absPath: path.join(workspace, 'parts/plate.part.js'),
+        note: 'Wider plates need the ribs.',
+        // Which parameters, and no more: their controls and values are the model's, read by the page.
+        params: [
+          { label: 'Style', part: 'Plate' },
+          { label: 'Width', part: 'Plate' },
+          { label: 'Depth', part: 'Plate' },
+          { label: 'Ribbed', part: 'Plate' },
+        ],
+      },
+    ]);
+    // A card of its own: no tool card, nothing to approve or to answer, and it is saved.
+    expect(host.tools()).toEqual([]);
+    expect(host.approvalChanges).toEqual([]);
+    expect(host.questionChanges).toEqual([]);
+    expect(gate.pendingApprovalIds()).toEqual([]);
+    expect(gate.pendingQuestionIds()).toEqual([]);
+    expect(host.persisted).toBeGreaterThan(0);
+    // Stopping the turn settles nothing of it: the card stays as it is.
+    gate.settleAll('stopped');
+    expect(host.paramCards()).toHaveLength(1);
+    expect(host.events.filter((e) => e.type === 'part-update')).toEqual([]);
+  });
+
+  it('offers every parameter of the model when none is named, never a project parameter, and refuses more than a card shows', async () => {
+    const host = hostWith(WIDTH, WALL, DEPTH);
+    const client = await connect(new ToolGate(host), { params: true });
+    const result = await offer(client);
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result)).params.map((p: any) => p.label)).toEqual(['Width', 'Depth']);
+    expect(host.paramCards()[0].params.map((p) => p.label)).toEqual(['Width', 'Depth']);
+    expect(host.paramCards()[0].note).toBeUndefined();
+
+    const many = hostWith(...Array.from({ length: 13 }, (_, i): ModelParam => ({ label: `P${i}`, kind: 'part', body: 'Plate', defaultValue: i, currentValue: i, controlType: 'number' })));
+    const crowded = await offer(await connect(new ToolGate(many), { params: true }));
+    expect(crowded.isError).toBe(true);
+    expect(textOf(crowded)).toContain('declares 13 parameters, more than a card shows (12)');
+    expect(textOf(crowded)).toContain('"P12" (part "Plate")');
+    expect(many.paramCards()).toEqual([]);
+  });
+
+  it('refuses a label the model does not declare, naming the ones it does, and shows nothing', async () => {
+    const host = hostWith(WIDTH, DEPTH, LID_WIDTH, WALL);
+    const client = await connect(new ToolGate(host), { params: true });
+    const declares = 'The model on screen (parts/plate.part.js) declares: "Width" (part "Plate"), "Depth" (part "Plate"), "Width" (part "Lid").';
+
+    const unknown = await offer(client, { params: [{ label: 'Depth' }, { label: 'Widht' }, { label: 'Depth', part: 'Lid' }] });
+    expect(unknown.isError).toBe(true);
+    expect(textOf(unknown)).toBe(`No parameter labelled "Widht". No parameter labelled "Depth" in "Lid". ${declares}`);
+
+    // A label two parts declare needs its part; with it, each is its own parameter.
+    const ambiguous = await offer(client, { params: [{ label: 'Width' }] });
+    expect(ambiguous.isError).toBe(true);
+    expect(textOf(ambiguous)).toBe(`"Width" is declared by "Plate" and "Lid": name the one you mean with \`part\`. ${declares}`);
+
+    // A project parameter has no session value: it is not a card's to offer.
+    const project = await offer(client, { params: [{ label: 'Wall' }] });
+    expect(project.isError).toBe(true);
+    expect(textOf(project)).toContain('"Wall" is a project parameter (a *.params.js file)');
+
+    expect(host.paramCards()).toEqual([]);
+    expect(host.events.filter((e) => e.type === 'part-start')).toEqual([]);
+
+    const both = await offer(client, { params: [{ label: 'Width', part: 'Lid' }, { label: 'Width', part: 'Plate' }] });
+    expect(both.isError).not.toBe(true);
+    expect(host.paramCards()[0].params).toEqual([
+      { label: 'Width', part: 'Lid' },
+      { label: 'Width', part: 'Plate' },
+    ]);
+  });
+
+  it('has nothing to offer without a model, without parameters, or outside a turn', async () => {
+    const none = new FakeHost();
+    const noModel = await offer(await connect(new ToolGate(none), { params: true }));
+    expect(noModel.isError).toBe(true);
+    expect(textOf(noModel)).toBe('No model is on screen, so there are no parameters to offer.');
+
+    const bare = hostWith(WALL);
+    const noParams = await offer(await connect(new ToolGate(bare), { params: true }));
+    expect(noParams.isError).toBe(true);
+    expect(textOf(noParams)).toBe(
+      'The model on screen (parts/plate.part.js) declares no parameters in a part() or assembly() body, so there is nothing to offer. ' +
+        'Its project parameters (*.params.js) are edited in the Parameters column, not on a card.',
+    );
+
+    const idle = hostWith(WIDTH);
+    idle.turn = null;
+    const late = await offer(await connect(new ToolGate(idle), { params: true }), { params: [{ label: 'Width' }] });
+    expect(late.isError).toBe(true);
+    expect(textOf(late)).toBe(NO_TURN_MESSAGE);
+    for (const host of [none, bare, idle]) {
+      expect(host.events).toEqual([]);
+    }
   });
 });
 

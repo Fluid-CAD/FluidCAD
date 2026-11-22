@@ -14,18 +14,21 @@ import path from 'node:path';
 import { TurnFailure, type AgentBackend, type AgentInstall, type AgentRun, type BackendEvent, type TurnError, type TurnImage } from './backend.ts';
 import { EventLog } from './event-log.ts';
 import { buildCliText, CONTINUE_TEXT, interruptedTurnNote, type InterruptedToolCall, type WorkspaceState } from './instructions.ts';
+import { addParamChanges, mergeKept, readKept, withoutTold, type ParamCardModel } from './param-cards.ts';
 import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-endpoint.ts';
 import { SessionStore, type Checkpoint, type SessionRecord } from './session-store.ts';
 import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from './tool-gate.ts';
 import { applyChatEvent, findMessage, findPart } from './transcript.ts';
 import { cancelUnbuilt, VARIANTS_RESTART_BUILDING_REASON, VARIANTS_RESTART_REASON } from './variants.ts';
 import { cancelUnfinishedPreview } from './change-preview.ts';
-import { ASK_USER_TOOL, PROPOSE_VARIANTS_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
+import { ASK_USER_TOOL, OFFER_PARAMS_TOOL, PROPOSE_VARIANTS_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
 import type {
   AgentKind,
   ApprovalDecision,
   ChatEvent,
   ChatPart,
+  ParamChange,
+  ParamsPart,
   PermissionMode,
   QuestionPart,
   SendMessage,
@@ -69,6 +72,8 @@ export type SessionDeps = {
   pinnedWorkspace(): RegistryEntry;
   prepareTurn(): Promise<TurnSetup>;
   workspaceState(): WorkspaceState;
+  /** The model on screen and the parameters its last render declared, for `offer_params` (§26). */
+  model(): ParamCardModel;
   instructions(): string;
   idleMs?: number;
   /** Approval timeout and timers (tests). */
@@ -144,6 +149,7 @@ export class AgentSession {
         questionsChanged: (turnId) => this.waitsChanged(turnId),
         checkpoint: (turnId, checkpoint) => this.takeCheckpoint(turnId, checkpoint),
         dropCheckpoint: (turnId, filePath) => this.dropCheckpoint(turnId, filePath),
+        model: () => deps.model(),
       },
       deps.gate,
     );
@@ -319,6 +325,7 @@ export class AgentSession {
     this.persist();
 
     const revertedFiles = this.record.revertedFiles ?? [];
+    const paramChanges = this.record.paramChanges ?? [];
     const cliText = buildCliText({
       text: input.text,
       references: input.references,
@@ -326,9 +333,10 @@ export class AgentSession {
       imageAttached: captureAttached,
       workspace: this.deps.workspaceState(),
       revertedFiles,
+      paramChanges,
       ...(extra.interruptedTurn ? { interruptedTurn: extra.interruptedTurn } : {}),
     });
-    void this.startTurn(turnId, { cliText, images, model: input.model, effort: input.effort, revertedFiles });
+    void this.startTurn(turnId, { cliText, images, model: input.model, effort: input.effort, revertedFiles, paramChanges });
     return { turnId };
   }
 
@@ -370,6 +378,8 @@ export class AgentSession {
           calls.push({ name: ASK_USER_TOOL, outcome: questionOutcome(part) });
         } else if (part.type === 'variants') {
           calls.push({ name: PROPOSE_VARIANTS_TOOL, target: part.file, outcome: variantsOutcome(part) });
+        } else if (part.type === 'params') {
+          calls.push({ name: OFFER_PARAMS_TOOL, target: part.file, outcome: 'done: the card is in the chat' });
         }
       }
     }
@@ -538,6 +548,42 @@ export class AgentSession {
     return null;
   }
 
+  /**
+   * What a page wrote into the source when the user pressed Keep on a
+   * parameter card (§26): the card says so from then on, in every tab, and
+   * the next message tells the agent, whose history still has the old
+   * defaults. Taken whether or not a turn runs: Keep is the user's own
+   * action, not a change of a turn, so it is neither approved nor
+   * checkpointed. `not-found`: no such card.
+   */
+  paramsKept(paramsId: string, body: unknown): { result: 'ok' | 'not-found' } | { result: 'invalid'; error: string } {
+    const found = this.findParams(paramsId);
+    if (!found) {
+      return { result: 'not-found' };
+    }
+    const read = readKept(found.part, body);
+    if (read.ok === false) {
+      return { result: 'invalid', error: read.error };
+    }
+    this.record.paramChanges = addParamChanges(this.record.paramChanges, found.part, read.kept, this.deps.model(), (absPath) =>
+      relativeTo(this.deps.workspacePath, absPath),
+    );
+    this.emit({ type: 'part-update', messageId: found.messageId, partId: found.part.id, patch: { kept: mergeKept(found.part.kept, read.kept) } });
+    this.persist();
+    return { result: 'ok' };
+  }
+
+  private findParams(paramsId: string): { messageId: string; part: ParamsPart } | null {
+    for (const message of this.record.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'params' && part.id === paramsId) {
+          return { messageId: message.id, part };
+        }
+      }
+    }
+    return null;
+  }
+
   /** Approvals, questions and variants cards still waiting for the user end unanswered: the engine is exiting. Synchronous. */
   onEngineExit(): void {
     if (this.turn) {
@@ -604,7 +650,7 @@ export class AgentSession {
 
   private async startTurn(
     turnId: string,
-    input: { cliText: string; images: TurnImage[]; model?: string; effort?: string; revertedFiles: string[] },
+    input: { cliText: string; images: TurnImage[]; model?: string; effort?: string; revertedFiles: string[]; paramChanges: ParamChange[] },
   ): Promise<void> {
     try {
       const setup = await this.deps.prepareTurn();
@@ -637,6 +683,16 @@ export class AgentSession {
           this.record.revertedFiles = left;
         } else {
           delete this.record.revertedFiles;
+        }
+        this.persist();
+      }
+      if (input.paramChanges.length > 0) {
+        // The CLI has been told; a value kept since stays for the next message.
+        const left = withoutTold(this.record.paramChanges, input.paramChanges);
+        if (left.length > 0) {
+          this.record.paramChanges = left;
+        } else {
+          delete this.record.paramChanges;
         }
         this.persist();
       }
@@ -683,6 +739,7 @@ export class AgentSession {
         toolGate: this.gate,
         askUser: (input, signal) => this.gate.ask(input, signal),
         proposeVariants: (input, signal) => this.gate.propose(input, signal),
+        offerParams: (input) => this.gate.offer(input),
         indexes: this.deps.indexes,
         port: this.deps.port,
       });

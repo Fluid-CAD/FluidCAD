@@ -436,6 +436,29 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
     }
   });
 
+  // --- Parameter cards (§26) -------------------------------------------------
+
+  // What the page wrote into the source on Keep: the card says so, and the
+  // next message tells the agent.
+  router.post('/sessions/:id/params/:paramsId', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const kept = session.paramsKept(String(req.params.paramsId), req.body);
+    switch (kept.result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'invalid':
+        res.status(400).json({ error: kept.error });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such parameter card.' });
+        return;
+    }
+  });
+
   router.post('/sessions/:id/revert', async (req, res) => {
     const session = findSession(runtime, req, res);
     if (!session) {

@@ -13,14 +13,17 @@ export type {
 export type { SerializedAssembly } from './assembly-types.ts';
 export type { ObjectBuildError, ObjectBuildWarning, PreviewRender, PreviewRendered, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
 export {
+  ModelBuildTimes,
   ScratchBuildRefusal,
   ScratchBuildReport,
   ScratchBuildStore,
   type ScratchBuildBounds,
+  type ScratchBuildCost,
   type ScratchBuildFacts,
   type ScratchBuildMeshes,
   type ScratchBuildOutcome,
   type ScratchBuildRequest,
+  type ScratchBuildReuse,
   type ScratchBuildValidation,
 } from './scratch-build.ts';
 export { RenderClock, type RenderPhase } from './render-clock.ts';

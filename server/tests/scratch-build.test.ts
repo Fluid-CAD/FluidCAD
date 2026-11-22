@@ -2,8 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { FluidCadServer, ScratchBuildRefusal, ScratchBuildReport, ScratchBuildStore } from '../src/fluidcad-server/index.ts';
-import type { ScratchBuildMeshes, ScratchBuildOutcome } from '../src/fluidcad-server/index.ts';
+import { FluidCadServer, ModelBuildTimes, ScratchBuildRefusal, ScratchBuildReport, ScratchBuildStore } from '../src/fluidcad-server/index.ts';
+import type { ScratchBuildMeshes, ScratchBuildOutcome, ScratchBuildReuse } from '../src/fluidcad-server/index.ts';
 import { LocalSceneHost } from '../src/host/local-scene-host.ts';
 import type { RenderOverlay, SceneHost } from '../src/host/scene-host.ts';
 import { createManager, getSceneManager } from '../../lib/dist/scene-manager.js';
@@ -76,9 +76,9 @@ describe('a scratch build over a workspace', () => {
   /** Module evaluations: every render and every scratch build evaluates the file once. */
   let evaluations = 0;
 
-  const build = (request: { file?: string; source?: string; params?: Record<string, unknown> } = {}) =>
+  const build = (request: { file?: string; source?: string; params?: Record<string, unknown>; reuse?: boolean } = {}) =>
     quietly(() => server.scratchBuild({ file, ...request })) as Promise<ScratchBuildOutcome>;
-  const built = async (request: { file?: string; source?: string; params?: Record<string, unknown> } = {}): Promise<Built> => {
+  const built = async (request: { file?: string; source?: string; params?: Record<string, unknown>; reuse?: boolean } = {}): Promise<Built> => {
     const outcome = await build(request);
     if (outcome.state === 'compile-error') {
       throw new Error(`did not evaluate: ${outcome.compileError.message}`);
@@ -211,6 +211,70 @@ describe('a scratch build over a workspace', () => {
     expect(outcome.volume).toBe(19200);
     expect(host.getModuleImporters(helper)).toEqual([]);
     expect(live()).toEqual(before);
+  });
+
+  it('answers a kept build of the same inputs when asked to reuse, and builds when anything it read changed', async () => {
+    const helper = `${root}/helper.js`;
+    const source = block({ extra: `import { EXTRA } from './helper.js';`, height: 18 });
+    const first = await built({ source, reuse: true });
+    expect(first.reused).toBeUndefined();
+    const evaluated = evaluations;
+
+    // The same text again: the kept build, nothing evaluated, its meshes still served.
+    const again = await built({ source, reuse: true });
+    expect(again).toMatchObject({ reused: true, id: first.id, volume: first.volume, geometry: first.geometry });
+    expect(evaluations).toBe(evaluated);
+    expect(server.scratchBuilds.get(first.id)).not.toBeNull();
+    // Without `reuse` a build is always made.
+    expect((await built({ source })).reused).toBeUndefined();
+    expect(evaluations).toBe(evaluated + 1);
+
+    // Another text, other params, or a module the build imported that has changed: a build.
+    expect((await built({ source: `${source}// a note\n`, reuse: true })).reused).toBeUndefined();
+    expect((await built({ source, params: { Height: 5 }, reuse: true })).reused).toBeUndefined();
+    expect((await built({ source, reuse: true })).reused).toBe(true);
+    fs.writeFileSync(helper, `export const EXTRA = 13;\n`);
+    try {
+      const changed = await built({ source, reuse: true });
+      expect(changed.reused).toBeUndefined();
+      expect(changed.id).not.toBe(first.id);
+    } finally {
+      fs.writeFileSync(helper, `export const EXTRA = 12;\n`);
+    }
+    // A candidate that does not evaluate is never kept.
+    const broken = block().replace(`const e = extrude(height);`, `const e = extrude(height;`);
+    expect((await build({ source: broken, reuse: true })).state).toBe('compile-error');
+    expect((await build({ source: broken, reuse: true })).state).toBe('compile-error');
+  });
+
+  it('says what a build would cost without building: the kept build, or how long the file last took', async () => {
+    const source = block({ height: 21 });
+    const evaluated = evaluations;
+    const unknown = await server.scratchBuildCost({ file, source });
+    expect(unknown?.reusable).toBeNull();
+    // The file was rendered when the suite opened it, and built since.
+    expect(unknown?.lastBuildMs).toEqual(expect.any(Number));
+    const outcome = await built({ source });
+    const known = await server.scratchBuildCost({ file, source });
+    expect(known?.reusable).toMatchObject({ reused: true, id: outcome.id, volume: 33600 });
+    expect(known?.lastBuildMs).toBe(outcome.durationMs);
+    expect(evaluations).toBe(evaluated + 1);
+    // A file nothing was built of yet.
+    expect(await server.scratchBuildCost({ file: `${root}/never.part.js`, source })).toEqual({ reusable: null, lastBuildMs: null });
+    await expect(server.scratchBuildCost({ file: `${root}/helper.js` })).rejects.toBeInstanceOf(ScratchBuildRefusal);
+  });
+
+  it('digests what a build draws: the same for a comment or a rename, another for a change of shape', async () => {
+    const plain = await built({ source: block() });
+    const commented = await built({ source: `// The block, 30 tall.\n${block()}` });
+    const renamed = await built({ source: block().replace(`part('Block'`, `part('Brick'`) });
+    const moved = await built({ source: block().replace(`const e = extrude(height);`, `const e = extrude(height);\n  // nothing more`) });
+    expect(plain.geometry).toMatch(/^[0-9a-f]{40}$/);
+    expect(commented.geometry).toBe(plain.geometry);
+    expect(renamed.geometry).toBe(plain.geometry);
+    expect(moved.geometry).toBe(plain.geometry);
+    expect((await built({ source: block({ fillet: 5 }) })).geometry).not.toBe(plain.geometry);
+    expect((await built({ source: block({ height: 31 }) })).geometry).not.toBe(plain.geometry);
   });
 
   it('bounds a curved body exactly, and builds a model of bare statements', async () => {
@@ -476,6 +540,34 @@ describe('ScratchBuildStore', () => {
     expect(store.get('second')).not.toBeNull();
   });
 
+  it('finds a kept build by the inputs it was made from, and keeps a reused one as if just made', () => {
+    let now = 0;
+    const store = new ScratchBuildStore(() => now);
+    const reuse = (id: string, key: string): ScratchBuildReuse =>
+      ({ key, outcome: { state: 'rendered', id } as ScratchBuildReuse['outcome'], fingerprint: { files: new Map(), params: '' } });
+    store.put(meshesOf('first', 3), reuse('first', 'key-a'));
+    now += 1000;
+    store.put(meshesOf('plain', 3));
+    store.put(meshesOf('second', 3), reuse('second', 'key-b'));
+    expect(store.find('key-a')?.outcome.id).toBe('first');
+    expect(store.find('key-b')?.outcome.id).toBe('second');
+    expect(store.find('key-c')).toBeNull();
+    // The same inputs built again: the newer build answers.
+    store.put(meshesOf('third', 3), reuse('third', 'key-a'));
+    expect(store.find('key-a')?.outcome.id).toBe('third');
+
+    // Reused just before it would be let go: kept for another half hour.
+    now += ScratchBuildStore.MAX_AGE_MS - 500;
+    store.touch('first');
+    now += 1000;
+    expect(store.get('first')).not.toBeNull();
+    expect(store.find('key-a')?.outcome.id).toBe('first');
+    expect(store.get('second')).toBeNull();
+    expect(store.find('key-b')).toBeNull();
+    store.touch('gone');
+    expect(store.stats().builds).toBe(1);
+  });
+
   it('knows the form of its ids', () => {
     expect(ScratchBuildStore.isId(ScratchBuildStore.newId())).toBe(true);
     expect(ScratchBuildStore.isId('../etc/passwd')).toBe(false);
@@ -508,5 +600,34 @@ describe('ScratchBuildReport', () => {
     expect(ScratchBuildReport.solids([], report, true)).toEqual({ solidCount: 4, volume: 230 });
     expect(ScratchBuildReport.solids([{ sceneShapes: [solid([0, 0, 0])] }], null, false)).toEqual({ solidCount: 1, volume: null });
     expect(ScratchBuildReport.validation(null)).toBeNull();
+  });
+});
+
+describe('ModelBuildTimes', () => {
+  it('answers the last full build of a file, unless a later render alone took longer', () => {
+    const times = new ModelBuildTimes();
+    expect(times.of('/ws/a.part.js')).toBeNull();
+    times.noteRender('/ws/a.part.js', 120.4);
+    expect(times.of('/ws/a.part.js')).toBe(120);
+    times.noteFull('/ws/a.part.js', 900);
+    expect(times.of('/ws/a.part.js')).toBe(900);
+    // A render that reused most of the model says nothing against the full build.
+    times.noteRender('/ws/a.part.js', 40);
+    expect(times.of('/ws/a.part.js')).toBe(900);
+    times.noteRender('/ws/a.part.js', 2600);
+    expect(times.of('/ws/a.part.js')).toBe(2600);
+    // The newest full build is what a build costs now.
+    times.noteFull('/ws/a.part.js', 300);
+    expect(times.of('/ws/a.part.js')).toBe(300);
+    expect(times.of('/ws/b.part.js')).toBeNull();
+  });
+
+  it('remembers a bounded number of files', () => {
+    const times = new ModelBuildTimes();
+    for (let i = 0; i <= ModelBuildTimes.MAX_FILES; i++) {
+      times.noteFull(`/ws/${i}.part.js`, i);
+    }
+    expect(times.of('/ws/0.part.js')).toBeNull();
+    expect(times.of(`/ws/${ModelBuildTimes.MAX_FILES}.part.js`)).toBe(ModelBuildTimes.MAX_FILES);
   });
 });

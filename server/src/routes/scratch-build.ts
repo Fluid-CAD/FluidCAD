@@ -21,14 +21,17 @@ export class ScratchBuildRequests {
   /** The build a body asks for, or the refusal with its HTTP status. */
   static parse(body: unknown, workspacePath: string): ScratchBuildRequest | { status: number; error: string } {
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      return { status: 400, error: 'body must be an object: { file: string, source?: string, params?: Record<string, value> }' };
+      return { status: 400, error: 'body must be an object: { file: string, source?: string, params?: Record<string, value>, reuse?: boolean }' };
     }
-    const { file, source, params } = body as { file?: unknown; source?: unknown; params?: unknown };
+    const { file, source, params, reuse } = body as { file?: unknown; source?: unknown; params?: unknown; reuse?: unknown };
     if (typeof file !== 'string' || file.length === 0) {
       return { status: 400, error: '`file` must be a non-empty string: the model file to build.' };
     }
     if (source !== undefined && (typeof source !== 'string' || source.length > MAX_SOURCE_LENGTH)) {
       return { status: 400, error: `\`source\` must be a string of at most ${MAX_SOURCE_LENGTH} characters: the whole candidate text of the file.` };
+    }
+    if (reuse !== undefined && typeof reuse !== 'boolean') {
+      return { status: 400, error: '`reuse` must be a boolean: whether a kept build of the same inputs may answer.' };
     }
     const paramsError = ScratchBuildRequests.paramsError(params);
     if (paramsError) {
@@ -53,6 +56,7 @@ export class ScratchBuildRequests {
       file: absPath,
       ...(source !== undefined ? { source: source as string } : {}),
       ...(params !== undefined ? { params: params as Record<string, unknown> } : {}),
+      ...(reuse === true ? { reuse: true } : {}),
     };
   }
 
@@ -99,6 +103,17 @@ export class ScratchBuildRequests {
  * is up. The response is held for as long as the build takes, behind any
  * render in progress.
  *
+ * With `reuse: true` a build of the same inputs the engine still keeps is
+ * the answer (`reused: true`) and nothing is built: the same file and text,
+ * the same session overrides, configuration and `params`, and every other
+ * file the build read unchanged.
+ *
+ * `POST /scratch-build/cost` (the same body) → 200 with a
+ * `ScratchBuildCost`, at once and without building: `reusable` (the kept
+ * build `reuse` would answer, or null) and `lastBuildMs` (how long the
+ * file's last build took in this engine process, or null). The refusals of
+ * the build.
+ *
  * `GET /scratch-build/:id/meshes` → 200 with the build's `ScratchBuildMeshes`
  * (its rendered rows, every mesh whole — what the page's mesh factory and
  * thumbnail renderer read), or 404 once the store let it go (see
@@ -126,6 +141,34 @@ export function createScratchBuildRouter(fluidCadServer: FluidCadServer, workspa
         return;
       }
       res.json(outcome);
+    } catch (err: any) {
+      if (err instanceof ScratchBuildRefusal) {
+        res.status(err.status).json({ error: err.message });
+        return;
+      }
+      res.status(500).json({ error: err?.message ?? String(err) });
+    }
+  });
+
+  router.post('/scratch-build/cost', async (req, res) => {
+    let request: ReturnType<typeof ScratchBuildRequests.parse>;
+    try {
+      request = ScratchBuildRequests.parse(req.body, workspacePath);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message ?? String(err) });
+      return;
+    }
+    if ('status' in request) {
+      res.status(request.status).json({ error: request.error });
+      return;
+    }
+    try {
+      const cost = await fluidCadServer.scratchBuildCost(request);
+      if (!cost) {
+        res.status(503).json({ error: fluidCadServer.describeMissingEngine() ?? 'Engine not initialized yet' });
+        return;
+      }
+      res.json(cost);
     } catch (err: any) {
       if (err instanceof ScratchBuildRefusal) {
         res.status(err.status).json({ error: err.message });

@@ -93,9 +93,11 @@ import type {
 import { SessionWrites } from './session-writes.ts';
 import { CompileErrors } from './compile-errors.ts';
 import {
+  ModelBuildTimes,
   ScratchBuildRefusal,
   ScratchBuildReport,
   ScratchBuildStore,
+  type ScratchBuildCost,
   type ScratchBuildFacts,
   type ScratchBuildMeshes,
   type ScratchBuildOutcome,
@@ -303,6 +305,8 @@ export class FluidCadServer {
   private readonly previewScenes = new WeakMap<object, string>();
   /** The meshes of the scratch builds most recently made ({@link scratchBuild}), by build id. */
   readonly scratchBuilds = new ScratchBuildStore();
+  /** How long each model file last took to build here ({@link scratchBuildCost}). */
+  readonly buildTimes = new ModelBuildTimes();
 
   constructor(host: SceneHost = new LocalSceneHost()) {
     this.host = host;
@@ -826,6 +830,8 @@ export class FluidCadServer {
         });
         const packages = this.host.resolvedPackages?.() ?? [];
 
+        // A render with no earlier scene to compare against reuses nothing.
+        const fromNothing = !this.previousScenes.has(sessionId);
         if (this.previousScenes.has(sessionId)) {
           const previousScene = this.previousScenes.get(sessionId);
           const rebuild = owed ? await this.featureIdsOwed(owed, fingerprint) : new Set<string>();
@@ -856,6 +862,17 @@ export class FluidCadServer {
         const renderStart = performance.now();
         this.sceneManager.renderScene(scene);
         run.clock?.add('render', performance.now() - renderStart);
+        // What a build of this file costs, for a build nobody asked for by
+        // name (see ModelBuildTimes). A preview's code is not the file's, and
+        // a draft tier is not what a scratch build builds.
+        if (!preview && (run.detail ?? 'full') === 'full') {
+          const took = performance.now() - evaluateStart;
+          if (fromNothing) {
+            this.buildTimes.noteFull(normalizedFileName, took);
+          } else {
+            this.buildTimes.noteRender(normalizedFileName, took);
+          }
+        }
         const collectStart = performance.now();
         const result = scene.getRenderedObjects();
         const renderChanges = changes ? changes.summarize(scene) : undefined;
@@ -2647,6 +2664,14 @@ export class FluidCadServer {
       }
       const manager = this.sceneManager;
       const candidate = await this.scratchSource(file, request.source);
+      const key = this.scratchKey(file, candidate.code, request.params);
+      if (request.reuse === true) {
+        const kept = this.scratchReusable(key, true);
+        if (kept) {
+          this.scratchBuilds.touch(kept.id);
+          return kept;
+        }
+      }
       const startedAt = performance.now();
       // Everything a render leaves behind on the engine side, captured to be
       // put back (as `renderWithConfiguration` does).
@@ -2731,6 +2756,7 @@ export class FluidCadServer {
           ...ScratchBuildReport.solids(objects, report, assembly !== null),
           bounds: manager.getRenderedBounds?.(scene) ?? null,
           validation: ScratchBuildReport.validation(report),
+          geometry: ScratchBuildReport.geometryOf(objects, assembly ? { instances: assembly.instances, mates: assembly.mates, connectors: assembly.connectors ?? [] } : null),
           ...(assembly ? { instanceCount: assembly.instances.length } : {}),
           ...(breakpointHit ? { breakpointHit: true as const } : {}),
         };
@@ -2742,10 +2768,22 @@ export class FluidCadServer {
           objects,
           ...(assembly ? { assembly: { instances: assembly.instances, mates: assembly.mates, connectors: assembly.connectors ?? [] } } : {}),
         };
-        this.scratchBuilds.put(meshes);
-        return objectErrors.length > 0
+        const outcome = objectErrors.length > 0
           ? { state: 'build-error' as const, objectErrors, ...facts }
           : { state: 'rendered' as const, ...facts };
+        // Every other file the build read, by content, while the loader
+        // still lists the candidate's imports (the `finally` puts the
+        // file's own back): what a later request for the same inputs is
+        // checked against before this build answers it.
+        let fingerprint: RenderFingerprint | null = null;
+        try {
+          fingerprint = this.scratchFingerprint(file);
+        } catch {
+          // Its inputs could not be listed: the build answers, and is not reused.
+        }
+        this.scratchBuilds.put(meshes, fingerprint ? { key, outcome, fingerprint } : undefined);
+        this.buildTimes.noteFull(file, facts.durationMs);
+        return outcome;
       } catch (error) {
         // The candidate did not evaluate. Read before the modules are
         // invalidated: that starts the resolver over.
@@ -2783,6 +2821,91 @@ export class FluidCadServer {
         }
       }
     });
+  }
+
+  /**
+   * What a scratch build of `request` would cost, without building it and
+   * without waiting for the engine: nothing when a build of the same inputs
+   * is kept (`reusable`, its outcome — what `reuse: true` would answer), else
+   * about `lastBuildMs`, how long the file's last build took here. Null
+   * without an engine; the refusals of {@link scratchBuild}.
+   */
+  async scratchBuildCost(request: ScratchBuildRequest): Promise<ScratchBuildCost | null> {
+    const file = normalizePath(request.file).replace('virtual:live-render:', '');
+    if (detectKind(file) === null) {
+      throw new ScratchBuildRefusal(422, `${file} is not a model: a scratch build takes a .fluid.js, .part.js or .assembly.js file.`);
+    }
+    if (!this.sceneManager) {
+      return null;
+    }
+    if (typeof this.host.setRenderOverlay !== 'function') {
+      throw new ScratchBuildRefusal(501, 'This host cannot build a candidate: it evaluates only the text it holds.');
+    }
+    const candidate = await this.scratchSource(file, request.source);
+    return {
+      reusable: this.scratchReusable(this.scratchKey(file, candidate.code, request.params), false),
+      lastBuildMs: this.buildTimes.of(file),
+    };
+  }
+
+  /**
+   * The inputs a scratch build request names, as one key: the file, the
+   * text evaluated as it, the session's overrides under its configuration
+   * (as a render's dedup keys them) and the request's own params. The files
+   * the build reads beside its own are not in it: they are the kept build's
+   * fingerprint, checked when it is asked for.
+   */
+  private scratchKey(file: string, code: string, params: Record<string, unknown> | undefined): string {
+    const own = Object.entries(params ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return createHash('sha1')
+      .update(file)
+      .update('\0')
+      .update(code)
+      .update('\0')
+      .update(this.overridesKey(file))
+      .update('\0')
+      .update(JSON.stringify(own))
+      .digest('hex');
+  }
+
+  /**
+   * The kept build of the inputs `key` names, when every other file it read
+   * is still what it read; marked `reused`. `refreshSeeds`: bring the
+   * disk-seeded buffers among those files up to date first, as a render's
+   * cache check does — only under the engine's lock, since it writes them.
+   */
+  private scratchReusable(key: string, refreshSeeds: boolean): (Exclude<ScratchBuildOutcome, { state: 'compile-error' }> & { reused: true }) | null {
+    const kept = this.scratchBuilds.find(key);
+    if (!kept) {
+      return null;
+    }
+    if (refreshSeeds) {
+      for (const input of kept.fingerprint.files.keys()) {
+        this.refreshDiskSeed(input);
+      }
+    }
+    return this.renderInputs.isCurrent(kept.fingerprint, kept.fingerprint.params) ? { ...kept.outcome, reused: true } : null;
+  }
+
+  /**
+   * The fingerprint of the scratch build that just ran, without its own
+   * file (the key holds the text evaluated as it): the modules it imported,
+   * the project config and the files the engine read. Null when the host
+   * cannot list them — such a build is never reused.
+   */
+  private scratchFingerprint(file: string): RenderFingerprint | null {
+    const extraFiles: string[] = [];
+    if (this.workspacePath) {
+      extraFiles.push(join(this.workspacePath, PROJECT_CONFIG_FILENAME));
+    }
+    extraFiles.push(...this.engineRenderInputs());
+    const captured = this.renderInputs.capture({ entryFile: file, extraFiles, params: '' });
+    if (!captured) {
+      return null;
+    }
+    const files = new Map(captured.files);
+    files.delete(normalizePath(file));
+    return { files, params: '' };
   }
 
   /**

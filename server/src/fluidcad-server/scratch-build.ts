@@ -1,10 +1,11 @@
 // Scratch builds: a candidate version of a model file built to see what it would produce, with nothing live touched.
 
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { FluidScriptKind } from '../file-kind.ts';
 import type { LengthUnit } from '../project-config.ts';
 import type { CompileError } from '../ws-protocol.ts';
 import type { SceneValidationReport } from '../../../lib/dist/index.js';
+import type { RenderFingerprint } from '../render-inputs.ts';
 import { SceneMeshes, type MeshPayload } from '../scene-meshes/scene-meshes.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
 import type { ObjectBuildError } from './render-types.ts';
@@ -26,6 +27,12 @@ export type ScratchBuildRequest = {
    * parameter it names; nothing of them is kept.
    */
   params?: Record<string, unknown>;
+  /**
+   * Answer a kept build of the same inputs instead of building again (see
+   * {@link ScratchBuildStore.find}); its outcome then says `reused`. Absent:
+   * always build.
+   */
+  reuse?: boolean;
 };
 
 /** Axis-aligned bounds in the build's unit. */
@@ -80,6 +87,14 @@ export type ScratchBuildFacts = {
   volume: number | null;
   /** Null on an engine without geometry validation, or when it refused. */
   validation: ScratchBuildValidation | null;
+  /**
+   * A digest of what the build draws ({@link ScratchBuildReport.geometryOf}):
+   * two builds with the same digest render the same meshes in the same
+   * places, so a change between them moved no geometry.
+   */
+  geometry: string;
+  /** The answer is a kept build of the same inputs (`reuse`): nothing was built for it. */
+  reused?: true;
   /** Assemblies: how many instances the build placed. */
   instanceCount?: number;
   /** The build stopped at a `breakpoint()`: what ran before it is what was built. */
@@ -96,6 +111,19 @@ export type ScratchBuildOutcome =
   | ({ state: 'rendered' } & ScratchBuildFacts)
   | ({ state: 'build-error'; objectErrors: ObjectBuildError[] } & ScratchBuildFacts)
   | { state: 'compile-error'; file: string; durationMs: number; compileError: CompileError };
+
+/**
+ * What a scratch build of a request would cost, without building it
+ * (`FluidCadServer.scratchBuildCost`): nothing when a build of the same
+ * inputs is kept — `reusable` is its outcome — and otherwise about
+ * `lastBuildMs`, how long the file's last build took (see
+ * {@link ModelBuildTimes}); null when this engine process has not built the
+ * file yet.
+ */
+export type ScratchBuildCost = {
+  reusable: ScratchBuildOutcome | null;
+  lastBuildMs: number | null;
+};
 
 /**
  * A scratch build's rendered rows, as `GET /api/scratch-build/:id/meshes`
@@ -174,6 +202,35 @@ export class ScratchBuildReport {
     return { solidCount, volume: measured ? Math.round(volume * scale) / scale : null };
   }
 
+  /**
+   * A digest of what a build draws: every shape of every row on screen, by
+   * its kind and the key of its mesh payload (`meshKey`, a digest of the
+   * payload's numbers and colours), in order — and, for an assembly, its
+   * instances, mates and connectors as serialized, without their source
+   * positions. Ids, names and source lines of the rows are left out: a
+   * comment or a rename changes none of what is drawn. Equal digests mean
+   * the same meshes; two digests that differ may still be the same shape
+   * (statements in another order).
+   */
+  static geometryOf(objects: any[], assembly: unknown | null): string {
+    const hash = createHash('sha1');
+    for (const row of objects) {
+      if (row?.visible === false) {
+        continue;
+      }
+      hash.update('|row');
+      for (const shape of (row?.sceneShapes ?? []) as any[]) {
+        hash.update(`|${shape?.shapeType ?? ''}:${shape?.isMetaShape ? 'meta' : ''}:`);
+        hash.update(typeof shape?.meshKey === 'string' ? shape.meshKey : JSON.stringify(shape?.meshes ?? null));
+      }
+    }
+    if (assembly) {
+      hash.update('|assembly');
+      hash.update(JSON.stringify(assembly, (key, value) => (key === 'sourceLocation' ? undefined : value)));
+    }
+    return hash.digest('hex');
+  }
+
   /** The validator's report as a scratch build carries it. */
   static validation(report: SceneValidationReport | null): ScratchBuildValidation | null {
     if (!report) {
@@ -188,7 +245,23 @@ export class ScratchBuildReport {
   }
 }
 
-type StoredBuild = { meshes: ScratchBuildMeshes; weight: number; storedAt: number };
+/** What makes a kept build answer a later request for the same inputs (see {@link ScratchBuildStore.find}). */
+export type ScratchBuildReuse = {
+  /**
+   * The inputs a request names: the file, the text evaluated as it, the
+   * session's overrides and configuration, and the request's own params.
+   */
+  key: string;
+  outcome: Exclude<ScratchBuildOutcome, { state: 'compile-error' }>;
+  /**
+   * Every other file the build read (the modules it imports, the project's
+   * `fluidcad.json`, the assets the engine loaded), by content: the build is
+   * reused only while these still match.
+   */
+  fingerprint: RenderFingerprint;
+};
+
+type StoredBuild = { meshes: ScratchBuildMeshes; weight: number; storedAt: number; reuse?: ScratchBuildReuse };
 
 /**
  * The meshes of the scratch builds most recently made, by build id: what
@@ -201,6 +274,11 @@ type StoredBuild = { meshes: ScratchBuildMeshes; weight: number; storedAt: numbe
  * shows it and keeps the picture it drew; an id that is gone is a build to
  * make again. It holds the plain arrays the render made, never a kernel
  * object — a scratch scene is freed before its build answers.
+ *
+ * A build stored with its {@link ScratchBuildReuse} also answers a later
+ * request for the same inputs ({@link find}) for as long as it is kept: a
+ * reused build is one whose meshes can still be drawn. Reusing one makes it
+ * the newest ({@link touch}).
  */
 export class ScratchBuildStore {
   /** How many builds are kept at most, the newest included. */
@@ -225,16 +303,46 @@ export class ScratchBuildStore {
     return typeof id === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(id);
   }
 
-  /** A build was made: its meshes become the newest. */
-  put(meshes: ScratchBuildMeshes): void {
-    const storedAt = this.now();
-    const kept: StoredBuild[] = [{ meshes, weight: ScratchBuildStore.weightOf(meshes.objects), storedAt }];
+  /** A build was made: its meshes become the newest. With `reuse`, it answers later requests for the same inputs. */
+  put(meshes: ScratchBuildMeshes, reuse?: ScratchBuildReuse): void {
+    this.admit({ meshes, weight: ScratchBuildStore.weightOf(meshes.objects), storedAt: this.now(), ...(reuse ? { reuse } : {}) });
+  }
+
+  /** The meshes of build `id`, or null when it was never made or is no longer kept. */
+  get(id: string): ScratchBuildMeshes | null {
+    this.dropOld();
+    return this.builds.find(build => build.meshes.id === id)?.meshes ?? null;
+  }
+
+  /** The kept build made from the inputs `key` names, newest first, or null. The caller checks its fingerprint. */
+  find(key: string): ScratchBuildReuse | null {
+    this.dropOld();
+    return this.builds.find(build => build.reuse?.key === key)?.reuse ?? null;
+  }
+
+  /** Build `id` was reused: it is the newest again, kept as if just made. */
+  touch(id: string): void {
+    const build = this.builds.find(candidate => candidate.meshes.id === id);
+    if (!build) {
+      return;
+    }
+    this.builds = this.builds.filter(candidate => candidate !== build);
+    this.admit({ ...build, storedAt: this.now() });
+  }
+
+  /** How many builds and numbers are kept (tests, diagnostics). */
+  stats(): { builds: number; weight: number } {
+    return { builds: this.builds.length, weight: this.builds.reduce((sum, build) => sum + build.weight, 0) };
+  }
+
+  private admit(newest: StoredBuild): void {
+    const kept: StoredBuild[] = [newest];
     let older = 0;
     for (const build of this.builds) {
       if (kept.length >= ScratchBuildStore.MAX_BUILDS || older + build.weight > ScratchBuildStore.MAX_OLDER_WEIGHT) {
         break;
       }
-      if (storedAt - build.storedAt > ScratchBuildStore.MAX_AGE_MS) {
+      if (newest.storedAt - build.storedAt > ScratchBuildStore.MAX_AGE_MS) {
         break;
       }
       kept.push(build);
@@ -243,16 +351,9 @@ export class ScratchBuildStore {
     this.builds = kept;
   }
 
-  /** The meshes of build `id`, or null when it was never made or is no longer kept. */
-  get(id: string): ScratchBuildMeshes | null {
+  private dropOld(): void {
     const now = this.now();
     this.builds = this.builds.filter((build, index) => index === 0 || now - build.storedAt <= ScratchBuildStore.MAX_AGE_MS);
-    return this.builds.find(build => build.meshes.id === id)?.meshes ?? null;
-  }
-
-  /** How many builds and numbers are kept (tests, diagnostics). */
-  stats(): { builds: number; weight: number } {
-    return { builds: this.builds.length, weight: this.builds.reduce((sum, build) => sum + build.weight, 0) };
   }
 
   private static weightOf(objects: any[]): number {
@@ -267,5 +368,55 @@ export class ScratchBuildStore {
       }
     }
     return weight;
+  }
+}
+
+/**
+ * How long each model file last took to build in this engine process: what
+ * decides whether a build nobody asked for by name (the preview of a change
+ * waiting for approval) may hold the engine.
+ *
+ * Two measures per file. `full`: a build that reused nothing — a scratch
+ * build, or a render with no earlier scene of the file to compare against.
+ * `render`: its last render of any kind, which may have rebuilt one feature
+ * only and so is a floor, not the cost. {@link of} answers the larger of
+ * the two: the last full build, unless a later render alone already took
+ * longer.
+ */
+export class ModelBuildTimes {
+  /** How many files are remembered; the least recently built goes first. */
+  static readonly MAX_FILES = 200;
+
+  private readonly times = new Map<string, { full?: number; render?: number }>();
+
+  /** `file` was built from nothing in `ms`. */
+  noteFull(file: string, ms: number): void {
+    this.note(file, { full: ms, render: undefined });
+  }
+
+  /** A render of `file` took `ms`, with whatever it reused. */
+  noteRender(file: string, ms: number): void {
+    this.note(file, { render: ms });
+  }
+
+  /** How long a build of `file` is expected to take, in ms; null when it was never built here. */
+  of(file: string): number | null {
+    const known = this.times.get(file);
+    if (!known) {
+      return null;
+    }
+    return Math.round(Math.max(known.full ?? 0, known.render ?? 0));
+  }
+
+  private note(file: string, change: { full?: number; render?: number }): void {
+    const known = this.times.get(file) ?? {};
+    this.times.delete(file);
+    this.times.set(file, { ...known, ...change });
+    for (const oldest of this.times.keys()) {
+      if (this.times.size <= ModelBuildTimes.MAX_FILES) {
+        break;
+      }
+      this.times.delete(oldest);
+    }
   }
 }

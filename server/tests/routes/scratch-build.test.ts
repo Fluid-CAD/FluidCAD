@@ -32,6 +32,7 @@ const RENDERED = (file: string): ScratchBuildOutcome => ({
   bounds: { min: [0, 0, 0], max: [10, 10, 10] },
   volume: 1000,
   validation: { ok: true, checked: 1, findings: [], skipped: 0 },
+  geometry: 'digest',
 });
 
 async function post(body: unknown): Promise<{ status: number; body: any }> {
@@ -164,6 +165,42 @@ describe('the scratch build routes', () => {
       throw new Error('kernel said no');
     };
     expect(await post({ file: 'block.part.js' })).toEqual({ status: 500, body: { error: 'kernel said no' } });
+  });
+
+  it('passes `reuse` on, and refuses one that is no boolean', async () => {
+    expect((await post({ file: 'block.part.js', source: 'candidate', reuse: true })).status).toBe(200);
+    expect(requests[0]).toEqual({ file: `${workspace}/block.part.js`, source: 'candidate', reuse: true });
+    expect((await post({ file: 'block.part.js', reuse: false })).status).toBe(200);
+    expect(requests[1]).toEqual({ file: `${workspace}/block.part.js` });
+    expect((await post({ file: 'block.part.js', reuse: 'yes' })).status).toBe(400);
+    expect(requests).toHaveLength(2);
+  });
+
+  it('answers what a build would cost, behind the checks of a build', async () => {
+    const asked: ScratchBuildRequest[] = [];
+    const cost = async (body: unknown): Promise<{ status: number; body: any }> => {
+      const res = await fetch(`${baseUrl}/api/scratch-build/cost`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: res.status, body: await res.json() };
+    };
+    engine.scratchBuildCost = async (request) => {
+      asked.push(request);
+      return { reusable: null, lastBuildMs: 840 };
+    };
+    expect(await cost({ file: 'block.part.js', source: 'candidate' })).toEqual({ status: 200, body: { reusable: null, lastBuildMs: 840 } });
+    expect(asked).toEqual([{ file: `${workspace}/block.part.js`, source: 'candidate' }]);
+    expect((await cost({ file: `${outside}/secret.part.js` })).status).toBe(403);
+    expect((await cost({ file: 'notes.txt' })).status).toBe(422);
+    expect((await cost({})).status).toBe(400);
+    expect(asked).toHaveLength(1);
+    // Nothing was built for any of them.
+    expect(requests).toEqual([]);
+
+    engine.scratchBuildCost = async () => null;
+    expect((await cost({ file: 'block.part.js' })).status).toBe(503);
+    engine.scratchBuildCost = async () => {
+      throw new ScratchBuildRefusal(501, 'cannot build a candidate');
+    };
+    expect(await cost({ file: 'block.part.js' })).toEqual({ status: 501, body: { error: 'cannot build a candidate' } });
   });
 
   it('serves a build\'s meshes by id while the store keeps them, and 404 otherwise', async () => {

@@ -81,7 +81,7 @@ beforeAll(async () => {
 describe('skills policy', () => {
   const files = listMarkdown(skillsDir);
 
-  it('names propose_variants as a tool only the in-app chat has, with when to call it, when not to and what it costs', () => {
+  it('names propose_variants as a tool only the in-app chat has, with when to call it, when not to, how many variants and what it costs', () => {
     const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
     const start = core.indexOf('### `propose_variants`');
     expect(start).toBeGreaterThan(0);
@@ -93,8 +93,10 @@ describe('skills policy', () => {
     expect(block).toContain('differ only by a number');
     expect(block).toContain('to confirm a plan');
     expect(block).toContain('after every change');
-    expect(block).toContain('Two full builds from scratch');
-    expect(block).toContain('exactly two variants');
+    expect(block).toContain('One full build from scratch per variant');
+    expect(block).toContain('**How many.** Two. Send three or four only when the user asked for that many in their own words');
+    expect(block).toContain('"some options", "a few" or "alternatives" is two');
+    expect(block).toContain('Never add a variant because you can think of one');
   });
 
   it('names offer_params as a tool only the in-app chat has, with when to call it and when not to', () => {

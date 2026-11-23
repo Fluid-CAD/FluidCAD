@@ -140,7 +140,7 @@ Call it when:
 
 - **You are choosing between real alternatives** whose outcome differs and cannot be told from the source: which of two constructions builds, which is lighter, which fits a size. Try each, compare the facts, write the one you keep.
 - **A risky value may not build** (a large fillet, a thin shell, a tight offset) and the edit that commits it waits for the user's approval. Find the value that builds, then ask once.
-- **You are about to offer the user several variants in words.** Every one offered is known to build. (`propose_variants`, below, builds its own two: do not try those first.)
+- **You are about to offer the user several variants in words.** Every one offered is known to build. (`propose_variants`, below, builds its own: do not try those first.)
 
 Do not call it:
 
@@ -151,9 +151,9 @@ Do not call it:
 
 **What a call costs.** It is a full build from scratch (nothing is reused from the open model), and the engine does nothing else while it runs: the user's own renders wait behind it. A candidate that crashes the kernel restarts the engine, as a write of it would.
 
-### `propose_variants`: two built alternatives for the user to choose from
+### `propose_variants`: built alternatives for the user to choose from
 
-When your tools include `propose_variants` (the in-app chat; a standalone MCP client does not have it), it builds two candidate versions of one model file, shows them to the user side by side as 3D tiles with their body count, overall size and volume, and waits. The variant the user picks is written and rendered for you: the pick is their approval, so do not write it again. A call carries exactly two variants, each a `label`, a one-sentence `description` of what differs, and the candidate as `content` or `edits`, as `try_build` takes one.
+When your tools include `propose_variants` (the in-app chat; a standalone MCP client does not have it), it builds candidate versions of one model file, shows them to the user side by side as 3D tiles with their body count, overall size and volume, and waits. The variant the user picks is written and rendered for you: the pick is their approval, so do not write it again. A call carries two variants (three or four only when the user asked for that many, see below), each a `label`, a one-sentence `description` of what differs, and the candidate as `content` or `edits`, as `try_build` takes one.
 
 **The default is not to call it.** An ordinary change is one write.
 
@@ -167,10 +167,12 @@ Do not call it:
 - for a request with one sensible reading;
 - for variants that differ only by a number the user could simply state: a dimension is a question (`ask_user`) or a `param()`, not two variants;
 - to confirm a plan;
-- with a second option added only to fill the card, one you would not build yourself;
+- with an option added only to fill the card, one you would not build yourself;
 - after every change.
 
-**What a call costs.** Two full builds from scratch, one after the other, and the app waits while each runs. The call builds both itself, so do not `try_build` them first. A variant that does not build is shown as failed and cannot be picked; when neither builds, the call returns an error instead of asking.
+**How many.** Two. Send three or four only when the user asked for that many in their own words ("show me three options", "four layouts"); "some options", "a few" or "alternatives" is two. Asked for more than four, send the four that differ most and say so. Never add a variant because you can think of one: every extra tile is another full build the user waits for and another thing to compare.
+
+**What a call costs.** One full build from scratch per variant, one after the other, and the app waits while each runs. The call builds them itself, so do not `try_build` them first. A variant that does not build is shown as failed and cannot be picked; when none builds, the call returns an error instead of asking.
 
 **After it returns.** `{ picked, render }`: the picked variant is in the file, so check `render` as after any write and carry on from it. `{ skipped: true }`: decide yourself, write your choice, and say what you assumed. `{ answer }`: the user wrote what they want instead, and nothing was written. An error (the turn was stopped, an hour passed, the file changed while they were choosing): do not propose the same choice again in this turn.
 

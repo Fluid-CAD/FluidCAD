@@ -2215,7 +2215,8 @@
   opacity: 0.45;
 }
 
-[data-role='chat-panel'] .chat-attach-image-remove {
+[data-role='chat-panel'] .chat-attach-image-remove,
+[data-role='chat-panel'] .chat-attach-image-annotate {
   position: absolute;
   top: -6px;
   right: -6px;
@@ -2236,9 +2237,30 @@
   height: 10px;
 }
 
-[data-role='chat-panel'] .chat-attach-image-remove:hover {
+/* Mark the image up: the pen on the opposite corner (§28). */
+[data-role='chat-panel'] .chat-attach-image-annotate {
+  top: auto;
+  bottom: -6px;
+  width: 18px;
+  height: 18px;
+}
+
+[data-role='chat-panel'] .chat-attach-image-annotate > svg {
+  width: 12px;
+  height: 12px;
+}
+
+[data-role='chat-panel'] .chat-attach-image-remove:hover,
+[data-role='chat-panel'] .chat-attach-image-annotate:hover {
   color: var(--color-base-content);
   border-color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+}
+
+[data-role='chat-panel'] .chat-attach-image-remove:focus-visible,
+[data-role='chat-panel'] .chat-attach-image-annotate:focus-visible,
+[data-role='chat-panel'] .chat-composer-attach:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
 }
 
 [data-role='chat-panel'] .chat-attach {

@@ -84,6 +84,13 @@ export type ChatSceneHost = {
    * its reference's colour; when it does not, it is not part of the message.
    */
   capture(highlight: CaptureHighlight[]): Promise<Blob>;
+  /**
+   * One PNG of the viewport as it is on screen now: the same view and
+   * proportions, the grid, the axes and the selection as shown, nothing
+   * framed or hidden (§28). The composer's Capture button opens it to draw
+   * on. Absent: no Capture button.
+   */
+  captureViewport?(): Promise<Blob>;
   /** Defaults to {@link httpSelectionResolver}. */
   resolve?: SelectionResolver;
   /**

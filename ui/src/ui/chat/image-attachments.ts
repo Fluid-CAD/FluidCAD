@@ -6,9 +6,13 @@
 // format the browser reads (SVG, BMP, AVIF), is drawn again to fit. What is
 // sent is `SendMessage.attachments`; the engine checks each again by its
 // bytes (`parseSendMessage`).
+//
+// An attached image can be drawn on before it goes ({@link ImageAnnotator},
+// docs/agent-chat-plan.md §28): the marked-up picture takes its place.
 
 import { ChatIcons } from './chat-icons';
 import type { AttachmentMediaType, MessageAttachment } from './chat-types';
+import { markupName } from './markup';
 import { blobToBase64 } from './scene-references';
 
 /** Images one message may carry (the engine's `MAX_ATTACHMENTS`). */
@@ -118,9 +122,18 @@ export const prepareImage: ImagePreparer = async (file) => {
   }
 };
 
+/**
+ * Lets the user draw on `image` (the attached image called `name`, as it
+ * would be sent): resolves with the marked-up picture, a PNG, or null when
+ * they drew nothing or cancelled; rejects when the image could not be opened.
+ */
+export type ImageAnnotator = (image: Blob, name: string) => Promise<Blob | null>;
+
 export type ImageAttachmentsDeps = {
   /** Defaults to {@link prepareImage} (the browser's decoder and a canvas). */
   prepare?: ImagePreparer;
+  /** Mark up an attached image (the pen on its thumbnail). Absent: thumbnails have no pen. */
+  annotate?: ImageAnnotator;
   /** Images were added or taken away. */
   onChange?(): void;
 };
@@ -134,6 +147,8 @@ type Attached = {
   image: PreparedImage | null;
   /** Settles once the image is ready, or was dropped because it could not be read. */
   ready: Promise<void>;
+  /** The markup dialog is open on it. */
+  annotating?: boolean;
 };
 
 /** What a send takes: the images, and their ids to clear once the engine took them. */
@@ -141,9 +156,10 @@ export type ImagesForSend = { ids: number[]; attachments: MessageAttachment[] };
 
 /**
  * The images attached to the next message, above the message box: a
- * thumbnail each, with a button to take it away, and under them one line
- * when something could not be attached (not an image, too many) or will not
- * reach the model (it does not take images).
+ * thumbnail each, with a button to take it away and, when the panel can
+ * mark images up, a pen to draw on it; under them one line when something
+ * could not be attached (not an image, too many) or will not reach the model
+ * (it does not take images).
  *
  * `el` (`data-ref="image-attachments"`) hides itself while it has nothing to
  * show.
@@ -179,6 +195,17 @@ export class ImageAttachments {
     return this.items.length;
   }
 
+  /** Whether the next message already carries all the images one takes. */
+  get full(): boolean {
+    return this.items.length >= MAX_ATTACHMENTS;
+  }
+
+  /** Say `notice` under the thumbnails (why something was not attached), until the next change. */
+  say(notice: string): void {
+    this.notice = notice;
+    this.paint();
+  }
+
   /**
    * Attach `files`: the images among them, up to {@link MAX_ATTACHMENTS} in
    * all. What is left out is said under the thumbnails.
@@ -205,6 +232,43 @@ export class ImageAttachments {
       this.notice = '';
       this.changed();
     }
+  }
+
+  /**
+   * Draw on `item` (the pen on its thumbnail): the marked-up picture takes
+   * its place in the row, under its name ending in `-markup.png`, and is
+   * made ready like any image added. Nothing changes when the user cancels
+   * or draws nothing.
+   */
+  private async annotate(item: Attached): Promise<void> {
+    const annotate = this.deps.annotate;
+    if (!annotate || !item.image || item.annotating) {
+      return;
+    }
+    item.annotating = true;
+    let marked: Blob | null = null;
+    try {
+      marked = await annotate(item.image.blob, item.name);
+    } catch {
+      if (this.items.includes(item)) {
+        this.notice = `${item.name} could not be opened to mark up.`;
+        this.changed();
+      }
+      return;
+    } finally {
+      item.annotating = false;
+    }
+    if (!marked || !this.items.includes(item)) {
+      return;
+    }
+    const file = new File([marked], markupName(item.name), { type: 'image/png' });
+    URL.revokeObjectURL(item.url);
+    item.name = file.name;
+    item.url = URL.createObjectURL(file);
+    item.image = null;
+    this.makeReady(item, file);
+    this.notice = '';
+    this.changed();
   }
 
   /** Whether the model the next message goes to takes images; when it does not, the strip says so. */
@@ -256,6 +320,12 @@ export class ImageAttachments {
       image: null,
       ready: Promise.resolve(),
     };
+    this.makeReady(item, file);
+    this.items.push(item);
+  }
+
+  /** Make `file` what `item` sends; an image that cannot be read is dropped, and said. */
+  private makeReady(item: Attached, file: Blob): void {
     item.ready = this.prepare(file).then(
       (image) => {
         if (this.items.includes(item)) {
@@ -271,7 +341,6 @@ export class ImageAttachments {
         }
       },
     );
-    this.items.push(item);
   }
 
   private drop(item: Attached): void {
@@ -313,6 +382,17 @@ export class ImageAttachments {
     remove.innerHTML = ChatIcons.CLOSE;
     remove.addEventListener('click', () => this.remove(item));
     thumb.append(img, remove);
+    if (this.deps.annotate && item.image) {
+      const annotate = document.createElement('button');
+      annotate.type = 'button';
+      annotate.className = 'chat-attach-image-annotate';
+      annotate.dataset.ref = 'annotate-image';
+      annotate.title = 'Mark up';
+      annotate.setAttribute('aria-label', `Mark up ${item.name}`);
+      annotate.innerHTML = ChatIcons.MARKUP;
+      annotate.addEventListener('click', () => void this.annotate(item));
+      thumb.append(annotate);
+    }
     return thumb;
   }
 }

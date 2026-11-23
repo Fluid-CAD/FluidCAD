@@ -30,7 +30,9 @@ import {
 } from './chat-types';
 import type { Colorizer } from './code-block';
 import type { ParamCardHost } from './parts/params-part';
-import { ImageAttachments, type ImagePreparer } from './image-attachments';
+import { ImageAttachments, MAX_ATTACHMENTS, type ImagePreparer } from './image-attachments';
+import { VIEWPORT_CAPTURE_NAME, VIEWPORT_MARKUP_NAME } from './markup';
+import { MarkupAnnotator, type MarkupAnnotatorOptions, type MarkupImaging, type MarkupResult } from './markup-annotator';
 import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
 import { AnswerPicks } from './answer-picks';
 import { Pointing, type ChatPointHost } from './pointing';
@@ -147,6 +149,8 @@ export type ChatPanelDeps = {
   listFiles?(): Promise<MentionFile[]>;
   /** Makes an attached image ready to send (tests); absent: the browser's decoder and a canvas. */
   prepareImage?: ImagePreparer;
+  /** Decodes and encodes the picture of the markup dialog (tests); absent: the browser's decoder and a canvas. */
+  markupImaging?: MarkupImaging;
   /** Timers for reattaching after a refused stream (tests). */
   timers?: ChatTimers;
 };
@@ -188,7 +192,11 @@ const UNAVAILABLE_AGENT: Record<'not-found' | 'too-old' | 'signed-out', { suffix
  * automatically, the `agent.permissionMode` preference), and say how the
  * agent is paid for (subscription or API key). Images go with a message
  * too ({@link ImageAttachments}): picked with the composer's Attach button,
- * pasted into the message box, or dropped anywhere on the panel. The session's status drives what shows: Stop while
+ * pasted into the message box, or dropped anywhere on the panel. The
+ * composer's Capture button takes a picture of the viewport and opens it to
+ * draw on ({@link MarkupAnnotator}, §28) before it is attached; the pen on an
+ * attached image's thumbnail does the same for that image.
+ * The session's status drives what shows: Stop while
  * a turn runs, the approval cards while it waits, Continue after the engine
  * restarted mid-turn, the errors. Under each user message, Revert this turn
  * while the turn has changes to put back (§12.2). Until the agent can run,
@@ -203,6 +211,10 @@ export class ChatPanel {
   readonly references: SceneReferences | null;
   /** The images attached to the next message. */
   readonly images: ImageAttachments;
+  /** The markup dialog while it is open (§28): one at a time. */
+  private markup: MarkupAnnotator | null = null;
+  /** The viewport is being captured for it. */
+  private capturing = false;
   /** Which question card, if any, the viewport selection answers (§27). */
   private readonly answerPicks: AnswerPicks;
   /** Which `show_user` card is highlighted in the viewport (§27); null without a viewport. */
@@ -346,12 +358,15 @@ export class ChatPanel {
       onSubmit: (text) => this.send(text),
       onStop: () => void this.state.stop(),
       onAttach: (files) => this.images.add(files),
+      ...(deps.scene?.captureViewport ? { onCapture: () => void this.captureViewport() } : {}),
       ...(deps.listFiles ? { listFiles: deps.listFiles } : {}),
     });
     this.composer.controls.append(this.agentSlot, this.modelSlot, this.effortSlot, this.modeButton);
     this.references = deps.scene ? new SceneReferences(deps.scene, this.composer) : null;
     this.images = new ImageAttachments({
       ...(deps.prepareImage ? { prepare: deps.prepareImage } : {}),
+      // The pen on a thumbnail: the image as it would be sent, back with marks on it (null: nothing drawn).
+      annotate: async (image, name) => (await this.markUp({ image, title: `Mark up ${name}`, confirmLabel: 'Replace', requireMarks: true }))?.blob ?? null,
       onChange: () => this.composer.setSendsWithoutText(this.images.size > 0),
     });
     this.composer.setAttachments(this.images.el, ...(this.references ? [this.references.el] : []));
@@ -437,6 +452,7 @@ export class ChatPanel {
     this.sessionsMenu.close();
     window.removeEventListener('resize', this.onResize);
     this.unsubscribe();
+    this.markup?.close();
     this.references?.destroy();
     this.pointing?.destroy();
     this.images.destroy();
@@ -664,6 +680,51 @@ export class ChatPanel {
       }
     }
     return sent;
+  }
+
+  /**
+   * The composer's Capture button (§28): a picture of the viewport as it is
+   * now, opened to draw on, then attached like any image. With marks it is
+   * `viewport-markup.png`, without `viewport-capture.png`: the name is what
+   * tells the agent which of the message's images is the viewport.
+   */
+  private async captureViewport(): Promise<void> {
+    const scene = this.deps.scene;
+    if (!scene?.captureViewport || this.markup || this.capturing || !this.composerUsable) {
+      return;
+    }
+    if (this.images.full) {
+      this.images.say(`A message takes at most ${MAX_ATTACHMENTS} images.`);
+      return;
+    }
+    this.capturing = true;
+    try {
+      const image = await scene.captureViewport();
+      const result = await this.markUp({ image, title: 'Mark up the viewport' });
+      if (result) {
+        this.images.add([new File([result.blob], result.marked ? VIEWPORT_MARKUP_NAME : VIEWPORT_CAPTURE_NAME, { type: 'image/png' })]);
+      }
+    } catch (err) {
+      console.warn('FluidCAD: the viewport capture failed:', err);
+      this.images.say('The viewport could not be captured.');
+    } finally {
+      this.capturing = false;
+    }
+    this.composer.focus();
+  }
+
+  /** Open the markup dialog; resolves with what the user attached, null when they cancelled or one is already open. */
+  private async markUp(options: MarkupAnnotatorOptions): Promise<MarkupResult | null> {
+    if (this.markup) {
+      return null;
+    }
+    const markup = new MarkupAnnotator({ ...options, ...(this.deps.markupImaging ? { imaging: this.deps.markupImaging } : {}) });
+    this.markup = markup;
+    try {
+      return await markup.result;
+    } finally {
+      this.markup = null;
+    }
   }
 
   /** Whether a drag carries files (the only thing the panel takes). */

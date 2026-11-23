@@ -110,6 +110,7 @@ import { applyPackagePreferences, packageSettings } from './ui/settings/package-
 import { agentSettings, applyAgentPreferences, rememberEffort, rememberModel } from './ui/settings/agent-settings';
 import { HttpChatClient } from './ui/chat/chat-client';
 import type { ChatPanel } from './ui/chat/chat-panel';
+import { viewportCaptureSize } from './ui/chat/markup';
 import { isChatComposer } from './editable-target';
 import { HttpHubClient, HttpPackagesClient, HttpPublishClient, ProjectUiStateClient, recompute, fetchMeshes } from './api';
 import { MeshCache, meshCache } from './scene/mesh-cache';
@@ -1543,6 +1544,14 @@ function loadAgentPanel(): Promise<ChatPanel> {
           fitTo: 'highlight',
           highlight,
         }))),
+        // The composer's Capture button (§28): the view on screen at the
+        // viewport's proportions, with what it shows (grid, axes, the
+        // selection, what the agent pointed at), for the user to draw on.
+        captureViewport: () => {
+          const canvas = viewer.sceneContext.renderer.domElement;
+          const { width, height, pixelRatio } = viewportCaptureSize(canvas.clientWidth, canvas.clientHeight);
+          return captureScreenshot(viewer.sceneContext, { width, height, pixelRatio, view: { kind: 'current' }, keepHelpers: true });
+        },
       },
     });
     return agentPanel;

@@ -13,6 +13,11 @@ export type ChatComposerDeps = {
    */
   onAttach?(files: File[]): void;
   /**
+   * Take a picture of the viewport to draw on and attach (the Capture
+   * button, §28). Absent: the button is not offered.
+   */
+  onCapture?(): void;
+  /**
    * The project's files, for naming one in the message with `@`
    * ({@link FileMentions}). Absent: `@` is only a character.
    */
@@ -43,7 +48,8 @@ const MAX_HEIGHT_PX = 200;
  * the images attached to the message. An image is attached with the Attach
  * button left of the chips (a file picker) or by pasting one into the box;
  * with one attached, the message can go without words
- * ({@link setSendsWithoutText}).
+ * ({@link setSendsWithoutText}). The Capture button beside Attach takes a
+ * picture of the viewport to draw on first (§28).
  */
 export class ChatComposer {
   readonly el: HTMLDivElement;
@@ -55,6 +61,8 @@ export class ChatComposer {
   private readonly button: HTMLButtonElement;
   /** Attach an image; null when the composer attaches none. */
   private readonly attachButton: HTMLButtonElement | null = null;
+  /** Capture the viewport to mark it up; null when the composer captures none. */
+  private readonly captureButton: HTMLButtonElement | null = null;
   /** The `@` file list; null when the composer names no files. */
   private readonly mentions: FileMentions | null = null;
   private busy = false;
@@ -140,6 +148,17 @@ export class ChatComposer {
       this.attachButton.innerHTML = ChatIcons.ATTACH;
       this.attachButton.addEventListener('click', () => picker.click());
       footer.append(picker, this.attachButton);
+    }
+    if (deps.onCapture) {
+      this.captureButton = document.createElement('button');
+      this.captureButton.type = 'button';
+      this.captureButton.dataset.ref = 'capture';
+      this.captureButton.className = 'chat-composer-attach';
+      this.captureButton.title = 'Capture the viewport and draw on it';
+      this.captureButton.setAttribute('aria-label', 'Capture the viewport');
+      this.captureButton.innerHTML = ChatIcons.CAPTURE;
+      this.captureButton.addEventListener('click', () => deps.onCapture!());
+      footer.append(this.captureButton);
     }
     footer.append(this.controls, this.button);
     box.append(this.textarea, footer);
@@ -321,6 +340,9 @@ export class ChatComposer {
     this.button.disabled = !stop && (!this.enabled || this.submitting || !this.hasMessage());
     if (this.attachButton) {
       this.attachButton.disabled = !this.enabled;
+    }
+    if (this.captureButton) {
+      this.captureButton.disabled = !this.enabled;
     }
   }
 }

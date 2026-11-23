@@ -40,6 +40,12 @@ export interface ScreenshotOptions {
   height: number;
   showGrid: boolean;
   showAxes: boolean;
+  /**
+   * Leave the grid and the axes as the viewport shows them (`showGrid` and
+   * `showAxes` are then not applied): a picture of what the user is looking
+   * at, whatever their settings and the mode.
+   */
+  keepHelpers: boolean;
   transparent: boolean;
   /**
    * The capture's background, a CSS colour (`'#ffffff'`), in place of the
@@ -123,6 +129,7 @@ const DEFAULTS: ScreenshotOptions = {
   height: 800,
   showGrid: false,
   showAxes: false,
+  keepHelpers: false,
   transparent: false,
   background: null,
   autoCrop: false,
@@ -201,7 +208,7 @@ export function captureScreenshotMulti(
  */
 function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
   const {
-    width, height, showGrid, showAxes, transparent, background, autoCrop, fitToModel, margin, view, solidsOnly,
+    width, height, showGrid, showAxes, keepHelpers, transparent, background, autoCrop, fitToModel, margin, view, solidsOnly,
     showDimensions, showPositional, framePlanes, pixelRatio, highlight, hide, focus, annotations, fitTo, section,
   } = options;
 
@@ -245,9 +252,11 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   const savedUp = camera.up.clone();
 
   // --- Apply export settings ---
-  if (gridObj) { gridObj.visible = showGrid; }
-  if (defaultAxes) { defaultAxes.visible = showAxes; }
-  if (sketchAxes) { sketchAxes.visible = showAxes; }
+  if (!keepHelpers) {
+    if (gridObj) { gridObj.visible = showGrid; }
+    if (defaultAxes) { defaultAxes.visible = showAxes; }
+    if (sketchAxes) { sketchAxes.visible = showAxes; }
+  }
   if (transparent) {
     scene.background = null;
   } else if (background) {

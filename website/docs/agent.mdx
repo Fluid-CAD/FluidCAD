@@ -231,6 +231,21 @@ When you send, your message shows the images; click one to see it in full size. 
 
 A model that does not read images gets the message without them; a line under the thumbnails warns you before you send. This applies to a local model whose server has **Send images** off, and to the models a provider lists as text-only.
 
+### Drawing on a picture of the model
+
+To point at something that is hard to name, draw on a picture of it. The camera button beside the paperclip, **Capture the viewport**, takes a picture of the viewport as it is on screen: the same view, with the grid, the axes and your selection as shown. It opens in a dialog to draw on:
+
+- **Pen** (<kbd>P</kbd>) draws freehand, **Arrow** (<kbd>A</kbd>) an arrow that points where you let go, **Ellipse** (<kbd>E</kbd>) and **Rectangle** (<kbd>R</kbd>) an outline inside the box you drag.
+- **Text** (<kbd>T</kbd>) puts a label of up to 60 characters where you click. <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> drops it.
+- Six colours, red to start with. The line width and the text size follow the size of the picture.
+- **Undo** (<kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>⌘</kbd>+<kbd>Z</kbd> on macOS), **Redo** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>) and **Clear all marks**, which Undo also takes back.
+
+Drawing works with a mouse, a pen or a finger. **Attach** adds the picture with your marks to the message as an image like any other: it counts toward the eight, has a thumbnail with a **×**, and is named `viewport-markup.png`, or `viewport-capture.png` when you drew nothing. **Cancel** or <kbd>Esc</kbd> closes the dialog and attaches nothing; what you drew is dropped without a question.
+
+An image already attached can be drawn on too. The pen on the corner of its thumbnail opens it in the same dialog, and **Replace** puts the marked-up picture in its place, as a PNG named after the image with `-markup` added. **Replace** is off until you have drawn something.
+
+The agent gets the picture with the marks painted on it, and is told that such marks are you pointing and not part of the model, and which image is a picture of the viewport. It does not get the marks as geometry: it reads the picture and has to find what an arrow points at in the model itself, so words still help ("round the edge I boxed"). To hand it an exact face or edge, [select it](#pointing-at-geometry) instead. The picture shows the model at the moment you took it; a change made after that is not in it.
+
 ## Chats
 
 The title in the panel header opens the list of this project's chats, newest first. Each row shows the chat's title, its agent, when it last changed, and what it is doing when it is not idle (Working, Waiting for you, Interrupted, Limit reached, Error). Pick a row to reopen the chat, or start a **New chat**.

@@ -7,8 +7,8 @@ export { factLines };
 
 /**
  * What the agent proposed through `propose_variants`
- * (docs/agent-chat-plan.md §24), as one card: the two variants side by
- * side, each a tile with a picture of its build, its label and description
+ * (docs/agent-chat-plan.md §24), as one card: the variants two to a row
+ * (two of them, or up to four when the user asked for more), each a tile with a picture of its build, its label and description
  * and what it produces (bodies, overall size, volume).
  *
  * While the engine builds them the tiles say so and fill in one after the
@@ -371,7 +371,7 @@ export class VariantsPartView implements PartView {
       const buttons = document.createElement('div');
       buttons.className = 'chat-question-buttons';
       this.skipButton = actionButton('variants-skip', 'Skip', 'btn-ghost chat-approval-secondary');
-      this.skipButton.title = 'Apply neither; let the agent decide';
+      this.skipButton.title = `Apply ${this.part.variants.length === 2 ? 'neither' : 'none of them'}; let the agent decide`;
       this.skipButton.addEventListener('click', () => void this.send('skip'));
       this.applyButton = actionButton('variants-apply', 'Apply', 'btn-primary');
       this.applyButton.addEventListener('click', () => void this.send('answer'));

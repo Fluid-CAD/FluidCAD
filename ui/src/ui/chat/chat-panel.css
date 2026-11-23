@@ -1213,7 +1213,7 @@
   white-space: nowrap;
 }
 
-/* Two tiles side by side; one under the other only in a very narrow panel. */
+/* Two tiles to a row (a third and a fourth on a second row); one under the other only in a very narrow panel. */
 [data-role='chat-panel'] .chat-variants-tiles {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

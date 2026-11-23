@@ -2116,12 +2116,39 @@ describe('variants cards (§24)', () => {
     expect((window as any).pwned).toBeUndefined();
   });
 
+  it('shows as many tiles as the agent sent, up to four, and any of them can be picked', async () => {
+    const client = new FakeChatClient();
+    const more: VariantTile[] = [
+      { ...GUSSET_TILE, label: 'Web', buildId: 'build-web' },
+      { ...GUSSET_TILE, label: 'Flange', buildId: 'build-flange' },
+    ];
+    proposingSession(client, variantsPart({ variants: [RIB_TILE, GUSSET_TILE, ...more] }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(tiles(card).map((t) => [t.dataset.label, t.dataset.state])).toEqual([['Rib', 'ready'], ['Gusset', 'ready'], ['Web', 'ready'], ['Flange', 'ready']]);
+    // Every tile gets its picture and its way into the viewport.
+    await settle();
+    expect(tiles(card).map((t) => t.querySelector('img')?.getAttribute('src'))).toEqual(['build-rib', 'build-gusset', 'build-web', 'build-flange'].map(host.png));
+    expect(tiles(card).every((t) => showOf(card, t.dataset.label!) !== null)).toBe(true);
+    expect(skip(card).title).toBe('Apply none of them; let the agent decide');
+    pickOf(card, 'Web').click();
+    pickOf(card, 'Flange').click();
+    expect(pressed(card)).toEqual(['Flange']);
+    expect(apply(card).title).toBe('Write “Flange” to bracket.fluid.js');
+    apply(card).click();
+    await settle();
+    expect(client.chooseVariant).toHaveBeenCalledWith('s', 'v1', { pick: 'Flange' });
+  });
+
   it('a pick is one tile, a second click takes it back, and Apply writes it: the card settles with the picked tile marked', async () => {
     const client = new FakeChatClient();
     proposingSession(client);
     const h = mount(client, {}, { variants: variantsHost() });
     await opened(h);
     const card = h.$('[data-part="variants"]')!;
+    expect(skip(card).title).toBe('Apply neither; let the agent decide');
     expect(pressed(card)).toEqual([]);
     pickOf(card, 'Rib').click();
     pickOf(card, 'Gusset').click();

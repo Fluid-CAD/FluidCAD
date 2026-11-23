@@ -698,7 +698,7 @@ describe('marking up an image already attached', () => {
   it('there is no pen while an image is still being made ready, nor where nothing can mark it up', async () => {
     let release: () => void = () => {};
     const held = new Promise<void>((resolve) => (release = resolve));
-    const annotate = vi.fn(async () => new Blob(['marked'], { type: 'image/png' }));
+    const annotate = vi.fn(async (_blob: Blob, _name: string) => new Blob(['marked'], { type: 'image/png' }));
     const images = new ImageAttachments({ prepare: async (blob) => (await held, { blob, mediaType: 'image/png' }), annotate });
     document.body.append(images.el);
     images.add([file('slow.png')]);

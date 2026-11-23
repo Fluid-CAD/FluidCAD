@@ -145,6 +145,25 @@ describe('instructions', () => {
     expect(IN_APP_PREAMBLE).toContain('<attached_images>');
   });
 
+  it('says which attached image is the viewport and that marks drawn on an image are the user pointing, not geometry', () => {
+    const lines = IN_APP_PREAMBLE.split('\n');
+    const start = lines.findIndex((line) => line.startsWith('- `<attached_images>`'));
+    // Part of the item about attached images: its two lines, then five more, then the next item.
+    expect(lines[start + 7].startsWith('- `<scene_references>`')).toBe(true);
+    const words = lines.slice(start + 2, start + 7).map((line) => line.trim()).join(' ');
+    // The names the page attaches a capture of the viewport under (ui/src/ui/chat/markup.ts).
+    expect(words).toContain('`viewport-capture.png` and `viewport-markup.png` are pictures the user took of the 3D viewport, as it was then');
+    expect(words).toContain('Arrows, circles, boxes, strokes and short labels drawn over an image are the user pointing at what they mean');
+    expect(words).toContain('a name ending in `-markup.png`: drawn in this chat');
+    expect(words).toContain('They are not geometry: never model them');
+    expect(words).toContain('when it could be two things and a wrong one costs rework, ask (a pick question, under its own conditions)');
+    // Nothing asks the user for a marked-up picture.
+    expect(words).not.toMatch(/ask (the user|them) (for|to)/);
+    // Every agent is told, the API agent included.
+    expect(inAppPreamble('api')).toContain(words.slice(0, 80));
+    expect(inAppPreamble('codex')).toContain(words.slice(0, 80));
+  });
+
   it('leaves out the file when none is open and escapes attribute values', () => {
     expect(workspaceStateTag({ file: null, render: 'none', unit: 'in' })).toBe('<workspace_state render="none" unit="in"/>');
     expect(workspaceStateTag({ file: '/w/"a"<b>&.fluid.js', render: 'compile-error', unit: 'mm' })).toBe(

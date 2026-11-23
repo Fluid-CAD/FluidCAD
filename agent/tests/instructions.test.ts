@@ -12,18 +12,19 @@ describe('instructions', () => {
     expect(IN_APP_PREAMBLE).toContain('dirty-buffer');
   });
 
-  it('says in three lines when to propose variants, when not to and what it costs', () => {
+  it('says in four lines when to propose variants, when not to, how many and what it costs', () => {
     const lines = IN_APP_PREAMBLE.split('\n');
     const start = lines.findIndex((line) => line.startsWith('propose_variants '));
     expect(start).toBeGreaterThan(0);
-    // Its own paragraph: three lines between two empty ones.
-    expect([lines[start - 1], lines[start + 3]]).toEqual(['', '']);
-    const words = lines.slice(start, start + 3).join(' ');
+    // Its own paragraph: four lines between two empty ones.
+    expect([lines[start - 1], lines[start + 4]]).toEqual(['', '']);
+    const words = lines.slice(start, start + 4).join(' ');
     expect(words).toContain('Not by default');
     expect(words).toContain('ask to see options');
     expect(words).toContain('a rib versus a gusset');
     expect(words).toContain('never for a number they could state, to confirm a plan, or after every change');
-    expect(words).toContain('two full builds');
+    expect(words).toContain('Two variants; three or four only when the user asked for that many.');
+    expect(words).toContain('a full build per variant');
     // Every agent is told, the API agent included.
     expect(inAppPreamble('api')).toContain(words.slice(0, 60));
   });
@@ -34,7 +35,7 @@ describe('instructions', () => {
     expect(start).toBeGreaterThan(0);
     // Its own paragraph, after the variants': four lines between two empty ones.
     expect([lines[start - 1], lines[start + 4]]).toEqual(['', '']);
-    expect(lines[start - 2]).toContain('two full builds');
+    expect(lines[start - 2]).toContain('a full build per variant');
     const words = lines.slice(start, start + 4).join(' ');
     expect(words).toContain('does not wait');
     expect(words).toContain('Not by default');

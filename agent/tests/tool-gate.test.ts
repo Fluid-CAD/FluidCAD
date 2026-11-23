@@ -28,7 +28,7 @@ import { applyChatEvent } from '../src/transcript.ts';
 import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readPick, readQuestionReply, readSvg } from '../src/questions.ts';
 import { formatSceneReferences } from '../src/instructions.ts';
 import { NO_MODEL_TO_SHOW_MESSAGE } from '../src/show.ts';
-import { VARIANTS_ANSWERED_NOTE, VARIANTS_SKIPPED_NOTE, VARIANTS_STOPPED_MESSAGE, VARIANTS_TIMED_OUT_MESSAGE, readVariantsReply } from '../src/variants.ts';
+import { VARIANTS_ANSWERED_NOTE, VARIANTS_SKIPPED_NOTE, VARIANTS_STOPPED_MESSAGE, VARIANTS_TIMED_OUT_MESSAGE, readVariants, readVariantsReply } from '../src/variants.ts';
 import { findPart } from '../src/transcript.ts';
 import type { ModelParam } from '../src/param-cards.ts';
 import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, ParamsPart, PermissionMode, QuestionItem, QuestionPart, SceneReference, ShowPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
@@ -1223,6 +1223,8 @@ describe('ToolGate: variants (propose_variants, §24)', () => {
   const BASE = 'base();\n';
   const RIB = 'base();\nrib();\n';
   const GUSSET = 'base();\ngusset();\n';
+  const WEB = 'base();\nweb();\n';
+  const FLANGE = 'base();\nflange();\n';
   /** The gusset as an edit of the file on disk: a line appended. */
   const GUSSET_EDIT = [{ start: { line: 1, column: 0 }, end: { line: 1, column: 0 }, newText: 'gusset();\n' }];
   const VARIANTS = [
@@ -1259,7 +1261,10 @@ describe('ToolGate: variants (propose_variants, §24)', () => {
     durationMs: 2,
     compileError: { message: 'gusset is not defined\n    at eval', sourceLocation: { filePath: 'x', line: 2, column: 1 } },
   };
-  const builds = (source: string) => (source === RIB ? RIB_BUILD : source === GUSSET ? GUSSET_BUILD : COMPILE_ERROR);
+  const WEB_BUILD = rendered('33333333-3333-4333-8333-333333333333', [80, 40, 32], 42500);
+  const FLANGE_BUILD = rendered('44444444-4444-4444-8444-444444444444', [84, 40, 30], 43100);
+  const builds = (source: string) =>
+    source === RIB ? RIB_BUILD : source === GUSSET ? GUSSET_BUILD : source === WEB ? WEB_BUILD : source === FLANGE ? FLANGE_BUILD : COMPILE_ERROR;
 
   beforeEach(() => {
     fs.writeFileSync(file('bracket.fluid.js'), BASE);
@@ -1403,6 +1408,38 @@ describe('ToolGate: variants (propose_variants, §24)', () => {
     expect(read('bracket.fluid.js')).toBe(RIB);
   });
 
+  it('builds as many variants as the call carries, up to four, and writes the one picked', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    const four = [...VARIANTS, { label: 'Web', content: WEB }, { label: 'Flange', content: FLANGE }];
+    const pending = client.callTool(call(four));
+    const waiting = await host.variantsIn('awaiting-choice');
+    expect(scratchBuilds.map((build: any) => build.source)).toEqual([RIB, GUSSET, WEB, FLANGE]);
+    expect(waiting.variants.map((tile) => [tile.label, tile.state, tile.buildId])).toEqual([
+      ['Rib', 'ready', RIB_BUILD.id],
+      ['Gusset', 'ready', GUSSET_BUILD.id],
+      ['Web', 'ready', WEB_BUILD.id],
+      ['Flange', 'ready', FLANGE_BUILD.id],
+    ]);
+    expect(gate.choose(waiting.id, { pick: 'Flange' })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await pending)).picked).toBe('Flange');
+    expect(read('bracket.fluid.js')).toBe(FLANGE);
+    expect(host.variants()[0]).toMatchObject({ state: 'picked', picked: 'Flange' });
+  });
+
+  it('says none of three built, without asking', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    scratchBuild = () => COMPILE_ERROR;
+    const result = await client.callTool(call([...VARIANTS, { label: 'Web', content: WEB }]));
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('None of the variants built, so the user was not asked');
+    expect(host.variants()[0]).toMatchObject({ state: 'failed', reason: 'None of the variants built.' });
+    expect(read('bracket.fluid.js')).toBe(BASE);
+  });
+
   it('returns an error without asking when neither variant builds', async () => {
     const host = new FakeHost();
     const gate = new ToolGate(host);
@@ -1434,7 +1471,19 @@ describe('ToolGate: variants (propose_variants, §24)', () => {
     expect(await refused([VARIANTS[0], { label: ' Rib ', content: GUSSET }])).toBe('Both variants are labelled "Rib". Give each its own label.');
     expect(await refused([VARIANTS[0], { label: 'Gusset', content: GUSSET, edits: GUSSET_EDIT }])).toContain('Variant "Gusset": give the candidate as `content` (the whole file) or as `edits`, not both.');
     expect(await refused([VARIANTS[0], { label: 'Gusset' }])).toContain('Variant "Gusset"');
-    expect(await refused([VARIANTS[0], { label: 'Same', content: RIB }])).toBe('"Rib" and "Same" are the same text. Offer two variants that differ, or make the change directly.');
+    expect(await refused([VARIANTS[0], { label: 'Same', content: RIB }])).toBe('"Rib" and "Same" are the same text. Offer variants that differ, or make the change directly.');
+    // Among three or four, any two that share a label or a text.
+    expect(await refused([...VARIANTS, { label: 'Gusset', content: WEB }])).toBe('Two variants are labelled "Gusset". Give each its own label.');
+    expect(await refused([...VARIANTS, { label: 'Web', content: WEB }, { label: 'Same', content: GUSSET }])).toBe('"Gusset" and "Same" are the same text. Offer variants that differ, or make the change directly.');
+    const five = [...VARIANTS, ...['Web', 'Flange', 'Strut'].map((label) => ({ label, content: `base();\n${label.toLowerCase()}();\n` }))];
+    // Fewer than two or more than four: the tool's schema refuses the call, and so does the reading of it.
+    expect(await refused(five)).toContain('expected array to have <=4 items');
+    expect(await refused([VARIANTS[0]])).toContain('expected array to have >=2 items');
+    expect(readVariants({ path: 'bracket.fluid.js', variants: five as any })).toEqual({
+      ok: false,
+      error: 'propose_variants takes 2 variants, or up to 4 when the user asked for that many; this call has 5. Offer the 4 that differ most, or ask with ask_user.',
+    });
+    expect(readVariants({ path: 'bracket.fluid.js', variants: [VARIANTS[0]] as any })).toMatchObject({ ok: false, error: expect.stringContaining('this call has 1. Offer two that differ') });
     expect(JSON.parse(await refused(VARIANTS, { path: 'notes.txt' }))).toMatchObject({ code: 'invalid-input', details: { variant: 'Rib' } });
     expect(JSON.parse(await refused(VARIANTS, { path: '../outside.fluid.js' }))).toMatchObject({ code: 'invalid-input' });
 

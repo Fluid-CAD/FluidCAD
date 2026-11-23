@@ -137,7 +137,7 @@ export type SessionStatus =
   | { state: 'awaiting-approval'; turnId: string; approvalIds: string[] }
   /**
    * The agent asked the user something and waits: a question (`ask_user`)
-   * or a choice between variants (`propose_variants`, once both are built).
+   * or a choice between variants (`propose_variants`, once they are built).
    * `questionIds` are the ids of those cards. An approval waiting at the
    * same time wins.
    */
@@ -354,7 +354,7 @@ export type VariantTile = {
  * they wrote `text` instead; `skipped`; `unanswered`: it ended with nobody
  * choosing (stopped, timed out, the app closed), `reason` says which;
  * `failed`: there was nothing to choose from or the pick could not be
- * applied (neither variant built, the file changed meanwhile), `reason`
+ * applied (no variant built, the file changed meanwhile), `reason`
  * says which.
  */
 export type VariantsPartState = 'building' | 'awaiting-choice' | 'picked' | 'answered' | 'skipped' | 'unanswered' | 'failed';

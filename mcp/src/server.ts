@@ -101,7 +101,8 @@ export {
 } from './ask-user.ts';
 export {
   PROPOSE_VARIANTS_TOOL,
-  VARIANT_COUNT,
+  MIN_VARIANTS,
+  MAX_VARIANTS,
   type McpProposeVariants,
   type ProposedVariant,
   type ProposeVariantsInput,
@@ -354,7 +355,7 @@ export type BuildServerOptions = {
    */
   askUser?: McpAskUser;
   /**
-   * Builds two variants of a model file, shows them to the user and writes
+   * Builds variants of a model file, shows them to the user and writes
    * the one they pick. Set by a host with a chat to show them in:
    * `propose_variants` is offered only then. The call does not pass through
    * `toolGate`: the user's pick is the approval of the write.

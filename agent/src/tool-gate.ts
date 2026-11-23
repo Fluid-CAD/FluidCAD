@@ -74,7 +74,7 @@ const MAX_DIFF_CHARS = 200_000;
 /** How long a call waits for the user before it fails (§12.1; the CLIs' MCP timeouts are an hour too). */
 export const APPROVAL_TIMEOUT_MS = 60 * 60 * 1000;
 /**
- * How long the engine is left free between the builds of two variants
+ * How long the engine is left free between one variant's build and the next
  * (§24). A build holds the engine's event loop; a page that has just heard
  * a tile is built needs one request served (the build's meshes) to draw its
  * picture, and without the pause that request could wait out the next build.
@@ -675,12 +675,15 @@ export class ToolGate implements McpToolGate {
     if (!this.isActive(turn.turnId)) {
       return failure(STOPPED_MESSAGE);
     }
-    const [first, second] = candidates;
-    if (first.before !== second.before || first.existed !== second.existed) {
+    const [first] = candidates;
+    if (candidates.some((candidate) => candidate.before !== first.before || candidate.existed !== first.existed)) {
       return failure(`${input.path} changed while the variants were being read. Read it again and call propose_variants again.`);
     }
-    if (first.text === second.text) {
-      return failure(`"${read.variants[0].label}" and "${read.variants[1].label}" are the same text. Offer two variants that differ, or make the change directly.`);
+    for (const [index, candidate] of candidates.entries()) {
+      const twin = candidates.findIndex((other) => other.text === candidate.text);
+      if (twin < index) {
+        return failure(`"${read.variants[twin].label}" and "${read.variants[index].label}" are the same text. Offer variants that differ, or make the change directly.`);
+      }
     }
     const rel = this.relative(first.absPath);
     const question = input.question?.trim();

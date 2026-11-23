@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { buildServer, SERVER_INSTRUCTIONS, TOOL_CLASSES } from '../src/server.ts';
 import { MAX_SVG_CHARS } from '../src/ask-user.ts';
-import { PROPOSE_VARIANTS_DESCRIPTION, VARIANT_COUNT } from '../src/propose-variants.ts';
+import { MAX_VARIANTS, MIN_VARIANTS, PROPOSE_VARIANTS_DESCRIPTION } from '../src/propose-variants.ts';
 import { MAX_OFFERED_PARAMS, MAX_PARAMS_NOTE_CHARS, OFFER_PARAMS_DESCRIPTION } from '../src/offer-params.ts';
 import { MAX_SHOW_ITEMS, MAX_SHOW_LABEL_CHARS, MAX_SHOW_NOTE_CHARS, SHOW_USER_COLORS, SHOW_USER_DESCRIPTION, resolveShowItems } from '../src/show-user.ts';
 import { REFERENCE_COLORS } from '../../ui/src/ui/chat/reference-colors.ts';
@@ -611,7 +611,7 @@ describe('propose_variants', () => {
     }
   });
 
-  it('takes exactly two variants', async () => {
+  it('takes two variants, and up to four', async () => {
     const proposed: unknown[] = [];
     const server = buildServer({
       pinnedWorkspace: entry(),
@@ -622,31 +622,40 @@ describe('propose_variants', () => {
     });
     const client = await connectClient(server);
     try {
-      expect(VARIANT_COUNT).toBe(2);
+      expect([MIN_VARIANTS, MAX_VARIANTS]).toEqual([2, 4]);
       const tool = (await client.listTools()).tools.find((t) => t.name === 'propose_variants')!;
       const schema = (tool.inputSchema as any).properties.variants;
-      expect([schema.minItems, schema.maxItems]).toEqual([2, 2]);
+      expect([schema.minItems, schema.maxItems]).toEqual([2, 4]);
+      expect(schema.description).toContain('two, or as many as the user explicitly asked for, up to four');
       expect((tool.inputSchema as any).required).toEqual(['path', 'variants']);
-      const third = { label: 'Web', content: 'web();\n' };
-      for (const list of [[variants[0]], [...variants, third]]) {
+      const more = ['Web', 'Flange', 'Strut'].map((label) => ({ label, content: `${label.toLowerCase()}();\n` }));
+      for (const list of [[variants[0]], [...variants, ...more]]) {
         const refused = await client.callTool({ name: 'propose_variants', arguments: { path: 'bracket.fluid.js', variants: list } });
         expect(refused.isError, `${list.length} variants`).toBe(true);
       }
       expect(proposed).toEqual([]);
+      for (const list of [[...variants, more[0]], [...variants, more[0], more[1]]]) {
+        const taken = await client.callTool({ name: 'propose_variants', arguments: { path: 'bracket.fluid.js', variants: list } });
+        expect(taken.isError, `${list.length} variants`).not.toBe(true);
+      }
+      expect(proposed.map((input: any) => input.variants.length)).toEqual([3, 4]);
     } finally {
       await client.close();
       await server.close();
     }
   });
 
-  it('says when to call it, when not to and what a call costs', () => {
+  it('says when to call it, when not to, how many variants and what a call costs', () => {
     expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('Do NOT call it by default');
     expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('asks to see options or alternatives');
     expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('a rib versus a gusset');
     expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('differ only by a number');
     expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('to confirm a plan');
     expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('after every change');
-    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('Cost: two full builds');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('How many: two. Send three or four only when the user asked for that many in their own words');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('"some options", "a few" or "alternatives" is two');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('Never add a variant because you can think of one.');
+    expect(PROPOSE_VARIANTS_DESCRIPTION).toContain('Cost: one full build from scratch per variant');
   });
 
   it('reports a host that fails as a tool error', async () => {

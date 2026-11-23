@@ -4,7 +4,7 @@
 // what the model is told.
 
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import { VARIANT_COUNT, type ProposeVariantsInput, type ProposedVariant, type ToolResult, type TryBuildOutput } from '../../mcp/dist/server.js';
+import { MAX_VARIANTS, MIN_VARIANTS, type ProposeVariantsInput, type ProposedVariant, type ToolResult, type TryBuildOutput } from '../../mcp/dist/server.js';
 import { buildFacts, cut, firstLine } from './build-facts.ts';
 import { MAX_ANSWER_CHARS, type VariantTile, type VariantsPart, type VariantsReply } from './types.ts';
 
@@ -13,7 +13,7 @@ export type VariantsOutcome =
   | { kind: 'picked'; label: string }
   | { kind: 'answered'; text: string }
   | { kind: 'skipped' }
-  /** Neither variant built: there is nothing to choose from. */
+  /** No variant built: there is nothing to choose from. */
   | { kind: 'none-built' }
   /** The file is no longer the one the variants were built from: the pick was not written. */
   | { kind: 'stale'; label: string }
@@ -25,7 +25,7 @@ export const VARIANTS_STOPPED_MESSAGE = 'The user stopped the turn before choosi
 export const VARIANTS_TIMED_OUT_MESSAGE =
   'The user did not choose within an hour. Do not propose again: end your turn and say what you need to know.';
 export const VARIANTS_SKIPPED_NOTE =
-  'The user chose neither variant, and nothing was written. Decide yourself, make the change with write_file or edit_range, and state the assumption you made.';
+  'The user chose none of the variants, and nothing was written. Decide yourself, make the change with write_file or edit_range, and state the assumption you made.';
 export const VARIANTS_ANSWERED_NOTE =
   'The user wrote this instead of picking a variant, and nothing was written. Act on what they wrote.';
 export const VARIANTS_RESTART_REASON = 'The app restarted before you chose.';
@@ -38,14 +38,17 @@ export type ReadVariant = { label: string; description?: string; candidate: Pick
  * The variants of a call as the card shows them, or what is wrong with them.
  * The schema already bounds the count and the lengths; this trims, refuses
  * labels one pick could not tell apart, and refuses a variant that is not
- * exactly one candidate.
+ * exactly one candidate. Whether more than two were asked for is the
+ * model's to judge (the tool's description says when); the count is only
+ * bounded here.
  */
 export function readVariants(input: ProposeVariantsInput): { ok: true; variants: ReadVariant[] } | { ok: false; error: string } {
   const given = Array.isArray(input.variants) ? input.variants : [];
-  if (given.length !== VARIANT_COUNT) {
+  if (given.length < MIN_VARIANTS || given.length > MAX_VARIANTS) {
+    const fix = given.length > MAX_VARIANTS ? `Offer the ${MAX_VARIANTS} that differ most` : 'Offer two that differ';
     return {
       ok: false,
-      error: `propose_variants takes exactly ${VARIANT_COUNT} variants; this call has ${given.length}. Offer the ${VARIANT_COUNT} that differ most, or ask with ask_user.`,
+      error: `propose_variants takes ${MIN_VARIANTS} variants, or up to ${MAX_VARIANTS} when the user asked for that many; this call has ${given.length}. ${fix}, or ask with ask_user.`,
     };
   }
   const variants: ReadVariant[] = [];
@@ -53,7 +56,7 @@ export function readVariants(input: ProposeVariantsInput): { ok: true; variants:
   for (const variant of given) {
     const label = variant.label.trim();
     if (seen.has(label)) {
-      return { ok: false, error: `Both variants are labelled "${label}". Give each its own label.` };
+      return { ok: false, error: `${given.length === 2 ? 'Both' : 'Two'} variants are labelled "${label}". Give each its own label.` };
     }
     seen.add(label);
     const hasContent = variant.content !== undefined;
@@ -164,7 +167,7 @@ export function variantsPatch(outcome: VariantsOutcome, tiles: VariantTile[], re
     case 'skipped':
       return { state: 'skipped', variants };
     case 'none-built':
-      return { state: 'failed', reason: 'Neither variant built.', variants };
+      return { state: 'failed', reason: `${noneBuilt(tiles.length)}.`, variants };
     case 'stale':
       return { state: 'failed', reason: `${rel} changed after these were built, so "${outcome.label}" was not written.`, variants };
     case 'no-copy':
@@ -195,7 +198,7 @@ export function variantsResult(outcome: Exclude<VariantsOutcome, { kind: 'picked
     case 'none-built':
       return failure(
         [
-          'Neither variant built, so the user was not asked and nothing was written:',
+          `${noneBuilt(tiles.length)}, so the user was not asked and nothing was written:`,
           ...tiles.map((tile) => `- "${tile.label}": ${tile.error ?? 'not built.'}`),
           'Fix the candidates (try_build tells whether one builds) before proposing again.',
         ].join('\n'),
@@ -215,6 +218,11 @@ export function variantsResult(outcome: Exclude<VariantsOutcome, { kind: 'picked
     case 'aborted':
       return failure(cancelledMessage);
   }
+}
+
+/** That no variant of a card of `count` built, as a clause. */
+function noneBuilt(count: number): string {
+  return count === 2 ? 'Neither variant built' : 'None of the variants built';
 }
 
 /** `{ failed: [{ label, reason }] }` for the variants that did not build, or nothing. */

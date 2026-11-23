@@ -6,6 +6,7 @@ import { ExtrudeOps } from "../oc/extrude-ops.js";
 import { rad } from "../helpers/math-helpers.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { Profiler } from "../common/profiler.js";
+import { getOC } from "../oc/init.js";
 
 export class Extruder {
   private firstFaces: Face[];
@@ -64,6 +65,16 @@ export class Extruder {
 
     if (this.endOffset) {
       distance -= Math.sign(distance) * this.endOffset;
+    }
+
+    // A sweep shorter than the kernel's coincidence tolerance still "builds":
+    // a six-face solid with no volume, on which a later boolean never returns
+    // (#103). Fail here, where it is a recoverable build error.
+    // unit: OCCT floor
+    if (!(Math.abs(distance) > getOC().Precision.Confusion())) {
+      throw new Error(this.endOffset
+        ? "Cannot extrude by a zero distance: the end offset leaves nothing to extrude"
+        : "Cannot extrude by a zero distance");
     }
 
     const vec = this.plane.normal.multiply(distance);

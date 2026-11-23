@@ -9,7 +9,8 @@ import { fileURLToPath } from 'url';
  * vite build: `tsc -p ui/tsconfig.lib.json` writes `.d.ts` files for
  * `ui/src/viewer-ui.ts` and everything it reaches under
  * `ui/dist-lib/types/` (the tree mirrors the repo, `ui/src/...` and the
- * `lib/solver-core`/`lib/sketch-solver` sources the UI compiles in), then
+ * `lib/solver-core`/`lib/sketch-solver`/`lib/assembly-solver` sources the UI
+ * compiles in), then
  * this fixes what a consumer can't resolve from there:
  * - a type the UI takes from the compiled lib (`../../lib/dist/...`) points
  *   at the package's own `lib/dist`, which ships beside `ui/dist-lib`;

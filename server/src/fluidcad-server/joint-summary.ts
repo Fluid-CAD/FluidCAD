@@ -1,24 +1,49 @@
 // The joints half of an assembly's scene summary: its mates and relations as
-// authored, readable and keyed by the ids the inspection tools take.
+// authored, readable and keyed by the ids the inspection tools take, each
+// with how the engine's solve left it.
 
+import type {
+  AssemblyMateState,
+  AssemblyRelationState,
+  AssemblySolution,
+} from '../../../lib/dist/index.js';
 import type { GeneratedRows } from '../generated-rows.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
+import { SolvedNumber } from './solved-number.ts';
 
 type SummaryLocation = { filePath: string; line: number; column: number };
 type SerializedMate = SerializedAssembly['mates'][number];
 type SerializedRelation = NonNullable<SerializedAssembly['relations']>[number];
 
 /**
- * What every `mates[]` and `relations[]` entry is. `source: 'statement'`:
- * the records the render's `mate()` / `relation()` statements made — and a
- * generator's `g.mate()` / `g.relation()` — with their types, sides and
- * options as authored. `solvedIn: 'viewer'`: the assembly solver runs only
- * in the viewer page, and the server never receives its result, so no
- * entry carries a solve status, a misclosure or a current joint value. A
- * joint that does not close shows in the app (the Joints panel) and in a
- * screenshot, never here.
+ * How the engine's solve of the assembly's mates came out — the solve every
+ * `instances[].pose`, mate `status` and joint `value` of the summary is
+ * read from.
+ *
+ * It is the REST configuration: every instance starts at its `insert()`
+ * chain's pose and the mate solver runs once — what a viewer shows when it
+ * opens the file, computed by the same solver from the same records. With
+ * `dof` above zero the mates leave free motion, and the rest configuration
+ * is one of many valid ones: a part a user has since dragged along a free
+ * joint, or a mate the Animate bar is driving, moves only in their viewer
+ * (and so in a screenshot), never here.
+ *
+ * - `okay`: every mate and relation the solve enforces holds.
+ * - `inconsistent`: at least one does not (`status: "failed"` on it); the
+ *   poses are the solver's least-bad configuration.
+ * - `unsolved`: the solve could not run (`error`); the poses are the
+ *   statement poses and no mate or relation carries a `status`.
+ *
+ * `okay` does not cover a mate the solve never reached — check for
+ * `status: "unenforced"` on the mates and relations too.
  */
-export type SceneSummaryJoints = { source: 'statement'; solvedIn: 'viewer' };
+export type SceneSummarySolve = {
+  status: AssemblySolution['status'];
+  /** The degrees of freedom the mates leave the assembly; null when the solve could not run. */
+  dof: number | null;
+  /** `unsolved` only: what stopped the solve. */
+  error?: string;
+};
 
 /**
  * One side of a mate, named the way source code reaches it and keyed by the
@@ -88,7 +113,42 @@ export type SceneSummaryMate = {
   options?: SceneSummaryMateOptions;
   /** Present on a replicated mate: the seed mate, the replicate statement, the row. */
   replica?: { of: string; statement: string; row: number };
-} & SceneSummaryJointScope;
+} & SceneSummaryJointScope & SceneSummaryMateOutcome;
+
+/**
+ * How the solve left a mate; every key is absent when the solve did not run
+ * (`solve.status: "unsolved"`, or an engine that predates the solve).
+ */
+export type SceneSummaryMateOutcome = {
+  /**
+   * `satisfied`: the mate holds at the solved poses. `failed`: it does not
+   * — the assembly cannot close it; `gap`, `gapAxis` and `tiltDeg` say by
+   * how much. `unenforced`: it never reached the solve (a side names a
+   * connector that did not build, or exposed geometry of a form a tangent
+   * mate cannot use) and constrains nothing.
+   */
+  status?: AssemblyMateState['status'];
+  /**
+   * Where the joint sits in the solved configuration: a revolute's angle in
+   * degrees, a slider's travel in the document unit — the quantity, and the
+   * sign, its `limits` clamp (an angle on the turn its limits are on). Only
+   * on those two types.
+   */
+  value?: number;
+  /**
+   * Present (true) when the solve left the joint outside its `limits`: the
+   * mate's geometry holds, its range does not — nothing is free to move it
+   * back, or the limits of joints that move together (a relation, a closed
+   * loop) cannot all hold at once.
+   */
+  outsideLimits?: true;
+  /** Failed mates: the connector-origin misclosure along the mate's constrained directions, in the document unit. */
+  gap?: number;
+  /** Failed mates: the world axis the gap runs along, when it is essentially axis-aligned. */
+  gapAxis?: 'x' | 'y' | 'z';
+  /** Failed mates: the orientation error in degrees. */
+  tiltDeg?: number;
+};
 
 /** One mate a relation couples, by id and authored name. */
 export type SceneSummaryRelationMate = { mateId: string; name?: string };
@@ -110,6 +170,15 @@ export type SceneSummaryRelation = {
   mateA: SceneSummaryRelationMate;
   /** The mate that follows it. */
   mateB: SceneSummaryRelationMate;
+  /**
+   * How the solve left the relation: `satisfied` — its mates moved in ratio;
+   * `failed` — they did not (a limit, a fastened part or a closed loop held
+   * one side back); `contradicted` — its ratio disagrees with the other
+   * relations around a cycle of them, so the solve dropped it; `unenforced`
+   * — it never reached the solve (a mate it couples is unenforced or has no
+   * motion of the kind it needs). Absent when the solve did not run.
+   */
+  status?: AssemblyRelationState['status'];
 } & SceneSummaryJointScope;
 
 /**
@@ -117,27 +186,31 @@ export type SceneSummaryRelation = {
  * with its two sides named (instance and connector, assembly connector, or
  * exposure) and its options, every relation with the two mates it couples,
  * each with its owning scope and whether a generator made it — the rule the
- * write guard refuses by, by row or by statement ({@link GeneratedRows.owns}).
- * Authored records only (see {@link SceneSummaryJoints}).
+ * write guard refuses by, by row or by statement ({@link GeneratedRows.owns})
+ * — and, when the engine solved the assembly, how the solve left it.
  */
 export class JointSummary {
-  static readonly JOINTS: SceneSummaryJoints = { source: 'statement', solvedIn: 'viewer' };
-
   private readonly instanceNames: ReadonlyMap<string, string>;
   private readonly occurrenceNames: ReadonlyMap<string, string>;
   private readonly connectorLabels: ReadonlyMap<string, string>;
   private readonly mateNames: ReadonlyMap<string, string | undefined>;
+  private readonly mateStates: ReadonlyMap<string, AssemblyMateState>;
+  private readonly relationStates: ReadonlyMap<string, AssemblyRelationState>;
 
   /**
    * `rendered` are the render's rows (its connector rows name the part
    * connectors a side holds by id); `owned` is the render's engine-owned
-   * rows.
+   * rows; `solution` is the engine's solve of the assembly, or null on an
+   * engine that predates it.
    */
   constructor(
     private readonly assembly: SerializedAssembly,
     rendered: readonly any[],
     private readonly owned: GeneratedRows,
+    solution: AssemblySolution | null = null,
   ) {
+    this.mateStates = new Map((solution?.mates ?? []).map(state => [state.mateId, state]));
+    this.relationStates = new Map((solution?.relations ?? []).map(state => [state.relationId, state]));
     this.instanceNames = new Map(assembly.instances.map(instance => [instance.instanceId, instance.name]));
     this.occurrenceNames = new Map((assembly.occurrences ?? []).map(occurrence => [occurrence.occurrenceId, occurrence.name]));
     this.connectorLabels = JointSummary.connectorLabelsOf(rendered, assembly);
@@ -189,6 +262,22 @@ export class JointSummary {
       ...(options ? { options } : {}),
       ...this.scopeOf(mate.mateId, mate.owner ?? '', mate.sourceLocation),
       ...(mate.replica ? { replica: { ...mate.replica } } : {}),
+      ...JointSummary.outcomeOf(this.mateStates.get(mate.mateId)),
+    };
+  }
+
+  /** How the solve left a mate, its numbers cleaned of float noise; nothing for a mate the solve has no state for. */
+  private static outcomeOf(state: AssemblyMateState | undefined): SceneSummaryMateOutcome {
+    if (!state) {
+      return {};
+    }
+    return {
+      status: state.status,
+      ...(state.value !== undefined ? { value: SolvedNumber.round(state.value) } : {}),
+      ...(state.outsideLimits ? { outsideLimits: true as const } : {}),
+      ...(state.gap !== undefined ? { gap: SolvedNumber.round(state.gap) } : {}),
+      ...(state.gapAxis !== undefined ? { gapAxis: state.gapAxis } : {}),
+      ...(state.tiltDeg !== undefined ? { tiltDeg: SolvedNumber.round(state.tiltDeg) } : {}),
     };
   }
 
@@ -203,6 +292,9 @@ export class JointSummary {
       mateA: this.relationMateOf(relation.mateA),
       mateB: this.relationMateOf(relation.mateB),
       ...this.scopeOf(relation.relationId, relation.owner, relation.sourceLocation),
+      ...(this.relationStates.has(relation.relationId)
+        ? { status: this.relationStates.get(relation.relationId)!.status }
+        : {}),
     };
   }
 

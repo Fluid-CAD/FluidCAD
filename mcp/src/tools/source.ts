@@ -165,10 +165,18 @@ async function assertImportsPresent(
   absPath: string,
   code: string,
   force: boolean | undefined,
+  purpose: 'write' | 'build' = 'write',
 ): Promise<ToolResult<void>> {
   if (force === true) {
     return ok(undefined);
   }
+  // How a refusal opens and closes: a write names its `force` override; a
+  // candidate `try_build` was handed has none, and is told what a write of
+  // it would meet.
+  const refusing = purpose === 'write'
+    ? `Refusing to write "${absPath}"`
+    : `Not built: write_file would refuse this candidate of "${absPath}"`;
+  const override = purpose === 'write' ? ' (pass `force: true` to override)' : '';
   if (!isFluidScriptPath(absPath) && !isParamsPath(absPath)) {
     return ok(undefined);
   }
@@ -186,8 +194,7 @@ async function assertImportsPresent(
     return err(
       'params-file',
       [
-        `Refusing to write "${absPath}" — ${diagnostics.length} project-parameters file rule violation(s)` +
-          ' (pass `force: true` to override):',
+        `${refusing} — ${diagnostics.length} project-parameters file rule violation(s)${override}:`,
         listed,
         'A *.params.js file holds only imports (fluidcad/core, fluidcad/units, other *.params.js files)' +
           ' and `export const <name> = param(…)` / `export const <name> = <expression>` declarations.',
@@ -203,8 +210,7 @@ async function assertImportsPresent(
     return err(
       'part-rules',
       [
-        `Refusing to write "${absPath}" — ${diagnostics.length} file rule violation(s)` +
-          ' (pass `force: true` to override):',
+        `${refusing} — ${diagnostics.length} file rule violation(s)${override}:`,
         listed,
         'Every part is `export const <name> = part(\'Name\', () => { … })` at the top level of its file,' +
           ' and no two parts of a file share a name.',
@@ -219,8 +225,7 @@ async function assertImportsPresent(
     return err(
       'unit-statement',
       [
-        `Refusing to write "${absPath}" — ${diagnostics.length} unit() rule violation(s)` +
-          ' (pass `force: true` to override):',
+        `${refusing} — ${diagnostics.length} unit() rule violation(s)${override}:`,
         listed,
       ].join('\n'),
       { diagnostics },
@@ -233,9 +238,9 @@ async function assertImportsPresent(
   return err(
     'missing-imports',
     [
-      `Refusing to write "${absPath}" — uses ${lint.missing.length} FluidCAD ` +
+      `${refusing} — uses ${lint.missing.length} FluidCAD ` +
         `symbol(s) without an import: ${symbolList}.`,
-      'Add this to the top of the file (pass `force: true` to override):',
+      `Add this to the top of the file${override}:`,
       lint.suggestion,
     ].join('\n'),
     { missing: lint.missing, suggestion: lint.suggestion },
@@ -853,6 +858,295 @@ export async function editRange(input: EditRangeInput): Promise<ToolResult<EditR
     replacedRange: { start: input.start, end: input.end },
     render,
   });
+}
+
+// ---------------------------------------------------------------------------
+// try_build
+// ---------------------------------------------------------------------------
+
+/** One `edit_range` replacement: `[start, end)` of the file as it is now becomes `newText`. */
+export type RangeEdit = { start: Position; end: Position; newText: string };
+
+/**
+ * `original` with every edit applied, each range addressed in `original`
+ * (not in the text an earlier edit of the list left), positions clamped as
+ * {@link applyRangeEdit} clamps them. Edits may come in any order; two that
+ * overlap are refused, since their result would depend on it.
+ */
+export function applyRangeEdits(original: string, edits: RangeEdit[]): ToolResult<string> {
+  const spans: { from: number; to: number; newText: string }[] = [];
+  for (const [index, edit] of edits.entries()) {
+    if (typeof edit?.newText !== 'string' || !isValidPosition(edit?.start) || !isValidPosition(edit?.end)) {
+      return err('invalid-input', `\`edits[${index}]\` must be \`{ start, end, newText }\` with 0-based \`{ line, column }\` positions.`);
+    }
+    if (comparePositions(edit.start, edit.end) > 0) {
+      return err('invalid-input', `\`edits[${index}].start\` must be at or before its \`end\`.`);
+    }
+    spans.push({ from: offsetAt(original, edit.start), to: offsetAt(original, edit.end), newText: edit.newText });
+  }
+  // Last range first, so the offsets of the ranges before it still hold.
+  spans.sort((a, b) => b.from - a.from || b.to - a.to);
+  let text = original;
+  let floor = Infinity;
+  for (const span of spans) {
+    if (span.to > floor) {
+      return err('invalid-input', '`edits` overlap: give each range of the file once.');
+    }
+    text = text.slice(0, span.from) + span.newText + text.slice(span.to);
+    floor = span.from;
+  }
+  return ok(text);
+}
+
+export type TryBuildInput = WorkspaceArg & {
+  path: string;
+  /** The whole candidate text of the file, as `write_file` takes it. */
+  content?: string;
+  /** Or the candidate as replacements in the file on disk, each as `edit_range` takes one. */
+  edits?: RangeEdit[];
+  /** Parameter values for this build only, by label. */
+  params?: Record<string, string | number | boolean | (string | number)[]>;
+};
+
+/**
+ * What a scratch build produced. Mirrored from
+ * `server/src/fluidcad-server/scratch-build.ts` (`ScratchBuildOutcome`) —
+ * hand-typed here like `RenderOutcome`.
+ */
+export type TryBuildFacts = {
+  /** Names the build's meshes on the engine (`GET /api/scratch-build/:id/meshes`) while it keeps them. */
+  id: string;
+  file: string;
+  sceneKind: 'part' | 'assembly';
+  unit: string;
+  durationMs: number;
+  builtFrom: 'source' | 'buffer' | 'disk';
+  configuration: string;
+  sessionOverrides: number;
+  unusedParams: string[];
+  solidCount: number;
+  bounds: RenderChangeBounds | null;
+  volume: number | null;
+  validation: {
+    ok: boolean;
+    checked: number;
+    findings: { kind: string; shapeId: string; sceneObjectId: string; part: string | null; message: string }[];
+    skipped: number;
+  } | null;
+  /**
+   * A digest of what the build draws: equal for two builds that render the
+   * same meshes. For a host comparing two builds (the approval card's
+   * before and after); `try_build` leaves it out of what the model reads.
+   * Absent from an engine that predates it.
+   */
+  geometry?: string;
+  /** The answer is a build the engine kept of the same inputs (`reuse`): nothing was built for it. */
+  reused?: true;
+  instanceCount?: number;
+  breakpointHit?: true;
+};
+
+export type TryBuildOutput =
+  | ({ state: 'rendered' } & TryBuildFacts)
+  | ({ state: 'build-error'; objectErrors: ObjectBuildError[] } & TryBuildFacts)
+  | {
+      state: 'compile-error';
+      file: string;
+      durationMs: number;
+      compileError: { message: string; filePath?: string; sourceLocation?: { filePath: string; line: number; column: number } };
+    };
+
+/** A candidate version of a model file, as `try_build` and `propose_variants` take one. */
+export type CandidateInput = WorkspaceArg & {
+  path: string;
+  /** The whole candidate text of the file, as `write_file` takes it. */
+  content?: string;
+  /** Or the candidate as replacements in the file on disk, each as `edit_range` takes one. */
+  edits?: RangeEdit[];
+  /**
+   * Also refuse a file the editor has unsaved changes for (`dirty-buffer`),
+   * as a write would: for a caller that means to write the candidate.
+   */
+  refuseDirty?: boolean;
+};
+
+/** A candidate that passed the checks a write of it would: where it goes, the file as it is, and its text. */
+export type Candidate = {
+  /** Canonical absolute path, as the write tools resolve it. */
+  absPath: string;
+  /** False when the file does not exist yet; `before` is then ''. */
+  existed: boolean;
+  /** The file on disk when the candidate was read. */
+  before: string;
+  /** The whole text of the candidate. */
+  text: string;
+};
+
+/**
+ * The candidate an input names, checked as a write of it would be: the path
+ * confined to the workspace, a model file, `content` or `edits` (applied to
+ * the file on disk) or neither for the file as it is, then the lint guards
+ * `write_file` applies (`missing-imports`, `part-rules`, `unit-statement`).
+ * The dirty-buffer guard runs only on `refuseDirty`. Nothing is built or
+ * written. `tool` names the caller in a refusal.
+ */
+export async function resolveCandidate(input: CandidateInput, tool: string = 'try_build'): Promise<ToolResult<Candidate>> {
+  if (input?.content !== undefined && typeof input.content !== 'string') {
+    return err('invalid-input', '`content` must be a string: the whole candidate text of the file.');
+  }
+  if (input?.edits !== undefined && (!Array.isArray(input.edits) || input.edits.length === 0)) {
+    return err('invalid-input', '`edits` must be a non-empty array of `{ start, end, newText }`.');
+  }
+  if (input?.content !== undefined && input?.edits !== undefined) {
+    return err('invalid-input', 'Pass the candidate as `content` or as `edits`, not both.');
+  }
+  const entry = resolveEntry(input);
+  if (entry.ok === false) {
+    return entry as ToolResult<Candidate>;
+  }
+  // Only a whole candidate may be of a file that does not exist yet.
+  const resolved = resolveWithinWorkspace(entry.data.workspacePath, input?.path, { mustExist: input.content === undefined });
+  if (resolved.ok === false) {
+    return resolved as ToolResult<Candidate>;
+  }
+  const absPath = resolved.data.absPath;
+  if (!isFluidScriptPath(absPath)) {
+    return err(
+      'invalid-input',
+      `${tool} builds a model file (.fluid.js, .part.js, .assembly.js); "${input.path}" is not one. `
+        + 'To see what a change to another file does to a model, write it: the write reports the open model\'s render.',
+    );
+  }
+  let before = '';
+  let existed = true;
+  try {
+    before = await fsp.readFile(absPath, 'utf8');
+  } catch (e: any) {
+    if (e?.code !== 'ENOENT' || input.content === undefined) {
+      return err('internal', e?.message ?? String(e));
+    }
+    existed = false;
+  }
+  let text = input.content;
+  if (text === undefined) {
+    const edited = input.edits ? applyRangeEdits(before, input.edits) : ok(before);
+    if (edited.ok === false) {
+      return edited as ToolResult<Candidate>;
+    }
+    text = edited.data;
+  }
+  if (input.refuseDirty === true) {
+    const dirty = await assertNotDirty(entry.data, absPath, false);
+    if (dirty.ok === false) {
+      return dirty as ToolResult<Candidate>;
+    }
+  }
+  const guard = await assertImportsPresent(entry.data, absPath, text, false, 'build');
+  if (guard.ok === false) {
+    return guard as ToolResult<Candidate>;
+  }
+  return ok({ absPath, existed, before, text });
+}
+
+/**
+ * Build `text` as the model file `absPath` on the engine without writing it
+ * (`POST /api/scratch-build`). Nothing live changes — see
+ * `FluidCadServer.scratchBuild`. The text is built as given: check it with
+ * {@link resolveCandidate} first. `reuse`: a build of the same inputs the
+ * engine still keeps is the answer (`reused: true`) and nothing is built.
+ */
+export async function buildCandidate(
+  input: WorkspaceArg & { absPath: string; text: string; params?: TryBuildInput['params']; reuse?: boolean },
+): Promise<ToolResult<TryBuildOutput>> {
+  const entry = resolveEntry(input);
+  if (entry.ok === false) {
+    return entry as ToolResult<TryBuildOutput>;
+  }
+  const client = new FluidCadClient(entry.data);
+  try {
+    return ok(await client.postJson<TryBuildOutput>('/api/scratch-build', {
+      file: input.absPath,
+      source: input.text,
+      ...(input.params !== undefined ? { params: input.params } : {}),
+      ...(input.reuse === true ? { reuse: true } : {}),
+    }));
+  } catch (e: any) {
+    if (e instanceof HttpError && e.statusCode === 404) {
+      // The candidate always travels, so the route itself never answers 404:
+      // an engine without the route does.
+      return err('http-error', 'This FluidCAD engine has no scratch builds (upgrade fluidcad).', { statusCode: 404 });
+    }
+    if (e instanceof HttpError) {
+      return err(e.statusCode === 400 || e.statusCode === 422 ? 'invalid-input' : 'http-error', OpenModelRender.messageOf(e.body), { statusCode: e.statusCode });
+    }
+    return err('internal', e?.message ?? String(e));
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+/**
+ * What a build of a candidate would cost, as the engine answers it without
+ * building (`POST /api/scratch-build/cost`): `reusable` is the build it
+ * keeps of the same inputs — what {@link buildCandidate} with `reuse`
+ * would answer at once — or null; `lastBuildMs` is how long the file's last
+ * build took in this engine process, or null when it has not built it.
+ */
+export type CandidateCost = {
+  reusable: Exclude<TryBuildOutput, { state: 'compile-error' }> | null;
+  lastBuildMs: number | null;
+};
+
+/** Ask the engine what building `text` as `absPath` would cost. Nothing is built. */
+export async function candidateCost(
+  input: WorkspaceArg & { absPath: string; text: string },
+): Promise<ToolResult<CandidateCost>> {
+  const entry = resolveEntry(input);
+  if (entry.ok === false) {
+    return entry as ToolResult<CandidateCost>;
+  }
+  const client = new FluidCadClient(entry.data);
+  try {
+    return ok(await client.postJson<CandidateCost>('/api/scratch-build/cost', { file: input.absPath, source: input.text }));
+  } catch (e: any) {
+    if (e instanceof HttpError && e.statusCode === 404) {
+      return err('http-error', 'This FluidCAD engine cannot say what a build costs (upgrade fluidcad).', { statusCode: 404 });
+    }
+    if (e instanceof HttpError) {
+      return err(e.statusCode === 400 || e.statusCode === 422 ? 'invalid-input' : 'http-error', OpenModelRender.messageOf(e.body), { statusCode: e.statusCode });
+    }
+    return err('internal', e?.message ?? String(e));
+  } finally {
+    await client.close().catch(() => {});
+  }
+}
+
+/**
+ * Build a candidate version of a model file on the engine without writing
+ * it: the file as it would be with `content`, or with `edits` applied to
+ * what is on disk, or as it is. The candidate passes the lint guards
+ * `write_file` applies first ({@link resolveCandidate}), so one that builds
+ * here is one a write would accept (the dirty-buffer guard aside: nothing
+ * is written, so an unsaved editor buffer is not in the way).
+ */
+export async function tryBuild(input: TryBuildInput): Promise<ToolResult<TryBuildOutput>> {
+  const candidate = await resolveCandidate(input);
+  if (candidate.ok === false) {
+    return candidate as ToolResult<TryBuildOutput>;
+  }
+  const built = await buildCandidate({
+    ...(input.pinnedWorkspace ? { pinnedWorkspace: input.pinnedWorkspace } : {}),
+    ...(input.workspace !== undefined ? { workspace: input.workspace } : {}),
+    absPath: candidate.data.absPath,
+    text: candidate.data.text,
+    ...(input.params !== undefined ? { params: input.params } : {}),
+  });
+  if (built.ok && built.data.state !== 'compile-error' && built.data.geometry !== undefined) {
+    // A digest for a host comparing two builds: nothing the model can read.
+    const { geometry: _geometry, ...facts } = built.data;
+    return ok(facts);
+  }
+  return built;
 }
 
 // ---------------------------------------------------------------------------

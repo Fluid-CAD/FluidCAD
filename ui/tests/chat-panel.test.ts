@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ChatPanel, type ChatConfirmOptions, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
-import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChatMessage, PermissionMode, SessionStatus, ToolPart, TurnRecord } from '../src/ui/chat/chat-types';
+import { ChatPanel, type ChatConfirmOptions, type ChatPanelDeps, type ChatPanelSettings } from '../src/ui/chat/chat-panel';
+import type { AgentInstall, AgentKind, AgentModel, ApiProviderStatus, ChangePreview, ChangePreviewSide, ChatMessage, ParamsPart, PermissionMode, QuestionPart, SessionStatus, ToolPart, TurnRecord, VariantTile, VariantsPart } from '../src/ui/chat/chat-types';
+import type { ParamCardDefinition, ParamCardHost, ParamCardModel } from '../src/ui/chat/parts/params-part';
+import { factChanges } from '../src/ui/chat/parts/build-facts';
+import { duration } from '../src/ui/chat/parts/change-preview';
+import { factLines } from '../src/ui/chat/parts/variants-part';
 import { LeftSlot } from '../src/ui/left-slot';
 import { closePopupMenu } from '../src/ui/popup-menu';
 import { isEditableTarget, isChatComposer } from '../src/editable-target';
@@ -47,7 +51,7 @@ class ManualTimers {
   }
 }
 
-function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSettings> = {}) {
+function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSettings> = {}, deps: Partial<ChatPanelDeps> = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const events: string[] = [];
@@ -87,6 +91,7 @@ function mount(client = new FakeChatClient(), settings: Partial<ChatPanelSetting
     onEffortChosen,
     onOpenChange: (open) => events.push(open ? 'agent open' : 'agent closed'),
     timers,
+    ...deps,
   });
   panels.push(panel);
   const $ = <T extends Element = HTMLElement>(selector: string) => panel.el.querySelector<T>(selector);
@@ -1374,6 +1379,1509 @@ describe('approval on tool cards (§12.1)', () => {
     await settle();
     expect(h.$$<HTMLButtonElement>('[data-ref="approval"] button').every((b) => !b.disabled)).toBe(true);
     expect(h.$('[data-ref="status"]')!.textContent).toContain('FluidCAD did not answer.');
+  });
+});
+
+// --- Questions the agent asks (ask_user, §22) -------------------------------
+
+function questionPart(overrides: Partial<QuestionPart> = {}): QuestionPart {
+  return {
+    type: 'question',
+    id: 'q1',
+    state: 'awaiting-answer',
+    questions: [
+      {
+        question: 'Which thread should the holes take?',
+        options: [
+          { label: 'M4', description: 'Fits the standoffs already in the model.' },
+          { label: 'M5' },
+        ],
+      },
+      { question: 'Which faces get a chamfer?', options: [{ label: 'Top' }, { label: 'Bottom' }, { label: 'Sides' }], multiSelect: true },
+      { question: 'How thick should the wall be?' },
+    ],
+    ...overrides,
+  };
+}
+
+/** A session whose running turn waits on `part`, as a snapshot holds it (a reload, a second tab). */
+function askingSession(client: FakeChatClient, part: QuestionPart = questionPart()) {
+  return client.addSession({
+    id: 's',
+    title: 'Bracket',
+    status: part.state === 'awaiting-answer' ? { state: 'awaiting-answer', turnId: 't1', questionIds: [part.id] } : { state: 'idle' },
+    messages: [
+      { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'u1t', text: 'add mounting holes' }] },
+      { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [part] },
+    ],
+    turns: [{ id: 't1', userMessageId: 'u1', revertible: false }],
+  });
+}
+
+const BEFORE_SIDE: ChangePreviewSide = {
+  state: 'built',
+  buildId: 'build-before',
+  sceneKind: 'part',
+  facts: { solidCount: 1, size: [60, 40, 30], volume: 72000, unit: 'mm', sound: true },
+  bounds: { min: [-30, -20, 0], max: [30, 20, 30] },
+};
+const AFTER_SIDE: ChangePreviewSide = {
+  state: 'built',
+  buildId: 'build-after',
+  sceneKind: 'part',
+  facts: { solidCount: 2, size: [60, 40, 36], volume: 73256.6, unit: 'mm', sound: true },
+  bounds: { min: [-30, -20, 0], max: [30, 20, 36] },
+};
+const READY_PREVIEW: ChangePreview = { state: 'ready', same: false, before: BEFORE_SIDE, after: AFTER_SIDE };
+
+describe('what a change does to the model, on its approval card (§25)', () => {
+  const previewOf = (card: Element) => card.querySelector<HTMLElement>('[data-ref="preview"]');
+  const tilesOf = (card: Element) => [...card.querySelectorAll<HTMLElement>('[data-ref="preview-tile"]')];
+  const factsOf = (card: Element) => [...card.querySelectorAll<HTMLElement>('[data-ref="preview-fact"]')].map((row) => [...row.children].map((c) => c.textContent));
+  const setPreview = (client: FakeChatClient, preview: ChangePreview) =>
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'edit', patch: { preview } });
+  const settled = (preview: ChangePreview | undefined, overrides: Partial<ToolPart> = {}) =>
+    editPart({ state: 'done', approval: { id: 'ap1', canAllowSession: true, decision: 'allow' }, output: { text: '{"render":{"state":"rendered"}}' }, ...(preview ? { preview } : {}), ...overrides });
+
+  it('fills in while the buttons already work: placeholders as the engine builds, then both sides from one camera and the facts as differences', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client);
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    // The card as it always was until the engine says a preview is coming.
+    expect(previewOf(card)).toBeNull();
+
+    setPreview(client, { state: 'building' });
+    await settle();
+    const preview = previewOf(card)!;
+    expect(preview.dataset.state).toBe('building');
+    expect(tilesOf(card).map((t) => [t.dataset.side, t.textContent!.trim()])).toEqual([['before', 'Building…Before'], ['after', 'QueuedAfter']]);
+    expect(preview.querySelector('[data-ref="preview-progress"]')!.textContent).toContain('you can answer now');
+    // The facts' rows hold their place while it builds, with nothing in them yet.
+    expect([...preview.querySelectorAll('[data-ref="preview-facts-pending"] .chat-change-fact')].map((row) => row.textContent)).toEqual(['Bodies…', 'Size…', 'Volume…']);
+    expect(factsOf(card)).toEqual([]);
+    // Above the diff, which is above the buttons — and the buttons are live.
+    const approval = card.querySelector('[data-ref="approval"]')!;
+    expect(preview.compareDocumentPosition(approval.querySelector('[data-ref="diff"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect([...approval.querySelectorAll<HTMLButtonElement>('.chat-approval-buttons button')].map((b) => b.disabled)).toEqual([false, false, false]);
+    expect(host.pictures).not.toHaveBeenCalled();
+
+    setPreview(client, { state: 'building', before: BEFORE_SIDE });
+    await settle();
+    expect(tilesOf(card).map((t) => t.textContent!.trim())).toEqual(['BuiltBefore', 'Building…After']);
+    // One side alone is not drawn: the two share a camera.
+    expect(host.pictures).not.toHaveBeenCalled();
+
+    setPreview(client, READY_PREVIEW);
+    await settle();
+    expect(previewOf(card)!.dataset.state).toBe('ready');
+    expect(host.pictures).toHaveBeenCalledTimes(1);
+    expect(host.pictures).toHaveBeenCalledWith(['build-before', 'build-after']);
+    expect(tilesOf(card).map((t) => [t.dataset.side, t.querySelector('img')!.getAttribute('src'), t.textContent])).toEqual([
+      ['before', host.png('build-before'), 'Before'],
+      ['after', host.png('build-after'), 'After'],
+    ]);
+    // Handed over together, to be kept with the session.
+    expect(client.savePreviewPictures).toHaveBeenCalledTimes(1);
+    expect(client.savePreviewPictures).toHaveBeenCalledWith('s', 'ap1', {
+      before: { mediaType: 'image/png', base64: btoa('build-before') },
+      after: { mediaType: 'image/png', base64: btoa('build-after') },
+    });
+    expect(factsOf(card)).toEqual([
+      ['Bodies', '1 → 2', '+1'],
+      ['Size', '60 × 40 × 30 mm → 60 × 40 × 36 mm', 'Z +6 mm'],
+      ['Volume', '72,000 mm³ → 73,257 mm³', '+1,257 mm³ (+1.7%)'],
+    ]);
+    expect(card.querySelector('[data-ref="preview-problems"]')).toBeNull();
+    // The kept pictures arriving changes nothing on screen, and nothing is drawn again.
+    await settle();
+    expect(tilesOf(card).map((t) => t.querySelector('img')!.getAttribute('src'))).toEqual([host.png('build-before'), host.png('build-after')]);
+    expect(host.pictures).toHaveBeenCalledTimes(1);
+    expect(client.savePreviewPictures).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the change over the model on request, takes it out on the answer, and keeps the tiles with the details', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ preview: READY_PREVIEW }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    const show = card.querySelector<HTMLButtonElement>('[data-ref="preview-show"]')!;
+    expect(show.textContent!.trim()).toBe('Show in viewport');
+    expect(show.getAttribute('aria-pressed')).toBe('false');
+    show.click();
+    await settle();
+    expect(host.showGhost).toHaveBeenCalledWith('build-after');
+    expect(host.ghost).toBe('build-after');
+    expect(card.querySelector('[data-ref="preview-show"]')!.getAttribute('aria-pressed')).toBe('true');
+    card.querySelector<HTMLButtonElement>('[data-ref="preview-show"]')!.click();
+    expect(host.ghost).toBeNull();
+    card.querySelector<HTMLButtonElement>('[data-ref="preview-show"]')!.click();
+    await settle();
+    expect(host.ghost).toBe('build-after');
+
+    card.querySelector<HTMLButtonElement>('[data-ref="allow"]')!.click();
+    await settle();
+    // Answered: the ghost goes, the approval slot says so in one line, and the tiles wait in the details.
+    expect(host.ghost).toBeNull();
+    expect(card.querySelector('[data-ref="approval"]')!.textContent!.trim()).toBe('You allowed this');
+    expect(card.querySelector('[data-ref="preview"]')).toBeNull();
+    card.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    const details = card.querySelector('[data-ref="details"]')!;
+    expect(tilesOf(details).map((t) => t.dataset.side)).toEqual(['before', 'after']);
+    expect(tilesOf(details).every((t) => t.querySelector('img') !== null)).toBe(true);
+    expect(factsOf(details)).toHaveLength(3);
+    // Nothing to click on a settled card's preview.
+    expect(details.querySelector('[data-ref="preview"]')!.querySelectorAll('button')).toHaveLength(0);
+    expect([...details.querySelectorAll('.chat-tool-section-label')].map((l) => l.textContent)).toEqual(['Before and after', 'Input', 'Change']);
+
+    // A panel that closes takes a shown change out of the viewport too.
+    const other = new FakeChatClient();
+    waitingSession(other, editPart({ preview: READY_PREVIEW }));
+    const otherHost = variantsHost();
+    const o = mount(other, {}, { variants: otherHost });
+    await opened(o);
+    o.$<HTMLButtonElement>('[data-ref="preview-show"]')!.click();
+    await settle();
+    expect(otherHost.ghost).toBe('build-after');
+    o.panel.close();
+    expect(otherHost.ghost).toBeNull();
+  });
+
+  it('says first that a change does not build, with the reasons, and leaves the answer to the user', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({
+      preview: { state: 'ready', same: false, before: BEFORE_SIDE, after: { state: 'failed', problems: [{ title: 'Compile error', message: 'rib is not defined', line: 14 }] } },
+    }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    const problems = card.querySelector<HTMLElement>('[data-ref="preview-problems"]')!;
+    expect(problems.getAttribute('role')).toBe('alert');
+    expect(problems.querySelector('.chat-change-problems-title')!.textContent!.trim()).toBe('This change does not build');
+    expect([...problems.querySelectorAll('[data-ref="preview-problem"]')].map((p) => p.textContent)).toEqual(['Compile error: rib is not definedline 14']);
+    // It is the first thing in the approval, before the diff and the buttons.
+    expect(card.querySelector('[data-ref="approval"]')!.firstElementChild!.firstElementChild).toBe(problems);
+    // Nothing built with the change: no pictures, no facts, nothing to show in the viewport.
+    expect(tilesOf(card)).toHaveLength(0);
+    expect(card.querySelector('[data-ref="preview-facts"]')).toBeNull();
+    expect(card.querySelector('[data-ref="preview-show"]')).toBeNull();
+    expect(host.pictures).not.toHaveBeenCalled();
+    expect([...card.querySelectorAll<HTMLButtonElement>('.chat-approval-buttons button')].map((b) => [b.dataset.ref, b.disabled])).toEqual([
+      ['allow', false], ['allow-session', false], ['deny', false],
+    ]);
+
+    // Features that fail: what did build is drawn beside the file as it is, the reasons listed and the rest counted.
+    const failing: ChangePreviewSide = {
+      ...AFTER_SIDE,
+      state: 'failed',
+      problems: [{ title: 'Fillet 2 failed', message: 'the radius is too large', line: 22 }, { title: 'Shell 1 failed', message: 'no face to open' }],
+      moreProblems: 3,
+    };
+    setPreview(client, { state: 'ready', same: false, before: { ...BEFORE_SIDE, state: 'failed', problems: [{ title: 'Fillet 1 failed', message: 'x' }] }, after: failing });
+    await settle();
+    // The failed features are left out of the build, which can leave the model as it is: said without a green tick.
+    setPreview(client, { state: 'ready', same: true, before: BEFORE_SIDE, after: { ...failing, facts: BEFORE_SIDE.facts } });
+    await settle();
+    expect(card.querySelector<HTMLElement>('[data-ref="preview-same"]')!.textContent!.trim()).toBe('What does build is the same geometry as now.');
+    expect(card.querySelector<HTMLElement>('[data-ref="preview-same"]')!.dataset.icon).toBe('plain');
+    expect(tilesOf(card)).toHaveLength(0);
+    setPreview(client, { state: 'ready', same: false, before: { ...BEFORE_SIDE, state: 'failed', problems: [{ title: 'Fillet 1 failed', message: 'x' }] }, after: failing });
+    await settle();
+    const listed = [...card.querySelectorAll('[data-ref="preview-problems"] li')].map((p) => p.textContent);
+    expect(listed).toEqual(['Fillet 2 failed: the radius is too largeline 22', 'Shell 1 failed: no face to open', 'and 3 more']);
+    expect(card.querySelector('[data-ref="preview-before-failed"]')!.textContent).toBe('The file as it is does not build either.');
+    expect(tilesOf(card).map((t) => [t.dataset.side, t.dataset.state])).toEqual([['before', 'failed'], ['after', 'failed']]);
+
+    // The other way round: the change is what makes the file build.
+    setPreview(client, { state: 'ready', same: false, before: { state: 'failed', problems: [{ title: 'Compile error', message: 'x' }] }, after: AFTER_SIDE });
+    await settle();
+    expect(card.querySelector('[data-ref="preview-problems"]')).toBeNull();
+    expect(card.querySelector('[data-ref="preview-fixes"]')!.textContent!.trim()).toBe('The file as it is does not build; with this change it does.');
+    expect(tilesOf(card).map((t) => t.dataset.side)).toEqual(['after']);
+    expect(card.querySelector('[data-ref="preview-facts"]')!.textContent).toBe('2 bodies · 60 × 40 × 36 mm · 73,257 mm³');
+  });
+
+  it('says "No change to the geometry" instead of two identical pictures', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ preview: { state: 'ready', same: true, before: BEFORE_SIDE, after: { ...BEFORE_SIDE, buildId: 'build-after' } } }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    expect(card.querySelector('[data-ref="preview-same"]')!.textContent!.trim()).toBe('No change to the geometry');
+    expect(card.querySelector('[data-ref="preview-facts"]')!.textContent).toBe('1 body · 60 × 40 × 30 mm · 72,000 mm³');
+    expect(tilesOf(card)).toHaveLength(0);
+    expect(card.querySelector('[data-ref="preview-show"]')).toBeNull();
+    expect(host.pictures).not.toHaveBeenCalled();
+    expect(client.savePreviewPictures).not.toHaveBeenCalled();
+  });
+
+  it('shows one picture for a file the change creates', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ name: 'write_file', title: 'Create rib.part.js', preview: { state: 'building', before: null } }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    expect(tilesOf(card).map((t) => t.textContent!.trim())).toEqual(['Building…New file']);
+    setPreview(client, { state: 'ready', before: null, after: AFTER_SIDE });
+    await settle();
+    expect(host.pictures).toHaveBeenCalledWith(['build-after']);
+    expect(tilesOf(card).map((t) => [t.dataset.side, t.querySelector('img') !== null, t.textContent])).toEqual([['after', true, 'New file']]);
+    expect(card.querySelector('[data-ref="preview-facts"]')!.textContent).toBe('2 bodies · 60 × 40 × 36 mm · 73,257 mm³');
+    expect(client.savePreviewPictures).toHaveBeenCalledWith('s', 'ap1', { after: { mediaType: 'image/png', base64: btoa('build-after') } });
+    // The model on screen is another file's: nothing to draw this one over.
+    expect(card.querySelector('[data-ref="preview-show"]')).toBeNull();
+  });
+
+  it('offers a button instead of building a slow file unasked, and builds when it is clicked', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, editPart({ preview: { state: 'offered', estimateMs: 6240 } }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    expect(card.querySelector('[data-ref="preview-offer"]')!.textContent).toBe("Not previewed: this file's last build took 6.2 s.");
+    const button = card.querySelector<HTMLButtonElement>('[data-ref="preview-build"]')!;
+    expect(button.textContent!.trim()).toBe('Preview the change');
+    expect(button.title).toContain('The app waits while they build');
+    expect(tilesOf(card)).toHaveLength(0);
+    // Refused for a reason that is not "already building": the button comes back.
+    client.previewAnswer = { ok: false, status: 500, error: 'The engine is busy.' };
+    button.click();
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="preview-build"]')!.disabled).toBe(true);
+    await settle();
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="preview-build"]')!.disabled).toBe(false);
+
+    client.previewAnswer = null;
+    card.querySelector<HTMLButtonElement>('[data-ref="preview-build"]')!.click();
+    await settle();
+    expect(client.requestPreview).toHaveBeenLastCalledWith('s', 'ap1');
+    expect(previewOf(card)!.dataset.state).toBe('building');
+    expect(card.querySelector('[data-ref="preview-build"]')).toBeNull();
+    expect(tilesOf(card)).toHaveLength(2);
+    // The approval was never in the way.
+    expect(card.dataset.state).toBe('awaiting-approval');
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="allow"]')!.disabled).toBe(false);
+  });
+
+  it('a reloaded card shows the pictures the session kept without drawing them, and nothing for a preview that never ran', async () => {
+    const client = new FakeChatClient();
+    const kept: ChangePreview = { state: 'ready', same: false, before: { ...BEFORE_SIDE, image: 'before-kept.png' }, after: { ...AFTER_SIDE, image: 'after-kept.png' } };
+    waitingSession(client, settled(kept));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="tool"]')!;
+    // Collapsed with the card's details.
+    expect(tilesOf(card)).toHaveLength(0);
+    card.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    expect(tilesOf(card).map((t) => t.querySelector('img')!.getAttribute('src'))).toEqual([client.fileUrl('s', 'before-kept.png'), client.fileUrl('s', 'after-kept.png')]);
+    expect(host.pictures).not.toHaveBeenCalled();
+    expect(client.savePreviewPictures).not.toHaveBeenCalled();
+
+    // Cancelled by the answer, a stop or a restart: no tile, no placeholder, no button, no section.
+    for (const preview of [{ state: 'cancelled' }, { state: 'cancelled', estimateMs: 6200 }, { state: 'cancelled', before: BEFORE_SIDE }, undefined] as (ChangePreview | undefined)[]) {
+      const other = new FakeChatClient();
+      waitingSession(other, settled(preview, { state: 'error', error: 'The app restarted while this was running; its effect is unknown.', output: undefined }));
+      const otherHost = variantsHost();
+      const o = mount(other, {}, { variants: otherHost });
+      await opened(o);
+      const restored = o.$('[data-part="tool"]')!;
+      restored.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+      expect(restored.querySelector('[data-ref="preview"]')).toBeNull();
+      expect(restored.querySelector('[data-ref="preview-placeholder"]')).toBeNull();
+      expect([...restored.querySelectorAll('.chat-tool-section-label')].map((l) => l.textContent)).not.toContain('Before and after');
+      expect(otherHost.pictures).not.toHaveBeenCalled();
+    }
+
+    // Built, never drawn, and the engine has let the builds go: the facts alone, no empty picture frames.
+    const gone = new FakeChatClient();
+    waitingSession(gone, settled(READY_PREVIEW));
+    const goneHost = variantsHost({ 'build-before': null, 'build-after': null });
+    const g = mount(gone, {}, { variants: goneHost });
+    await opened(g);
+    const facts = g.$('[data-part="tool"]')!;
+    facts.querySelector<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    await settle();
+    expect(tilesOf(facts)).toHaveLength(0);
+    expect(facts.querySelector('[data-ref="preview-placeholder"]')).toBeNull();
+    expect(factsOf(facts)).toHaveLength(3);
+    expect(gone.savePreviewPictures).not.toHaveBeenCalled();
+  });
+
+  it('words the facts as differences, each with its unit', () => {
+    const base = { solidCount: 1, size: [60, 40, 30] as [number, number, number], volume: 72000, unit: 'mm' };
+    // Material removed, on two axes; a body gone.
+    expect(factChanges({ ...base, solidCount: 2 }, { solidCount: 1, size: [50, 40, 27.5], volume: 55000, unit: 'mm' })).toEqual([
+      { label: 'Bodies', before: '2', after: '1', change: '−1', tone: 'less' },
+      { label: 'Size', before: '60 × 40 × 30 mm', after: '50 × 40 × 27.5 mm', change: 'X −10, Z −2.5 mm', tone: 'less' },
+      { label: 'Volume', before: '72,000 mm³', after: '55,000 mm³', change: '−17,000 mm³ (−24%)', tone: 'less' },
+    ]);
+    // Nothing moved: no difference to name. A hole moved keeps every number.
+    expect(factChanges(base, base).map((f) => [f.change, f.tone])).toEqual([['', 'same'], ['', 'same'], ['', 'same']]);
+    // Grew one way and shrank another: neither more nor less.
+    expect(factChanges(base, { ...base, size: [70, 30, 30] })[1]).toMatchObject({ change: 'X +10, Y −10 mm', tone: 'same' });
+    // A change too small for the digits shown is not called one; a small one is still signed.
+    expect(factChanges(base, { ...base, volume: 72000.0004 })[2]).toMatchObject({ change: '', tone: 'same' });
+    expect(factChanges(base, { ...base, volume: 72010 })[2]).toMatchObject({ before: '72,000 mm³', after: '72,010 mm³', change: '+10 mm³ (+<0.1%)' });
+    // An assembly counts its instances; a side with no solid has no size or volume to compare.
+    expect(factChanges({ ...base, instanceCount: 2 }, { solidCount: 0, size: null, volume: null, unit: 'mm', instanceCount: 3 })).toEqual([
+      { label: 'Instances', before: '2', after: '3', change: '+1', tone: 'more' },
+      { label: 'Bodies', before: '1', after: '0', change: '−1', tone: 'less' },
+      { label: 'Size', before: '60 × 40 × 30 mm', after: 'none', change: '', tone: 'same' },
+      { label: 'Volume', before: '72,000 mm³', after: 'none', change: '', tone: 'same' },
+    ]);
+    // A change of unit is shown, and not subtracted across.
+    expect(factChanges(base, { solidCount: 1, size: [2.36, 1.57, 1.18], volume: 4.39, unit: 'in' }).map((f) => f.change)).toEqual(['', '', '']);
+    expect([duration(850), duration(6240), duration(59960), duration(80000), duration(120000)]).toEqual(['850 ms', '6.2 s', '60 s', '1 min 20 s', '2 min']);
+  });
+});
+
+describe('question cards (§22)', () => {
+  const pressed = (card: Element, index: number) =>
+    [...card.querySelectorAll<HTMLButtonElement>(`[data-ref="question"][data-index="${index}"] [data-ref="option"]`)]
+      .filter((b) => b.getAttribute('aria-pressed') === 'true')
+      .map((b) => b.dataset.label);
+  const option = (card: Element, index: number, label: string) =>
+    card.querySelector<HTMLButtonElement>(`[data-ref="question"][data-index="${index}"] [data-ref="option"][data-label="${label}"]`)!;
+  const field = (card: Element, index: number) =>
+    card.querySelector<HTMLInputElement>(`[data-ref="question"][data-index="${index}"] [data-ref="text"]`)!;
+  const write = (input: HTMLInputElement, value: string) => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  it('shows every question with its options and a field of its own; Send waits for an answer', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    expect(card.dataset.state).toBe('awaiting-answer');
+    expect([...card.querySelectorAll('[data-ref="question-text"]')].map((q) => q.textContent)).toEqual([
+      'Which thread should the holes take?',
+      'Which faces get a chamfer?',
+      'How thick should the wall be?',
+    ]);
+    const first = [...card.querySelectorAll<HTMLButtonElement>('[data-ref="question"][data-index="0"] [data-ref="option"]')];
+    expect(first.map((b) => b.textContent!.trim())).toEqual(['M4Fits the standoffs already in the model.', 'M5']);
+    // Real buttons, in the tab order, saying whether they are picked.
+    expect(first.every((b) => b.type === 'button' && b.tabIndex >= 0 && b.getAttribute('aria-pressed') === 'false')).toBe(true);
+    expect(card.querySelectorAll('[data-ref="question"][data-index="2"] [data-ref="option"]')).toHaveLength(0);
+    expect(field(card, 0).placeholder).toBe('Or in your own words…');
+    expect(field(card, 2).placeholder).toBe('Your answer…');
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.disabled).toBe(true);
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="question-skip"]')!.disabled).toBe(false);
+    expect(h.$('[data-ref="activity"]')!.textContent).toBe('Waiting for your answer…');
+    expect(h.panel.el.dataset.status).toBe('awaiting-answer');
+    expect(h.panel.el.dataset.busy).toBe('true');
+  });
+
+  it('shows a drawing as an image, never as markup of the page: a figure under the question, tiles for drawn options', async () => {
+    const hostile = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90" onload="window.__drawn = true"><script>window.__drawn = true</script><rect width="60" height="40"/></svg>';
+    const plain = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90"><circle cx="60" cy="45" r="30"/></svg>';
+    const client = new FakeChatClient();
+    askingSession(client, questionPart({
+      questions: [
+        { question: 'Which corner?', svg: plain, options: [{ label: 'Round', svg: hostile }, { label: 'Square', svg: plain }, { label: 'Either' }] },
+        { question: 'Which thread?', options: [{ label: 'M4' }, { label: 'M5' }] },
+      ],
+    }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    const source = (el: Element) => decodeURIComponent(el.querySelector('img')!.src.replace('data:image/svg+xml;charset=utf-8,', ''));
+
+    const figure = card.querySelector('[data-ref="question"][data-index="0"] > [data-ref="question-drawing"]')!;
+    expect(source(figure)).toBe(plain);
+    // The label and description carry the meaning; the drawing is decoration to a screen reader.
+    expect(figure.querySelector('img')!.alt).toBe('');
+
+    const groups = [...card.querySelectorAll<HTMLElement>('.chat-question-options')];
+    expect(groups.map((g) => g.dataset.drawn)).toEqual(['true', 'false']);
+    expect(source(option(card, 0, 'Round').querySelector('[data-ref="option-drawing"]')!)).toBe(hostile);
+    expect(option(card, 0, 'Either').querySelector('[data-ref="option-drawing"]')).toBeNull();
+    expect(card.querySelectorAll('[data-ref="question"][data-index="1"] img')).toHaveLength(0);
+    // Nothing of the drawing is an element of the page, and nothing in it ran.
+    expect(card.querySelectorAll('svg rect, svg circle, script')).toHaveLength(0);
+    expect((window as any).__drawn).toBeUndefined();
+
+    // A drawn option is the same toggle button.
+    option(card, 0, 'Round').click();
+    expect(pressed(card, 0)).toEqual(['Round']);
+
+    // A drawing the browser cannot read takes itself out; the option stays.
+    option(card, 0, 'Square').querySelector('img')!.dispatchEvent(new Event('error'));
+    expect(option(card, 0, 'Square').querySelector('[data-ref="option-drawing"]')).toBeNull();
+    expect(option(card, 0, 'Square').textContent!.trim()).toBe('Square');
+  });
+
+  it('a settled card keeps the question\'s figure and drops the options with their drawings', async () => {
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90"><circle cx="60" cy="45" r="30"/></svg>';
+    const client = new FakeChatClient();
+    askingSession(client, questionPart({
+      state: 'answered',
+      questions: [{ question: 'Which corner?', svg, options: [{ label: 'Round', svg }, { label: 'Square', svg }] }],
+      answers: [{ selected: ['Round'] }],
+    }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    expect(card.querySelectorAll('[data-ref="question-drawing"] img')).toHaveLength(1);
+    expect(card.querySelectorAll('[data-ref="option-drawing"]')).toHaveLength(0);
+    expect(card.querySelector('[data-ref="answer"]')!.textContent!.trim()).toBe('Round');
+  });
+
+  it('one option where the question takes one, several where it takes several; a second click takes a pick back', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    option(card, 0, 'M4').click();
+    option(card, 0, 'M5').click();
+    expect(pressed(card, 0)).toEqual(['M5']);
+    option(card, 0, 'M5').click();
+    expect(pressed(card, 0)).toEqual([]);
+    option(card, 1, 'Sides').click();
+    option(card, 1, 'Top').click();
+    expect(pressed(card, 1)).toEqual(['Top', 'Sides']);
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.disabled).toBe(false);
+  });
+
+  it('Send posts one answer per question, in order, and the card settles to what was answered', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    option(card, 0, 'M4').click();
+    option(card, 1, 'Sides').click();
+    option(card, 1, 'Top').click();
+    write(field(card, 1), '  only the outer edges ');
+    card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.click();
+    await settle();
+    expect(client.answerQuestion).toHaveBeenCalledWith('s', 'q1', {
+      answers: [{ selected: ['M4'] }, { selected: ['Top', 'Sides'], text: 'only the outer edges' }, { selected: [] }],
+    });
+    expect(card.dataset.state).toBe('answered');
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+    expect([...card.querySelectorAll('[data-ref="answer"]')].map((a) => a.textContent!.trim())).toEqual([
+      'M4',
+      'Top, Sides — only the outer edges',
+      'Left open',
+    ]);
+    expect(h.panel.el.dataset.status).toBe('running');
+  });
+
+  it('Enter in a field sends; an empty card does not', async () => {
+    const client = new FakeChatClient();
+    askingSession(client, questionPart({ questions: [{ question: 'How thick should the wall be?' }] }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    const input = field(card, 0);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    expect(client.answerQuestion).not.toHaveBeenCalled();
+    write(input, '2.5 mm');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    expect(client.answerQuestion).toHaveBeenCalledWith('s', 'q1', { answers: [{ selected: [], text: '2.5 mm' }] });
+    expect(card.querySelector('[data-ref="answer"]')!.textContent!.trim()).toBe('2.5 mm');
+  });
+
+  it('Skip leaves the choice to the agent, and the card says so', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    card.querySelector<HTMLButtonElement>('[data-ref="question-skip"]')!.click();
+    await settle();
+    expect(client.answerQuestion).toHaveBeenCalledWith('s', 'q1', { skip: true });
+    expect(card.dataset.state).toBe('skipped');
+    expect(card.querySelector('[data-ref="outcome"]')!.textContent!.trim()).toBe('You skipped this; the agent decides.');
+    expect(card.querySelectorAll('[data-ref="answer"]')).toHaveLength(0);
+  });
+
+  it('settled elsewhere (another tab, a stop): the controls go and the card says how it ended', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    option(card, 0, 'M4').click();
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'q1', patch: { state: 'unanswered', reason: 'Stopped before you answered.' } });
+    expect(card.dataset.state).toBe('unanswered');
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+    expect(card.querySelector('[data-ref="outcome"]')!.textContent!.trim()).toBe('Stopped before you answered.');
+  });
+
+  it('a reply the engine did not take: the controls come back with what was picked, and the reason shows', async () => {
+    const client = new FakeChatClient();
+    askingSession(client);
+    let release!: () => void;
+    client.answerQuestion.mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve({ ok: false, status: 0, error: 'FluidCAD did not answer.' });
+    }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    option(card, 0, 'M5').click();
+    card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.click();
+    await settle();
+    // While it goes, everything waits.
+    expect([...card.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input')].every((c) => c.disabled)).toBe(true);
+    release();
+    await settle();
+    expect(card.querySelector<HTMLButtonElement>('[data-ref="question-send"]')!.disabled).toBe(false);
+    expect(option(card, 0, 'M5').disabled).toBe(false);
+    expect(pressed(card, 0)).toEqual(['M5']);
+    expect(h.$('[data-ref="status"]')!.textContent).toContain('FluidCAD did not answer.');
+  });
+
+  it('an answered question from a stored chat shows its answers and nothing to click', async () => {
+    const client = new FakeChatClient();
+    askingSession(client, questionPart({ state: 'answered', answers: [{ selected: ['M5'] }, { selected: [] }, { selected: [], text: '3 mm' }] }));
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="question"]')!;
+    expect([...card.querySelectorAll('[data-ref="answer"]')].map((a) => a.textContent!.trim())).toEqual(['M5', 'Left open', '3 mm']);
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+  });
+});
+
+// --- Variants the agent proposes (propose_variants, §24) ---------------------
+
+const RIB_TILE: VariantTile = {
+  label: 'Rib',
+  description: 'One rib under the arm.',
+  state: 'ready',
+  buildId: 'build-rib',
+  sceneKind: 'part',
+  facts: { solidCount: 1, size: [80, 40, 30.5], volume: 41200, unit: 'mm', sound: true },
+};
+const GUSSET_TILE: VariantTile = {
+  label: 'Gusset',
+  state: 'ready',
+  buildId: 'build-gusset',
+  sceneKind: 'part',
+  facts: { solidCount: 2, size: [80, 40, 30], volume: 44012.345, unit: 'mm', sound: true },
+};
+
+function variantsPart(overrides: Partial<VariantsPart> = {}): VariantsPart {
+  return {
+    type: 'variants',
+    id: 'v1',
+    state: 'awaiting-choice',
+    file: 'bracket.fluid.js',
+    question: 'Which stiffener?',
+    variants: [RIB_TILE, GUSSET_TILE],
+    ...overrides,
+  };
+}
+
+/** A session whose running turn holds `part`, as a snapshot holds it (a reload, a second tab). */
+function proposingSession(client: FakeChatClient, part: VariantsPart = variantsPart()) {
+  const waiting = part.state === 'awaiting-choice';
+  const running = part.state === 'building';
+  return client.addSession({
+    id: 's',
+    title: 'Bracket',
+    status: waiting ? { state: 'awaiting-answer', turnId: 't1', questionIds: [part.id] } : running ? { state: 'running', turnId: 't1' } : { state: 'idle' },
+    messages: [
+      { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'u1t', text: 'stiffen the arm, show me options' }] },
+      { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [part] },
+    ],
+    turns: [{ id: 't1', userMessageId: 'u1', revertible: false }],
+  });
+}
+
+/** What draws the variants in a test: a picture per build id, and the ghost it was last asked to show. */
+function variantsHost(pictures: Record<string, string | null> = {}) {
+  const png = (name: string) => `data:image/png;base64,${btoa(name)}`;
+  const host = {
+    ghost: null as string | null,
+    picture: vi.fn(async (buildId: string) => (buildId in pictures ? pictures[buildId] : png(buildId))),
+    pictures: vi.fn(async (buildIds: string[]) => buildIds.map((buildId) => (buildId in pictures ? pictures[buildId] : png(buildId)))),
+    showGhost: vi.fn(async (buildId: string) => {
+      host.ghost = buildId;
+      return true;
+    }),
+    hideGhost: vi.fn(() => {
+      host.ghost = null;
+    }),
+    png,
+  };
+  return host;
+}
+
+describe('variants cards (§24)', () => {
+  const tiles = (card: Element) => [...card.querySelectorAll<HTMLElement>('[data-ref="variant"]')];
+  const tile = (card: Element, label: string) => tiles(card).find((t) => t.dataset.label === label)!;
+  const pickOf = (card: Element, label: string) => tile(card, label).querySelector<HTMLButtonElement>('[data-ref="variant-pick"]')!;
+  const showOf = (card: Element, label: string) => tile(card, label).querySelector<HTMLButtonElement>('[data-ref="variant-show"]');
+  const pressed = (card: Element) => tiles(card).filter((t) => pickOf(card, t.dataset.label!).getAttribute('aria-pressed') === 'true').map((t) => t.dataset.label);
+  const apply = (card: Element) => card.querySelector<HTMLButtonElement>('[data-ref="variants-apply"]')!;
+  const skip = (card: Element) => card.querySelector<HTMLButtonElement>('[data-ref="variants-skip"]')!;
+  const field = (card: Element) => card.querySelector<HTMLInputElement>('[data-ref="variants-text"]')!;
+  const write = (input: HTMLInputElement, value: string) => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  const update = (client: FakeChatClient, patch: Partial<VariantsPart>) => client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'v1', patch });
+
+  it('says what a tile produces: bodies, overall size and volume, each with its unit', () => {
+    expect(factLines(RIB_TILE.facts!)).toEqual(['1 body', '80 × 40 × 30.5 mm', '41,200 mm³']);
+    expect(factLines(GUSSET_TILE.facts!)).toEqual(['2 bodies', '80 × 40 × 30 mm', '44,012 mm³']);
+    expect(factLines({ solidCount: 6, size: [12.3456, 1, 0.5], volume: 0.012345678, unit: 'in', instanceCount: 3 })).toEqual(['3 instances, 6 bodies', '12.35 × 1 × 0.5 in', '0.012346 in³']);
+    expect(factLines({ solidCount: 0, size: null, volume: null, unit: 'mm' })).toEqual(['0 bodies']);
+  });
+
+  it('shows the card while the variants build, and each tile fills in as its build ends', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client, variantsPart({
+      state: 'building',
+      variants: [{ label: 'Rib', description: 'One rib under the arm.', state: 'building' }, { label: 'Gusset', state: 'queued' }],
+    }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(card.dataset.state).toBe('building');
+    expect(card.querySelector('[data-ref="variants-question"]')!.textContent).toBe('Which stiffener?');
+    expect(card.querySelector('[data-ref="variants-file"]')!.textContent).toBe('bracket.fluid.js');
+    expect(tiles(card).map((t) => [t.dataset.label, t.dataset.state, t.querySelector('[data-ref="variant-placeholder"]')!.textContent!.trim()])).toEqual([
+      ['Rib', 'building', 'Building…'],
+      ['Gusset', 'queued', 'Queued'],
+    ]);
+    expect(card.querySelector('[data-ref="variants-progress"]')!.textContent).toContain('Building 1 of 2');
+    // Nothing to choose yet: no pick, no field, no buttons. The turn runs; Stop is the composer's.
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+    expect(h.panel.el.dataset.status).toBe('running');
+    expect(host.picture).not.toHaveBeenCalled();
+
+    // The first build ends: its tile has its facts, and this page draws its picture and hands it over.
+    update(client, { variants: [RIB_TILE, { label: 'Gusset', state: 'building' }] });
+    await settle();
+    expect(card.querySelector('[data-ref="variants-progress"]')!.textContent).toContain('Building 2 of 2');
+    expect(tile(card, 'Rib').dataset.state).toBe('ready');
+    expect([...tile(card, 'Rib').querySelectorAll('[data-ref="variant-facts"] > span')].map((f) => f.textContent)).toEqual(['1 body', '80 × 40 × 30.5 mm', '41,200 mm³']);
+    expect(host.picture).toHaveBeenCalledWith('build-rib');
+    expect(tile(card, 'Rib').querySelector('img')!.getAttribute('src')).toBe(host.png('build-rib'));
+    expect(client.saveVariantPicture).toHaveBeenCalledWith('s', 'v1', { label: 'Rib', image: { mediaType: 'image/png', base64: btoa('build-rib') } });
+    expect(tile(card, 'Gusset').querySelector('[data-ref="variant-placeholder"]')!.textContent!.trim()).toBe('Building…');
+
+    // Both built: the card waits for the user.
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'v1', patch: { variants: [{ ...RIB_TILE, image: 'Rib.png' }, GUSSET_TILE] } });
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'v1', patch: { state: 'awaiting-choice' } });
+    client.emit('s', { type: 'status', status: { state: 'awaiting-answer', turnId: 't1', questionIds: ['v1'] } });
+    await settle();
+    expect(card.dataset.state).toBe('awaiting-choice');
+    expect(h.panel.el.dataset.status).toBe('awaiting-answer');
+    // Each build was drawn once, however often the card was painted.
+    expect(host.picture.mock.calls.map((c) => c[0])).toEqual(['build-rib', 'build-gusset']);
+    expect(tiles(card).map((t) => t.querySelector('img')?.getAttribute('src'))).toEqual([host.png('build-rib'), host.png('build-gusset')]);
+    expect(apply(card).disabled).toBe(true);
+    expect(skip(card).disabled).toBe(false);
+  });
+
+  it('shows the model\'s label and description as text, never as markup', async () => {
+    const client = new FakeChatClient();
+    const hostile = '<img src=x onerror="window.pwned = true"><b>Rib</b>';
+    proposingSession(client, variantsPart({
+      question: '<script>window.pwned = true</script>Which?',
+      variants: [{ ...RIB_TILE, label: hostile, description: hostile }, { ...GUSSET_TILE, state: 'failed', error: hostile }],
+    }));
+    const h = mount(client, {}, { variants: variantsHost() });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(card.querySelector('[data-ref="variant-label"]')!.textContent).toBe(hostile);
+    expect(card.querySelector('[data-ref="variant-description"]')!.textContent).toBe(hostile);
+    expect(card.querySelector('[data-ref="variant-error"]')!.textContent!.trim()).toBe(hostile);
+    expect(card.querySelector('[data-ref="variants-question"]')!.textContent).toBe('<script>window.pwned = true</script>Which?');
+    expect(card.querySelectorAll('script, b, img[src="x"]')).toHaveLength(0);
+    // The hostile label is still the pick that is posted.
+    pickOf(card, hostile).click();
+    apply(card).click();
+    await settle();
+    expect(client.chooseVariant).toHaveBeenCalledWith('s', 'v1', { pick: hostile });
+    expect((window as any).pwned).toBeUndefined();
+  });
+
+  it('shows as many tiles as the agent sent, up to four, and any of them can be picked', async () => {
+    const client = new FakeChatClient();
+    const more: VariantTile[] = [
+      { ...GUSSET_TILE, label: 'Web', buildId: 'build-web' },
+      { ...GUSSET_TILE, label: 'Flange', buildId: 'build-flange' },
+    ];
+    proposingSession(client, variantsPart({ variants: [RIB_TILE, GUSSET_TILE, ...more] }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(tiles(card).map((t) => [t.dataset.label, t.dataset.state])).toEqual([['Rib', 'ready'], ['Gusset', 'ready'], ['Web', 'ready'], ['Flange', 'ready']]);
+    // Every tile gets its picture and its way into the viewport.
+    await settle();
+    expect(tiles(card).map((t) => t.querySelector('img')?.getAttribute('src'))).toEqual(['build-rib', 'build-gusset', 'build-web', 'build-flange'].map(host.png));
+    expect(tiles(card).every((t) => showOf(card, t.dataset.label!) !== null)).toBe(true);
+    expect(skip(card).title).toBe('Apply none of them; let the agent decide');
+    pickOf(card, 'Web').click();
+    pickOf(card, 'Flange').click();
+    expect(pressed(card)).toEqual(['Flange']);
+    expect(apply(card).title).toBe('Write “Flange” to bracket.fluid.js');
+    apply(card).click();
+    await settle();
+    expect(client.chooseVariant).toHaveBeenCalledWith('s', 'v1', { pick: 'Flange' });
+  });
+
+  it('a pick is one tile, a second click takes it back, and Apply writes it: the card settles with the picked tile marked', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client);
+    const h = mount(client, {}, { variants: variantsHost() });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(skip(card).title).toBe('Apply neither; let the agent decide');
+    expect(pressed(card)).toEqual([]);
+    pickOf(card, 'Rib').click();
+    pickOf(card, 'Gusset').click();
+    expect(pressed(card)).toEqual(['Gusset']);
+    pickOf(card, 'Gusset').click();
+    expect(pressed(card)).toEqual([]);
+    expect(apply(card).disabled).toBe(true);
+    pickOf(card, 'Rib').click();
+    expect(apply(card).textContent).toBe('Apply');
+    expect(apply(card).title).toBe('Write “Rib” to bracket.fluid.js');
+    apply(card).click();
+    await settle();
+    expect(client.chooseVariant).toHaveBeenCalledTimes(1);
+    expect(client.chooseVariant).toHaveBeenCalledWith('s', 'v1', { pick: 'Rib' });
+    expect(card.dataset.state).toBe('picked');
+    // Settled: the tiles stay with their pictures, the picked one marked, and nothing to click.
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+    expect(tiles(card).map((t) => [t.dataset.label, t.dataset.picked, !!t.querySelector('img')])).toEqual([['Rib', 'true', true], ['Gusset', 'false', true]]);
+    expect(card.querySelector('[data-ref="variants-outcome"]')!.textContent!.trim()).toBe('You picked Rib.');
+    // The write of the pick is the tool card that follows.
+    expect(h.$('[data-part="tool"] [data-ref="title"]')!.textContent).toBe('Apply "Rib" to bracket.fluid.js');
+    expect(h.panel.el.dataset.status).toBe('running');
+  });
+
+  it('a variant that did not build says why and cannot be picked', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client, variantsPart({
+      variants: [RIB_TILE, { ...GUSSET_TILE, state: 'failed', error: 'Fillet 1 does not build (line 7): the radius may be too large' }, ],
+    }));
+    const h = mount(client, {}, { variants: variantsHost() });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(tile(card, 'Gusset').dataset.state).toBe('failed');
+    expect(tile(card, 'Gusset').querySelector('[data-ref="variant-error"]')!.textContent!.trim()).toBe('Fillet 1 does not build (line 7): the radius may be too large');
+    expect(pickOf(card, 'Gusset').disabled).toBe(true);
+    // What did build of it is still drawn.
+    expect(tile(card, 'Gusset').querySelector('img')).not.toBeNull();
+    pickOf(card, 'Gusset').click();
+    expect(pressed(card)).toEqual([]);
+    expect(pickOf(card, 'Rib').disabled).toBe(false);
+
+    // One that did not compile has no build: no picture to draw, no viewport toggle.
+    const noBuild = new FakeChatClient();
+    proposingSession(noBuild, variantsPart({ variants: [RIB_TILE, { label: 'Gusset', state: 'failed', error: 'It does not compile: gusset is not defined (line 2)' }] }));
+    const h2 = mount(noBuild, {}, { variants: variantsHost() });
+    await opened(h2);
+    const failed = tile(h2.$('[data-part="variants"]')!, 'Gusset');
+    expect(failed.querySelector('[data-ref="variant-placeholder"]')!.textContent!.trim()).toBe('Did not build');
+    expect(failed.querySelector('[data-ref="variant-show"]')).toBeNull();
+  });
+
+  it('the user\'s own words are an answer instead of a pick: whichever they touched last is what is sent', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client);
+    const h = mount(client, {}, { variants: variantsHost() });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    pickOf(card, 'Rib').click();
+    write(field(card), 'neither');
+    // Typing takes the pick back, and the button now sends words.
+    expect(pressed(card)).toEqual([]);
+    expect(apply(card).textContent).toBe('Send');
+    // Picking a tile empties the field.
+    pickOf(card, 'Gusset').click();
+    expect(field(card).value).toBe('');
+    expect(apply(card).textContent).toBe('Apply');
+    write(field(card), '  neither — make the base thicker ');
+    field(card).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    expect(client.chooseVariant).toHaveBeenCalledWith('s', 'v1', { text: 'neither — make the base thicker' });
+    expect(card.dataset.state).toBe('answered');
+    expect(card.querySelector('[data-ref="variants-outcome"]')!.textContent!.trim()).toBe('neither — make the base thicker');
+    expect(tiles(card).map((t) => t.dataset.picked)).toEqual(['false', 'false']);
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+  });
+
+  it('Enter in an empty field sends nothing; Skip leaves the choice to the agent', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client);
+    const h = mount(client, {}, { variants: variantsHost() });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    field(card).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+    expect(client.chooseVariant).not.toHaveBeenCalled();
+    skip(card).click();
+    await settle();
+    expect(client.chooseVariant).toHaveBeenCalledWith('s', 'v1', { skip: true });
+    expect(card.dataset.state).toBe('skipped');
+    expect(card.querySelector('[data-ref="variants-outcome"]')!.textContent!.trim()).toBe('You skipped this; the agent decides.');
+  });
+
+  it('"Show in viewport" draws one variant over the model at a time, and it goes on toggle, pick, skip and when the panel closes', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client);
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    const rib = showOf(card, 'Rib')!;
+    const gusset = showOf(card, 'Gusset')!;
+    expect(rib.textContent!.trim()).toBe('Show in viewport');
+    expect([rib.getAttribute('aria-pressed'), gusset.getAttribute('aria-pressed')]).toEqual(['false', 'false']);
+    // Looking closer is not picking.
+    rib.click();
+    await settle();
+    expect(host.ghost).toBe('build-rib');
+    expect(rib.getAttribute('aria-pressed')).toBe('true');
+    expect(pressed(card)).toEqual([]);
+    gusset.click();
+    await settle();
+    expect(host.ghost).toBe('build-gusset');
+    expect([rib.getAttribute('aria-pressed'), gusset.getAttribute('aria-pressed')]).toEqual(['false', 'true']);
+    gusset.click();
+    await settle();
+    expect(host.ghost).toBeNull();
+    expect(gusset.getAttribute('aria-pressed')).toBe('false');
+
+    // Closing the panel takes the variant out of the viewport; the card still waits.
+    rib.click();
+    await settle();
+    h.panel.close();
+    expect(host.ghost).toBeNull();
+    h.panel.show();
+    await settle();
+    expect(showOf(card, 'Rib')!.getAttribute('aria-pressed')).toBe('false');
+
+    // Answering the card takes it out too.
+    showOf(card, 'Rib')!.click();
+    await settle();
+    expect(host.ghost).toBe('build-rib');
+    pickOf(card, 'Gusset').click();
+    apply(card).click();
+    await settle();
+    expect(card.dataset.state).toBe('picked');
+    expect(host.ghost).toBeNull();
+    expect(card.querySelector('[data-ref="variant-show"]')).toBeNull();
+  });
+
+  it('a variant shown in the viewport goes when the card is skipped, stopped, or leaves the screen', async () => {
+    for (const leave of ['skip', 'stop', 'new chat'] as const) {
+      const client = new FakeChatClient();
+      proposingSession(client);
+      const host = variantsHost();
+      const h = mount(client, {}, { variants: host });
+      await opened(h);
+      const card = h.$('[data-part="variants"]')!;
+      showOf(card, 'Rib')!.click();
+      await settle();
+      expect(host.ghost, leave).toBe('build-rib');
+      if (leave === 'skip') {
+        skip(card).click();
+      } else if (leave === 'stop') {
+        update(client, { state: 'unanswered', reason: 'Stopped before you chose.' });
+      } else {
+        h.$<HTMLButtonElement>('[data-ref="new-chat"]')!.click();
+      }
+      await settle();
+      expect(host.ghost, leave).toBeNull();
+    }
+  });
+
+  it('offers no viewport toggle for an assembly, without a host to draw it, or once the engine let the build go', async () => {
+    const assembly = new FakeChatClient();
+    proposingSession(assembly, variantsPart({ variants: [{ ...RIB_TILE, sceneKind: 'assembly' }, GUSSET_TILE] }));
+    const h = mount(assembly, {}, { variants: variantsHost() });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(showOf(card, 'Rib')).toBeNull();
+    expect(showOf(card, 'Gusset')).not.toBeNull();
+
+    const bare = new FakeChatClient();
+    proposingSession(bare);
+    const plain = mount(bare);
+    await opened(plain);
+    expect(plain.$$('[data-ref="variant-show"]')).toHaveLength(0);
+
+    const gone = new FakeChatClient();
+    proposingSession(gone);
+    const host = variantsHost();
+    host.showGhost.mockImplementation(async () => false);
+    const late = mount(gone, {}, { variants: host });
+    await opened(late);
+    const show = late.$<HTMLButtonElement>('[data-ref="variant-show"]')!;
+    show.click();
+    await settle();
+    expect(show.getAttribute('aria-pressed')).toBe('false');
+    expect(show.disabled).toBe(true);
+    expect(show.title).toContain('no longer kept');
+  });
+
+  it('a reloaded card shows the pictures the session kept, without drawing them again', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client, variantsPart({
+      state: 'picked',
+      picked: 'Gusset',
+      variants: [{ ...RIB_TILE, image: 'rib-kept.png' }, { ...GUSSET_TILE, image: 'gusset-kept.png' }],
+    }));
+    const host = variantsHost();
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(tiles(card).map((t) => t.querySelector('img')!.getAttribute('src'))).toEqual([client.fileUrl('s', 'rib-kept.png'), client.fileUrl('s', 'gusset-kept.png')]);
+    expect(host.picture).not.toHaveBeenCalled();
+    expect(client.saveVariantPicture).not.toHaveBeenCalled();
+    expect(tiles(card).map((t) => t.dataset.picked)).toEqual(['false', 'true']);
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+  });
+
+  it('a tile whose picture was never kept and whose build the engine let go says so', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client, variantsPart({
+      state: 'unanswered',
+      reason: 'The app restarted before you chose.',
+      variants: [{ ...RIB_TILE, image: 'rib-kept.png' }, GUSSET_TILE, ],
+    }));
+    const host = variantsHost({ 'build-gusset': null });
+    const h = mount(client, {}, { variants: host });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(tile(card, 'Rib').querySelector('img')).not.toBeNull();
+    expect(tile(card, 'Gusset').querySelector('img')).toBeNull();
+    expect(tile(card, 'Gusset').querySelector('[data-ref="variant-placeholder"]')!.textContent!.trim()).toBe('No picture');
+    expect(client.saveVariantPicture).not.toHaveBeenCalled();
+    expect(card.querySelector('[data-ref="variants-outcome"]')!.textContent!.trim()).toBe('The app restarted before you chose.');
+  });
+
+  it('a second tab shows a picture another page drew, keeping what the user picked and typed', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client);
+    // This page cannot draw (its mesh fetch failed); another page's picture arrives as the tile's `image`.
+    const h = mount(client, {}, { variants: variantsHost({ 'build-rib': null, 'build-gusset': null }) });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    expect(tiles(card).map((t) => !!t.querySelector('img'))).toEqual([false, false]);
+    pickOf(card, 'Rib').click();
+    update(client, { variants: [{ ...RIB_TILE, image: 'Rib.png' }, GUSSET_TILE] });
+    await settle();
+    expect(tile(card, 'Rib').querySelector('img')!.getAttribute('src')).toBe(client.fileUrl('s', 'Rib.png'));
+    expect(pressed(card)).toEqual(['Rib']);
+  });
+
+  it('settled elsewhere (another tab, a stop): the controls go and the card says how it ended', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client);
+    const h = mount(client, {}, { variants: variantsHost() });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    pickOf(card, 'Rib').click();
+    update(client, { state: 'unanswered', reason: 'Stopped before you chose.', variants: [RIB_TILE, { label: 'Gusset', state: 'cancelled' }] });
+    await settle();
+    expect(card.dataset.state).toBe('unanswered');
+    expect(card.querySelectorAll('button, input')).toHaveLength(0);
+    expect(card.querySelector('[data-ref="variants-outcome"]')!.textContent!.trim()).toBe('Stopped before you chose.');
+    expect(tile(card, 'Gusset').querySelector('[data-ref="variant-placeholder"]')!.textContent!.trim()).toBe('Not built');
+
+    update(client, { state: 'failed', reason: 'bracket.fluid.js changed after these were built, so "Rib" was not written.' });
+    expect(card.querySelector<HTMLElement>('[data-ref="variants-outcome"]')!.dataset.kind).toBe('failed');
+  });
+
+  it('a reply the engine did not take: the controls come back with what was picked, and the reason shows', async () => {
+    const client = new FakeChatClient();
+    proposingSession(client);
+    let release!: () => void;
+    client.chooseVariant.mockImplementationOnce(() => new Promise((resolve) => {
+      release = () => resolve({ ok: false, status: 0, error: 'FluidCAD did not answer.' });
+    }));
+    const h = mount(client, {}, { variants: variantsHost() });
+    await opened(h);
+    const card = h.$('[data-part="variants"]')!;
+    pickOf(card, 'Gusset').click();
+    apply(card).click();
+    await settle();
+    // While it goes, the pick, the field and the buttons wait.
+    expect([pickOf(card, 'Rib'), pickOf(card, 'Gusset'), field(card), apply(card), skip(card)].every((c) => c.disabled)).toBe(true);
+    release();
+    await settle();
+    expect(apply(card).disabled).toBe(false);
+    expect(pressed(card)).toEqual(['Gusset']);
+    expect(h.$('[data-ref="status"]')!.textContent).toContain('FluidCAD did not answer.');
+  });
+});
+
+// --- Parameters the agent offers (offer_params, §26) -------------------------
+
+// jsdom ships no CSS.escape, and a part's row key (`["Plate","Width"]`) needs
+// its quotes escaped inside the attribute selector the panel's rows use.
+if (typeof globalThis.CSS === 'undefined' || globalThis.CSS.escape('"') === '"') {
+  (globalThis as any).CSS = { escape: (value: string) => value.replace(/["\\]/g, '\\$&') };
+}
+
+const PLATE_FILE = '/ws/plate.part.js';
+const WIDTH: ParamCardDefinition = { label: 'Width', kind: 'part', body: 'Plate', defaultValue: 40, currentValue: 40, controlType: 'slider', min: 20, max: 80, step: 5 };
+const DEPTH: ParamCardDefinition = { label: 'Depth', kind: 'part', body: 'Plate', defaultValue: 5, currentValue: 5, controlType: 'auto', description: 'Plate thickness' };
+const STYLE: ParamCardDefinition = {
+  label: 'Style',
+  kind: 'part',
+  body: 'Plate',
+  defaultValue: 'round',
+  currentValue: 'round',
+  controlType: 'select',
+  options: [{ label: 'Round', value: 'round' }, { label: 'Square', value: 'square' }],
+};
+const RIBBED: ParamCardDefinition = { label: 'Ribbed', kind: 'part', body: 'Plate', defaultValue: false, currentValue: false, controlType: 'checkbox' };
+
+function paramsPart(overrides: Partial<ParamsPart> = {}): ParamsPart {
+  return {
+    type: 'params',
+    id: 'p1',
+    file: 'plate.part.js',
+    absPath: PLATE_FILE,
+    note: 'Wider plates need the ribs.',
+    params: [
+      { label: 'Width', part: 'Plate' },
+      { label: 'Depth', part: 'Plate' },
+      { label: 'Style', part: 'Plate' },
+      { label: 'Ribbed', part: 'Plate' },
+    ],
+    ...overrides,
+  };
+}
+
+/** A session whose last turn, ended, left `part` in the chat: a card is used after its turn. */
+function offeringSession(client: FakeChatClient, part: ParamsPart = paramsPart()) {
+  return client.addSession({
+    id: 's',
+    title: 'Plate',
+    status: { state: 'idle' },
+    messages: [
+      { id: 'u1', role: 'user', turnId: 't1', createdAt: '', parts: [{ type: 'text', id: 'u1t', text: 'a plate, roughly 40 wide' }] },
+      { id: 'a1', role: 'assistant', turnId: 't1', createdAt: '', parts: [part] },
+    ],
+    turns: [{ id: 't1', userMessageId: 'u1', revertible: false, endedAt: '2026-11-22T10:00:00.000Z', endReason: 'done' }],
+  });
+}
+
+/**
+ * The model on screen as the page gives it to a card, standing in for the
+ * engine: a session value shows in the render that follows it, Reset puts
+ * the file's value back, Keep makes the value the declared default.
+ */
+function paramsHost(model: Partial<ParamCardModel> = {}, options: { keep?: boolean; refuse?: Record<string, string> } = {}) {
+  const listeners = new Set<() => void>();
+  const same = (p: ParamCardDefinition, label: string, body?: string) => p.label === label && p.body === body;
+  const host = {
+    current: { file: PLATE_FILE, params: [WIDTH, DEPTH, STYLE, RIBBED], configuration: 'Default', ...model } as ParamCardModel,
+    listeners,
+    /** A render: the model on screen is now `next`. */
+    render(next: Partial<ParamCardModel>) {
+      host.current = { ...host.current, ...next };
+      for (const listener of [...listeners]) {
+        listener();
+      }
+    },
+    model: () => host.current,
+    onModelChange: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    set: vi.fn((label: string, value: unknown, body?: string) => {
+      host.render({ params: host.current.params.map((p) => (same(p, label, body) ? { ...p, currentValue: value as never } : p)) });
+    }),
+    reset: vi.fn((params: { label: string; body?: string }[]) => {
+      host.render({
+        params: host.current.params.map((p) => (params.some((r) => same(p, r.label, r.body)) ? { ...p, currentValue: p.configuredValue ?? p.defaultValue } : p)),
+      });
+    }),
+    keep: vi.fn(async (label: string, value: unknown, body: string | undefined, _configuration: string) => {
+      const reason = options.refuse?.[label];
+      if (reason) {
+        return { success: false, reason };
+      }
+      host.render({ params: host.current.params.map((p) => (same(p, label, body) ? { ...p, defaultValue: value as never, currentValue: value as never } : p)) });
+      return { success: true };
+    }),
+  };
+  const deps: ParamCardHost = options.keep === false ? { model: host.model, onModelChange: host.onModelChange, set: host.set, reset: host.reset } : host;
+  return { host, deps };
+}
+
+describe('parameter cards (§26)', () => {
+  const rows = (card: Element) => [...card.querySelectorAll<HTMLElement>('[data-ref="param"]')];
+  const row = (card: Element, label: string) => rows(card).find((r) => r.dataset.label === label)!;
+  const control = <T extends HTMLElement = HTMLInputElement>(card: Element, label: string) => row(card, label).querySelector<T>('[data-param-key]')!;
+  const status = (card: Element) => card.querySelector('[data-ref="params-status"]')!.textContent;
+  const reset = (card: Element) => card.querySelector<HTMLButtonElement>('[data-ref="params-reset"]')!;
+  const keep = (card: Element) => card.querySelector<HTMLButtonElement>('[data-ref="params-keep"]')!;
+  const changed = (card: Element) => rows(card).filter((r) => r.dataset.changed === 'true').map((r) => r.dataset.label);
+  /** Drag a slider to `value` and let go. */
+  const slide = (input: HTMLInputElement, value: string) => {
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  const choose = (select: HTMLSelectElement, value: string) => {
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  it('draws a control per parameter, as the Parameters panel draws them, with the file and the note', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost();
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(card.dataset.live).toBe('true');
+    expect(card.querySelector('[data-ref="params-file"]')!.textContent).toBe('plate.part.js');
+    expect(card.querySelector('[data-ref="params-note"]')!.textContent).toBe('Wider plates need the ribs.');
+    expect(rows(card).map((r) => r.dataset.label)).toEqual(['Width', 'Depth', 'Style', 'Ribbed']);
+
+    // The panel's own rows: a slider with its range and the value beside it, a number field, a select, a switch.
+    const width = control(card, 'Width');
+    expect([width.type, width.min, width.max, width.step, width.value, width.dataset.paramType]).toEqual(['range', '20', '80', '5', '40', 'slider']);
+    expect(row(card, 'Width').querySelector('[data-param-display]')!.textContent).toBe('40');
+    const depth = control(card, 'Depth');
+    expect([depth.type, depth.value, depth.dataset.paramType]).toEqual(['number', '5', 'number']);
+    expect(row(card, 'Depth').textContent).toContain('Plate thickness');
+    const style = control<HTMLSelectElement>(card, 'Style');
+    expect([...style.options].map((o) => [o.value, o.textContent, o.selected])).toEqual([['round', 'Round', true], ['square', 'Square', false]]);
+    const ribbed = control(card, 'Ribbed');
+    expect([ribbed.type, ribbed.checked, ribbed.dataset.paramType]).toEqual(['checkbox', false, 'checkbox']);
+    // No pencil: a card edits values, not declarations.
+    expect(card.querySelector('[data-param-edit]')).toBeNull();
+
+    // Nothing differs from the file yet: nothing to reset or keep. The turn is over, and the card is usable.
+    expect(status(card)).toBe('The values are the file\'s.');
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([true, true]);
+    expect(changed(card)).toEqual([]);
+    expect(h.panel.el.dataset.status).toBe('idle');
+    expect(host.set).not.toHaveBeenCalled();
+  });
+
+  it('a control sets a session value, typed as the parameter is, and the card follows the render', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost();
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    const width = control(card, 'Width');
+
+    // Dragging moves the number beside the slider; letting go sets the value.
+    width.value = '55';
+    width.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(row(card, 'Width').querySelector('[data-param-display]')!.textContent).toBe('55');
+    expect(host.set).not.toHaveBeenCalled();
+    width.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(host.set.mock.calls).toEqual([['Width', 55, 'Plate']]);
+    // The render that followed: the same control (it kept the focus it had), its row marked, the count said.
+    expect(control(card, 'Width')).toBe(width);
+    expect(width.value).toBe('55');
+    expect(changed(card)).toEqual(['Width']);
+    expect(status(card)).toBe('1 value changed, on screen only.');
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([false, false]);
+
+    choose(control<HTMLSelectElement>(card, 'Style'), 'square');
+    control(card, 'Ribbed').click();
+    expect(host.set.mock.calls.slice(1)).toEqual([['Style', 'square', 'Plate'], ['Ribbed', true, 'Plate']]);
+    expect(changed(card)).toEqual(['Width', 'Style', 'Ribbed']);
+    expect(status(card)).toBe('3 values changed, on screen only.');
+    // Nothing was written, and the session was told nothing.
+    expect(host.keep).not.toHaveBeenCalled();
+    expect(client.paramsKept).not.toHaveBeenCalled();
+  });
+
+  it('shows a value set elsewhere, and leaves a field being typed into as the user has it', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost();
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    const width = control(card, 'Width');
+    const depth = control(card, 'Depth');
+
+    // The Parameters panel (or a second tab) moved Width and Style: the card draws the render.
+    host.render({ params: [{ ...WIDTH, currentValue: 70 }, DEPTH, { ...STYLE, currentValue: 'square' }, RIBBED] });
+    expect(control(card, 'Width')).toBe(width);
+    expect(width.value).toBe('70');
+    expect(row(card, 'Width').querySelector('[data-param-display]')!.textContent).toBe('70');
+    expect(control<HTMLSelectElement>(card, 'Style').value).toBe('square');
+    expect(changed(card)).toEqual(['Width', 'Style']);
+
+    // Typing a depth: a render that lands meanwhile does not overwrite the keystrokes.
+    depth.focus();
+    depth.value = '7';
+    host.render({ params: [{ ...WIDTH, currentValue: 75 }, DEPTH, STYLE, RIBBED] });
+    expect(depth.value).toBe('7');
+    expect(width.value).toBe('75');
+    // Leaving the field sends what was typed, as a number.
+    depth.dispatchEvent(new Event('input', { bubbles: true }));
+    depth.dispatchEvent(new Event('blur'));
+    expect(host.set.mock.calls).toEqual([['Depth', 7, 'Plate']]);
+
+    // The file's declaration changed (the agent gave Width another range): the control is drawn again.
+    host.render({ params: [{ ...WIDTH, max: 120 }, DEPTH, STYLE, RIBBED] });
+    expect(control(card, 'Width')).not.toBe(width);
+    expect(control(card, 'Width').max).toBe('120');
+  });
+
+  it('Reset drops the session values of the card\'s changed parameters, and those only', async () => {
+    const client = new FakeChatClient();
+    // The card offers two of the model's four parameters.
+    offeringSession(client, paramsPart({ params: [{ label: 'Width', part: 'Plate' }, { label: 'Style', part: 'Plate' }] }));
+    const { host, deps } = paramsHost({ params: [{ ...WIDTH, currentValue: 60 }, { ...DEPTH, currentValue: 9 }, STYLE, RIBBED] });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(rows(card).map((r) => r.dataset.label)).toEqual(['Width', 'Style']);
+    expect(changed(card)).toEqual(['Width']);
+
+    reset(card).click();
+    // Depth is changed too, but it is not this card's; Style has nothing to drop.
+    expect(host.reset.mock.calls).toEqual([[[{ label: 'Width', body: 'Plate' }]]]);
+    expect(control(card, 'Width').value).toBe('40');
+    expect(changed(card)).toEqual([]);
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([true, true]);
+    expect(host.current.params.find((p) => p.label === 'Depth')!.currentValue).toBe(9);
+    expect(host.keep).not.toHaveBeenCalled();
+    expect(client.paramsKept).not.toHaveBeenCalled();
+  });
+
+  it('Keep writes each changed value into the file, tells the session, and says what was kept', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost({ params: [{ ...WIDTH, currentValue: 55 }, DEPTH, { ...STYLE, currentValue: 'square' }, RIBBED] });
+    let release!: () => void;
+    const first = new Promise<void>((resolve) => (release = resolve));
+    const write = host.keep.getMockImplementation()!;
+    host.keep.mockImplementationOnce(async (...args) => {
+      await first;
+      return write(...args);
+    });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(keep(card).title).toBe('Write these values into the file, as the parameters\' defaults');
+
+    keep(card).click();
+    await settle();
+    // One write at a time; while they go, neither button answers.
+    expect(host.keep.mock.calls).toEqual([['Width', 55, 'Plate', 'Default']]);
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([true, true]);
+    expect(keep(card).querySelector('.loading')).not.toBeNull();
+    release();
+    await settle();
+    expect(host.keep.mock.calls).toEqual([['Width', 55, 'Plate', 'Default'], ['Style', 'square', 'Plate', 'Default']]);
+    // The session is told what went into the file: the agent hears it with the next message.
+    expect(client.paramsKept.mock.calls).toEqual([['s', 'p1', { kept: [{ label: 'Width', part: 'Plate', value: 55 }, { label: 'Style', part: 'Plate', value: 'square' }] }]]);
+    // The values are the file's now: nothing differs, and the card says what it kept.
+    expect(changed(card)).toEqual([]);
+    expect(card.querySelector('[data-ref="params-kept"]')!.textContent).toBe('Kept in the file: Width 55, Style square');
+    expect(card.querySelector('[data-ref="params-error"]')).toBeNull();
+    expect([reset(card).disabled, keep(card).disabled]).toEqual([true, true]);
+    expect(control(card, 'Width').value).toBe('55');
+    // Keep is the user's own action: no turn started, nothing to approve.
+    expect(h.panel.el.dataset.status).toBe('idle');
+    expect(client.send).not.toHaveBeenCalled();
+  });
+
+  it('keeps into the configuration on screen, and a value the file refuses stays on screen with the reason', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    // The row "Large" is on screen: it sets Width to 60, and a session value sits on that and on Depth.
+    const { host, deps } = paramsHost(
+      { configuration: 'Large', params: [{ ...WIDTH, configuredValue: 60, currentValue: 65 }, { ...DEPTH, currentValue: 8 }, STYLE, RIBBED] },
+      { refuse: { Depth: 'the default of Depth is not a plain value' } },
+    );
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    // A value that is the row's own is not a change, whatever the literal says.
+    host.render({ params: [{ ...WIDTH, configuredValue: 60, currentValue: 60 }, { ...DEPTH, currentValue: 8 }, STYLE, RIBBED] });
+    expect(changed(card)).toEqual(['Depth']);
+    host.render({ params: [{ ...WIDTH, configuredValue: 60, currentValue: 65 }, { ...DEPTH, currentValue: 8 }, STYLE, RIBBED] });
+    expect(changed(card)).toEqual(['Width', 'Depth']);
+    expect(status(card)).toBe('2 values changed from Large, on screen only.');
+    expect(keep(card).title).toBe('Write these values into the configuration Large');
+
+    keep(card).click();
+    await settle();
+    expect(host.keep.mock.calls).toEqual([['Width', 65, 'Plate', 'Large'], ['Depth', 8, 'Plate', 'Large']]);
+    // Only what was written is reported, with its configuration.
+    expect(client.paramsKept.mock.calls).toEqual([['s', 'p1', { kept: [{ label: 'Width', part: 'Plate', value: 65, configuration: 'Large' }] }]]);
+    expect(card.querySelector('[data-ref="params-kept"]')!.textContent).toBe('Kept in the file: Width 65 (Large)');
+    // The refused value was set again (the write may have dropped it), and the card says why it is not in the file.
+    expect(host.set.mock.calls).toEqual([['Depth', 8, 'Plate']]);
+    expect(card.querySelector('[data-ref="params-error"]')!.textContent).toBe('Not written: Depth (the default of Depth is not a plain value).');
+    expect(control(card, 'Depth').value).toBe('8');
+    expect(keep(card).disabled).toBe(false);
+  });
+
+  it('a parameter the model no longer declares is unavailable, and so is the whole card while another file is on screen', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const { host, deps } = paramsHost({ params: [{ ...WIDTH, currentValue: 55 }, DEPTH, STYLE, RIBBED] });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+
+    // The agent rewrote the file: Depth is gone, and a part named Lid now has a Width of its own.
+    host.render({ params: [{ ...WIDTH, currentValue: 55 }, { ...WIDTH, body: 'Lid', currentValue: 30, defaultValue: 30 }, STYLE, RIBBED] });
+    expect(rows(card).map((r) => [r.dataset.label, r.dataset.missing ?? 'live'])).toEqual([['Width', 'live'], ['Depth', 'true'], ['Style', 'live'], ['Ribbed', 'live']]);
+    expect(row(card, 'Depth').querySelector('[data-ref="param-why"]')!.textContent).toBe('No longer in the model');
+    expect(row(card, 'Depth').querySelector('input, select, button')).toBeNull();
+    // The Plate's Width is still the card's, not the Lid's.
+    expect(control(card, 'Width').value).toBe('55');
+    expect([card.dataset.live, reset(card).disabled]).toEqual(['true', false]);
+
+    // Another file comes on screen: no control to drag and no value (the card has none of its own), and what to do.
+    host.render({ file: '/ws/other.part.js', params: [{ ...WIDTH, body: 'Other', currentValue: 99 }] });
+    expect(card.dataset.live).toBe('false');
+    expect(card.querySelectorAll('[data-param-key]')).toHaveLength(0);
+    expect(rows(card).map((r) => r.textContent)).toEqual(['Width', 'Depth', 'Style', 'Ribbed']);
+    expect(status(card)).toBe('Open plate.part.js to use these controls.');
+    expect([reset(card), keep(card)]).toEqual([null, null]);
+
+    // No model at all, then the card's file again: the controls are back, at the values the model has.
+    host.render({ file: null, params: [] });
+    expect(status(card)).toBe('Open plate.part.js to use these controls.');
+    host.render({ file: 'virtual:live-render:/ws/plate.part.js', params: [WIDTH, DEPTH, STYLE, RIBBED] });
+    expect(card.dataset.live).toBe('true');
+    expect(rows(card).every((r) => r.dataset.missing === undefined)).toBe(true);
+    expect(control(card, 'Width').value).toBe('40');
+
+    // The file declares none of them any more.
+    host.render({ params: [] });
+    expect(card.dataset.live).toBe('false');
+    expect(status(card)).toBe('The model no longer declares these parameters.');
+    expect([reset(card), keep(card)]).toEqual([null, null]);
+  });
+
+  it('an old chat\'s card reopens on the model as it is now, with what was kept', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client, paramsPart({ kept: [{ label: 'Width', part: 'Plate', value: 55 }, { label: 'Style', part: 'Plate', value: 'square', configuration: 'Large' }] }));
+    // Since the card was offered, the file's Width became 55 (the kept value) and a session value moved it to 60.
+    const { deps } = paramsHost({ params: [{ ...WIDTH, defaultValue: 55, currentValue: 60 }, DEPTH, STYLE, RIBBED] }, { keep: false });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(control(card, 'Width').value).toBe('60');
+    expect(changed(card)).toEqual(['Width']);
+    expect(card.querySelector('[data-ref="params-kept"]')!.textContent).toBe('Kept in the file: Width 55, Style square (Large)');
+    // A host that cannot edit source offers Reset and no Keep.
+    expect(reset(card).disabled).toBe(false);
+    expect(keep(card)).toBeNull();
+
+    // Kept in another tab: this card says so from the event.
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'p1', patch: { kept: [{ label: 'Width', part: 'Plate', value: 60 }] } });
+    await settle();
+    expect(card.querySelector('[data-ref="params-kept"]')!.textContent).toBe('Kept in the file: Width 60');
+    expect(control(card, 'Width').value).toBe('60');
+  });
+
+  it('without a model to read, lists the parameters by name', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    expect(card.dataset.live).toBe('false');
+    expect(rows(card).map((r) => r.textContent)).toEqual(['Width', 'Depth', 'Style', 'Ribbed']);
+    expect(card.querySelectorAll('input, select, button')).toHaveLength(0);
+    expect(status(card)).toBe('The controls need the model on screen.');
+  });
+
+  it('takes labels, option texts and the note as text, and a range that is not a number as no range', async () => {
+    const client = new FakeChatClient();
+    const markup = '<img src=x onerror="window.pwned=1">';
+    const hostile: ParamCardDefinition = {
+      label: `W"${markup}`,
+      kind: 'part',
+      body: `P${markup}`,
+      defaultValue: 4,
+      currentValue: 4,
+      controlType: 'slider',
+      min: `0" autofocus onfocus="window.pwned=1` as never,
+      max: 10,
+      description: markup,
+    };
+    const select: ParamCardDefinition = { ...STYLE, label: 'Kind', options: [{ label: markup, value: `a"${markup}` }], currentValue: `a"${markup}`, defaultValue: `a"${markup}` };
+    offeringSession(client, paramsPart({
+      note: markup,
+      file: `plate${markup}.part.js`,
+      params: [
+        { label: hostile.label, part: hostile.body },
+        { label: 'Kind', part: 'Plate' },
+        { label: `Gone${markup}`, part: `P${markup}` },
+      ],
+    }));
+    const { host, deps } = paramsHost({ params: [hostile, select] });
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    const card = h.$('[data-part="params"]')!;
+    // Nothing of it became an element or an attribute.
+    expect(card.querySelectorAll('img')).toHaveLength(0);
+    expect(card.querySelector('[onerror], [onfocus], [autofocus]')).toBeNull();
+    expect(card.querySelector('[data-ref="params-note"]')!.textContent).toBe(markup);
+    expect(card.querySelector('[data-ref="params-file"]')!.textContent).toBe(`plate${markup}.part.js`);
+    const slider = rows(card)[0].querySelector<HTMLInputElement>('[data-param-key]')!;
+    expect(slider.dataset.paramLabel).toBe(hostile.label);
+    // The range that was no number is left out (the slider's own default), the one that was stays.
+    expect([slider.min, slider.max]).toEqual(['0', '10']);
+    expect(rows(card)[0].textContent).toContain(markup);
+    expect([...rows(card)[1].querySelectorAll('option')].map((o) => [o.textContent, o.value])).toEqual([[markup, `a"${markup}`]]);
+    expect(rows(card)[2].textContent).toBe(`Gone${markup}No longer in the model`);
+    // The control still names its parameter exactly.
+    slide(slider, '7');
+    expect(host.set.mock.calls).toEqual([[hostile.label, 7, hostile.body]]);
+    expect((window as unknown as { pwned?: number }).pwned).toBeUndefined();
+  });
+
+  it('stops following the model when its chat leaves the screen', async () => {
+    const client = new FakeChatClient();
+    offeringSession(client);
+    client.addSession({ id: 'other', title: 'Other', updatedAt: '2026-11-16T10:00:00.000Z' });
+    const { host, deps } = paramsHost();
+    const h = mount(client, {}, { params: deps });
+    await opened(h);
+    expect(host.listeners.size).toBe(1);
+    await h.panel.state.openSession('other');
+    await settle();
+    expect(h.$('[data-part="params"]')).toBeNull();
+    expect(host.listeners.size).toBe(0);
+    // Back on the chat, its card follows again; closing the panel for good lets go.
+    await h.panel.state.openSession('s');
+    await settle();
+    expect(host.listeners.size).toBe(1);
+    h.panel.destroy();
+    expect(host.listeners.size).toBe(0);
   });
 });
 

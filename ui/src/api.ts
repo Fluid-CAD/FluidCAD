@@ -1,6 +1,6 @@
 import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
-import type { ContactEntity } from './solver/types';
+import type { ContactEntity } from '../../lib/assembly-solver/types.js';
 import type { MeshLookup } from './scene/scene-meshes';
 import type {
   GlobalParamsSnapshot,
@@ -148,7 +148,13 @@ export type MeasurePose = {
 /** One assembly instance's live world pose, as the whole-assembly export ships it. */
 export type ExportInstancePose = { instanceId: string } & MeasurePose;
 
-export type ExportFormat = 'step' | 'stl';
+export type ExportFormat = 'step' | 'stl' | 'dxf' | 'svg';
+
+/**
+ * The six views a drawing export (DXF, SVG) can draw, named as the server's
+ * standard planes are: `top` is the model seen from +Z, drawn on XY.
+ */
+export type ExportDrawingView = 'top' | 'bottom' | 'front' | 'back' | 'right' | 'left';
 
 /** The per-format knobs of `POST /api/export` — the same for either selector. */
 export type ExportFormatOptions = {
@@ -160,7 +166,48 @@ export type ExportFormatOptions = {
   scaleTo?: 'mm' | 'document';
   customAngularDeflectionDeg?: number;
   customLinearDeflection?: number;
+  /** DXF, SVG: the standard plane the solids are drawn on, by its view name. Required for a drawing, refused for STEP and STL. */
+  plane?: ExportDrawingView;
+  /** DXF, SVG: draw the edges behind the model too, dashed, on their own layer. */
+  hiddenLines?: boolean;
+  /** DXF, SVG: draw smooth (tangent) edges, on their own layer. */
+  tangentEdges?: boolean;
+  /** SVG only: the lines' width in millimetres on paper; the server's default is 0.25. Refused with any other format. */
+  strokeWidth?: number;
+  /** SVG only: the blank border around the drawing, in millimetres; the server's default is 5. Refused with any other format. */
+  margin?: number;
 };
+
+/**
+ * An exported file with what the server had to say about it — a drawing
+ * whose curves had to be approximated says so in `warnings`.
+ */
+export type ExportResult = { blob: Blob; warnings: string[] };
+
+/** The response header a drawing export's warnings travel in: a URI-encoded JSON array of strings. */
+const EXPORT_WARNINGS_HEADER = 'X-FluidCAD-Export-Warnings';
+
+/**
+ * What an `EngineClient.exportShapes` answered, as an {@link ExportResult}:
+ * a host that answers with the bare file has no warnings.
+ */
+export function toExportResult(exported: Blob | ExportResult): ExportResult {
+  // By shape, not `instanceof`: a host's file may be a Blob of another realm (a worker's, a frame's).
+  return 'blob' in exported && Array.isArray(exported.warnings) ? exported : { blob: exported as Blob, warnings: [] };
+}
+
+/** The warnings of an export response; none when the header is absent or is not the list it should be. */
+export function parseExportWarnings(header: string | null): string[] {
+  if (!header) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(decodeURIComponent(header));
+    return Array.isArray(parsed) ? parsed.filter((w): w is string => typeof w === 'string' && w.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
 
 /** `shapeIds: "all"` — every solid of the scene the export comes from (a configuration's own render when it is not on screen). */
 export const EVERY_SOLID = 'all' as const;
@@ -174,9 +221,10 @@ export type ShapeSelection = string[] | typeof EVERY_SOLID;
  * part scene), or with {@link EVERY_SOLID} every solid of the scene
  * exported — so a configuration row that adds or drops a body exports its
  * own set, where listed ids it does not build are refused; `assembly`
- * exports every instance of the current assembly where it sits. `poses` must cover every instance — they are the browser
- * solver's live world poses, which the server cannot compute itself; a
- * headless client omits them and gets the statement poses instead.
+ * exports every instance of the current assembly where it sits. `poses` must
+ * cover every instance — they are this viewer's live world poses, the parts
+ * as dragged and driven on screen; a client that omits them gets the engine's
+ * own solve of the mates from the statement poses instead.
  */
 export type ExportRequestBody = (
   | { format: ExportFormat; shapeIds: ShapeSelection; assembly?: undefined }
@@ -187,8 +235,8 @@ export type ExportRequestBody = (
  * `configuration`: the `configurations()` row to export (`'Default'` for the
  * literals). The row on screen exports the live scene; any other is rendered
  * for the request alone — the session's row and the viewer are untouched —
- * and an assembly from that render sits at its statement poses (the live
- * poses were solved for the row on screen). Omitted: the scene on screen.
+ * and an assembly from that render sits where the engine solves its mates
+ * (the live poses belong to the row on screen). Omitted: the scene on screen.
  */
 export type ExportConfigurationOption = { configuration?: string };
 
@@ -198,9 +246,9 @@ export type MeasureEntityRef = {
   index: number;
   /**
    * Assembly context: the owning instance (two instances of one part share
-   * a shapeId) and its live world pose from the browser-side solver. The
-   * engine measures the entity where that pose puts it; without a pose it
-   * falls back to the instance's statement pose.
+   * a shapeId) and its live world pose in this viewer. The engine measures
+   * the entity where that pose puts it; without a pose it places the
+   * instance where its own solve of the mates does.
    */
   instanceId?: string;
   pose?: MeasurePose;
@@ -5784,7 +5832,7 @@ export async function importFile(fileName: string, data: string): Promise<Import
   }
 }
 
-export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
+export async function exportShapes(body: ExportRequestBody): Promise<ExportResult> {
   const res = await fetch('api/export', {
     method: 'POST',
     headers: JSON_HEADERS,
@@ -5794,7 +5842,7 @@ export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
     const err = await res.json();
     throw new Error(err.error || 'Export failed');
   }
-  return res.blob();
+  return { blob: await res.blob(), warnings: parseExportWarnings(res.headers.get(EXPORT_WARNINGS_HEADER)) };
 }
 
 /**
@@ -7315,7 +7363,7 @@ export type InterferenceRequestBody = {
   instanceIds?: string[];
   shapeIds?: string[];
   tolerance?: number;
-  /** Assembly files: the live world poses to use instead of the statement poses. */
+  /** Assembly files: the live world poses to use instead of the engine's solved ones. */
   poses?: (MeasurePose & { instanceId: string })[];
   /** Carry each shared volume's meshes on the pair (what the section view paints red). */
   includeGeometry?: boolean;

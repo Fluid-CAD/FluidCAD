@@ -46,7 +46,7 @@ export type ResolvedSelectionMatch = {
   index: number;
   /** Assembly instance scope only — the entity feeds `measure` unchanged. */
   instanceId?: string;
-  /** The instance's statement pose, for the same reason. */
+  /** Where the mates put the instance, for the same reason. */
   pose?: MeasurePose;
   sceneObjectId: string;
   sceneObjectName: string;
@@ -221,7 +221,7 @@ export class SelectionExpression {
  * - no scope → the whole scene, as a root-level `select()` sees it, each
  *   match naming the part that owns it;
  * - scope = assembly instance → that instance's part template, matches
- *   carrying the instance id and its statement pose; their summaries are
+ *   carrying the instance id and its mate-solved pose; their summaries are
  *   posed the way `measure` poses instance entities.
  *
  * A statement boundary (`before`) truncates the world to the objects
@@ -564,8 +564,8 @@ export class SelectionResolver {
       return { ok: false, code: 'unknown-scope', reason: `Instance scope "${instanceId}" needs an assembly file; this scene is a part.` };
     }
     const instance = scene.getInstance(instanceId);
-    const serialized = scene.getSerializedInstances().find(i => i.instanceId === instanceId);
-    if (!instance || !serialized) {
+    const pose = scene.getPlacedPoses().get(instanceId);
+    if (!instance || !pose) {
       return { ok: false, code: 'unknown-scope', reason: `No instance "${instanceId}" in the assembly (instance ids come from get_scene_summary).` };
     }
     const part = instance.part;
@@ -574,7 +574,7 @@ export class SelectionResolver {
       scope: { kind: 'instance', instanceId, partId: part.id, part: part.partName },
       part,
       candidates: scene.getPartScopedAllObjects(part),
-      instance: { instanceId, pose: { position: serialized.position, quaternion: serialized.quaternion } },
+      instance: { instanceId, pose },
     };
   }
 

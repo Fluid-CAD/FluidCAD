@@ -66,9 +66,10 @@ export type SerializedAssembly = {
     frameA?: { connectorId: string };
     frameB?: { connectorId: string };
     /**
-     * A parse-time placeholder, always 'satisfied': mates are solved only in
-     * the viewer, which evaluates their health per solve and never sends it
-     * back. Nothing server-side may report it as a solve result.
+     * A parse-time placeholder, always 'satisfied' — never a solve result.
+     * A viewer evaluates a mate's health on every solve of its own; the
+     * engine's solve reports it through `getAssemblySolution` (the scene
+     * summary's mate `status`).
      */
     status: 'satisfied' | 'redundant' | 'inconsistent';
     options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };

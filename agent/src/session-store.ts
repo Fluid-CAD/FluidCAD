@@ -12,7 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AgentKind, ChatMessage, TurnRecord } from './types.ts';
+import type { AgentKind, ChatMessage, ParamChange, TurnRecord } from './types.ts';
 
 export const SESSION_SCHEMA_VERSION = 1;
 
@@ -46,6 +46,12 @@ export type SessionRecord = {
    * The next message to the CLI says so, since its history still has the edits.
    */
   revertedFiles?: string[];
+  /**
+   * Values the user kept from a parameter card since the CLI was last told
+   * (§26). The next message to the CLI lists them, since its history still
+   * has the old defaults.
+   */
+  paramChanges?: ParamChange[];
 };
 
 /** A file as it was before a turn's first change to it (§12.2). */
@@ -243,6 +249,9 @@ function parseRecord(raw: any, id: string): SessionRecord | null {
     ...(raw.interrupted && typeof raw.interrupted.reason === 'string' ? { interrupted: { reason: raw.interrupted.reason } } : {}),
     ...(Array.isArray(raw.revertedFiles) && raw.revertedFiles.every((f: unknown) => typeof f === 'string')
       ? { revertedFiles: raw.revertedFiles }
+      : {}),
+    ...(Array.isArray(raw.paramChanges) && raw.paramChanges.every((c: any) => c && typeof c.file === 'string' && typeof c.label === 'string')
+      ? { paramChanges: raw.paramChanges }
       : {}),
   };
 }

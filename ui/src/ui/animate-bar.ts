@@ -30,7 +30,7 @@
 
 import { ICON_CLOSE, ICON_PAUSE, ICON_PLAY, ICON_STOP } from './icons';
 import { sceneUnit } from '../units/scene-unit';
-import type { MateReadout } from '../solver';
+import type { MateReadout } from '../../../lib/assembly-solver/index.js';
 
 const STEP_INTERVAL_MS = 40;
 const DEFAULT_STEPS = 30;

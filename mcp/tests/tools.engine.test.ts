@@ -11,6 +11,7 @@ import {
   addBreakpoint,
   clearBreakpoints,
   exportShapes,
+  EXPORT_PLANES,
   importStep,
   packPackage,
   recompute,
@@ -37,6 +38,12 @@ type ExportConfig = {
   status?: number;
   /** Last parsed body — populated after each call. */
   lastBody?: any;
+  /** The `X-FluidCAD-Assembly-Poses` header an assembly export answers with. */
+  posesSource?: string;
+  /** The warnings an export answers with: a header on bytes, a field beside `savedTo`. */
+  warnings?: unknown;
+  /** The raw `X-FluidCAD-Export-Warnings` header, for a server that sends something unreadable. */
+  rawWarningsHeader?: string;
 };
 let exportConfig: ExportConfig = {};
 
@@ -103,18 +110,32 @@ function startFakeServer(): Promise<number> {
           const parsed = JSON.parse(body);
           exportConfig.lastBody = parsed;
           const status = exportConfig.status ?? 200;
+          const posesHeader: Record<string, string> = exportConfig.posesSource
+            ? { 'x-fluidcad-assembly-poses': exportConfig.posesSource }
+            : {};
           if (parsed.saveAsPath && exportConfig.saveBytes !== null) {
             const bytes = exportConfig.saveBytes ?? Buffer.from('ISO-10303-21;\nEND-ISO-10303-21;\n');
             // Mimic the real server: write to disk + return JSON.
             const target = path.resolve(workspace, parsed.saveAsPath);
             fs.writeFileSync(target, bytes);
-            res.writeHead(status, { 'content-type': 'application/json' });
-            res.end(JSON.stringify({ savedTo: target, bytesWritten: bytes.length }));
+            res.writeHead(status, { 'content-type': 'application/json', ...posesHeader });
+            res.end(JSON.stringify({
+              savedTo: target,
+              bytesWritten: bytes.length,
+              ...(exportConfig.warnings !== undefined ? { warnings: exportConfig.warnings } : {}),
+            }));
             return;
           }
           const bin = exportConfig.body ?? Buffer.from('ISO-10303-21;\nEND-ISO-10303-21;\n');
-          const ct = exportConfig.contentType ?? (parsed.format === 'step' ? 'application/step' : 'application/sla');
-          res.writeHead(status, { 'content-type': ct });
+          const ct = exportConfig.contentType
+            ?? ({ step: 'application/step', stl: 'application/sla', dxf: 'image/vnd.dxf', svg: 'image/svg+xml' } as Record<string, string>)[parsed.format]
+            ?? 'application/octet-stream';
+          const warningsHeader: Record<string, string> = exportConfig.rawWarningsHeader !== undefined
+            ? { 'x-fluidcad-export-warnings': exportConfig.rawWarningsHeader }
+            : exportConfig.warnings !== undefined
+              ? { 'x-fluidcad-export-warnings': encodeURIComponent(JSON.stringify(exportConfig.warnings)) }
+              : {};
+          res.writeHead(status, { 'content-type': ct, ...posesHeader, ...warningsHeader });
           res.end(bin);
           return;
         }
@@ -345,6 +366,25 @@ describe('export', () => {
     expect('shapeIds' in exportConfig.lastBody).toBe(false);
   });
 
+  it('says where an assembly export\'s poses came from, saved or returned', async () => {
+    for (const posesSource of ['solved', 'statement', 'live']) {
+      exportConfig.posesSource = posesSource;
+      const returned = await exportShapes({ format: 'step', assembly: true });
+      expect(returned.ok && (returned.data as { posesSource?: string }).posesSource).toBe(posesSource);
+      const saved = await exportShapes({ format: 'step', assembly: true, saveAsPath: path.join(workspace, 'rig.step') });
+      expect(saved.ok && (saved.data as { posesSource?: string }).posesSource).toBe(posesSource);
+    }
+  });
+
+  it('reports no poses source for a shape export or a value it does not know', async () => {
+    const shapes = await exportShapes({ format: 'step', shapeIds: ['sh-1'] });
+    expect(shapes.ok && 'posesSource' in (shapes.data as object)).toBe(false);
+
+    exportConfig.posesSource = 'guessed';
+    const unknown = await exportShapes({ format: 'step', assembly: true });
+    expect(unknown.ok && 'posesSource' in (unknown.data as object)).toBe(false);
+  });
+
   it('needs exactly one of shapeIds and assembly', async () => {
     const neither = await exportShapes({ format: 'step' });
     expect(neither.ok).toBe(false);
@@ -359,6 +399,185 @@ describe('export', () => {
     expect(result.ok).toBe(false);
     if (result.ok) { return; }
     expect(result.code).toBe('invalid-input');
+  });
+
+  describe('dxf — a drawing of the view on a plane', () => {
+    it('sends the plane and the drawing options, and none of the mesh ones', async () => {
+      exportConfig.body = Buffer.from('  0\r\nSECTION\r\n');
+      const result = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: 'front', hiddenLines: true, tangentEdges: false });
+      expect(result.ok).toBe(true);
+      if (!result.ok) { return; }
+      expect(exportConfig.lastBody).toEqual({ format: 'dxf', shapeIds: ['sh-1'], plane: 'front', hiddenLines: true, tangentEdges: false });
+      const data = result.data as { format: string; mimeType: string; base64: string };
+      expect(data.format).toBe('dxf');
+      expect(data.mimeType).toBe('image/vnd.dxf');
+      expect(Buffer.from(data.base64, 'base64').toString('utf8')).toBe('  0\r\nSECTION\r\n');
+      expect('warnings' in data).toBe(false);
+    });
+
+    it('takes every standard plane under its view name and its axis name', async () => {
+      for (const plane of EXPORT_PLANES) {
+        const result = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane });
+        expect(result.ok).toBe(true);
+        expect(exportConfig.lastBody.plane).toBe(plane);
+      }
+      expect([...EXPORT_PLANES].sort()).toEqual(['-xy', '-xz', '-yz', 'back', 'bottom', 'front', 'left', 'right', 'top', 'xy', 'xz', 'yz']);
+    });
+
+    it('requires the plane and lists the planes, before any request', async () => {
+      for (const plane of [undefined, 'iso', 'TOP', 3]) {
+        const result = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: plane as any });
+        expect(result.ok).toBe(false);
+        if (result.ok) { continue; }
+        expect(result.code).toBe('invalid-input');
+        expect(result.message).toMatch(/`plane` is required for a DXF drawing.*top, bottom, front, back, right, left, xy/);
+      }
+      expect(requests.filter((r) => r.url === '/api/export')).toEqual([]);
+    });
+
+    it('refuses the 3D formats\' options on a drawing, and the drawing\'s options on a 3D format', async () => {
+      for (const stray of [{ resolution: 'fine' }, { includeColors: true }, { scaleTo: 'mm' }] as const) {
+        const result = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: 'top', ...stray });
+        expect(result.ok).toBe(false);
+        if (result.ok) { continue; }
+        expect(result.code).toBe('invalid-input');
+        expect(result.message).toContain(Object.keys(stray)[0]);
+        expect(result.message).toMatch(/not apply to a DXF drawing/);
+      }
+      for (const stray of [{ plane: 'top' }, { hiddenLines: true }, { tangentEdges: false }] as const) {
+        const result = await exportShapes({ format: 'step', shapeIds: ['sh-1'], ...stray });
+        expect(result.ok).toBe(false);
+        if (result.ok) { continue; }
+        expect(result.message).toMatch(/need `format: "dxf"` or `"svg"`/);
+      }
+      const notBoolean = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: 'top', hiddenLines: 'yes' as any });
+      expect(notBoolean.ok).toBe(false);
+      expect(requests.filter((r) => r.url === '/api/export')).toEqual([]);
+    });
+
+    it('passes the drawing\'s warnings on, returned or saved', async () => {
+      const warnings = ['2 curves were approximated by polylines: the kernel could not hand them over as splines.', 'größer — ünïcode'];
+      exportConfig.warnings = warnings;
+      const returned = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: 'top' });
+      expect(returned.ok && (returned.data as { warnings?: string[] }).warnings).toEqual(warnings);
+
+      const out = path.join(workspace, 'plate-top.dxf');
+      const saved = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: 'top', saveAsPath: out });
+      expect(saved.ok).toBe(true);
+      if (!saved.ok) { return; }
+      expect(saved.data).toEqual({ savedTo: out, bytesWritten: expect.any(Number), warnings });
+      expect(exportConfig.lastBody).toEqual({ format: 'dxf', shapeIds: ['sh-1'], plane: 'top', saveAsPath: out });
+    });
+
+    it('reports no warnings for an empty list or a header it cannot read', async () => {
+      exportConfig.warnings = [];
+      const empty = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: 'top' });
+      expect(empty.ok && 'warnings' in (empty.data as object)).toBe(false);
+      const savedEmpty = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: 'top', saveAsPath: path.join(workspace, 'e.dxf') });
+      expect(savedEmpty.ok && 'warnings' in (savedEmpty.data as object)).toBe(false);
+
+      exportConfig.rawWarningsHeader = '%E0%A4%A';
+      const unreadable = await exportShapes({ format: 'dxf', shapeIds: ['sh-1'], plane: 'top' });
+      expect(unreadable.ok && 'warnings' in (unreadable.data as object)).toBe(false);
+    });
+
+    it('leaves the whole assembly to the server, which has no drawing of it yet', async () => {
+      exportConfig.status = 422;
+      exportConfig.body = Buffer.from(JSON.stringify({ error: 'A DXF drawing of the whole assembly is not available yet. Export a part or its solids instead.' }));
+      exportConfig.contentType = 'application/json';
+      const result = await exportShapes({ format: 'dxf', assembly: true, plane: 'top' });
+      expect(exportConfig.lastBody).toEqual({ format: 'dxf', assembly: {}, plane: 'top' });
+      expect(result.ok).toBe(false);
+      if (result.ok) { return; }
+      expect(result.code).toBe('http-error');
+      expect(result.message).toMatch(/whole assembly is not available yet/);
+    });
+  });
+
+  describe('svg — the same drawing, as text', () => {
+    const SVG = '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30">\n  <path d="M 0 30 L 40 30 L 40 0 L 0 0 Z"/>\n</svg>\n';
+
+    it('sends the plane, the drawing options and the page options, and hands the SVG back as its source', async () => {
+      exportConfig.body = Buffer.from(SVG);
+      const result = await exportShapes({ format: 'svg', shapeIds: ['sh-1'], plane: 'front', hiddenLines: true, strokeWidth: 0.5, margin: 0 });
+      expect(result.ok).toBe(true);
+      if (!result.ok) { return; }
+      expect(exportConfig.lastBody).toEqual({ format: 'svg', shapeIds: ['sh-1'], plane: 'front', hiddenLines: true, strokeWidth: 0.5, margin: 0 });
+      // Text, not base64: the drawing is readable as it comes.
+      expect(result.data).toEqual({ format: 'svg', mimeType: 'image/svg+xml', text: SVG, bytes: Buffer.byteLength(SVG) });
+    });
+
+    it('sends neither page option when none is given: the server has the defaults', async () => {
+      exportConfig.body = Buffer.from(SVG);
+      await exportShapes({ format: 'svg', shapeIds: ['sh-1'], plane: 'top' });
+      expect(exportConfig.lastBody).toEqual({ format: 'svg', shapeIds: ['sh-1'], plane: 'top' });
+    });
+
+    it('requires the plane and lists the planes, before any request', async () => {
+      const result = await exportShapes({ format: 'svg', shapeIds: ['sh-1'] });
+      expect(result.ok).toBe(false);
+      if (result.ok) { return; }
+      expect(result.code).toBe('invalid-input');
+      expect(result.message).toMatch(/`plane` is required for a SVG drawing.*top, bottom, front, back, right, left, xy/);
+      expect(requests.filter((r) => r.url === '/api/export')).toEqual([]);
+    });
+
+    it('refuses a page it cannot draw on, the 3D formats\' options, and the page options on any other format', async () => {
+      for (const bad of [{ strokeWidth: 0 }, { strokeWidth: -1 }, { strokeWidth: NaN }, { strokeWidth: '0.5' as any }]) {
+        const result = await exportShapes({ format: 'svg', shapeIds: ['sh-1'], plane: 'top', ...bad });
+        expect(result.ok).toBe(false);
+        if (result.ok) { continue; }
+        expect(result.message).toBe('`strokeWidth` must be a number of millimetres greater than 0.');
+      }
+      for (const bad of [{ margin: -1 }, { margin: Infinity }, { margin: '5' as any }]) {
+        const result = await exportShapes({ format: 'svg', shapeIds: ['sh-1'], plane: 'top', ...bad });
+        expect(result.ok).toBe(false);
+        if (result.ok) { continue; }
+        expect(result.message).toBe('`margin` must be a number of millimetres, 0 or more.');
+      }
+      const meshed = await exportShapes({ format: 'svg', shapeIds: ['sh-1'], plane: 'top', resolution: 'fine' });
+      expect(meshed.ok).toBe(false);
+      if (!meshed.ok) {
+        expect(meshed.message).toMatch(/`resolution` does not apply to a SVG drawing.*`strokeWidth` and `margin`/);
+      }
+      for (const other of [{ format: 'dxf', plane: 'top' }, { format: 'step' }, { format: 'stl' }] as const) {
+        for (const page of [{ strokeWidth: 0.5 }, { margin: 2 }]) {
+          const result = await exportShapes({ shapeIds: ['sh-1'], ...other, ...page });
+          expect(result.ok).toBe(false);
+          if (result.ok) { continue; }
+          expect(result.code).toBe('invalid-input');
+          expect(result.message).toMatch(/need `format: "svg"`/);
+        }
+      }
+      expect(requests.filter((r) => r.url === '/api/export')).toEqual([]);
+    });
+
+    it('passes the drawing\'s warnings on, returned or saved', async () => {
+      const warnings = ['2 curves were approximated by polylines: the kernel could not hand them over as splines.'];
+      exportConfig.warnings = warnings;
+      exportConfig.body = Buffer.from(SVG);
+      const returned = await exportShapes({ format: 'svg', shapeIds: ['sh-1'], plane: 'top' });
+      expect(returned.ok && returned.data).toEqual({ format: 'svg', mimeType: 'image/svg+xml', text: SVG, bytes: Buffer.byteLength(SVG), warnings });
+
+      const out = path.join(workspace, 'plate-top.svg');
+      const saved = await exportShapes({ format: 'svg', shapeIds: ['sh-1'], plane: 'top', margin: 2, saveAsPath: out });
+      expect(saved.ok).toBe(true);
+      if (!saved.ok) { return; }
+      expect(saved.data).toEqual({ savedTo: out, bytesWritten: expect.any(Number), warnings });
+      expect(exportConfig.lastBody).toEqual({ format: 'svg', shapeIds: ['sh-1'], plane: 'top', margin: 2, saveAsPath: out });
+    });
+
+    it('leaves the whole assembly to the server, which has no drawing of it yet', async () => {
+      exportConfig.status = 422;
+      exportConfig.body = Buffer.from(JSON.stringify({ error: 'A SVG drawing of the whole assembly is not available yet. Export a part or its solids instead.' }));
+      exportConfig.contentType = 'application/json';
+      const result = await exportShapes({ format: 'svg', assembly: true, plane: 'top' });
+      expect(exportConfig.lastBody).toEqual({ format: 'svg', assembly: {}, plane: 'top' });
+      expect(result.ok).toBe(false);
+      if (result.ok) { return; }
+      expect(result.code).toBe('http-error');
+      expect(result.message).toMatch(/whole assembly is not available yet/);
+    });
   });
 
   it('surfaces server 4xx as http-error', async () => {

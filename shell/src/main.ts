@@ -280,6 +280,17 @@ function registerIpcHandlers(): void {
     BrowserWindow.fromWebContents(event.sender)?.setTitle(title);
   });
 
+  // A picture of the whole page as the window shows it (a bug report's
+  // screenshot): the toolbars and panels around the scene, not the scene alone.
+  ipcMain.handle('desktop:capture-window', async (event) => {
+    try {
+      const image = await event.sender.capturePage();
+      return { ok: true, base64: image.toPNG().toString('base64') };
+    } catch (err: any) {
+      return { ok: false, error: err?.message ?? String(err) };
+    }
+  });
+
   ipcMain.handle('desktop:restart-engine', async (event) => {
     await AppWindow.fromWebContents(event.sender)?.restartEngine();
   });

@@ -357,25 +357,51 @@ export type StandardPlane =
   | "left"
   | "right";
 
+/** Every standard plane name: six planes, each under its axis name and its view name. */
+export const STANDARD_PLANES: readonly StandardPlane[] = [
+  "xy", "xz", "yz", "-xy", "-xz", "-yz",
+  "top", "bottom", "front", "back", "left", "right",
+];
+
+export function isStandardPlane(value: unknown): value is StandardPlane {
+  return typeof value === "string" && (STANDARD_PLANES as readonly string[]).includes(value);
+}
+
+/** The six views a standard plane is looked at from. */
+export type StandardView = "top" | "bottom" | "front" | "back" | "right" | "left";
+
+/**
+ * The view a standard plane shows — where the viewer stands, on the side its
+ * normal points to: `'xy'` and `'top'` are both the top view, `'-xz'` and
+ * `'back'` the back view.
+ */
+export function standardPlaneView(plane: StandardPlane): StandardView {
+  switch (plane) {
+    case "xy":
+    case "top":
+      return "top";
+    case "-xy":
+    case "bottom":
+      return "bottom";
+    case "xz":
+    case "front":
+      return "front";
+    case "-xz":
+    case "back":
+      return "back";
+    case "yz":
+    case "right":
+      return "right";
+    case "-yz":
+    case "left":
+      return "left";
+  }
+}
+
 export type PlaneLike = StandardPlane | Plane | IPlane | PlaneObjectBase;
 
 export function isPlaneLike(value: unknown): value is PlaneLike {
-  return (
-    value instanceof Plane ||
-    value instanceof PlaneObjectBase ||
-    value === "xy" ||
-    value === "xz" ||
-    value === "yz" ||
-    value === "-xy" ||
-    value === "-xz" ||
-    value === "-yz" ||
-    value === "top" ||
-    value === "bottom" ||
-    value === "front" ||
-    value === "back" ||
-    value === "left" ||
-    value === "right"
-  );
+  return value instanceof Plane || value instanceof PlaneObjectBase || isStandardPlane(value);
 }
 
 export function toPlane(value: PlaneLike): Plane {

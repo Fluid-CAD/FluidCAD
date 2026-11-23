@@ -63,7 +63,7 @@ describe('POST /api/host/open-external', () => {
       sent.push(msg);
       return true;
     });
-    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'not a url', 42, null, `https://x.example/${'a'.repeat(5000)}`]) {
+    for (const url of ['file:///etc/passwd', 'javascript:alert(1)', 'not a url', 42, null, `https://x.example/${'a'.repeat(9000)}`]) {
       const res = await post(base, { url });
       expect(res.status).toBe(400);
       expect(res.body.code).toBe('bad-request');

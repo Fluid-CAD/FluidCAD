@@ -14,17 +14,23 @@ import path from 'node:path';
 import { TurnFailure, type AgentBackend, type AgentInstall, type AgentRun, type BackendEvent, type TurnError, type TurnImage } from './backend.ts';
 import { EventLog } from './event-log.ts';
 import { buildCliText, CONTINUE_TEXT, interruptedTurnNote, type InterruptedToolCall, type WorkspaceState } from './instructions.ts';
+import { addParamChanges, mergeKept, readKept, withoutTold, type ParamCardModel } from './param-cards.ts';
 import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-endpoint.ts';
 import { SessionStore, type Checkpoint, type SessionRecord } from './session-store.ts';
 import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from './tool-gate.ts';
-import { applyChatEvent, findMessage } from './transcript.ts';
-import { writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
+import { applyChatEvent, findMessage, findPart } from './transcript.ts';
+import { cancelUnbuilt, VARIANTS_RESTART_BUILDING_REASON, VARIANTS_RESTART_REASON } from './variants.ts';
+import { cancelUnfinishedPreview } from './change-preview.ts';
+import { ASK_USER_TOOL, OFFER_PARAMS_TOOL, PROPOSE_VARIANTS_TOOL, SHOW_USER_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
 import type {
   AgentKind,
   ApprovalDecision,
   ChatEvent,
   ChatPart,
+  ParamChange,
+  ParamsPart,
   PermissionMode,
+  QuestionPart,
   SendMessage,
   SessionSnapshot,
   SessionStatus,
@@ -32,6 +38,7 @@ import type {
   ToolPart,
   TurnRecord,
   TurnUsage,
+  VariantsPart,
 } from './types.ts';
 
 /** How long a CLI may sit idle between turns before it is closed (§6.2); the next message resumes it. */
@@ -39,6 +46,7 @@ export const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 const MAX_TITLE_CHARS = 80;
 export const RESTART_REASON = 'The app restarted while this turn was running.';
 const RESTART_TOOL_ERROR = 'The app restarted while this was running; its effect is unknown.';
+const RESTART_QUESTION_REASON = 'The app restarted before you answered.';
 
 /** What a turn needs resolved before the CLI starts: the install, its environment and the defaults. */
 export type TurnSetup = {
@@ -64,6 +72,8 @@ export type SessionDeps = {
   pinnedWorkspace(): RegistryEntry;
   prepareTurn(): Promise<TurnSetup>;
   workspaceState(): WorkspaceState;
+  /** The model on screen and the parameters its last render declared, for `offer_params` (§26). */
+  model(): ParamCardModel;
   instructions(): string;
   idleMs?: number;
   /** Approval timeout and timers (tests). */
@@ -132,11 +142,14 @@ export class AgentSession {
         activeTurn: () => (this.turn && !this.turn.stopping ? { turnId: this.turn.turnId, mode: this.turn.mode } : null),
         assistantMessageId: () => this.assistantMessageId(),
         emit: (event) => this.emit(event),
+        part: (messageId, partId) => findPart(this.record.messages, messageId, partId),
         saveImage: (data, mimeType) => this.saveImage(data, mimeType),
         persist: () => this.persist(),
-        approvalsChanged: (turnId, ids) => this.approvalsChanged(turnId, ids),
+        approvalsChanged: (turnId) => this.waitsChanged(turnId),
+        questionsChanged: (turnId) => this.waitsChanged(turnId),
         checkpoint: (turnId, checkpoint) => this.takeCheckpoint(turnId, checkpoint),
         dropCheckpoint: (turnId, filePath) => this.dropCheckpoint(turnId, filePath),
+        model: () => deps.model(),
       },
       deps.gate,
     );
@@ -176,6 +189,17 @@ export class AgentSession {
           if (part.type === 'tool' && (part.state === 'running' || part.state === 'awaiting-approval')) {
             part.state = 'error';
             part.error = RESTART_TOOL_ERROR;
+            // A preview the restart cut off was not built: the card shows none (§25).
+            if (part.preview) {
+              part.preview = cancelUnfinishedPreview(part.preview);
+            }
+          } else if (part.type === 'question' && part.state === 'awaiting-answer') {
+            part.state = 'unanswered';
+            part.reason = RESTART_QUESTION_REASON;
+          } else if (part.type === 'variants' && (part.state === 'building' || part.state === 'awaiting-choice')) {
+            part.reason = part.state === 'building' ? VARIANTS_RESTART_BUILDING_REASON : VARIANTS_RESTART_REASON;
+            part.state = 'unanswered';
+            part.variants = cancelUnbuilt(part.variants);
           }
         }
       }
@@ -301,6 +325,7 @@ export class AgentSession {
     this.persist();
 
     const revertedFiles = this.record.revertedFiles ?? [];
+    const paramChanges = this.record.paramChanges ?? [];
     const cliText = buildCliText({
       text: input.text,
       references: input.references,
@@ -308,9 +333,10 @@ export class AgentSession {
       imageAttached: captureAttached,
       workspace: this.deps.workspaceState(),
       revertedFiles,
+      paramChanges,
       ...(extra.interruptedTurn ? { interruptedTurn: extra.interruptedTurn } : {}),
     });
-    void this.startTurn(turnId, { cliText, images, model: input.model, effort: input.effort, revertedFiles });
+    void this.startTurn(turnId, { cliText, images, model: input.model, effort: input.effort, revertedFiles, paramChanges });
     return { turnId };
   }
 
@@ -348,6 +374,14 @@ export class AgentSession {
       for (const part of message.parts) {
         if (part.type === 'tool') {
           calls.push({ name: part.name, ...this.toolTarget(part), outcome: toolOutcome(part) });
+        } else if (part.type === 'question') {
+          calls.push({ name: ASK_USER_TOOL, outcome: questionOutcome(part) });
+        } else if (part.type === 'variants') {
+          calls.push({ name: PROPOSE_VARIANTS_TOOL, target: part.file, outcome: variantsOutcome(part) });
+        } else if (part.type === 'params') {
+          calls.push({ name: OFFER_PARAMS_TOOL, target: part.file, outcome: 'done: the card is in the chat' });
+        } else if (part.type === 'show') {
+          calls.push({ name: SHOW_USER_TOOL, target: part.file, outcome: 'done: the items are on a card in the chat' });
         }
       }
     }
@@ -379,22 +413,185 @@ export class AgentSession {
     if (result !== 'not-found') {
       return result;
     }
+    return this.findApproval(approvalId) ? 'already-decided' : 'not-found';
+  }
+
+  /**
+   * The user asked for the preview an approval card offers (§25).
+   * `already-decided`: the call no longer waits; `not-offered`: its card has
+   * no preview to build.
+   */
+  requestPreview(approvalId: string): 'ok' | 'not-found' | 'already-decided' | 'not-offered' {
+    const result = this.gate.requestPreview(approvalId);
+    if (result !== 'not-found') {
+      return result;
+    }
+    return this.findApproval(approvalId) ? 'already-decided' : 'not-found';
+  }
+
+  /**
+   * Keeps the pictures a page drew of the two sides of a change (PNGs, from
+   * one camera) with the session, and names them on the card's preview:
+   * every tab shows them from then on, and they outlive the engine's own
+   * copy of the builds (§25). The first picture of a side is kept; a later
+   * one is dropped. Taken after the approval was settled too, while the
+   * engine still has the builds. `not-found`: no such approval;
+   * `not-built`: no side given has a build to be a picture of.
+   */
+  savePreviewPictures(approvalId: string, pictures: { before?: Buffer; after?: Buffer }): { result: 'ok'; kept: number } | { result: 'not-found' | 'not-built' } {
+    const found = this.findApproval(approvalId);
+    if (!found) {
+      return { result: 'not-found' };
+    }
+    const preview = found.part.preview;
+    const sides = (['before', 'after'] as const).filter((side) => pictures[side] && preview?.[side]?.buildId);
+    if (!preview || sides.length === 0) {
+      return { result: 'not-built' };
+    }
+    const next = { ...preview };
+    let kept = 0;
+    for (const side of sides) {
+      if (!next[side]!.image) {
+        next[side] = { ...next[side]!, image: this.saveImage(pictures[side]!, 'image/png') };
+        kept += 1;
+      }
+    }
+    if (kept > 0) {
+      this.emit({ type: 'part-update', messageId: found.messageId, partId: found.part.id, patch: { preview: next } });
+      this.persist();
+    }
+    return { result: 'ok', kept };
+  }
+
+  private findApproval(approvalId: string): { messageId: string; part: ToolPart } | null {
     for (const message of this.record.messages) {
       for (const part of message.parts) {
         if (part.type === 'tool' && part.approval?.id === approvalId) {
-          return 'already-decided';
+          return { messageId: message.id, part };
         }
       }
     }
-    return 'not-found';
+    return null;
   }
 
-  /** Approvals still waiting for the user end as denied: the engine is exiting. Synchronous. */
+  /**
+   * The user's reply to a question the agent asked (§22): the answers, or a
+   * skip. `already-answered`: the question is in the transcript but no
+   * longer waits.
+   */
+  answerQuestion(questionId: string, body: unknown): { result: 'ok' | 'not-found' | 'already-answered' } | { result: 'invalid'; error: string } {
+    const answer = this.gate.answer(questionId, body);
+    if (answer.result !== 'not-found') {
+      return answer;
+    }
+    for (const message of this.record.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'question' && part.id === questionId) {
+          return { result: 'already-answered' };
+        }
+      }
+    }
+    return { result: 'not-found' };
+  }
+
+  /**
+   * The user's reply to a variants card (§24): a pick, their own words, or a
+   * skip. `already-settled`: the card is in the transcript but no longer
+   * waits; `building`: its variants are not built yet.
+   */
+  chooseVariant(variantsId: string, body: unknown): { result: 'ok' | 'not-found' | 'already-settled' | 'building' } | { result: 'invalid'; error: string } {
+    const choice = this.gate.choose(variantsId, body);
+    if (choice.result !== 'not-found') {
+      return choice;
+    }
+    return this.findVariants(variantsId) ? { result: 'already-settled' } : { result: 'not-found' };
+  }
+
+  /**
+   * Keeps the picture a page drew of a variant's build (a PNG) with the
+   * session, and names it on the tile: every tab shows it from then on, and
+   * it outlives the engine's own copy of the build (§24). The first picture
+   * of a tile is kept; a later one is dropped (`kept: false`). `not-found`:
+   * no such card or tile; `not-built`: the tile has no build to be a
+   * picture of.
+   */
+  saveVariantPicture(variantsId: string, label: string, png: Buffer): { result: 'ok'; kept: boolean } | { result: 'not-found' | 'not-built' } {
+    const found = this.findVariants(variantsId);
+    const index = found ? found.part.variants.findIndex((tile) => tile.label === label) : -1;
+    if (!found || index < 0) {
+      return { result: 'not-found' };
+    }
+    const tile = found.part.variants[index];
+    if (!tile.buildId) {
+      return { result: 'not-built' };
+    }
+    if (tile.image) {
+      return { result: 'ok', kept: false };
+    }
+    const image = this.saveImage(png, 'image/png');
+    this.emit({
+      type: 'part-update',
+      messageId: found.messageId,
+      partId: found.part.id,
+      patch: { variants: found.part.variants.map((t, i) => (i === index ? { ...t, image } : t)) },
+    });
+    this.persist();
+    return { result: 'ok', kept: true };
+  }
+
+  private findVariants(variantsId: string): { messageId: string; part: VariantsPart } | null {
+    for (const message of this.record.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'variants' && part.id === variantsId) {
+          return { messageId: message.id, part };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * What a page wrote into the source when the user pressed Keep on a
+   * parameter card (§26): the card says so from then on, in every tab, and
+   * the next message tells the agent, whose history still has the old
+   * defaults. Taken whether or not a turn runs: Keep is the user's own
+   * action, not a change of a turn, so it is neither approved nor
+   * checkpointed. `not-found`: no such card.
+   */
+  paramsKept(paramsId: string, body: unknown): { result: 'ok' | 'not-found' } | { result: 'invalid'; error: string } {
+    const found = this.findParams(paramsId);
+    if (!found) {
+      return { result: 'not-found' };
+    }
+    const read = readKept(found.part, body);
+    if (read.ok === false) {
+      return { result: 'invalid', error: read.error };
+    }
+    this.record.paramChanges = addParamChanges(this.record.paramChanges, found.part, read.kept, this.deps.model(), (absPath) =>
+      relativeTo(this.deps.workspacePath, absPath),
+    );
+    this.emit({ type: 'part-update', messageId: found.messageId, partId: found.part.id, patch: { kept: mergeKept(found.part.kept, read.kept) } });
+    this.persist();
+    return { result: 'ok' };
+  }
+
+  private findParams(paramsId: string): { messageId: string; part: ParamsPart } | null {
+    for (const message of this.record.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'params' && part.id === paramsId) {
+          return { messageId: message.id, part };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Approvals, questions and variants cards still waiting for the user end unanswered: the engine is exiting. Synchronous. */
   onEngineExit(): void {
     if (this.turn) {
       this.turn.stopping = true;
     }
-    if (this.gate.pendingApprovalIds().length > 0) {
+    if (this.gate.pendingApprovalIds().length > 0 || this.gate.pendingQuestionIds().length > 0 || this.gate.pendingVariantIds().length > 0) {
       this.settleApprovals('shutdown');
       // Saved now: the gate's own save comes after an await the exit never reaches.
       this.persist();
@@ -415,7 +612,7 @@ export class AgentSession {
     // (Codex keeps an MCP call pending through an interrupt, §19) is refused.
     turn.stopping = true;
     this.settleApprovals('stopped');
-    if (this.statusValue.state === 'awaiting-approval') {
+    if (this.statusValue.state === 'awaiting-approval' || this.statusValue.state === 'awaiting-answer') {
       this.setStatus({ state: 'running', turnId: turn.turnId });
     }
     const run = this.run;
@@ -455,7 +652,7 @@ export class AgentSession {
 
   private async startTurn(
     turnId: string,
-    input: { cliText: string; images: TurnImage[]; model?: string; effort?: string; revertedFiles: string[] },
+    input: { cliText: string; images: TurnImage[]; model?: string; effort?: string; revertedFiles: string[]; paramChanges: ParamChange[] },
   ): Promise<void> {
     try {
       const setup = await this.deps.prepareTurn();
@@ -488,6 +685,16 @@ export class AgentSession {
           this.record.revertedFiles = left;
         } else {
           delete this.record.revertedFiles;
+        }
+        this.persist();
+      }
+      if (input.paramChanges.length > 0) {
+        // The CLI has been told; a value kept since stays for the next message.
+        const left = withoutTold(this.record.paramChanges, input.paramChanges);
+        if (left.length > 0) {
+          this.record.paramChanges = left;
+        } else {
+          delete this.record.paramChanges;
         }
         this.persist();
       }
@@ -532,6 +739,10 @@ export class AgentSession {
       this.endpoint = new McpEndpoint({
         pinnedWorkspace: this.deps.pinnedWorkspace(),
         toolGate: this.gate,
+        askUser: (input, signal) => this.gate.ask(input, signal),
+        proposeVariants: (input, signal) => this.gate.propose(input, signal),
+        offerParams: (input) => this.gate.offer(input),
+        showUser: (input) => this.gate.show(input),
         indexes: this.deps.indexes,
         port: this.deps.port,
       });
@@ -688,7 +899,29 @@ export class AgentSession {
             type: 'part-update',
             messageId: turn.assistantMessageId,
             partId: part.id,
-            patch: { state: 'error', error: reason === 'interrupted' ? 'Stopped.' : 'The turn ended before this finished.' },
+            patch: {
+              state: 'error',
+              error: reason === 'interrupted' ? 'Stopped.' : 'The turn ended before this finished.',
+              ...(part.preview ? { preview: cancelUnfinishedPreview(part.preview) } : {}),
+            },
+          });
+        } else if (part.type === 'question' && part.state === 'awaiting-answer') {
+          this.emit({
+            type: 'part-update',
+            messageId: turn.assistantMessageId,
+            partId: part.id,
+            patch: { state: 'unanswered', reason: reason === 'interrupted' ? 'Stopped before you answered.' : 'The turn ended before you answered.' },
+          });
+        } else if (part.type === 'variants' && (part.state === 'building' || part.state === 'awaiting-choice')) {
+          this.emit({
+            type: 'part-update',
+            messageId: turn.assistantMessageId,
+            partId: part.id,
+            patch: {
+              state: 'unanswered',
+              reason: reason === 'interrupted' ? 'Stopped before you chose.' : 'The turn ended before you chose.',
+              variants: cancelUnbuilt(part.variants),
+            },
           });
         }
       }
@@ -746,15 +979,32 @@ export class AgentSession {
     this.gate.settleAll(reason);
   }
 
-  private approvalsChanged(turnId: string, approvalIds: string[]): void {
+  /**
+   * What the turn waits on from the user changed (an approval or a question
+   * came or was settled). An approval wins the status while both wait: it
+   * holds a change back, a question only an answer.
+   */
+  private waitsChanged(turnId: string): void {
     const turn = this.turn;
     if (!turn || turn.turnId !== turnId || turn.stopping) {
       return;
     }
+    const approvalIds = this.gate.pendingApprovalIds(turnId);
+    const questionIds = this.gate.pendingQuestionIds(turnId);
+    const current = this.statusValue;
+    let next: SessionStatus;
     if (approvalIds.length > 0) {
-      this.setStatus({ state: 'awaiting-approval', turnId, approvalIds });
-    } else if (this.statusValue.state === 'awaiting-approval') {
-      this.setStatus({ state: 'running', turnId });
+      next = { state: 'awaiting-approval', turnId, approvalIds };
+    } else if (questionIds.length > 0) {
+      next = { state: 'awaiting-answer', turnId, questionIds };
+    } else if (current.state === 'awaiting-approval' || current.state === 'awaiting-answer') {
+      next = { state: 'running', turnId };
+    } else {
+      return;
+    }
+    // A question settled behind a waiting approval (or the reverse) changes nothing to say.
+    if (JSON.stringify(next) !== JSON.stringify(current)) {
+      this.setStatus(next);
     }
   }
 
@@ -994,6 +1244,43 @@ function toolOutcome(part: ToolPart): string {
         return 'result unknown (the app restarted while it ran)';
       }
       return `failed: ${(part.error ?? 'no reason given').split('\n')[0].slice(0, 160)}`;
+  }
+}
+
+/** How a question of a cut-off turn ended, for the continue note. */
+function questionOutcome(part: QuestionPart): string {
+  switch (part.state) {
+    case 'answered':
+      return 'answered by the user';
+    case 'skipped':
+      return 'skipped by the user';
+    case 'awaiting-answer':
+    case 'unanswered':
+      return part.reason === RESTART_QUESTION_REASON || part.state === 'awaiting-answer'
+        ? 'not answered: it was waiting for the user when the app restarted'
+        : 'not answered';
+  }
+}
+
+/** How a variants card of a cut-off turn ended, for the continue note. */
+function variantsOutcome(part: VariantsPart): string {
+  switch (part.state) {
+    case 'picked':
+      return `the user picked "${part.picked ?? ''}"; its write is the write_file call that follows`;
+    case 'answered':
+      return `the user answered in their own words instead: ${(part.text ?? '').split('\n')[0].slice(0, 160)}`;
+    case 'skipped':
+      return 'skipped by the user';
+    case 'failed':
+      return `nothing was written: ${part.reason ?? 'the variants did not build'}`;
+    case 'building':
+    case 'awaiting-choice':
+    case 'unanswered':
+      return part.reason === VARIANTS_RESTART_BUILDING_REASON || part.state === 'building'
+        ? 'not shown: the app restarted while the variants were building'
+        : part.reason === VARIANTS_RESTART_REASON || part.state === 'awaiting-choice'
+          ? 'not chosen: it was waiting for the user when the app restarted'
+          : 'not chosen';
   }
 }
 

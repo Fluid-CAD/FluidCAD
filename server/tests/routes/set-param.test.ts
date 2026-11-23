@@ -161,6 +161,37 @@ describe('POST /api/set-param', () => {
     expect(lastValues()).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 5, 'Lid/Width': 40 });
   });
 
+  it('resets the named parameters only, leaving the other overrides', async () => {
+    await post('/set-param', { label: 'Width', value: 60, body: 'Lid' });
+    await post('/set-param', { label: 'Width', value: 120, body: 'Plate' });
+    await post('/set-param', { label: 'Depth', value: 9, body: 'Plate' });
+    const res = await post('/reset-params', { params: [{ label: 'Width', body: 'Plate' }, { label: 'Depth' }] });
+    expect(res.status).toBe(200);
+    expect(lastValues()).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 5, 'Lid/Width': 60 });
+    expect(fluid.getParamOverrideEntries(FILE).map((o) => [o.key.body, o.key.label, o.value])).toEqual([['Lid', 'Width', 60]]);
+    // A parameter with no override is left as it is; the render still answers.
+    expect((await post('/reset-params', { params: [{ label: 'Depth', body: 'Plate' }] })).status).toBe(200);
+    expect(lastValues()).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 5, 'Lid/Width': 60 });
+    // An override set again after its reset holds: the reset left nothing behind.
+    await post('/set-param', { label: 'Depth', value: 7, body: 'Plate' });
+    expect(lastValues()).toEqual({ 'Plate/Width': 100, 'Plate/Depth': 7, 'Lid/Width': 60 });
+  });
+
+  it('refuses a named reset it cannot place, dropping nothing', async () => {
+    await post('/set-param', { label: 'Width', value: 60, body: 'Lid' });
+    await post('/set-param', { label: 'Depth', value: 9, body: 'Plate' });
+    broadcast = [];
+    // `Width` without its part names two parameters.
+    const ambiguous = await post('/reset-params', { params: [{ label: 'Depth' }, { label: 'Width' }] });
+    expect(ambiguous.status).toBe(400);
+    expect(ambiguous.body.error).toContain("declared by 'Plate' and 'Lid'");
+    for (const params of [{}, 'Width', [{ body: 'Lid' }], [{ label: 'Width', body: 7 }], [null]]) {
+      expect((await post('/reset-params', { params })).status, JSON.stringify(params)).toBe(400);
+    }
+    expect(broadcast).toEqual([]);
+    expect(fluid.getParamOverrideEntries(FILE)).toHaveLength(2);
+  });
+
   it('sets a single-part file by label, as it always did', async () => {
     await fluid.updateLiveCode(FILE, `part("Plate") { param("Width", 100) }`);
     const res = await post('/set-param', { label: 'Width', value: 80 });

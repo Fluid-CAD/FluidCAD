@@ -60,6 +60,7 @@ Each message is billed to your key by the provider, like any other use of it; th
 The agent works on the project only through FluidCAD's own tools, the same ones the [MCP server](/docs/cli#fluidcad-mcp) offers to external agents. They are tied to the project open in this window:
 
 - **Read**: the docs and the API, the scene (features, shapes, faces, edges, measurements, interference), screenshots of the view, the project's files, the packages installed on this computer, and the [FluidCAD hub](#packages-from-the-hub): it can search for packages and read what one offers.
+- **Try**: build a candidate version of a model on the side, to see whether it builds and what volume and overall size it comes out at, for example to compare two fillet radii before it proposes one. Nothing is written and the model on screen does not change, so it does not ask first. The engine is busy while a candidate builds, so your own edits render after it.
 - **Change**: write or edit a project file, recompute, roll the timeline back, set breakpoints, pick a configuration.
 - **Outside the project**: export a file, pack the project, import a STEP file, install a package from the hub.
 
@@ -84,6 +85,20 @@ The mode chip under the message box switches between **Ask before edits** and **
 
 A card left unanswered for an hour times out, and the call is not run. **Stop** (or Escape in the message box) ends the turn and declines anything still waiting.
 
+### What a change does to the model
+
+When the change that waits is to a model file (`.fluid.js`, `.part.js`, `.assembly.js`), the card also shows what it does to the model, above the diff. FluidCAD builds the file as it is and the file with the change, without writing anything and without touching the model on screen. The buttons work from the moment the card appears; the rest fills in.
+
+- **Before** and **After** are two pictures taken from the same direction and framed on both models together, so the same thing sits at the same place and size in each. A file the change creates has one picture, **New file**.
+- Under them, three facts as differences: the number of bodies, the overall size along X, Y and Z, and the volume, each in the project's unit. A line reads, for example, `72,000 mm³ → 77,429 mm³` with `+5,429 mm³ (+7.5%)` beside it, or `Z +12 mm` for the size. A fact that did not move reads **no change**.
+- **This change does not build** comes first when the file with the change does not compile, or when one of its features fails. The card lists the reason for each, with the line it is on in the changed file. You can still allow or deny it. When a feature fails, the pictures show what did build.
+- **No change to the geometry** replaces the pictures when both builds draw the same thing, as after a comment or a rename.
+- **Show in viewport** draws the model with the change over the model on screen as a translucent green ghost. Click it again to take it out; it also goes when you answer or close the panel. It shows the whole changed model, not only what was added or removed, and it is offered for a part, not for an assembly or a new file.
+
+Each of the two builds is a full build, and the app waits while one runs. FluidCAD keeps recent builds and reuses them: the **After** of a change you allowed is the **Before** of the next one, so from the second change on a card usually costs one build. When the file's last build took more than two seconds, nothing is built until you ask: the card says how long that build took and offers **Preview the change**. Your answer, **Stop** and the end of the turn cancel a build that has not started; one that is running finishes first, so an answer clicked during a build is taken when that build ends.
+
+Once you answer, the pictures and the facts stay with the card: click the card to open its details. The pictures are kept with the chat, so they are still there after a reload or a restart of the app. A card whose preview was never built shows none. In **Apply edits automatically**, and for a tool you allowed for the session, nothing waits, so nothing is previewed: the viewport shows the result.
+
 ### Unsaved changes in the editor
 
 The agent never overwrites a file that has unsaved changes in the code editor. Its write is refused, and a card names the file. Save the file, then ask again. Unsaved changes in a browser tab you have closed no longer count: they went with the tab.
@@ -93,6 +108,64 @@ The agent never overwrites a file that has unsaved changes in the code editor. I
 Before a turn first changes a file, FluidCAD keeps a copy of it. Under a message whose turn changed files, **Revert this turn** puts those files back as they were before it, after a confirmation that lists them. A file the turn created is deleted. Later turns that changed files are reverted with it, so the files never end up in a mix of states. The conversation stays as it is; the turn is marked **Reverted**, and the agent is told with your next message which files went back.
 
 Reverting covers project files the agent wrote. It does not undo an export, a pack or a STEP import. Reverting a turn that installed a package puts `fluidcad.json` back, so the project no longer uses the package; the package itself stays in your library.
+
+## Questions from the agent
+
+When a choice is yours to make and the request leaves it open (a dimension, which of two readings you meant), the agent can ask instead of guessing. The question shows as a card in the transcript, and the turn waits for you. One card holds up to four questions.
+
+- A question with options: click one to pick it, click it again to take the pick back. A question that says **Pick any that apply** takes several.
+- The agent may draw what it means: a small sketch on each option (a fillet beside a chamfer, one layout beside another), or a figure under the question that marks the dimension it asks for. The sketches are the agent's own quick drawings, not views of your model, and the label under each says the same in words.
+- A question about a piece of the model ("which face is the mounting face?", "which edges get the fillet?") has a **Pick in the viewport** button instead of options. See [answering by picking](#answering-a-question-by-picking).
+- Every question also has a field for an answer in your own words. With options, what you write goes to the agent along with your pick, or instead of one.
+- **Send** (or Enter in a field) sends your answers. You can leave some questions open; the agent decides those itself.
+- **Skip** leaves all of them to the agent. It is told to choose sensibly and say what it assumed.
+
+Once answered, the card keeps the questions with what you answered. A card left unanswered for an hour times out, and **Stop** ends the turn with the question unanswered. Questions are part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer them to external agents, which have their own ways of asking.
+
+### Answering a question by picking
+
+When the answer is a face or some edges, and words would leave it open, the agent can ask you to click it. The agent is told to keep this for geometry your request leaves ambiguous: not when you already [attached it](#pointing-at-geometry) to your message, and not when what you wrote identifies it.
+
+- **Pick in the viewport** hands the viewport's selection to that question. The button reads **Done** while it does, with a line saying what to click. Until you press **Done**, a selection is not attached to your next message as it otherwise is.
+- Click the face or edge. It shows under the question as a chip, "[1] 1 face", in a colour of its own, with the selector code as its tooltip. This is the same reference a [selection attached to a message](#pointing-at-geometry) makes, so the agent gets the same thing: the selector that finds the geometry in the file, the features it comes from, the imports it needs, and its size and position.
+- A question that takes one face or edge keeps the last one you clicked. A second one added with Ctrl is not taken: the chip says **This question takes one face.** A face clicked for a question about edges is refused the same way.
+- A question that takes several says so: Ctrl-click adds to the pick, and the whole selection is one chip ("[2] 4 edges") with one selector. The pin on the chip keeps it and starts another.
+- The **×** on a chip removes it. **Done** keeps what you picked on the card; **Pick again** takes the selection back. One question picks at a time. The chips of a card are numbered together, and clicking a chip's label puts its `[1]` in that question's own-words field.
+- **Send** sends the picks with whatever else you answered. Once answered, the card keeps the chips.
+
+If the model re-renders while the card waits, what you picked is dropped with "The model changed — select again.", as it is in the message box. When FluidCAD cannot write a selector for what you clicked, the chip says why, and the question can still be answered in words.
+
+Picking has the limits of references: faces and edges only, and not in an assembly. With an assembly on screen, or no model, the card says so in place of the button, for example **Faces and edges of an assembly cannot be picked yet. Answer in words.**, and the field and **Skip** work as usual.
+
+## Variants to choose from
+
+When you ask to see options, or a request leaves the shape open (a rib or a gusset, one hole layout or another), the agent can build two versions of a model file and show them side by side instead of picking one for you. They show as a card of two tiles, and the turn waits for you. Ask for a number ("show me three options") and you get that many, up to four, two tiles to a row; without a number it is two. The agent is told to keep this for alternatives that look different: a change with one sensible reading is written directly, and a dimension is a [question](#questions-from-the-agent), not two variants.
+
+- The engine builds the variants one after the other. Each is a full build, and the app waits while one runs, so on a model that takes ten seconds to render a card of two takes about twenty to fill in, and a card of four about forty. A tile shows **Building…** or **Queued** until its build ends.
+- A built tile has a picture of the variant, its label, a line on what differs, and three facts: the number of bodies, the overall size along X, Y and Z, and the volume, in the project's unit.
+- **Show in viewport** draws that variant over the model on screen as a translucent green ghost, so you can compare it with what is there now. Click it again to take it out; it also goes when you answer the card or close the panel. It is offered for a part, not for an assembly.
+- Click a tile to pick it, then **Apply**. The picked variant is written to the file and rendered. Your pick is the approval: no second card asks, also in **Ask before edits**. The write shows as its own card under the tiles, with its diff, and [**Revert this turn**](#reverting-a-turn) undoes it like any other change of the turn.
+- A variant that does not compile, or in which a feature does not build, is marked with the reason and cannot be picked. When none of them builds, no choice is offered and the agent is told why.
+- The field under the tiles takes an answer in your own words instead of a pick ("neither, make the base thicker"). **Skip** applies none of them and leaves the decision to the agent, which is told to say what it assumed.
+
+Nothing is written until you apply a tile. If the file has [unsaved changes in the editor](#unsaved-changes-in-the-editor), the variants are not built; if you save an edit of your own while the card waits, the pick is refused instead of overwriting it, and the agent is told to read the file again.
+
+Once answered, the card keeps both tiles with the one you picked marked. The pictures are kept with the chat, so they are still there after a reload or a restart of the app. A card left unanswered for an hour times out, and **Stop** ends the turn without applying anything; a variant whose build had not started is then not built. Like questions, variants are part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer them to external agents.
+
+## Parameters to tune
+
+When a model has a few dimensions you are likely to adjust (you said "roughly", gave a range, or asked to play with the sizes), the agent can put those [parameters](/docs/part/param) in the chat as a card of controls, so making the plate a bit wider is a drag instead of another message. The turn does not wait for the card: it ends as usual, and the card stays usable afterwards. The agent is told to keep this for dimensions worth tuning, not to offer a card after every edit, and to [ask](#questions-from-the-agent) instead when it cannot go on without your answer.
+
+- Each parameter has the control it has in the [Part Parameters panel](/docs/user-interface#parameters): a slider for a parameter declared as a slider, a number field, a select, a switch. A slider takes effect when you let go of it.
+- A control changes the model on screen and nothing else. The viewport re-renders, the Part Parameters panel shows the same value, and the file is not touched. A parameter whose value differs from the file has its label in bold, and the card counts them: **2 values changed, on screen only**. These values are part of the session: they are still there after a reload, and gone after the app restarts.
+- **Keep** writes the changed values into the source as each `param()`'s default, one parameter after the other. While a [configuration](/docs/part/configurations) other than Default is on screen, the values go into that configuration's row instead. The card then lists what it kept, and the agent is told with your next message, so it does not put the old values back.
+- **Reset** returns the card's changed parameters to the file's values. Values you changed elsewhere stay.
+
+Keep and Reset are your own actions, like an edit in the Parameters panel: nothing asks for approval, and [**Revert this turn**](#reverting-a-turn) does not undo a Keep. To take a kept value back, set it again on the card or in the Parameters panel, or edit the file.
+
+The card follows the model on screen, not the moment it was offered. If the agent or you later remove a parameter from the file, its row reads **No longer in the model** and the other controls keep working. While another file is on screen the card lists its parameters without controls and says which file to open. In a chat you reopen later, the card shows the values the file has now.
+
+A card holds up to twelve parameters of the model itself, declared in a `part()` or `assembly()` body. [Project parameters](/docs/extra/global-parameters) are not offered: they have no on-screen-only value, and you edit them in the Global Parameters panel. Like questions and variants, the card is part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer it to external agents.
 
 ## Packages from the hub
 
@@ -129,6 +202,19 @@ References are not available:
 - for sketch entities, constraints, dimensions and vertices: a reference is made of faces and edges only,
 - while the timeline is rolled back: the chip asks you to roll the timeline forward to the last feature.
 
+### When the agent points back
+
+The agent can point too. When it means particular geometry (a problem it found on one face, the two candidates of a question, the edge a proposal would change), it can highlight those faces and edges in your viewport instead of describing where they are. The turn does not wait for this, and nothing in your files changes. The agent is told not to do it after every edit: you already see the model.
+
+- Each item is drawn over the model in its own colour, through whatever is in front of it, so a bore or a far-side face shows. The colours are the ones your own references use: `[1]` red, `[2]` blue, `[3]` green, and so on, up to eight.
+- A card in the chat, **In the viewport**, lists the items as numbered chips with the agent's label for each, and a line of its own if it wrote one. In its text the agent refers to them as `[1]`, `[2]`.
+- Hover a chip (or move to it with Tab) to see that item alone: the others turn faint in the viewport until you leave it.
+- **Clear** removes the highlight. **Show in viewport** on any such card brings its highlight back. One card is highlighted at a time: a newer one replaces the older one's highlight, and closing the panel or opening another chat clears it.
+
+The highlight follows the model. After each re-render the items are looked up again, so a face that moved is drawn where it is now. An item that is no longer in the model is not drawn: its chip is struck through and marked **stale**, and the card says which, for example **The model changed: [1] and [3] are no longer in it.** This happens when an edit removes the geometry, or rebuilds the feature the agent named it by. The card never highlights something else in its place. While another file is on screen the card says so and highlights nothing.
+
+The card is kept with the chat. After a reload, or a restart of the app, it lists its items with nothing highlighted, and **Show in viewport** highlights those that are still in the model. What the agent points at does not appear in the screenshots it takes for itself, nor in the image of your own references. Like questions, this is part of the chat only: the [MCP server](/docs/cli#fluidcad-mcp) does not offer it to external agents.
+
 ## Attaching images
 
 A message can carry images of your own: a dimensioned drawing to model, a photo of a part, a screenshot. Attach one in any of three ways:
@@ -144,6 +230,21 @@ PNG, JPEG, WebP and GIF files are sent as they are when their longest edge is 20
 When you send, your message shows the images; click one to see it in full size. The agent gets them in the order you attached them, with their file names, so you can refer to "the second image" or to a file by name. Images are stored with the chat (see [Chats](#chats)).
 
 A model that does not read images gets the message without them; a line under the thumbnails warns you before you send. This applies to a local model whose server has **Send images** off, and to the models a provider lists as text-only.
+
+### Drawing on a picture of the model
+
+To point at something that is hard to name, draw on a picture of it. The camera button beside the paperclip, **Capture the viewport**, takes a picture of the viewport as it is on screen: the same view, with the grid, the axes and your selection as shown. It opens in a dialog to draw on:
+
+- **Pen** (<kbd>P</kbd>) draws freehand, **Arrow** (<kbd>A</kbd>) an arrow that points where you let go, **Ellipse** (<kbd>E</kbd>) and **Rectangle** (<kbd>R</kbd>) an outline inside the box you drag.
+- **Text** (<kbd>T</kbd>) puts a label of up to 60 characters where you click. <kbd>Enter</kbd> keeps it, <kbd>Esc</kbd> drops it.
+- Six colours, red to start with. The line width and the text size follow the size of the picture.
+- **Undo** (<kbd>Ctrl</kbd>+<kbd>Z</kbd>, <kbd>⌘</kbd>+<kbd>Z</kbd> on macOS), **Redo** (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd>) and **Clear all marks**, which Undo also takes back.
+
+Drawing works with a mouse, a pen or a finger. **Attach** adds the picture with your marks to the message as an image like any other: it counts toward the eight, has a thumbnail with a **×**, and is named `viewport-markup.png`, or `viewport-capture.png` when you drew nothing. **Cancel** or <kbd>Esc</kbd> closes the dialog and attaches nothing; what you drew is dropped without a question.
+
+An image already attached can be drawn on too. The pen on the corner of its thumbnail opens it in the same dialog, and **Replace** puts the marked-up picture in its place, as a PNG named after the image with `-markup` added. **Replace** is off until you have drawn something.
+
+The agent gets the picture with the marks painted on it, and is told that such marks are you pointing and not part of the model, and which image is a picture of the viewport. It does not get the marks as geometry: it reads the picture and has to find what an arrow points at in the model itself, so words still help ("round the edge I boxed"). To hand it an exact face or edge, [select it](#pointing-at-geometry) instead. The picture shows the model at the moment you took it; a change made after that is not in it.
 
 ## Chats
 
@@ -161,7 +262,7 @@ A chat stays with the agent it was started with; a new chat's agent chip picks i
 
 Chats are stored in the project, under `.fluidcad/agent/sessions/`: the conversation, images, and the copies of files kept for reverting. A new project's `.gitignore` already ignores `.fluidcad/`, so chats stay out of git. Claude Code and Codex also keep their own record of the conversation in their own folders, as they do for any session.
 
-If FluidCAD stopped while the agent was working, the chat reopens with a notice and **Continue**. The last tool call may or may not have run. Continuing tells the agent what you had asked and how each of its tool calls in that turn ended (done, failed, declined, waiting for your approval, or result unknown), so it can check the files and the model and carry on.
+If FluidCAD stopped while the agent was working, the chat reopens with a notice and **Continue**. The last tool call may or may not have run. Continuing tells the agent what you had asked and how each of its tool calls in that turn ended (done, failed, declined, waiting for your approval or your answer, or result unknown), so it can check the files and the model and carry on.
 
 ## Usage
 

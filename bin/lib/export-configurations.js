@@ -41,7 +41,7 @@ export async function collectConfigurationExports(targets, exportRow, describeFa
     if (!result.ok) {
       throw new Error(`Export of ${target.configuration} failed, so nothing was written: ${describeFailure(result)}`);
     }
-    files.push({ ...target, buffer: result.buffer });
+    files.push({ ...target, buffer: result.buffer, headers: result.headers });
   }
   return files;
 }
@@ -58,7 +58,7 @@ export function parseConfigurationOptions(opts, { allowAll = true } = {}) {
     throw new Error('--configuration needs a configuration name (a configurations() row, or Default).');
   }
   if (all && !allowAll) {
-    throw new Error('--all-configurations exports STEP and STL only; pass --configuration <name> for a PNG.');
+    throw new Error('--all-configurations exports STEP, STL, DXF and SVG only; pass --configuration <name> for a PNG.');
   }
   if (all && name !== undefined) {
     throw new Error('Pass either --configuration <name> or --all-configurations, not both.');
@@ -91,21 +91,26 @@ export function sanitizeConfigurationName(name) {
  * each row as `<model>-<Row><ext>` in declaration order. With `-o`, its path
  * (extension dropped) is the `<model>` part. Two rows that sanitise alike
  * get `-2`, `-3`, … so no file overwrites another.
+ *
+ * `suffix` closes a default name after the row — a drawing's view:
+ * `<model>-top.dxf`, `<model>-<Row>-top.dxf`. A name given with `-o` is the
+ * user's own and takes none.
  */
-export function allConfigurationTargets(names, { outOption, modelName, extension, cwd = process.cwd() }) {
+export function allConfigurationTargets(names, { outOption, modelName, extension, suffix = '', cwd = process.cwd() }) {
   const base = outOption
     ? stripExtension(resolve(outOption), extension)
     : resolve(cwd, modelName);
-  const targets = [{ configuration: DEFAULT_CONFIGURATION, outPath: `${base}${extension}` }];
-  const taken = new Set([`${base}${extension}`.toLowerCase()]);
+  const tail = `${outOption ? '' : suffix}${extension}`;
+  const targets = [{ configuration: DEFAULT_CONFIGURATION, outPath: `${base}${tail}` }];
+  const taken = new Set([`${base}${tail}`.toLowerCase()]);
   for (const name of names) {
     if (name === DEFAULT_CONFIGURATION) {
       continue;
     }
     const segment = sanitizeConfigurationName(name);
-    let outPath = `${base}-${segment}${extension}`;
+    let outPath = `${base}-${segment}${tail}`;
     for (let n = 2; taken.has(outPath.toLowerCase()); n++) {
-      outPath = `${base}-${segment}-${n}${extension}`;
+      outPath = `${base}-${segment}-${n}${tail}`;
     }
     taken.add(outPath.toLowerCase());
     targets.push({ configuration: name, outPath });

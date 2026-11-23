@@ -2,7 +2,7 @@
 // Common types
 // ---------------------------------------------------------------------------
 
-import type { ContactEntity } from '../solver/types';
+import type { ContactEntity } from '../../../lib/assembly-solver/types.js';
 import type { Appearance } from '../../../lib/common/appearances';
 
 export type SourceLocation = {

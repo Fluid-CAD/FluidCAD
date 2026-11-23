@@ -297,9 +297,21 @@ You should see two JSON-RPC responses on stdout: the `initialize` reply and a
 | Inspection      | `get_scene_summary`, `list_shapes`, `list_global_params`, `get_shape_properties`, `get_face_properties`, `get_edge_properties`, `get_compile_error`, `hit_test`, `resolve_selection`, `measure`, `validate` |
 | Visual          | `screenshot`, `screenshot_multi`, `screenshot_shape`, `get_camera_state` |
 | Coordination    | `wait_for_idle`                                                       |
-| Source editing  | `list_fluid_files`, `read_file`, `write_file`, `edit_range`           |
+| Source editing  | `list_fluid_files`, `read_file`, `write_file`, `edit_range`, `try_build` |
 | Engine control  | `recompute`, `rollback_to`, `add_breakpoint`, `clear_breakpoints`, `import_step`, `export` |
 | Packages & hub  | `search_hub`, `get_hub_package`, `install_package`, `list_packages`, `read_package_file`, `pack` |
+
+### Trying a candidate
+
+`try_build` builds a candidate version of a model file (`content`, or `edits`
+in the form `edit_range` takes, plus optional `params`) in a throwaway scene on
+the engine and returns what it would produce: the render `state`, failed
+features, solid count, total volume, exact bounds and the `validate` verdict.
+It writes nothing and leaves the model on screen alone, so it is annotated
+read-only. It is not a step before every write: each call is a full build that
+holds the engine while it runs. The agent is told to use it to choose between
+alternatives, to check that a risky value builds, and before offering the user
+variants.
 
 ### Packages and the hub
 

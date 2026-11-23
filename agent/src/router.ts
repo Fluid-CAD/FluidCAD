@@ -17,6 +17,7 @@ import {
   splitApiModelId,
   type AgentKind,
   type ApprovalDecision,
+  MAX_VARIANT_PICTURE_BYTES,
   type AttachmentMediaType,
   type ChatEventEnvelope,
   type MessageAttachment,
@@ -285,6 +286,175 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
         return;
       case 'not-found':
         res.status(404).json({ error: 'No such approval.' });
+        return;
+    }
+  });
+
+  // --- What a change does to the model (§25) ----------------------------------
+
+  // The preview an approval card offers instead of building it unasked.
+  router.post('/sessions/:id/approvals/:approvalId/preview', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    switch (session.requestPreview(String(req.params.approvalId))) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'not-offered':
+        res.status(409).json({ error: 'This approval offers no preview to build.' });
+        return;
+      case 'already-decided':
+        res.status(409).json({ error: 'This approval was already settled.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such approval.' });
+        return;
+    }
+  });
+
+  // The pictures a page drew of the two sides of a change, kept with the
+  // session so the card still shows them after a reload and after the engine
+  // let the builds go.
+  router.post('/sessions/:id/approvals/:approvalId/preview/pictures', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const pictures: { before?: Buffer; after?: Buffer } = {};
+    for (const side of ['before', 'after'] as const) {
+      const image = req.body?.[side];
+      if (image === undefined) {
+        continue;
+      }
+      const bytes = image && image.mediaType === 'image/png' && typeof image.base64 === 'string' ? Buffer.from(image.base64, 'base64') : null;
+      if (!bytes || bytes.length === 0 || bytes.length > MAX_VARIANT_PICTURE_BYTES || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+        res.status(400).json({ error: `\`${side}\` is not { mediaType: "image/png", base64 } of a PNG, or is too large.` });
+        return;
+      }
+      pictures[side] = bytes;
+    }
+    if (!pictures.before && !pictures.after) {
+      res.status(400).json({ error: 'Expected { before?, after? }, each { mediaType: "image/png", base64 }.' });
+      return;
+    }
+    const saved = session.savePreviewPictures(String(req.params.approvalId), pictures);
+    switch (saved.result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'not-built':
+        res.status(409).json({ error: 'That change has no build to be a picture of.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such approval.' });
+        return;
+    }
+  });
+
+  // --- Questions (§22) -------------------------------------------------------
+
+  router.post('/sessions/:id/questions/:questionId', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const answer = session.answerQuestion(String(req.params.questionId), req.body);
+    switch (answer.result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'invalid':
+        res.status(400).json({ error: answer.error });
+        return;
+      case 'already-answered':
+        res.status(409).json({ error: 'This question was already settled.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such question.' });
+        return;
+    }
+  });
+
+  // --- Variants (§24) --------------------------------------------------------
+
+  router.post('/sessions/:id/variants/:variantsId', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const choice = session.chooseVariant(String(req.params.variantsId), req.body);
+    switch (choice.result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'invalid':
+        res.status(400).json({ error: choice.error });
+        return;
+      case 'building':
+        res.status(409).json({ error: 'The variants are still building.' });
+        return;
+      case 'already-settled':
+        res.status(409).json({ error: 'These variants were already settled.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such variants.' });
+        return;
+    }
+  });
+
+  // The picture a page drew of one tile, kept with the session so the card
+  // still shows it after a reload and after the engine let the build go.
+  router.post('/sessions/:id/variants/:variantsId/pictures', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const label = req.body?.label;
+    const image = req.body?.image;
+    if (typeof label !== 'string' || label === '' || !image || image.mediaType !== 'image/png' || typeof image.base64 !== 'string') {
+      res.status(400).json({ error: 'Expected { label, image: { mediaType: "image/png", base64 } }.' });
+      return;
+    }
+    const bytes = Buffer.from(image.base64, 'base64');
+    if (bytes.length === 0 || bytes.length > MAX_VARIANT_PICTURE_BYTES || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) {
+      res.status(400).json({ error: '`image` is not a PNG, or is too large.' });
+      return;
+    }
+    const saved = session.saveVariantPicture(String(req.params.variantsId), label, bytes);
+    switch (saved.result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'not-built':
+        res.status(409).json({ error: 'That variant has no build to be a picture of.' });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such variant.' });
+        return;
+    }
+  });
+
+  // --- Parameter cards (§26) -------------------------------------------------
+
+  // What the page wrote into the source on Keep: the card says so, and the
+  // next message tells the agent.
+  router.post('/sessions/:id/params/:paramsId', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    const kept = session.paramsKept(String(req.params.paramsId), req.body);
+    switch (kept.result) {
+      case 'ok':
+        res.status(204).end();
+        return;
+      case 'invalid':
+        res.status(400).json({ error: kept.error });
+        return;
+      case 'not-found':
+        res.status(404).json({ error: 'No such parameter card.' });
         return;
     }
   });

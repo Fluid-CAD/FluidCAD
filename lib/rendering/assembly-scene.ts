@@ -11,6 +11,8 @@ import { serializableParamDefs } from "../features/param-overrides.js";
 import { serializedProperties } from "../features/part-property.js";
 import { composePose, IDENTITY_POSE } from "../math/pose.js";
 import type { Pose, Quat, Vec3 } from "../math/pose.js";
+import { AssemblySolutionBuilder } from "./assembly-solution.js";
+import type { AssemblySolution } from "./assembly-solution.js";
 
 export type { Vec3, Quat };
 
@@ -439,6 +441,39 @@ export class AssemblyScene extends Scene {
   private _scopeStack: string[] = [];
 
   private _definitions: { assemblyName: string; wasRun(): boolean }[] = [];
+
+  /** The rendered scene's solve — see {@link getSolution}. */
+  private _solution: AssemblySolution | null = null;
+
+  /**
+   * Where the mates put the parts (see {@link AssemblySolution}): every
+   * reader that places an instance — measure, interference, export, the
+   * scene summary — asks here, so they all stand the assembly in one
+   * configuration.
+   *
+   * Solved on the first ask and kept for the render's life. The solve reads
+   * the scene's records and its parts' built connector frames and
+   * exposures, all of which a script may still be changing until the scene
+   * is rendered, so it is a rendered scene's to ask: a render drops
+   * whatever was solved before it ({@link renderStarting}).
+   */
+  getSolution(): AssemblySolution {
+    this._solution ??= AssemblySolutionBuilder.build(this);
+    return this._solution;
+  }
+
+  override renderStarting(): void {
+    this._solution = null;
+  }
+
+  /** World pose of every instance where {@link getSolution} puts it, by instance id. */
+  getPlacedPoses(): Map<string, Pose> {
+    return new Map(this.getSolution().poses.map(pose => [
+      pose.instanceId,
+      { position: pose.position, quaternion: pose.quaternion },
+    ]));
+  }
+
 
   currentScopePath(): string {
     return this._scopeStack.length > 0 ? this._scopeStack[this._scopeStack.length - 1] : "";

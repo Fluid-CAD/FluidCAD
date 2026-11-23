@@ -3,6 +3,9 @@
 import type {
   AssemblyExportOutcome,
   AssemblyExportPose,
+  AssemblySolution,
+  ExportOptions,
+  ExportResult,
   FeatureSlotRequest,
   FeatureSlotSynthesis,
   GeneratedRenderReport,
@@ -14,6 +17,7 @@ import type {
   SceneInterferenceOutcome,
   SceneOptions,
   SceneValidationOutcome,
+  SolidExportOptions,
   ValidateSceneRequest,
 } from '../../../lib/dist/index.js';
 import type { SerializedAssembly } from './assembly-types.ts';
@@ -43,6 +47,11 @@ export type SceneManager = {
   // cache holds — a recompute from scratch.
   clearGeneratedTemplates?(): void;
   getAssemblyData(scene: any): SerializedAssembly | null;
+  // Optional: may predate the engine-side mate solve. Where an assembly's
+  // mates put its instances, with each joint's outcome; null for a part
+  // scene. An engine without it places instances at their statement poses
+  // wherever a pose is not handed in (measure, interfere, export).
+  getAssemblySolution?(scene: any): AssemblySolution | null;
   rollbackScene(scene: any, rollbackIndex: number, opts?: { partScoped?: boolean }): any;
   // Optional: may predate timeline-ordered renders — the stop is then the
   // last row, unscoped.
@@ -72,6 +81,10 @@ export type SceneManager = {
   validate?(scene: any, request: ValidateSceneRequest): SceneValidationOutcome;
   // Optional: may predate interference checking.
   interfere?(scene: any, request: InterferenceRequest): SceneInterferenceOutcome;
+  // Optional: may predate scratch builds. The overall exact bounds of the
+  // solids the scene renders, in its unit — an assembly's with every
+  // instance where its mates put it; null when it renders no solid.
+  getRenderedBounds?(scene: any): { min: [number, number, number]; max: [number, number, number] } | null;
   // Optional: may predate the per-instance solid lookup. Instance id → the
   // rendered solids it shows (the pool validate / interfere address); null
   // for a part scene.
@@ -219,28 +232,13 @@ export type SceneManager = {
     rayDir: [number, number, number],
     edgeThreshold: number,
   ): any;
-  exportShapes(
-    scene: any,
-    shapeIds: string[],
-    options: {
-      format: 'step' | 'stl';
-      includeColors?: boolean;
-      resolution?: string;
-      customLinearDeflection?: number;
-      customAngularDeflectionDeg?: number;
-    },
-  ): { data: string | Uint8Array; fileName: string };
+  // `options.format` picks the writer: the solids themselves (`step`, `stl`)
+  // or a drawing of their view on a plane (`dxf`, `svg`). An engine that predates
+  // the drawing formats writes an STL for them — see
+  // `FluidCadServer.exportShapes`, which refuses that answer.
+  exportShapes(scene: any, shapeIds: string[], options: ExportOptions): ExportResult;
   exportAssembly(
     scene: any,
-    options: {
-      format: 'step' | 'stl';
-      name: string;
-      livePoses?: AssemblyExportPose[];
-      includeColors?: boolean;
-      resolution?: string;
-      customLinearDeflection?: number;
-      customAngularDeflectionDeg?: number;
-      scaleTo?: 'mm' | 'document';
-    },
+    options: Omit<SolidExportOptions, 'unit'> & { name: string; livePoses?: AssemblyExportPose[] },
   ): AssemblyExportOutcome;
 };

@@ -1,8 +1,9 @@
 // The scene summary's assembly half on a real kernel render, read through
 // the real /api/scene/summary route: every inserted instance with its part,
-// scope, grounding, the solids it shows and its statement pose — the ids
-// and poses validate, interfere and resolve_selection take, checked by
-// feeding them back. A part file's summary has none of these keys.
+// scope, grounding, the solids it shows and the pose the engine's mate solve
+// puts it at — the ids and poses validate, interfere and resolve_selection
+// take, checked by feeding them back. A part file's summary has none of
+// these keys.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -21,7 +22,7 @@ import replicate from '../../lib/core/replicate.js';
 import { testRect } from '../../lib/tests/helpers/profiles.js';
 import { face } from '../../lib/filters/index.js';
 import { FluidCadServer } from '../src/fluidcad-server/index.ts';
-import type { SceneSummary } from '../src/fluidcad-server/index.ts';
+import type { SceneSummary, SceneSummaryInstancePose } from '../src/fluidcad-server/index.ts';
 import { createSceneRouter } from '../src/routes/scene.ts';
 
 const ASSEMBLY_FILE = '/ws/rig.assembly.js';
@@ -75,6 +76,24 @@ function renderRig() {
   return scene;
 }
 
+/** `local` — a point in the instance's part frame — in world coordinates at `pose`. */
+function toWorld(pose: SceneSummaryInstancePose, local: [number, number, number]): number[] {
+  const { x, y, z, w } = pose.quaternion;
+  const [vx, vy, vz] = local;
+  const tx = 2 * (y * vz - z * vy);
+  const ty = 2 * (z * vx - x * vz);
+  const tz = 2 * (x * vy - y * vx);
+  return [
+    vx + w * tx + y * tz - z * ty + pose.position.x,
+    vy + w * ty + z * tx - x * tz + pose.position.y,
+    vz + w * tz + x * ty - y * tx + pose.position.z,
+  ];
+}
+
+function expectPoint(actual: number[], expected: number[]): void {
+  actual.forEach((value, axis) => expect(value).toBeCloseTo(expected[axis], 6));
+}
+
 async function summary(): Promise<SceneSummary> {
   const res = await fetch(`${baseUrl}/api/scene/summary`);
   expect(res.status).toBe(200);
@@ -101,12 +120,14 @@ describe('scene summary instances through the real route', () => {
     }
   });
 
-  it('lists every instance with its part, scope, grounding, solids and world statement pose, and the occurrences', async () => {
+  it('lists every instance with its part, scope, grounding, solids and solved world pose, and the occurrences', async () => {
     engine._setSceneForTesting(ASSEMBLY_FILE, renderRig());
     const body = await summary();
 
     expect(body.schemaVersion).toBe(1);
-    expect(body.instancePoses).toEqual({ frame: 'world', source: 'statement' });
+    expect(body.instancePoses).toEqual({ frame: 'world', source: 'solved' });
+    // Every mate holds; the hand-posed block and the pair's follower stay free.
+    expect(body.solve).toEqual({ status: 'okay', dof: 12 });
     const byName = new Map(body.instances!.map((i) => [i.name, i]));
     // In statement order: a sub-assembly's body runs where insert() places it.
     expect([...byName.keys()]).toEqual(['Rail', 'Seated', 'Seated (2)', 'Posed', 'Anchor', 'Follower']);
@@ -146,20 +167,50 @@ describe('scene summary instances through the real route', () => {
       expect(partShapes.has(id)).toBe(true);
     }
 
-    // The pose is a ready `poses` entry: the statement pose, in the world.
-    // Unmated and unsolved: the seated block sits where its translate() put it.
-    expect(byName.get('Seated')!.pose).toEqual({
+    // The pose is a ready `poses` entry: where the mates put the instance,
+    // in the world. The seated block's bottom-face centre sits on the rail's
+    // first seat — not where its translate() left it, which `statementPose`
+    // still reports — and its replica's on the second.
+    const seated = byName.get('Seated')!;
+    expect(seated.pose.instanceId).toBe('inst-1');
+    expectPoint(toWorld(seated.pose, [10, 10, 0]), [20, 10, 10]);
+    expect(seated.statementPose).toEqual({
       instanceId: 'inst-1',
       position: { x: 1, y: 2, z: 3 },
       quaternion: { x: 0, y: 0, z: 0, w: 1 },
     });
-    const posed = byName.get('Posed')!.pose;
-    expect(posed.position).toEqual({ x: 200, y: 0, z: 0 });
-    expect(posed.quaternion.z).toBeCloseTo(Math.SQRT1_2, 9);
-    expect(posed.quaternion.w).toBeCloseTo(Math.SQRT1_2, 9);
+    expectPoint(toWorld(byName.get('Seated (2)')!.pose, [10, 10, 0]), [50, 10, 10]);
+    // No mate moves the hand-posed block: it sits at its statement pose, and says so by carrying no other.
+    const posed = byName.get('Posed')!;
+    expect(posed.pose.position).toEqual({ x: 200, y: 0, z: 0 });
+    expect(posed.pose.quaternion.z).toBeCloseTo(Math.SQRT1_2, 9);
+    expect(posed.pose.quaternion.w).toBeCloseTo(Math.SQRT1_2, 9);
+    expect('statementPose' in posed).toBe(false);
+    expect('statementPose' in rail).toBe(false);
     // A sub-assembly's instance is composed through its occurrence frame.
     expect(byName.get('Follower')!.pose.position).toEqual({ x: 30, y: 0, z: 100 });
     expect(byName.get('Anchor')!.pose.position).toEqual({ x: 0, y: 0, z: 100 });
+  });
+
+  it('reports the statement poses and no solve on an engine that predates the mate solve', async () => {
+    const manager = getSceneManager() as any;
+    const legacy = new Proxy(manager, {
+      get: (target, key) => (key === 'getAssemblySolution' ? undefined : Reflect.get(target, key)),
+    });
+    engine.setSceneManager(legacy);
+    try {
+      engine._setSceneForTesting(ASSEMBLY_FILE, renderRig());
+      const body = await summary();
+
+      expect(body.instancePoses).toEqual({ frame: 'world', source: 'statement' });
+      expect('solve' in body).toBe(false);
+      const seated = body.instances!.find((i) => i.name === 'Seated')!;
+      expect(seated.pose.position).toEqual({ x: 1, y: 2, z: 3 });
+      expect('statementPose' in seated).toBe(false);
+      expect(body.mates!.every((mate) => !('status' in mate))).toBe(true);
+    } finally {
+      engine.setSceneManager(manager);
+    }
   });
 
   it('feeds validate, interfere and resolve_selection unchanged', async () => {
@@ -233,6 +284,7 @@ describe('scene summary instances through the real route', () => {
     const body = await summary();
     expect(body.instances!.map((i) => [i.instanceId, i.grounded])).toEqual([['inst-0', true], ['inst-1', false]]);
     expect(body.instances![1].pose.position).toEqual({ x: 40, y: 0, z: 0 });
+    expect(body.solve).toEqual({ status: 'okay', dof: 6 });
     expect('occurrences' in body).toBe(false);
   });
 });

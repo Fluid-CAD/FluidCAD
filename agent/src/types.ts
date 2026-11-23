@@ -135,6 +135,13 @@ export type SessionStatus =
   | { state: 'starting'; turnId: string }
   | { state: 'running'; turnId: string }
   | { state: 'awaiting-approval'; turnId: string; approvalIds: string[] }
+  /**
+   * The agent asked the user something and waits: a question (`ask_user`)
+   * or a choice between variants (`propose_variants`, once they are built).
+   * `questionIds` are the ids of those cards. An approval waiting at the
+   * same time wins.
+   */
+  | { state: 'awaiting-answer'; turnId: string; questionIds: string[] }
   /** The engine restarted while a turn was running. */
   | { state: 'interrupted'; reason: string }
   | { state: 'error'; kind: 'auth' | 'rate-limit' | 'not-installed' | 'other'; message: string; resetsAt?: string };
@@ -167,10 +174,310 @@ export type ToolPart = {
    * the workspace). `decision` is set once the user answered.
    */
   approval?: { id: string; canAllowSession: boolean; decision?: ApprovalDecision };
+  /**
+   * What the change does to the model, built without writing it: set for a
+   * `write_file` or `edit_range` on a model file that waits for approval
+   * (§25). Absent for every other call, and on an engine that cannot build
+   * a candidate.
+   */
+  preview?: ChangePreview;
+};
+
+/** One reason a side of a change does not build: a compile error, or a feature that failed. `line` is 1-based. */
+export type ChangePreviewProblem = { title: string; message: string; line?: number };
+
+/**
+ * One side of a change, built: the file as it is (`before`) or with the
+ * change (`after`). `failed`: it does not compile, a feature of it does not
+ * build, or the engine refused it — `problems` says which; a side with
+ * failed features still has its build, of what did build.
+ */
+export type ChangePreviewSide = {
+  state: 'built' | 'failed';
+  /** The scratch build of it (`GET api/scratch-build/:id/meshes`), while the engine keeps it. */
+  buildId?: string;
+  sceneKind?: 'part' | 'assembly';
+  facts?: VariantFacts;
+  /** The exact bounds of what it renders: the two sides are drawn framed on the union of theirs. */
+  bounds?: { min: [number, number, number]; max: [number, number, number] };
+  /** The picture a page drew of the build, a PNG under the session's `files/`. */
+  image?: string;
+  /** `failed`: why, the first few. */
+  problems?: ChangePreviewProblem[];
+  /** How many more problems there are than `problems` lists. */
+  moreProblems?: number;
+};
+
+/**
+ * `offered`: not built, because the file's last build took `estimateMs` —
+ * the card has a button that builds it; `building`: the engine builds the
+ * sides it does not already keep, `before` then `after`, each set as it
+ * ends; `ready`: both are known; `cancelled`: the approval was settled (a
+ * decision, Stop, the end of the turn, a restart) before it was built.
+ */
+export type ChangePreviewState = 'offered' | 'building' | 'ready' | 'cancelled';
+
+/** The before and after of a change waiting for approval (§25). */
+export type ChangePreview = {
+  state: ChangePreviewState;
+  /** `offered`: how long the file's last build took, in ms. */
+  estimateMs?: number;
+  /** The file as it is now; null when the change creates it. */
+  before?: ChangePreviewSide | null;
+  /** The file with the change. */
+  after?: ChangePreviewSide;
+  /** `ready`: both sides draw the same meshes — the change moves no geometry. */
+  same?: boolean;
+};
+
+/**
+ * Body of `POST api/agent/sessions/:id/approvals/:approvalId/preview/pictures`:
+ * the pictures a page drew of the two sides, from one camera.
+ */
+export type ChangePreviewPictures = {
+  before?: { mediaType: 'image/png'; base64: string };
+  after?: { mediaType: 'image/png'; base64: string };
 };
 
 /** Body of `POST api/agent/sessions/:id/approvals/:approvalId`. */
 export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
+
+/**
+ * One choice of a question. `svg` is a drawing of it, written by the model:
+ * untrusted markup, shown only as an image (an `<img>` runs no script and
+ * loads nothing), never put into the page's own DOM.
+ */
+export type QuestionOption = { label: string; description?: string; svg?: string };
+
+/**
+ * A question answered by clicking geometry in the viewport (§27): which kind
+ * of entity it takes, and whether it takes several.
+ */
+export type QuestionPick = { kind: 'face' | 'edge' | 'any'; multiple?: boolean };
+
+/**
+ * One question of an `ask_user` call. Without `options` the user answers in
+ * their own words. `svg` is a figure the question refers to, untrusted as an
+ * option's is. `pick` (never with `options`): the answer is geometry picked
+ * in the viewport.
+ */
+export type QuestionItem = { question: string; svg?: string; options?: QuestionOption[]; multiSelect?: boolean; pick?: QuestionPick };
+
+/**
+ * The user's answer to one question: the labels they picked, what they
+ * wrote, and for a `pick` question the geometry they clicked, as the scene
+ * references a message carries (§11). None of them (`selected` empty, no
+ * `text`, no `picks`) means they left it open.
+ */
+export type QuestionAnswer = { selected: string[]; text?: string; picks?: SceneReference[] };
+
+/**
+ * `unanswered`: it ended with nobody answering (the turn was stopped, the
+ * wait timed out, the app closed); `reason` says which.
+ */
+export type QuestionPartState = 'awaiting-answer' | 'answered' | 'skipped' | 'unanswered';
+
+/**
+ * What the agent asked through `ask_user`, as one card. `id` is also what
+ * the answer is posted to. `answers` is set once the user answered: one per
+ * question, in order.
+ */
+export type QuestionPart = {
+  type: 'question';
+  id: string;
+  state: QuestionPartState;
+  questions: QuestionItem[];
+  answers?: QuestionAnswer[];
+  reason?: string;
+};
+
+/** Body of `POST api/agent/sessions/:id/questions/:questionId`: the answers, one per question in order, or a skip. */
+export type QuestionReply = { answers: QuestionAnswer[] } | { skip: true };
+
+/** The longest answer the user may write to one question. */
+export const MAX_ANSWER_CHARS = 2000;
+
+/** What a built variant produces: the numbers its tile shows. */
+export type VariantFacts = {
+  /** How many solids it renders; in an assembly, counted once per instance showing them. */
+  solidCount: number;
+  /** Its overall extents along x, y and z, in `unit`; null when it renders no solid. */
+  size: [number, number, number] | null;
+  /** The solids' total volume, in `unit` cubed; null when it could not be measured. */
+  volume: number | null;
+  unit: string;
+  /** Assemblies: how many instances it places. */
+  instanceCount?: number;
+  /** False when the engine's soundness check found a problem in a solid; absent when it did not run. */
+  sound?: boolean;
+};
+
+/**
+ * `queued`: its build has not started; `building`: the engine is building
+ * it; `ready`: built, and it can be picked; `failed`: it does not compile,
+ * a feature of it does not build, or the engine refused it (`error` says
+ * which) — it cannot be picked; `cancelled`: the card ended before its
+ * build started or finished.
+ */
+export type VariantTileState = 'queued' | 'building' | 'ready' | 'failed' | 'cancelled';
+
+/**
+ * One variant of a `propose_variants` call, as its tile. `label` and
+ * `description` are the model's words: text, never markup.
+ */
+export type VariantTile = {
+  label: string;
+  description?: string;
+  state: VariantTileState;
+  /**
+   * The scratch build of it (`GET api/scratch-build/:id/meshes`): what the
+   * page draws the tile's picture and the viewport ghost from. The engine
+   * keeps a build's meshes for a while only, and not across a restart.
+   */
+  buildId?: string;
+  sceneKind?: 'part' | 'assembly';
+  facts?: VariantFacts;
+  /**
+   * The picture a page drew of the build, a PNG under the session's
+   * `files/`: what the tile shows from then on, in every tab, after a
+   * reload and after the engine has let the build go.
+   */
+  image?: string;
+  /** `failed`: why. */
+  error?: string;
+};
+
+/**
+ * `building`: the engine builds the variants, one after the other;
+ * `awaiting-choice`: built, waiting for the user; `picked`: the user picked
+ * `picked`, and its write follows as a tool part of its own; `answered`:
+ * they wrote `text` instead; `skipped`; `unanswered`: it ended with nobody
+ * choosing (stopped, timed out, the app closed), `reason` says which;
+ * `failed`: there was nothing to choose from or the pick could not be
+ * applied (no variant built, the file changed meanwhile), `reason`
+ * says which.
+ */
+export type VariantsPartState = 'building' | 'awaiting-choice' | 'picked' | 'answered' | 'skipped' | 'unanswered' | 'failed';
+
+/**
+ * What the agent proposed through `propose_variants`, as one card of tiles.
+ * `id` is also what the choice and the tiles' pictures are posted to.
+ */
+export type VariantsPart = {
+  type: 'variants';
+  id: string;
+  state: VariantsPartState;
+  /** The model file the variants are versions of, workspace-relative. */
+  file: string;
+  question?: string;
+  variants: VariantTile[];
+  /** `picked`: the label of the variant the user picked. */
+  picked?: string;
+  /** `answered`: what the user wrote instead of picking. */
+  text?: string;
+  reason?: string;
+};
+
+/** Body of `POST api/agent/sessions/:id/variants/:variantsId`: the pick (a tile's label), the user's own words, or a skip. */
+export type VariantsReply = { pick: string } | { text: string } | { skip: true };
+
+/** Body of `POST api/agent/sessions/:id/variants/:variantsId/pictures`: the picture a page drew of the tile `label`. */
+export type VariantPicture = { label: string; image: { mediaType: 'image/png'; base64: string } };
+
+/** The largest picture of a tile, decoded. */
+export const MAX_VARIANT_PICTURE_BYTES = 2_000_000;
+
+/** A value a parameter holds: what `param()` takes as its default. */
+export type ParamCardValue = string | number | boolean | (string | number)[];
+
+/**
+ * One parameter of a parameter card: which parameter, and no more. Its
+ * control, range and value are the model's on screen, read when the card is
+ * drawn, so a card never shows a value the file has moved on from. `label`
+ * and `part` are the model file's words: text, never markup.
+ */
+export type ParamCardItem = {
+  label: string;
+  /** The `part()` or `assembly()` that declares it, by name (the definition's `body`). */
+  part?: string;
+};
+
+/**
+ * A value the user kept from a card: written into the source as the
+ * parameter's default, or as the cell of `configuration` when a row of the
+ * file's `configurations()` table was on screen.
+ */
+export type ParamKeptValue = { label: string; part?: string; value: ParamCardValue; configuration?: string };
+
+/**
+ * What the agent offered through `offer_params`, as one card of live
+ * controls (§26). It has no state of its own: a control sets a session
+ * override in the engine, which every page reads back from the render, so
+ * the card is a view of the model on screen and stays usable after its turn.
+ * `id` is also what the kept values are posted to.
+ */
+export type ParamsPart = {
+  type: 'params';
+  id: string;
+  /** The model file the parameters belong to, workspace-relative. */
+  file: string;
+  /** The same file as the engine names the model on screen (absolute): what a page compares with the file it shows. */
+  absPath: string;
+  /** One line from the agent: text, never markup. */
+  note?: string;
+  params: ParamCardItem[];
+  /** What Keep last wrote, one entry per parameter kept so far. */
+  kept?: ParamKeptValue[];
+};
+
+/** Body of `POST api/agent/sessions/:id/params/:paramsId`: the values the page wrote into the source on Keep. */
+export type ParamsKept = { kept: ParamKeptValue[] };
+
+/**
+ * A kept value the agent has not been told about yet: the next user message
+ * carries it in `<param_changes>`. `file` is where it was written,
+ * workspace-relative.
+ */
+export type ParamChange = ParamKeptValue & { file: string };
+
+/** Where a selector is evaluated, as `resolve_selection` takes it. */
+export type ShowScope = { sceneObjectId: string } | { part: string } | { instanceId: string };
+
+/**
+ * What a page resolves (`POST api/resolve-selection`) to draw an item the
+ * agent points at: a selector in the tool's own `$obj["<id>"]` form, which
+ * follows the geometry through later renders, or one face or edge of the
+ * render it was shown in, which a later render may no longer hold. Never
+ * carried as resolved shape ids: those are one render's.
+ */
+export type ShowTarget = { expression: string; scope?: ShowScope } | { pick: { shapeId: string; kind: 'face' | 'edge'; index: number } };
+
+/**
+ * One item of a `show_user` call: chip `n` (1-based; what `[n]` in the
+ * agent's text means) in the colour of that number in the reference palette
+ * (`color` is its name, as the agent was told it), the agent's label (text,
+ * never markup), what to resolve to draw it, and how many faces and edges
+ * that was when it was shown.
+ */
+export type ShowItem = { n: number; color: string; label: string; target: ShowTarget; faces: number; edges: number };
+
+/**
+ * What the agent pointed at through `show_user`, as one card (§27). It has no
+ * state of its own: which card's items are highlighted, and which of them
+ * still resolve, is the page's to know from the model on screen, so a card
+ * stays readable after its turn and can be shown again after a reload.
+ */
+export type ShowPart = {
+  type: 'show';
+  id: string;
+  /** The model file the items are of, workspace-relative. */
+  file: string;
+  /** The same file as the engine names the model on screen (absolute): what a page compares with the file it shows. */
+  absPath: string;
+  /** One line from the agent: text, never markup. */
+  note?: string;
+  items: ShowItem[];
+};
 
 export type ChatPart =
   | { type: 'text'; id: string; text: string }
@@ -183,6 +490,10 @@ export type ChatPart =
   | { type: 'image'; id: string; file: string; name?: string }
   | { type: 'references'; id: string; references: SceneReference[] }
   | ToolPart
+  | QuestionPart
+  | VariantsPart
+  | ParamsPart
+  | ShowPart
   | NoticePart;
 
 /**

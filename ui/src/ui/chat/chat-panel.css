@@ -841,6 +841,1147 @@
   color: var(--chat-muted);
 }
 
+/* --- Question cards (ask_user) --------------------------------------------- */
+
+[data-role='chat-panel'] .chat-question {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--chat-line);
+  border-radius: 6px;
+  background: var(--chat-surface);
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-question[data-state='awaiting-answer'] {
+  border-color: color-mix(in oklab, var(--color-warning) 55%, transparent);
+}
+
+[data-role='chat-panel'] .chat-question-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+[data-role='chat-panel'] .chat-question-text {
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+[data-role='chat-panel'] .chat-question:not([data-state='awaiting-answer']) .chat-question-text {
+  font-weight: 400;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-question-hint {
+  color: var(--chat-faint);
+  font-size: 11px;
+}
+
+[data-role='chat-panel'] .chat-question-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+[data-role='chat-panel'] .chat-question-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-question-option:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
+[data-role='chat-panel'] .chat-question-option:focus-visible,
+[data-role='chat-panel'] .chat-question-input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+[data-role='chat-panel'] .chat-question-option[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-100));
+}
+
+[data-role='chat-panel'] .chat-question-option:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* Round for a question that takes one option, square for one that takes several. */
+[data-role='chat-panel'] .chat-question-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 35%, transparent);
+  border-radius: 50%;
+  color: transparent;
+}
+
+[data-role='chat-panel'] .chat-question-option[data-multi='true'] .chat-question-mark {
+  border-radius: 3px;
+}
+
+[data-role='chat-panel'] .chat-question-option[aria-pressed='true'] .chat-question-mark {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-content);
+}
+
+[data-role='chat-panel'] .chat-question-option-words {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-question-description {
+  color: var(--chat-muted);
+  font-size: 11px;
+}
+
+/*
+ * Drawings (`svg` of a question or an option). The model draws dark on
+ * light; the dark theme turns the drawing over and keeps its hues.
+ */
+[data-role='chat-panel'] .chat-question-drawing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--color-base-content) 4%, transparent);
+  pointer-events: none;
+}
+
+[data-role='chat-panel'] .chat-question-drawing > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  filter: invert(1) hue-rotate(180deg);
+}
+
+[data-theme='fluidcad-light'] [data-role='chat-panel'] .chat-question-drawing > img {
+  filter: none;
+}
+
+/* A question's figure, under its words. */
+[data-role='chat-panel'] .chat-question-item > .chat-question-drawing {
+  height: 132px;
+  padding: 6px;
+  border: 1px solid var(--chat-line);
+  background: var(--color-base-100);
+}
+
+[data-role='chat-panel'] .chat-question:not([data-state='awaiting-answer']) .chat-question-item > .chat-question-drawing {
+  height: 96px;
+  margin: 3px 0;
+}
+
+/* Options with drawings: tiles, the drawing above the label. */
+[data-role='chat-panel'] .chat-question-options[data-drawn='true'] {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-question-options[data-drawn='true'] .chat-question-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  gap: 6px 8px;
+  padding: 6px 8px 7px;
+}
+
+[data-role='chat-panel'] .chat-question-option > .chat-question-drawing {
+  grid-column: 1 / -1;
+  height: 88px;
+  padding: 4px;
+}
+
+[data-role='chat-panel'] .chat-question-input {
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-question-input::placeholder {
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-question-input:disabled {
+  opacity: 0.7;
+}
+
+/* A question answered by picking in the viewport (§27): the button that arms
+   it, what to click while it is armed, and the picks as reference chips. */
+[data-role='chat-panel'] .chat-question-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+[data-role='chat-panel'] .chat-question-pick-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-question-pick-button:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
+[data-role='chat-panel'] .chat-question-pick-button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+[data-role='chat-panel'] .chat-question-pick-button[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-100));
+}
+
+[data-role='chat-panel'] .chat-question-pick-button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+[data-role='chat-panel'] .chat-question-pick-prompt {
+  flex: 1 1 0;
+  min-width: 12ch;
+  color: var(--chat-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+[data-role='chat-panel'] .chat-question-pick-unavailable {
+  color: var(--chat-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* The picks of a question: the composer's chips, on the card. */
+[data-role='chat-panel'] .chat-question-picked {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  vertical-align: middle;
+}
+
+[data-role='chat-panel'] .chat-question-picked:not(:last-child) {
+  margin-right: 6px;
+}
+
+[data-role='chat-panel'] .chat-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+[data-role='chat-panel'] .chat-question-waiting {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-question-waiting > span:first-child {
+  color: var(--color-warning);
+}
+
+[data-role='chat-panel'] .chat-question-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* Settled: the question, then what was answered. */
+[data-role='chat-panel'] .chat-question:not([data-state='awaiting-answer']) {
+  gap: 8px;
+}
+
+[data-role='chat-panel'] .chat-question:not([data-state='awaiting-answer']) .chat-question-item {
+  gap: 2px;
+}
+
+[data-role='chat-panel'] .chat-question-answer {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--color-base-content);
+  line-height: 1.45;
+}
+
+[data-role='chat-panel'] .chat-question-answer > span:first-child {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-question-answer[data-open='true'] {
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-question-outcome {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--chat-muted);
+}
+
+/* --- Variants cards (propose_variants) -------------------------------------- */
+
+[data-role='chat-panel'] .chat-variants {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 9px 10px;
+  border: 1px solid var(--chat-line);
+  border-radius: 6px;
+  background: var(--chat-surface);
+  font-size: 12px;
+  container-type: inline-size;
+}
+
+[data-role='chat-panel'] .chat-variants[data-state='awaiting-choice'] {
+  border-color: color-mix(in oklab, var(--color-warning) 55%, transparent);
+}
+
+[data-role='chat-panel'] .chat-variants-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  min-width: 0;
+}
+
+[data-role='chat-panel'] .chat-variants-question {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-variants-file {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--chat-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Two tiles to a row (a third and a fourth on a second row); one under the other only in a very narrow panel. */
+[data-role='chat-panel'] .chat-variants-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+@container (max-width: 250px) {
+  [data-role='chat-panel'] .chat-variants-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+[data-role='chat-panel'] .chat-variant {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  overflow: hidden;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-variant-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px 8px;
+  border: 0;
+  background: none;
+  color: var(--color-base-content);
+  font: inherit;
+  text-align: left;
+}
+
+[data-role='chat-panel'] button.chat-variant-body:not(:disabled) {
+  cursor: pointer;
+}
+
+[data-role='chat-panel'] .chat-variant:has(> button.chat-variant-body:hover:not(:disabled)) {
+  border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
+[data-role='chat-panel'] .chat-variant-body:focus-visible,
+[data-role='chat-panel'] .chat-variant-show:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
+/* The pick, while choosing and once applied. */
+[data-role='chat-panel'] .chat-variant:has(> .chat-variant-body[aria-pressed='true']),
+[data-role='chat-panel'] .chat-variant[data-picked='true'] {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 10%, var(--color-base-100));
+}
+
+[data-role='chat-panel'] .chat-variant-picture {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--color-base-content) 4%, transparent);
+  overflow: hidden;
+}
+
+[data-role='chat-panel'] .chat-variant-picture > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+[data-role='chat-panel'] .chat-variant-placeholder {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  color: var(--chat-faint);
+  font-size: 11px;
+}
+
+[data-role='chat-panel'] .chat-variant-name {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+/* Round, as a question that takes one option. Only while there is a pick to make or to show. */
+[data-role='chat-panel'] .chat-variant-mark {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 35%, transparent);
+  border-radius: 50%;
+  color: transparent;
+}
+
+[data-role='chat-panel'] .chat-variants[data-state='awaiting-choice'] .chat-variant[data-state='ready'] .chat-variant-mark,
+[data-role='chat-panel'] .chat-variant[data-picked='true'] .chat-variant-mark {
+  display: inline-flex;
+}
+
+[data-role='chat-panel'] .chat-variant-body[aria-pressed='true'] .chat-variant-mark,
+[data-role='chat-panel'] .chat-variant[data-picked='true'] .chat-variant-mark {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-content);
+}
+
+[data-role='chat-panel'] .chat-variant-label {
+  min-width: 0;
+  font-weight: 500;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-variant-description {
+  color: var(--chat-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-variant-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 1px solid var(--chat-line);
+  color: var(--chat-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-variant-error,
+[data-role='chat-panel'] .chat-variant-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-variant-error {
+  color: var(--color-error);
+}
+
+[data-role='chat-panel'] .chat-variant-warning {
+  color: var(--color-warning);
+}
+
+/* A variant that did not build: its picture (what did build) steps back, the reason stays readable. */
+[data-role='chat-panel'] .chat-variant[data-state='failed'] .chat-variant-picture > img,
+[data-role='chat-panel'] .chat-variant[data-state='failed'] .chat-variant-facts {
+  opacity: 0.45;
+}
+
+[data-role='chat-panel'] .chat-variant[data-state='failed'] .chat-variant-label,
+[data-role='chat-panel'] .chat-variant[data-state='cancelled'] .chat-variant-label {
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-variant-show {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-top: 1px solid var(--chat-line);
+  background: none;
+  color: var(--chat-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+[data-role='chat-panel'] .chat-variant-show:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-variant-show[aria-pressed='true'] {
+  background: color-mix(in oklab, var(--color-success) 16%, transparent);
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-variant-show:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+[data-role='chat-panel'] .chat-variants-progress {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--chat-muted);
+}
+
+/* Settled: the tiles stay, quieter, with the one that was applied marked. */
+[data-role='chat-panel'] .chat-variants:not([data-state='awaiting-choice']):not([data-state='building']) .chat-variants-question {
+  font-weight: 400;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-variants[data-state='picked'] .chat-variant:not([data-picked='true']) .chat-variant-body {
+  opacity: 0.6;
+}
+
+[data-role='chat-panel'] .chat-variants-outcome {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--chat-muted);
+  line-height: 1.45;
+}
+
+[data-role='chat-panel'] .chat-variants-outcome[data-kind='picked'],
+[data-role='chat-panel'] .chat-variants-outcome[data-kind='answered'] {
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-variants-outcome[data-kind='picked'] > span:first-child,
+[data-role='chat-panel'] .chat-variants-outcome[data-kind='answered'] > span:first-child {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-variants-outcome[data-kind='failed'] > span:first-child {
+  color: var(--color-error);
+}
+
+/* --- Parameter cards (offer_params) ----------------------------------------- */
+
+[data-role='chat-panel'] .chat-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 0;
+  border: 1px solid var(--chat-line);
+  border-radius: 6px;
+  background: var(--chat-surface);
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-params-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+[data-role='chat-panel'] .chat-params-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-params-title > span {
+  align-self: center;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-params-file {
+  max-width: 100%;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--chat-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-params-note {
+  padding: 0 12px;
+  color: var(--chat-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+/* The rows are the Parameters panel's own (param-row.ts), on the panel's surface. */
+[data-role='chat-panel'] .chat-params-rows {
+  display: flex;
+  flex-direction: column;
+  padding: 3px 0;
+  border-top: 1px solid var(--chat-line);
+  border-bottom: 1px solid var(--chat-line);
+  background: var(--color-base-100);
+}
+
+[data-role='chat-panel'] .chat-params-row label {
+  overflow-wrap: anywhere;
+}
+
+/* A value that is on screen only: its label carries the weight a set row's does in the panel. */
+[data-role='chat-panel'] .chat-params-row[data-changed='true'] > div > div:first-child > label {
+  font-weight: 600;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-params-missing {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-params-missing-label {
+  min-width: 0;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-params-missing-owner {
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-params-missing-why {
+  flex-shrink: 0;
+}
+
+[data-role='chat-panel'] .chat-params-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 12px;
+}
+
+[data-role='chat-panel'] .chat-params-kept {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.45;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-params-kept > span:first-child {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-params-error {
+  line-height: 1.45;
+  color: var(--color-error);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-params-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+[data-role='chat-panel'] .chat-params-status {
+  flex: 1 1 140px;
+  min-width: 0;
+  color: var(--chat-muted);
+  line-height: 1.45;
+}
+
+[data-role='chat-panel'] .chat-params-buttons {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* --- What the agent points at (show_user) ----------------------------------- */
+
+[data-role='chat-panel'] .chat-show {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid var(--chat-line);
+  border-radius: 6px;
+  background: var(--chat-surface);
+  font-size: 12px;
+}
+
+[data-role='chat-panel'] .chat-show-head {
+  display: flex;
+  align-items: center;
+  gap: 2px 10px;
+  min-width: 0;
+}
+
+[data-role='chat-panel'] .chat-show-title {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-show-title > span {
+  align-self: center;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-show-file {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--chat-faint);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-show-toggle {
+  flex: none;
+  min-height: 22px;
+  padding: 1px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+  color: var(--color-base-content);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-show-toggle:hover {
+  border-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
+}
+
+[data-role='chat-panel'] .chat-show-toggle:focus-visible,
+[data-role='chat-panel'] .chat-show-chip:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+[data-role='chat-panel'] .chat-show-note {
+  color: var(--chat-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-show-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* A chip is its item's colour in the viewport: hovering it draws that item alone. */
+[data-role='chat-panel'] .chat-show-chip {
+  min-height: 22px;
+  background: var(--color-base-100);
+  cursor: default;
+  transition: border-color 120ms ease, background-color 120ms ease, opacity 120ms ease;
+}
+
+[data-role='chat-panel'] .chat-show[data-shown='true'] .chat-show-chip[data-state='shown'] {
+  border-color: color-mix(in oklab, var(--chat-reference-color, var(--color-base-content)) 55%, transparent);
+}
+
+[data-role='chat-panel'] .chat-show[data-shown='true'] .chat-show-chip[data-emphasised='true'] {
+  border-color: var(--chat-reference-color, var(--color-base-content));
+  background: color-mix(in oklab, var(--chat-reference-color, var(--color-base-content)) 14%, var(--color-base-100));
+}
+
+/* Not the card shown: its chips are a legend, not a highlight. */
+[data-role='chat-panel'] .chat-show[data-shown='false'] .chat-show-chip .chat-reference-dot {
+  opacity: 0.55;
+}
+
+[data-role='chat-panel'] .chat-show-chip[data-state='resolving'] .chat-reference-dot {
+  animation: chat-reference-pending 1s ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-role='chat-panel'] .chat-show-chip[data-state='resolving'] .chat-reference-dot {
+    animation: none;
+  }
+}
+
+/* Stale: the model changed and the item is no longer in it. Nothing is drawn for it. */
+[data-role='chat-panel'] .chat-show-chip[data-state='stale'] {
+  border-style: dashed;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-show-chip[data-state='stale'] .chat-reference-dot {
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--color-base-content) 40%, transparent);
+}
+
+[data-role='chat-panel'] .chat-show-chip[data-state='stale'] .chat-show-label {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklab, var(--color-base-content) 45%, transparent);
+}
+
+[data-role='chat-panel'] .chat-show-stale {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-warning) 22%, transparent);
+  color: var(--color-base-content);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+[data-role='chat-panel'] .chat-show-status {
+  color: var(--color-warning);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* --- What a change does to the model, on its approval card ------------------ */
+
+[data-role='chat-panel'] .chat-change {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  container-type: inline-size;
+}
+
+/* Not built unasked: one line, and the button that builds it. */
+[data-role='chat-panel'] .chat-change-offer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 6px 8px;
+  border: 1px dashed var(--chat-line);
+  border-radius: 5px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-change-offer-words {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.45;
+}
+
+/* Before and after side by side; one under the other only in a very narrow panel. */
+[data-role='chat-panel'] .chat-change-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-change-tiles[data-count='1'] {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 260px;
+}
+
+@container (max-width: 250px) {
+  [data-role='chat-panel'] .chat-change-tiles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+[data-role='chat-panel'] .chat-change-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+  background: var(--color-base-100);
+}
+
+[data-role='chat-panel'] .chat-change-caption {
+  color: var(--chat-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+[data-role='chat-panel'] .chat-change-tile[data-side='after'] .chat-change-caption {
+  color: var(--color-base-content);
+}
+
+/* What did build of a change whose features fail steps back, as a failed variant's does. */
+[data-role='chat-panel'] .chat-change-tile[data-state='failed'] .chat-variant-picture > img {
+  opacity: 0.45;
+}
+
+/* The facts as differences: what it is, what it was and is, and by how much. */
+[data-role='chat-panel'] .chat-change-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px 10px;
+  color: var(--chat-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+}
+
+[data-role='chat-panel'] .chat-change-fact {
+  display: contents;
+}
+
+[data-role='chat-panel'] .chat-change-fact-label {
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-change-fact-values {
+  min-width: 0;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-change-fact-change {
+  text-align: right;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-change-fact-pending {
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-change-fact[data-tone='more'] .chat-change-fact-change {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-change-fact[data-tone='less'] .chat-change-fact-change {
+  color: var(--color-error);
+}
+
+[data-role='chat-panel'] .chat-change-fact[data-tone='same'] .chat-change-fact-change {
+  color: var(--chat-faint);
+}
+
+/* In a narrow panel the difference goes under its values. */
+@container (max-width: 300px) {
+  [data-role='chat-panel'] .chat-change-facts {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  [data-role='chat-panel'] .chat-change-fact-change {
+    grid-column: 2;
+    text-align: left;
+    white-space: normal;
+  }
+}
+
+[data-role='chat-panel'] .chat-change-lines {
+  color: var(--chat-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-change-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.45;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-change-note[data-kind='same'] {
+  font-weight: 500;
+}
+
+[data-role='chat-panel'] .chat-change-note[data-icon='check'] > span:first-child {
+  color: var(--color-success);
+}
+
+[data-role='chat-panel'] .chat-change-note[data-icon='plain'] {
+  color: var(--chat-muted);
+  font-weight: 400;
+}
+
+/* The line is long: the spinner keeps its size beside it. */
+[data-role='chat-panel'] .chat-change-progress {
+  align-items: flex-start;
+  line-height: 1.45;
+}
+
+[data-role='chat-panel'] .chat-change-progress > .loading {
+  flex: none;
+  margin-top: 2px;
+}
+
+[data-role='chat-panel'] .chat-change-note[data-kind='unsound'] {
+  color: var(--color-warning);
+  font-size: 11px;
+}
+
+/* A change that does not build: said first, and not to be missed. */
+[data-role='chat-panel'] .chat-change-problems {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in oklab, var(--color-error) 45%, transparent);
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--color-error) 9%, transparent);
+  color: var(--color-base-content);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-change-problems-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-weight: 600;
+}
+
+[data-role='chat-panel'] .chat-change-problems-title > span:first-child {
+  color: var(--color-error);
+}
+
+[data-role='chat-panel'] .chat-change-problems ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0 0 0 20px;
+  list-style: none;
+  font-size: 11.5px;
+}
+
+[data-role='chat-panel'] .chat-change-problem-line {
+  margin-left: 6px;
+  color: var(--chat-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-change-problems-more,
+[data-role='chat-panel'] .chat-change-problems-also {
+  color: var(--chat-muted);
+  font-size: 11px;
+}
+
+[data-role='chat-panel'] .chat-change-problems-also {
+  padding-left: 20px;
+}
+
+/* Show in viewport: the variants' toggle, as a row of its own under the facts. */
+[data-role='chat-panel'] .chat-change-show {
+  border: 1px solid var(--chat-line);
+  border-radius: 5px;
+}
+
 /* A write refused for unsaved changes. */
 [data-role='chat-panel'] .chat-tool-dirty {
   display: flex;
@@ -1074,7 +2215,8 @@
   opacity: 0.45;
 }
 
-[data-role='chat-panel'] .chat-attach-image-remove {
+[data-role='chat-panel'] .chat-attach-image-remove,
+[data-role='chat-panel'] .chat-attach-image-annotate {
   position: absolute;
   top: -6px;
   right: -6px;
@@ -1095,9 +2237,30 @@
   height: 10px;
 }
 
-[data-role='chat-panel'] .chat-attach-image-remove:hover {
+/* Mark the image up: the pen on the opposite corner (§28). */
+[data-role='chat-panel'] .chat-attach-image-annotate {
+  top: auto;
+  bottom: -6px;
+  width: 18px;
+  height: 18px;
+}
+
+[data-role='chat-panel'] .chat-attach-image-annotate > svg {
+  width: 12px;
+  height: 12px;
+}
+
+[data-role='chat-panel'] .chat-attach-image-remove:hover,
+[data-role='chat-panel'] .chat-attach-image-annotate:hover {
   color: var(--color-base-content);
   border-color: color-mix(in oklab, var(--color-base-content) 40%, transparent);
+}
+
+[data-role='chat-panel'] .chat-attach-image-remove:focus-visible,
+[data-role='chat-panel'] .chat-attach-image-annotate:focus-visible,
+[data-role='chat-panel'] .chat-composer-attach:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
 }
 
 [data-role='chat-panel'] .chat-attach {

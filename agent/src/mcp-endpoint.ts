@@ -13,8 +13,12 @@ import {
   loadDocsIndex,
   loadSkillsIndex,
   type DocsIndex,
+  type McpAskUser,
   type McpHttpHandler,
   type McpHttpRequest,
+  type McpOfferParams,
+  type McpProposeVariants,
+  type McpShowUser,
   type McpToolGate,
   type RegistryEntry,
   type SkillsIndex,
@@ -39,6 +43,14 @@ export class SharedMcpIndexes {
 export type McpEndpointOptions = {
   pinnedWorkspace: RegistryEntry;
   toolGate: McpToolGate;
+  /** Answers `ask_user` (§22): the session's gate shows the question and waits. */
+  askUser: McpAskUser;
+  /** Answers `propose_variants` (§24): the session's gate builds the variants, shows them and writes the pick. */
+  proposeVariants: McpProposeVariants;
+  /** Answers `offer_params` (§26): the session's gate puts the parameters in the chat as a card and returns. */
+  offerParams: McpOfferParams;
+  /** Answers `show_user` (§27): the session's gate resolves the items and puts their card in the chat. */
+  showUser: McpShowUser;
   indexes: SharedMcpIndexes;
   /** The engine's port, for the URL the CLI is given. */
   port: number;
@@ -60,6 +72,10 @@ export class McpEndpoint {
         buildServer({
           pinnedWorkspace: options.pinnedWorkspace,
           toolGate: options.toolGate,
+          askUser: options.askUser,
+          proposeVariants: options.proposeVariants,
+          offerParams: options.offerParams,
+          showUser: options.showUser,
           docsIndex: options.indexes.docsIndex,
           skillsIndex: options.indexes.skillsIndex,
         }),

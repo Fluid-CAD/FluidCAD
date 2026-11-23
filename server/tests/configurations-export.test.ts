@@ -124,7 +124,7 @@ function makeFakeManager(rowsFor: RowsFor = ONE_SOLID) {
     },
     exportAssembly(scene: FakeScene, options: { livePoses?: unknown }) {
       manager.assemblies.push({ scene: scene.no, livePoses: options.livePoses });
-      return { ok: true, data: 'ISO-10303-21;', fileName: 'rig.step', posesSource: options.livePoses ? 'live' : 'statement' };
+      return { ok: true, data: 'ISO-10303-21;', fileName: 'rig.step', posesSource: options.livePoses ? 'live' : 'solved' };
     },
   };
   return manager;
@@ -297,7 +297,77 @@ describe('POST /api/export with a configuration', () => {
     expect(res.status).toBe(400);
   });
 
-  it('exports an assembly of another row at its statement poses', async () => {
+  it('draws another row as a DXF from its own scratch render, with the drawing options', async () => {
+    await renderTweakedCompact();
+    const live = manager.currentScene!;
+    const drawn: { scene: number; shapeIds: string[]; options: Record<string, unknown> }[] = [];
+    manager.exportShapes = ((scene: FakeScene, shapeIds: string[], options: Record<string, unknown>) => {
+      drawn.push({ scene: scene.no, shapeIds, options });
+      return { data: '  0\r\nSECTION\r\n', fileName: 'export-front.dxf' };
+    }) as any;
+
+    const res = await post(`${app.url}/api/export`, {
+      format: 'dxf', plane: 'xz', hiddenLines: true, shapeIds: 'all', configuration: 'Wide',
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('image/vnd.dxf');
+    expect(res.headers.get('content-disposition')).toContain('filename="export-front.dxf"');
+    expect(drawn).toHaveLength(1);
+    // The row's own render, its own solids — not the scene on screen.
+    expect(drawn[0].scene).not.toBe(live.no);
+    expect(drawn[0].shapeIds).toEqual([`s${drawn[0].scene}`]);
+    expect(drawn[0].options).toEqual({ format: 'dxf', plane: 'xz', hiddenLines: true });
+    expect(manager.disposed).toEqual([drawn[0].scene]);
+    expect(fluid.getActiveConfiguration(file)).toBe('Compact');
+  });
+
+  it('refuses a DXF from an engine that predates it, instead of handing over the mesh it wrote', async () => {
+    await renderTweakedCompact();
+    const live = manager.currentScene!;
+    // An engine without the drawing formats falls through to its STL writer.
+    manager.exportShapes = (() => ({ data: new Uint8Array([1, 2, 3]), fileName: 'export.stl' })) as any;
+    const res = await post(`${app.url}/api/export`, { format: 'dxf', plane: 'top', shapeIds: [`s${live.no}`] });
+    expect(res.status).toBe(422);
+    expect(res.body.error).toMatch(/engine cannot export DXF.*predates/);
+  });
+
+  it('draws another row as an SVG from its own scratch render, the page options with it', async () => {
+    await renderTweakedCompact();
+    const live = manager.currentScene!;
+    const drawn: { scene: number; shapeIds: string[]; options: Record<string, unknown> }[] = [];
+    manager.exportShapes = ((scene: FakeScene, shapeIds: string[], options: Record<string, unknown>) => {
+      drawn.push({ scene: scene.no, shapeIds, options });
+      return { data: '<svg xmlns="http://www.w3.org/2000/svg"/>', fileName: 'export-front.svg' };
+    }) as any;
+
+    const res = await post(`${app.url}/api/export`, {
+      format: 'svg', plane: 'xz', tangentEdges: true, strokeWidth: 0.35, shapeIds: 'all', configuration: 'Wide',
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('image/svg+xml');
+    expect(res.headers.get('content-disposition')).toContain('filename="export-front.svg"');
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0].scene).not.toBe(live.no);
+    expect(drawn[0].shapeIds).toEqual([`s${drawn[0].scene}`]);
+    expect(drawn[0].options).toEqual({ format: 'svg', plane: 'xz', tangentEdges: true, svg: { strokeWidth: 0.35 } });
+    expect(manager.disposed).toEqual([drawn[0].scene]);
+    expect(fluid.getActiveConfiguration(file)).toBe('Compact');
+  });
+
+  it('refuses an SVG from an engine that predates it, whatever other file it wrote', async () => {
+    await renderTweakedCompact();
+    const live = manager.currentScene!;
+    // An engine without any drawing format falls through to its STL writer;
+    // one that only knows DXF must not have its answer passed off either.
+    for (const fileName of ['export.stl', 'export-top.dxf']) {
+      manager.exportShapes = (() => ({ data: new Uint8Array([1, 2, 3]), fileName })) as any;
+      const res = await post(`${app.url}/api/export`, { format: 'svg', plane: 'top', shapeIds: [`s${live.no}`] });
+      expect(res.status).toBe(422);
+      expect(res.body.error).toMatch(/engine cannot export SVG.*predates/);
+    }
+  });
+
+  it('exports an assembly of another row where the engine solves that row, never at the viewer\'s poses', async () => {
     await renderTweakedCompact();
     const res = await post(`${app.url}/api/export`, {
       format: 'step',
@@ -307,7 +377,7 @@ describe('POST /api/export with a configuration', () => {
     expect(res.status).toBe(200);
     expect(manager.assemblies).toHaveLength(1);
     expect(manager.assemblies[0].livePoses).toBeUndefined();
-    expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('statement');
+    expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('solved');
     expect(manager.disposed).toEqual([manager.assemblies[0].scene]);
   });
 });

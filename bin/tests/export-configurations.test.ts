@@ -29,7 +29,7 @@ describe('parseConfigurationOptions', () => {
     expect(() => parseConfigurationOptions({ configuration: '  ' })).toThrow(/needs a configuration name/);
     expect(() => parseConfigurationOptions({ configuration: 'Wide', allConfigurations: true })).toThrow(/not both/);
     expect(() => parseConfigurationOptions({ allConfigurations: true, listShapes: true })).toThrow(/list-shapes/);
-    expect(() => parseConfigurationOptions({ allConfigurations: true }, { allowAll: false })).toThrow(/STEP and STL only/);
+    expect(() => parseConfigurationOptions({ allConfigurations: true }, { allowAll: false })).toThrow(/STEP, STL, DXF and SVG only/);
     expect(parseConfigurationOptions({ configuration: 'Wide' }, { allowAll: false })).toEqual({ kind: 'one', name: 'Wide' });
   });
 });
@@ -68,6 +68,17 @@ describe('allConfigurationTargets', () => {
     ]);
     expect(allConfigurationTargets(['Wide'], { outOption: '/exports/rack', modelName: 'frame', extension: '.stl' })[1].outPath)
       .toBe('/exports/rack-Wide.stl');
+  });
+
+  it('closes a default name with the suffix after the row — a drawing\'s view — and leaves a -o name alone', () => {
+    expect(allConfigurationTargets(['M8', 'Default'], { modelName: 'plate', extension: '.dxf', suffix: '-top', cwd: '/o' })).toEqual([
+      { configuration: 'Default', outPath: '/o/plate-top.dxf' },
+      { configuration: 'M8', outPath: '/o/plate-M8-top.dxf' },
+    ]);
+    expect(allConfigurationTargets(['M8'], { outOption: '/exports/sheet.dxf', modelName: 'plate', extension: '.dxf', suffix: '-top' })).toEqual([
+      { configuration: 'Default', outPath: '/exports/sheet.dxf' },
+      { configuration: 'M8', outPath: '/exports/sheet-M8.dxf' },
+    ]);
   });
 
   it('never lets two rows share a file', () => {
@@ -114,6 +125,15 @@ describe('collectConfigurationExports', () => {
       ['/o/plate-Plain.step', 'Plain'],
       ['/o/plate-WithBoss.step', 'WithBoss'],
     ]);
+  });
+
+  it('keeps each row\'s response headers with its file, for the warnings they carry', async () => {
+    const files = await collectConfigurationExports(
+      targets.slice(0, 1),
+      async () => ({ ok: true, buffer: Buffer.from('x'), headers: new Headers({ 'x-fluidcad-export-warnings': '%5B%22w%22%5D' }) }),
+      () => 'unused',
+    );
+    expect(files[0].headers.get('x-fluidcad-export-warnings')).toBe('%5B%22w%22%5D');
   });
 
   it('stops at a row that fails, naming it, and hands back nothing', async () => {

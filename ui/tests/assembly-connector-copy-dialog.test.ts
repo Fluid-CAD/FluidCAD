@@ -21,7 +21,7 @@ vi.mock('../src/api', async (importOriginal) => ({
 import { Group, PerspectiveCamera, Scene } from 'three';
 import * as api from '../src/api';
 import { AssemblyConnectorCopyService } from '../src/interactive/assembly-connector-copy/copy-service';
-import { WORLD_BODY_ID } from '../src/solver';
+import { WORLD_BODY_ID } from '../../lib/assembly-solver/index.js';
 import type { SerializedAssembly, SerializedAssemblyConnector } from '../src/types';
 import type { Viewer } from '../src/viewer';
 

@@ -2,7 +2,7 @@ import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import type { Viewer } from '../../viewer';
 import type { SerializedAssemblyInstance } from '../../types';
 import type { AssemblyController } from '../../scene/assembly-controller';
-import type { BodyFreedom } from '../../solver';
+import type { BodyFreedom } from '../../../../lib/assembly-solver/index.js';
 import { resolveExpressionValue, type VariableInfo } from '../../ui/expression-core';
 import { isEditableTarget } from '../../editable-target';
 import { AssemblyPoseWrites } from '../../scene/assembly-pose-writes';

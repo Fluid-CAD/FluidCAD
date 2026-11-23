@@ -254,7 +254,14 @@ export type {
   InterferenceRequest, InterferencePose, InterferenceBody, InterferencePair, InterferenceFailure,
   SceneInterferenceReport, SceneInterferenceRefusalCode, SceneInterferenceOutcome,
 } from './validation/scene-interference.js';
-export type { AssemblyExportPose } from './io/assembly-export/index.js';
+export type { AssemblyExportPose, AssemblyExportPosesSource } from './io/assembly-export/index.js';
+export type { ExportOptions, ExportResult, SolidExportOptions, DrawingExportOptions } from './io/file-export.js';
+export { STANDARD_PLANES, isStandardPlane, standardPlaneView } from './math/plane.js';
+export type { StandardPlane, StandardView } from './math/plane.js';
+export type {
+  AssemblySolution, AssemblyInstancePose, AssemblyMateState, AssemblyMateStatus, AssemblyRelationState,
+  AssemblyRelationStatus,
+} from './rendering/assembly-solution.js';
 export { getSceneManager } from './scene-manager.js';
 export { describeOcException } from './oc/errors.js';
 export { KernelTraps } from './oc/kernel-traps.js';

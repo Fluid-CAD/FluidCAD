@@ -1,5 +1,6 @@
 import { ChatIcons } from '../chat-icons';
 import type { ApprovalDecision, ChatPart, ToolPart } from '../chat-types';
+import { ChangePreviewView } from './change-preview';
 import type { PartContext, PartView } from './part-view';
 
 /** The longest input summary shown on the card's line. */
@@ -133,6 +134,11 @@ const STATE_TEXT: Record<ToolPart['state'], string> = {
  * answered, an allowed call keeps one quiet line saying so; a declined,
  * stopped or timed-out one says why on its error line.
  *
+ * **What the change does to the model (§25).** A change to a model file that
+ * waits also shows its before and after ({@link ChangePreviewView}), above
+ * the diff: it fills in while the buttons already work. Once answered it is
+ * kept with the card's details.
+ *
  * **Dirty buffer (§12.2).** A write refused because the file has unsaved
  * changes in the editor (`errorCode: 'dirty-buffer'`) shows as a card naming
  * the file, with Show in editor when the page has one.
@@ -155,6 +161,8 @@ export class ToolPartView implements PartView {
   private part: ToolPart;
   /** The answer this card sent and the engine has not settled yet (its buttons wait). */
   private deciding: ApprovalDecision | null = null;
+  /** The before and after of the change, when the call has one (§25). */
+  private readonly preview: ChangePreviewView;
 
   constructor(part: ToolPart, private readonly ctx: PartContext) {
     this.part = part;
@@ -187,6 +195,7 @@ export class ToolPartView implements PartView {
     this.images = div('chat-tool-images', 'images');
     this.errorLine = div('chat-tool-error', 'error');
     this.details = div('chat-tool-details', 'details');
+    this.preview = new ChangePreviewView(part, ctx);
     this.el.append(this.header, this.approval, this.dirty, this.outcome, this.images, this.errorLine, this.details);
     this.paint();
   }
@@ -194,8 +203,18 @@ export class ToolPartView implements PartView {
   update(part: ChatPart): void {
     if (part.type === 'tool') {
       this.part = part;
+      this.preview.update(part);
       this.paint();
     }
+  }
+
+  dispose(): void {
+    this.preview.dispose();
+  }
+
+  /** Takes what this card drew in the viewport (the change, shown over the model) back out. */
+  hideGhost(): void {
+    this.preview.hideGhost();
   }
 
   private paint(): void {
@@ -251,6 +270,10 @@ export class ToolPartView implements PartView {
         );
       }
       return;
+    }
+    // The shape first, then the patch: what the change does to the model, when the engine can say.
+    if (this.preview.shown) {
+      this.approval.append(this.preview.el);
     }
     if (part.diff) {
       this.approval.append(diffView(part.diff));
@@ -421,8 +444,13 @@ export class ToolPartView implements PartView {
     name.className = 'chat-tool-name';
     name.textContent = part.source === 'agent' ? `${part.name} (the agent's own tool)` : part.name;
     this.details.append(name);
+    // While the call waits, the change shows above the buttons already. Once
+    // answered, what it did to the model comes first: the input of a write
+    // is the whole file.
+    if (this.preview.shown && part.state !== 'awaiting-approval') {
+      this.details.append(previewSection(this.preview.el));
+    }
     this.details.append(section('Input', formatInput(part.input)));
-    // While the call waits, the change shows above the buttons already.
     if (part.diff && part.state !== 'awaiting-approval') {
       this.details.append(diffSection(part.diff));
     }
@@ -582,6 +610,17 @@ export function dirtyAbsPath(part: ToolPart): string | null {
   }
   const input = part.input as { path?: unknown } | null;
   return typeof input?.path === 'string' && /^([A-Za-z]:)?[\\/]/.test(input.path) ? input.path : null;
+}
+
+/** What the change did to the model, in the details, under its label. */
+function previewSection(preview: HTMLElement): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-tool-section';
+  const heading = document.createElement('div');
+  heading.className = 'chat-tool-section-label';
+  heading.textContent = 'Before and after';
+  wrap.append(heading, preview);
+  return wrap;
 }
 
 /** A unified diff in the details, under its label. */

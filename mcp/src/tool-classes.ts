@@ -46,6 +46,9 @@ export const TOOL_CLASSES: Readonly<Record<string, McpToolClass>> = {
   interfere: 'read-scene',
   measure: 'read-scene',
   hit_test: 'read-scene',
+  // Builds a candidate in a throwaway scene and reads that: the rendered
+  // scene, the session and the files stay as they are.
+  try_build: 'read-scene',
 
   screenshot: 'read-view',
   screenshot_multi: 'read-view',

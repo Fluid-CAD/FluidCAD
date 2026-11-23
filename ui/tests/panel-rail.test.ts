@@ -61,6 +61,17 @@ describe('panel rail', () => {
       .toEqual(['Feature tree', 'Code editor']);
   });
 
+  it('puts the bug report at the foot of the bar, apart from the surfaces', () => {
+    let open = false;
+    const h = mount({ onToggleBugReport: () => { open = !open; }, isBugReportOpen: () => open });
+    expect(h.buttons().map((b) => b.getAttribute('aria-label')))
+      .toEqual(['Feature tree', 'Code editor', 'Report a bug']);
+    const bug = h.button('Report a bug');
+    expect(bug.parentElement!.classList.contains('mt-auto')).toBe(true);
+    bug.click();
+    expect(bug.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('drops the editor button on a host that has no editor', () => {
     const h = mount({ onToggleEditor: undefined, isEditorOpen: undefined });
     expect(h.buttons().map((b) => b.getAttribute('aria-label'))).toEqual(['Feature tree']);

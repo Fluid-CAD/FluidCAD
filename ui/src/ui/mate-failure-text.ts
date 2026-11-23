@@ -1,7 +1,7 @@
 // Human-readable misclosure for a failing mate, shown on the joints
 // panel's inconsistent rows.
 
-import type { MateFailure } from '../solver';
+import type { MateFailure } from '../../../lib/assembly-solver/index.js';
 import { formatLength, type LengthUnit } from '../units/units';
 
 /** Gaps under this (document units) are noise next to the tilt term. */

@@ -86,14 +86,19 @@ and `repeat()` refuses connectors. See [[api/connector]] and [[api/copy]].
    copy of the plate's `hole` connector (the dialog's *Suggest copies* fills
    them).
 
-Mates are solved in the viewer, live. The server's render places parts
-where the source puts them; the mated layout is what the viewport shows and
-what the viewer's Export writes. `get_scene_summary` lists every instance
-under `instances` with that statement pose, the one `interfere`, `measure`
-and `resolve_selection` use; no tool reports the solved pose. Its `mates`
-and `relations` list the joints as written — type, name, both sides by
-instance and connector, flip / rotate / offset / limits, the coupled mates
-— with no solve status ([[concepts/scene-graph]]).
+Mates are solved twice, by the same solver. The viewer solves them live, on
+every drag. The engine solves them once per render, starting each part
+where the source puts it: the rest configuration, which is what the
+viewport shows when the file opens. `get_scene_summary` lists every
+instance under `instances` with that solved pose — the one `interfere`,
+`measure`, `resolve_selection` and an export use — and reports the solve
+under `solve` (`status`, `dof`). Its `mates` and `relations` list the
+joints as written — type, name, both sides by instance and connector, flip
+/ rotate / offset / limits, the coupled mates — each with how the solve
+left it: `status`, a revolute's or slider's `value`, a failed mate's `gap`
+([[concepts/scene-graph]]). What no tool reports is where a user has since
+dragged a part of a mechanism with free motion: that lives in their viewer,
+and in a screenshot of it.
 
 ## Sub-assemblies and connectors
 

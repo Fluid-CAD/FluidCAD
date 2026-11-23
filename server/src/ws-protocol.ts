@@ -62,23 +62,42 @@ export type ExportInstancePose = {
   quaternion: { x: number; y: number; z: number; w: number };
 };
 
+/**
+ * Where an assembly export's instance poses came from: `live` — the poses
+ * the request handed in (a viewer's, after drags and mate drives); `solved`
+ * — the engine's own mate solve from the statement poses; `statement` — the
+ * `insert()` chains alone, on an engine that predates that solve or when it
+ * could not run.
+ */
+export type ExportPosesSource = 'live' | 'solved' | 'statement';
+
 export type ExportSceneMessage = {
   type: 'export-scene';
   /** Solids to export — or omit it and pass `assembly` for the whole assembly. */
   shapeIds?: string[];
   /**
    * Export the whole assembly. `poses` are optional live placements (one per
-   * instance); without them the statement poses are written.
+   * instance); without them every instance goes where the engine's own mate
+   * solve puts it.
    */
   assembly?: { poses?: ExportInstancePose[] };
   options: {
-    format: 'step' | 'stl';
+    /** `dxf` and `svg` draw the solids' view on `plane` instead of writing them; they take no assembly. */
+    format: 'step' | 'stl' | 'dxf' | 'svg';
     includeColors?: boolean;
     resolution?: string;
     customLinearDeflection?: number;
     customAngularDeflectionDeg?: number;
     /** STL only: scale the mesh into mm (default) or keep document units. */
     scaleTo?: 'mm' | 'document';
+    /** DXF, SVG: the standard plane the view is drawn on (`top`, `front`, `xy`, `-xz` …). Required for them. */
+    plane?: string;
+    /** DXF, SVG: draw the edges behind the model too, on their own dashed layer. */
+    hiddenLines?: boolean;
+    /** DXF, SVG: draw smooth (tangent) edges, on their own layer. */
+    tangentEdges?: boolean;
+    /** SVG only: the page — visible stroke width and margin, in millimetres on paper (0.25 and 5 by default). */
+    svg?: { strokeWidth?: number; margin?: number };
   };
 };
 
@@ -335,8 +354,10 @@ export type ExportCompleteMessage = {
   data?: string;
   fileName?: string;
   error?: string;
-  /** Assembly exports: whether live or statement poses were written. */
-  posesSource?: 'live' | 'statement';
+  /** Assembly exports: where the instance poses written came from. */
+  posesSource?: ExportPosesSource;
+  /** What the user should be told about the file — a drawing whose curves had to be approximated. */
+  warnings?: string[];
 };
 
 export type AddBreakpointMessage = {

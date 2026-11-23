@@ -19,12 +19,19 @@ import {
   needsApproval,
   toolClass,
   toolKind,
+  toolTitle,
   type GateTimers,
   type ToolGateHost,
 } from '../src/tool-gate.ts';
 import type { Checkpoint } from '../src/session-store.ts';
 import { applyChatEvent } from '../src/transcript.ts';
-import type { ChatEvent, ChatMessage, PermissionMode, ToolPart } from '../src/types.ts';
+import { QUESTION_SKIPPED_NOTE, QUESTION_STOPPED_MESSAGE, QUESTION_TIMED_OUT_MESSAGE, readPick, readQuestionReply, readSvg } from '../src/questions.ts';
+import { formatSceneReferences } from '../src/instructions.ts';
+import { NO_MODEL_TO_SHOW_MESSAGE } from '../src/show.ts';
+import { VARIANTS_ANSWERED_NOTE, VARIANTS_SKIPPED_NOTE, VARIANTS_STOPPED_MESSAGE, VARIANTS_TIMED_OUT_MESSAGE, readVariants, readVariantsReply } from '../src/variants.ts';
+import { findPart } from '../src/transcript.ts';
+import type { ModelParam } from '../src/param-cards.ts';
+import type { ChangePreview, ChatEvent, ChatMessage, ChatPart, ParamsPart, PermissionMode, QuestionItem, QuestionPart, SceneReference, ShowPart, ToolPart, VariantTile, VariantsPart } from '../src/types.ts';
 
 // A stand-in for the engine the pinned server talks to: write_file and
 // edit_range ask it for dirty buffers, a lint and a render. Only the dirty
@@ -35,6 +42,25 @@ let dirtyFiles: string[] = [];
 /** What the engine's `POST /api/hub/install` does; null answers 404 like any other route. */
 let hubInstall: ((body: any) => { status: number; json: unknown }) | null = null;
 let hubInstalls: any[] = [];
+/**
+ * What the engine's `POST /api/scratch-build` answers for a candidate text
+ * (propose_variants); null answers 404 like any other route. A promise holds
+ * the build until the test lets it end.
+ */
+let scratchBuild: ((source: string) => unknown | Promise<unknown>) | null = null;
+let scratchBuilds: { file: string; source: string; reuse?: boolean }[] = [];
+/**
+ * What the engine's `POST /api/scratch-build/cost` answers for a candidate
+ * text (the preview of a change waiting for approval); null answers 404, an
+ * engine without it.
+ */
+let scratchCost: ((source: string) => unknown | Promise<unknown>) | null = null;
+let scratchCosts: string[] = [];
+/** What the engine's lint says of a candidate text; null answers 404 (the tools then carry on). */
+let lint: ((code: string) => unknown) | null = null;
+/** What the engine's `POST /api/resolve-selection` answers (show_user); null answers 404 like any other route. */
+let resolveSelection: ((body: any) => { status: number; json: unknown } | Promise<{ status: number; json: unknown }>) | null = null;
+let resolveSelections: any[] = [];
 let workspace: string;
 let pinned: RegistryEntry;
 
@@ -43,7 +69,46 @@ beforeEach(async () => {
   dirtyFiles = [];
   hubInstall = null;
   hubInstalls = [];
+  scratchBuild = null;
+  scratchBuilds = [];
+  scratchCost = null;
+  scratchCosts = [];
+  lint = null;
+  resolveSelection = null;
+  resolveSelections = [];
   engine = http.createServer((req, res) => {
+    if (req.url === '/api/resolve-selection' && resolveSelection) {
+      const chunks: Buffer[] = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', async () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        resolveSelections.push(body);
+        const answer = await resolveSelection!(body);
+        res.writeHead(answer.status, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(answer.json));
+      });
+      return;
+    }
+    if ((req.url === '/api/scratch-build' && scratchBuild) || (req.url === '/api/scratch-build/cost' && scratchCost) || (req.url === '/api/lint-fluid-js' && lint)) {
+      const chunks: Buffer[] = [];
+      req.on('data', (c) => chunks.push(c));
+      req.on('end', async () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        let answer: unknown;
+        if (req.url === '/api/scratch-build') {
+          scratchBuilds.push({ file: body.file, source: body.source, ...(body.reuse !== undefined ? { reuse: body.reuse } : {}) });
+          answer = await scratchBuild!(body.source);
+        } else if (req.url === '/api/scratch-build/cost') {
+          scratchCosts.push(body.source);
+          answer = await scratchCost!(body.source);
+        } else {
+          answer = lint!(body.code);
+        }
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(answer));
+      });
+      return;
+    }
     if (req.url === '/api/editor/dirty-files') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(dirtyFiles.map((p) => ({ path: p, lastModifiedMs: 0 }))));
@@ -88,10 +153,14 @@ class FakeHost implements ToolGateHost {
   readonly events: ChatEvent[] = [];
   readonly messages: ChatMessage[] = [];
   readonly approvalChanges: string[][] = [];
+  readonly questionChanges: string[][] = [];
   /** turnId → path → checkpoint, as the session keeps them on disk. */
   readonly checkpoints = new Map<string, Map<string, Checkpoint>>();
   turn: { turnId: string; mode: PermissionMode } | null = { turnId: 't1', mode: 'ask' };
   persisted = 0;
+  /** The model on screen (workspace-relative; null: none) and what its last render declared. */
+  modelFile: string | null = null;
+  modelParams: ModelParam[] = [];
   private messageId: string | null = null;
 
   get workspacePath(): string {
@@ -114,6 +183,9 @@ class FakeHost implements ToolGateHost {
     this.events.push(event);
     applyChatEvent(this.messages, event);
   }
+  part(messageId: string, partId: string): ChatPart | undefined {
+    return findPart(this.messages, messageId, partId);
+  }
   saveImage(): string {
     return 'img.png';
   }
@@ -122,6 +194,9 @@ class FakeHost implements ToolGateHost {
   }
   approvalsChanged(_turnId: string, ids: string[]): void {
     this.approvalChanges.push(ids);
+  }
+  questionsChanged(_turnId: string, ids: string[]): void {
+    this.questionChanges.push(ids);
   }
   checkpoint(turnId: string, checkpoint: Checkpoint): boolean {
     const files = this.checkpoints.get(turnId) ?? new Map<string, Checkpoint>();
@@ -135,8 +210,45 @@ class FakeHost implements ToolGateHost {
   dropCheckpoint(turnId: string, filePath: string): void {
     this.checkpoints.get(turnId)?.delete(filePath);
   }
+  model() {
+    return { file: this.modelFile === null ? null : path.join(workspace, this.modelFile), params: this.modelParams };
+  }
+  paramCards(): ParamsPart[] {
+    return (this.messages[0]?.parts ?? []).filter((p): p is ParamsPart => p.type === 'params');
+  }
+  showCards(): ShowPart[] {
+    return (this.messages[0]?.parts ?? []).filter((p): p is ShowPart => p.type === 'show');
+  }
   tools(): ToolPart[] {
     return (this.messages[0]?.parts ?? []).filter((p): p is ToolPart => p.type === 'tool');
+  }
+  questions(): QuestionPart[] {
+    return (this.messages[0]?.parts ?? []).filter((p): p is QuestionPart => p.type === 'question');
+  }
+  variants(): VariantsPart[] {
+    return (this.messages[0]?.parts ?? []).filter((p): p is VariantsPart => p.type === 'variants');
+  }
+  /** The variants card once it is in `state`. */
+  async variantsIn(state: VariantsPart['state'], index = 0): Promise<VariantsPart> {
+    for (let i = 0; i < 400; i++) {
+      const part = this.variants()[index];
+      if (part?.state === state) {
+        return part;
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`no variants card is ${state}: ${JSON.stringify(this.variants())}`);
+  }
+  /** The id of the question waiting for the user, once it waits. */
+  async asking(index = 0): Promise<string> {
+    for (let i = 0; i < 400; i++) {
+      const part = this.questions()[index];
+      if (part?.state === 'awaiting-answer') {
+        return part.id;
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`no question is waiting: ${JSON.stringify(this.questions())}`);
   }
   /** The approval id of the call waiting for the user, once it waits. */
   async waiting(index = 0): Promise<string> {
@@ -173,8 +285,16 @@ class ManualTimers implements GateTimers {
 
 const clients: Client[] = [];
 
-async function connect(gate: ToolGate): Promise<Client> {
-  const server = buildServer({ pinnedWorkspace: pinned, toolGate: gate });
+async function connect(gate: ToolGate, options: { ask?: boolean; variants?: boolean; params?: boolean; show?: boolean } = {}): Promise<Client> {
+  const server = buildServer({
+    pinnedWorkspace: pinned,
+    toolGate: gate,
+    // As a chat session's endpoint builds it (mcp-endpoint.ts).
+    ...(options.ask ? { askUser: (input, signal) => gate.ask(input, signal) } : {}),
+    ...(options.variants ? { proposeVariants: (input, signal) => gate.propose(input, signal) } : {}),
+    ...(options.params ? { offerParams: (input) => gate.offer(input) } : {}),
+    ...(options.show ? { showUser: (input) => gate.show(input) } : {}),
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const client = new Client({ name: 'gate-test', version: '0.0.0' });
@@ -208,6 +328,13 @@ describe('ToolGate classification', () => {
     expect(toolKind('read_package_file')).toBe('read');
     expect(toolKind('install_package')).toBe('outside');
     expect(toolKind('not_a_tool')).toBe('other');
+  });
+
+  it('lets a scratch build through as a read, under a title naming the file', () => {
+    expect(toolKind('try_build')).toBe('read');
+    expect([needsApproval('try_build', 'ask'), needsApproval('try_build', 'auto-edits')]).toEqual([false, false]);
+    expect(toolTitle('try_build', { path: '/ws/parts/plate.part.js', content: '…' }, '/ws')).toBe('Try a build of parts/plate.part.js');
+    expect(toolTitle('try_build', {}, '/ws')).toBe('Try a build');
   });
 
   it('asks per class and permission mode (§12.1), for every tool', () => {
@@ -696,5 +823,1565 @@ describe('ToolGate: checkpoints and refusals', () => {
     const plain = await client.callTool({ name: 'write_file', arguments: { path: 'bracket.fluid.js', content: 'v5\n', force: false } });
     expect(plain.isError).not.toBe(true);
     expect(read('bracket.fluid.js')).toBe('v5\n');
+  });
+});
+
+describe('ToolGate: questions (ask_user, §22)', () => {
+  const THREAD = {
+    question: 'Which thread should the holes take?',
+    options: [{ label: 'M4', description: 'Fits the standoffs.' }, { label: 'M5' }],
+  };
+  const FACES = { question: 'Which faces get a chamfer?', options: [{ label: 'Top' }, { label: 'Bottom' }, { label: 'Sides' }], multiSelect: true };
+  const WALL = { question: 'How thick should the wall be?' };
+
+  it('is offered by a chat session\'s server only, as a read-only tool outside the class table', async () => {
+    const plain = await connect(new ToolGate(new FakeHost()));
+    expect((await plain.listTools()).tools.map((t) => t.name)).not.toContain('ask_user');
+    const asking = await connect(new ToolGate(new FakeHost()), { ask: true });
+    const tool = (await asking.listTools()).tools.find((t) => t.name === 'ask_user')!;
+    expect(tool.annotations).toEqual({ readOnlyHint: true });
+    expect(toolClass('ask_user')).toBeUndefined();
+    expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['questions']);
+  });
+
+  it('shows the questions as one card, waits, and returns what the user answered', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { ask: true });
+    const call = client.callTool({ name: 'ask_user', arguments: { questions: [THREAD, FACES, WALL] } });
+    const id = await host.asking();
+    expect(host.questions()[0]).toEqual({
+      type: 'question',
+      id,
+      state: 'awaiting-answer',
+      questions: [THREAD, FACES, WALL],
+    });
+    // A card of its own, not a tool card; nothing to approve.
+    expect(host.tools()).toEqual([]);
+    expect(host.approvalChanges).toEqual([]);
+    expect(host.questionChanges).toEqual([[id]]);
+    expect(gate.pendingQuestionIds('t1')).toEqual([id]);
+    const saved = host.persisted;
+    expect(saved).toBeGreaterThan(0);
+
+    expect(gate.answer(id, { answers: [{ selected: ['M4'] }, { selected: ['Sides', 'Top'], text: ' outer edges only ' }, { selected: [] }] })).toEqual({ result: 'ok' });
+    const result = await call;
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toEqual({
+      answers: [
+        { question: THREAD.question, selected: ['M4'] },
+        { question: FACES.question, selected: ['Sides', 'Top'], text: 'outer edges only' },
+        { question: WALL.question, skipped: true },
+      ],
+    });
+    expect(host.questions()[0]).toMatchObject({
+      state: 'answered',
+      answers: [{ selected: ['M4'] }, { selected: ['Sides', 'Top'], text: 'outer edges only' }, { selected: [] }],
+    });
+    expect(host.questionChanges).toEqual([[id], []]);
+    expect(gate.pendingQuestionIds()).toEqual([]);
+    expect(host.persisted).toBeGreaterThan(saved);
+    // The first answer won: a second (another tab) finds nothing waiting.
+    expect(gate.answer(id, { skip: true })).toEqual({ result: 'not-found' });
+  });
+
+  it('a skip tells the model to decide for itself', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { ask: true });
+    const call = client.callTool({ name: 'ask_user', arguments: { questions: [THREAD] } });
+    expect(gate.answer(await host.asking(), { skip: true })).toEqual({ result: 'ok' });
+    const result = await call;
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toEqual({ skipped: true, note: QUESTION_SKIPPED_NOTE });
+    expect(host.questions()[0].state).toBe('skipped');
+  });
+
+  it('refuses a reply that does not fit the questions, and keeps waiting', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const pending = gate.ask({ questions: [THREAD, WALL] }, new AbortController().signal);
+    const id = await host.asking();
+    const refused = [
+      {},
+      { answers: [{ selected: ['M4'] }] },
+      { answers: [{ selected: ['M6'] }, { selected: [] }] },
+      { answers: [{ selected: ['M4', 'M5'] }, { selected: [] }] },
+      { answers: [{ selected: [] }, { selected: ['M4'] }] },
+      { answers: [{ selected: 'M4' }, { selected: [] }] },
+      { answers: [{ selected: [], text: 7 }, { selected: [] }] },
+      { answers: [{ selected: [], text: 'x'.repeat(2001) }, { selected: [] }] },
+      { answers: [{ selected: [] }, { selected: [], text: '   ' }] },
+    ];
+    for (const body of refused) {
+      expect(gate.answer(id, body).result, JSON.stringify(body).slice(0, 80)).toBe('invalid');
+    }
+    expect(host.questions()[0].state).toBe('awaiting-answer');
+    expect(gate.answer(id, { answers: [{}, { text: '2 mm' }] })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await pending))).toEqual({
+      answers: [{ question: THREAD.question, skipped: true }, { question: WALL.question, text: '2 mm' }],
+    });
+  });
+
+  it('reads a reply: picks deduplicated, text trimmed, one option unless the question takes several', () => {
+    const questions: QuestionItem[] = [THREAD, FACES];
+    expect(readQuestionReply(questions, { answers: [{ selected: ['M5', 'M5'] }, { selected: ['Top', 'Bottom'], text: '' }] })).toEqual({
+      ok: true,
+      reply: { answers: [{ selected: ['M5'] }, { selected: ['Top', 'Bottom'] }] },
+    });
+    expect(readQuestionReply(questions, { skip: true, answers: 'ignored' })).toEqual({ ok: true, reply: { skip: true } });
+    expect(readQuestionReply(questions, null).ok).toBe(false);
+  });
+
+  it('refuses options one answer could not tell apart, and questions the schema does not allow', async () => {
+    const host = new FakeHost();
+    const client = await connect(new ToolGate(host), { ask: true });
+    const twins = await client.callTool({
+      name: 'ask_user',
+      arguments: { questions: [{ question: 'Which?', options: [{ label: 'Top' }, { label: ' Top ' }] }] },
+    });
+    expect(twins.isError).toBe(true);
+    expect(textOf(twins)).toContain('share the label "Top"');
+    for (const questions of [[], [THREAD, THREAD, THREAD, THREAD, THREAD], [{ question: 'One?', options: [{ label: 'only' }] }], [{ question: '  ' }]]) {
+      const result = await client.callTool({ name: 'ask_user', arguments: { questions } });
+      expect(result.isError, JSON.stringify(questions).slice(0, 60)).toBe(true);
+    }
+    expect(host.events).toEqual([]);
+  });
+
+  it('carries the drawings of a question and its options to the card, namespaced', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { ask: true });
+    const round = '<svg viewBox="0 0 120 90"><path d="M20 70 V40 A20 20 0 0 1 40 20 H100" fill="none" stroke="#222" stroke-width="2"/></svg>';
+    const square = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 90"><path d="M20 70 V20 H100" fill="none" stroke="#222" stroke-width="2"/></svg>';
+    const call = client.callTool({
+      name: 'ask_user',
+      arguments: {
+        questions: [{ question: 'Which corner?', svg: `  ${square}\n`, options: [{ label: 'Round', svg: round }, { label: 'Square', svg: square }, { label: 'Either' }] }],
+      },
+    });
+    const id = await host.asking();
+    expect(host.questions()[0].questions).toEqual([
+      {
+        question: 'Which corner?',
+        svg: square,
+        options: [
+          { label: 'Round', svg: round.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ') },
+          { label: 'Square', svg: square },
+          { label: 'Either' },
+        ],
+      },
+    ]);
+    expect(gate.answer(id, { answers: [{ selected: ['Round'] }] })).toEqual({ result: 'ok' });
+    // The drawings are for the user: the answer names the label only.
+    expect(JSON.parse(textOf(await call))).toEqual({ answers: [{ question: 'Which corner?', selected: ['Round'] }] });
+  });
+
+  it('reads a drawing: one svg element with a viewBox, given its namespace when it has none', () => {
+    const ns = 'xmlns="http://www.w3.org/2000/svg"';
+    expect(readSvg('<svg viewBox="0 0 10 10"/>').ok).toBe(false);
+    expect(readSvg('<svg viewBox="0 0 10 10"></svg>')).toEqual({ ok: true, svg: `<svg ${ns} viewBox="0 0 10 10"></svg>` });
+    expect(readSvg('<?xml version="1.0"?>\n<svg viewBox="0 0 10 10"></svg>')).toEqual({ ok: true, svg: `<svg ${ns} viewBox="0 0 10 10"></svg>` });
+    // A namespace of its own stays; `xmlns:xlink` alone is not one.
+    expect(readSvg(`<svg ${ns} viewBox="0 0 10 10"></svg>`)).toEqual({ ok: true, svg: `<svg ${ns} viewBox="0 0 10 10"></svg>` });
+    expect(readSvg('<svg xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"></svg>')).toMatchObject({
+      svg: `<svg ${ns} xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 10 10"></svg>`,
+    });
+    // The viewBox is the root's own: a `>` in an attribute does not end the tag, a nested svg's does not count.
+    expect(readSvg('<svg aria-label="a > b" viewBox="0 0 10 10"></svg>').ok).toBe(true);
+    expect(readSvg('<svg width="10" height="10"><svg viewBox="0 0 10 10"/></svg>')).toMatchObject({ ok: false, error: expect.stringContaining('viewBox') });
+    for (const bad of ['a circle', '```svg\n<svg viewBox="0 0 1 1"></svg>\n```', '<svg viewBox="0 0 1 1"></svg> or so', '<svgx viewBox="0 0 1 1"></svg>', '<div><svg viewBox="0 0 1 1"></svg></div>', '<svg viewBox="0 0 1 1"']) {
+      expect(readSvg(bad), bad).toMatchObject({ ok: false, error: expect.stringContaining('one `<svg …>…</svg>` element') });
+    }
+  });
+
+  it('refuses a drawing the card could not show, and says whose it is', async () => {
+    const host = new FakeHost();
+    const client = await connect(new ToolGate(host), { ask: true });
+    const ofOption = await client.callTool({
+      name: 'ask_user',
+      arguments: { questions: [{ question: 'Which corner?', options: [{ label: 'Round', svg: '<svg width="40" height="40"></svg>' }, { label: 'Square' }] }] },
+    });
+    expect(ofOption.isError).toBe(true);
+    expect(textOf(ofOption)).toBe('The `svg` of the option "Round" needs a `viewBox` (for example `viewBox="0 0 120 90"`), or it cannot be scaled to the card.');
+    const ofQuestion = await client.callTool({ name: 'ask_user', arguments: { questions: [{ question: 'How long?', svg: 'a bar with its length marked L' }] } });
+    expect(ofQuestion.isError).toBe(true);
+    expect(textOf(ofQuestion)).toContain('The `svg` of "How long?" must be one `<svg …>…</svg>` element');
+    expect(host.events).toEqual([]);
+  });
+
+  it('asks nothing outside a turn', async () => {
+    const host = new FakeHost();
+    host.turn = null;
+    const client = await connect(new ToolGate(host), { ask: true });
+    const result = await client.callTool({ name: 'ask_user', arguments: { questions: [WALL] } });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(NO_TURN_MESSAGE);
+    expect(host.events).toEqual([]);
+  });
+
+  it('ends unanswered when the turn is stopped or the engine shuts down', async () => {
+    for (const [reason, words] of [['stopped', 'Stopped before you answered.'], ['shutdown', 'The app closed before you answered.']] as const) {
+      const host = new FakeHost();
+      const gate = new ToolGate(host);
+      const pending = gate.ask({ questions: [WALL] }, new AbortController().signal);
+      const id = await host.asking();
+      host.turn = null;
+      gate.settleAll(reason);
+      const result = await pending;
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toBe(QUESTION_STOPPED_MESSAGE);
+      expect(host.questions()[0]).toMatchObject({ id, state: 'unanswered', reason: words });
+      expect(gate.pendingQuestionIds()).toEqual([]);
+    }
+  });
+
+  it('gives up when the client cancels the request, and after an hour with no answer', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const controller = new AbortController();
+    const cancelled = gate.ask({ questions: [WALL] }, controller.signal);
+    await host.asking();
+    controller.abort();
+    expect(textOf(await cancelled)).toBe(CANCELLED_MESSAGE);
+    expect(host.questions()[0]).toMatchObject({ state: 'unanswered', reason: 'Cancelled.' });
+
+    const late = new FakeHost();
+    const timers = new ManualTimers();
+    const slow = new ToolGate(late, { timers });
+    const timedOut = slow.ask({ questions: [WALL] }, new AbortController().signal);
+    await late.asking();
+    expect([...timers.scheduled.values()].map((t) => t.ms)).toEqual([60 * 60 * 1000]);
+    timers.fireAll();
+    const result = await timedOut;
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(QUESTION_TIMED_OUT_MESSAGE);
+    expect(late.questions()[0]).toMatchObject({ state: 'unanswered', reason: 'Not answered within an hour.' });
+    expect(slow.pendingQuestionIds()).toEqual([]);
+  });
+
+  it('clears the timer when the user answers', async () => {
+    const host = new FakeHost();
+    const timers = new ManualTimers();
+    const gate = new ToolGate(host, { timers });
+    const pending = gate.ask({ questions: [WALL] }, new AbortController().signal);
+    gate.answer(await host.asking(), { answers: [{ text: '3' }] });
+    await pending;
+    expect(timers.scheduled.size).toBe(0);
+  });
+});
+
+describe('ToolGate: picked answers (ask_user `pick`, §27)', () => {
+  const MOUNT = { question: 'Which face is the mounting face?', pick: { kind: 'face' as const } };
+  const RIM = { question: 'Which edges get the fillet?', pick: { kind: 'edge' as const, multiple: true } };
+  const WALL = { question: 'How thick should the wall be?' };
+
+  /** A reference as the page builds one from `api/resolve-selection` (ui/src/ui/chat/scene-references.ts). */
+  const reference = (over: Partial<SceneReference> = {}): SceneReference => ({
+    n: 1,
+    color: { name: 'red', hex: '#e5484d' },
+    kind: 'face',
+    count: 1,
+    file: '/ws/bracket.fluid.js',
+    selector: {
+      source: 'select(face().onPlane(e.endFaces()))',
+      producers: [{ variable: 'e', feature: 'Extrude 2', featureType: 'extrude', line: 12, bound: false }],
+      imports: ['select', 'face'],
+      alternatives: ["select(face().farthest('z'))"],
+    },
+    geometry: [{ form: 'plane', center: [20, 12.5, 30], normal: [0, 0, 1], area: 1000 }],
+    unit: 'mm',
+    ...over,
+  });
+  const RIM_EDGES = reference({
+    n: 2,
+    color: { name: 'blue', hex: '#2f6ff0' },
+    kind: 'edge',
+    count: 4,
+    selector: { source: 'e.endEdges()', producers: [{ variable: 'e', feature: 'Extrude 2', featureType: 'extrude', line: 12, bound: true }], imports: [], alternatives: [] },
+    geometry: [40, 40, 25, 25].map((length) => ({ form: 'line', center: [0, 0, 30], length })),
+  });
+
+  it('carries a pick question to the card, and refuses one that also offers options', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { ask: true });
+    const both = await client.callTool({
+      name: 'ask_user',
+      arguments: { questions: [{ question: 'Which face?', options: [{ label: 'Top' }, { label: 'Bottom' }], pick: { kind: 'face' } }] },
+    });
+    expect(both.isError).toBe(true);
+    expect(textOf(both)).toContain('has both `options` and `pick`');
+    expect(host.events).toEqual([]);
+
+    const call = client.callTool({ name: 'ask_user', arguments: { questions: [MOUNT, { ...RIM, pick: { kind: 'edge', multiple: true } }, { question: 'Either?', pick: { kind: 'any', multiple: false } }] } });
+    const id = await host.asking();
+    // `multiple: false` is the default: the card is told only when a question takes several.
+    expect(host.questions()[0].questions).toEqual([MOUNT, RIM, { question: 'Either?', pick: { kind: 'any' } }]);
+    gate.answer(id, { skip: true });
+    await call;
+  });
+
+  it('returns what the user picked in the words of a scene reference, and keeps it on the card', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const pending = gate.ask({ questions: [MOUNT, RIM, WALL] }, new AbortController().signal);
+    const id = await host.asking();
+    const face = reference();
+    expect(gate.answer(id, { answers: [{ picks: [{ ...face, shapeId: 'leaked', extra: 1 }] }, { picks: [RIM_EDGES], text: ' the top rim ' }, {}] })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await pending))).toEqual({
+      answers: [
+        {
+          question: MOUNT.question,
+          picks: [
+            {
+              n: 1,
+              color: 'red',
+              kind: 'face',
+              count: 1,
+              file: '/ws/bracket.fluid.js',
+              unit: 'mm',
+              selector: 'select(face().onPlane(e.endFaces()))',
+              imports: ['select', 'face'],
+              // Word for word the lines of a `<ref>` in `<scene_references>`.
+              producers: ['e: Extrude 2 (extrude), line 12 — not bound: add `const e = ` to that statement first'],
+              alternatives: ["select(face().farthest('z'))"],
+              geometry: 'plane, area 1000, center [20, 12.5, 30], normal [0, 0, 1]',
+            },
+          ],
+        },
+        {
+          question: RIM.question,
+          picks: [
+            {
+              n: 2,
+              color: 'blue',
+              kind: 'edge',
+              count: 4,
+              file: '/ws/bracket.fluid.js',
+              unit: 'mm',
+              selector: 'e.endEdges()',
+              producers: ['e: `const e = …` — Extrude 2 (extrude), line 12'],
+              geometry: '4 lines, length 40 / 40 / 25 / 25',
+            },
+          ],
+          text: 'the top rim',
+        },
+        { question: WALL.question, skipped: true },
+      ],
+    });
+    // The card keeps the references themselves, and nothing else the page sent with them.
+    expect(host.questions()[0]).toMatchObject({ state: 'answered', answers: [{ selected: [], picks: [face] }, { selected: [], picks: [RIM_EDGES], text: 'the top rim' }, { selected: [] }] });
+    // The same words as the block a user message carries.
+    const block = formatSceneReferences([face])!;
+    expect(block).toContain('    selector: select(face().onPlane(e.endFaces()))');
+    expect(block).toContain('    e: Extrude 2 (extrude), line 12 — not bound: add `const e = ` to that statement first');
+    expect(block).toContain('    geometry: plane, area 1000, center [20, 12.5, 30], normal [0, 0, 1]');
+  });
+
+  it('a pick question may be answered in words, and a pick alone answers the card', () => {
+    const questions: QuestionItem[] = [MOUNT, WALL];
+    expect(readQuestionReply(questions, { answers: [{ text: 'the one facing the wall' }, {}] })).toEqual({
+      ok: true,
+      reply: { answers: [{ selected: [], text: 'the one facing the wall' }, { selected: [] }] },
+    });
+    expect(readQuestionReply(questions, { answers: [{ picks: [reference()] }, {}] }).ok).toBe(true);
+    // No picks at all is an open question, as before.
+    expect(readQuestionReply(questions, { answers: [{ picks: [] }, {}] }).ok).toBe(false);
+  });
+
+  it('refuses picks that do not fit the question', () => {
+    const refused = (questions: QuestionItem[], answers: unknown[]) => {
+      const read = readQuestionReply(questions, { answers });
+      return read.ok === false ? read.error : 'taken';
+    };
+    expect(refused([WALL], [{ picks: [reference()] }])).toContain('does not take picked geometry');
+    expect(refused([MOUNT], [{ picks: [RIM_EDGES] }])).toContain('takes faces only');
+    expect(refused([RIM], [{ picks: [reference()] }])).toContain('takes edges only');
+    expect(refused([MOUNT], [{ picks: [reference(), reference({ n: 2 })] }])).toContain('takes one face');
+    expect(refused([MOUNT], [{ picks: [reference({ count: 3 })] }])).toContain('takes one face');
+    expect(refused([{ question: 'Which?', pick: { kind: 'any' } }], [{ picks: [reference({ kind: 'mixed', count: 2 })] }])).toContain('takes one face or edge');
+    expect(refused([RIM], [{ picks: [RIM_EDGES, { ...RIM_EDGES }] }])).toContain('share a number');
+    expect(refused([RIM], [{ picks: 'e.endEdges()' }])).toContain('at most 8 scene references');
+    expect(refused([RIM], [{ picks: Array.from({ length: 9 }, (_, i) => ({ ...RIM_EDGES, n: i + 1 })) }])).toContain('at most 8 scene references');
+    for (const broken of [null, {}, { ...RIM_EDGES, n: 0 }, { ...RIM_EDGES, kind: 'solid' }, { ...RIM_EDGES, selector: { ...RIM_EDGES.selector, source: ' ' } }, { ...RIM_EDGES, selector: { ...RIM_EDGES.selector, producers: [{ variable: 'e' }] } }]) {
+      expect(refused([RIM], [{ picks: [broken] }]), JSON.stringify(broken)).toContain('must be a scene reference');
+    }
+    // A question that takes several takes several references, each of any size, and either kind when it says so.
+    expect(refused([RIM], [{ picks: [RIM_EDGES, { ...RIM_EDGES, n: 3, count: 1 }] }])).toBe('taken');
+    expect(refused([{ question: 'Which?', pick: { kind: 'any', multiple: true } }], [{ picks: [reference(), RIM_EDGES, reference({ n: 3, kind: 'mixed', count: 2 })] }])).toBe('taken');
+  });
+
+  it('copies a pick field by field', () => {
+    const copy = readPick({ ...reference(), shapeId: 's1', selector: { ...reference().selector, expression: '$obj["x"].endFaces()' }, geometry: [{ form: 'plane' }, null, 'x'] });
+    expect(copy).toEqual({ ...reference(), geometry: [{ form: 'plane' }] });
+  });
+});
+
+describe('ToolGate: variants (propose_variants, §24)', () => {
+  const BASE = 'base();\n';
+  const RIB = 'base();\nrib();\n';
+  const GUSSET = 'base();\ngusset();\n';
+  const WEB = 'base();\nweb();\n';
+  const FLANGE = 'base();\nflange();\n';
+  /** The gusset as an edit of the file on disk: a line appended. */
+  const GUSSET_EDIT = [{ start: { line: 1, column: 0 }, end: { line: 1, column: 0 }, newText: 'gusset();\n' }];
+  const VARIANTS = [
+    { label: 'Rib', description: 'One rib under the arm.', content: RIB },
+    { label: 'Gusset', edits: GUSSET_EDIT },
+  ];
+  const call = (variants: object[] = VARIANTS, extra: object = {}) => ({
+    name: 'propose_variants',
+    arguments: { path: 'bracket.fluid.js', question: 'Which stiffener?', variants, ...extra },
+  });
+
+  /** A scratch build that rendered, as the engine answers one. */
+  const rendered = (id: string, size: [number, number, number], volume: number) => ({
+    state: 'rendered',
+    id,
+    file: 'bracket.fluid.js',
+    sceneKind: 'part',
+    unit: 'mm',
+    durationMs: 12,
+    builtFrom: 'source',
+    configuration: 'Default',
+    sessionOverrides: 0,
+    unusedParams: [],
+    solidCount: 1,
+    bounds: { min: [0, 0, 0], max: size },
+    volume,
+    validation: { ok: true, checked: 1, findings: [], skipped: 0 },
+  });
+  const RIB_BUILD = rendered('11111111-1111-4111-8111-111111111111', [80, 40, 30.5], 41200);
+  const GUSSET_BUILD = rendered('22222222-2222-4222-8222-222222222222', [80, 40, 30], 44000);
+  const COMPILE_ERROR = {
+    state: 'compile-error',
+    file: 'x',
+    durationMs: 2,
+    compileError: { message: 'gusset is not defined\n    at eval', sourceLocation: { filePath: 'x', line: 2, column: 1 } },
+  };
+  const WEB_BUILD = rendered('33333333-3333-4333-8333-333333333333', [80, 40, 32], 42500);
+  const FLANGE_BUILD = rendered('44444444-4444-4444-8444-444444444444', [84, 40, 30], 43100);
+  const builds = (source: string) =>
+    source === RIB ? RIB_BUILD : source === GUSSET ? GUSSET_BUILD : source === WEB ? WEB_BUILD : source === FLANGE ? FLANGE_BUILD : COMPILE_ERROR;
+
+  beforeEach(() => {
+    fs.writeFileSync(file('bracket.fluid.js'), BASE);
+    scratchBuild = builds;
+  });
+
+  it('is offered by a chat session\'s server only, annotated as the write it ends in, outside the class table', async () => {
+    const plain = await connect(new ToolGate(new FakeHost()), { ask: true });
+    expect((await plain.listTools()).tools.map((t) => t.name)).not.toContain('propose_variants');
+    const proposing = await connect(new ToolGate(new FakeHost()), { variants: true });
+    const tool = (await proposing.listTools()).tools.find((t) => t.name === 'propose_variants')!;
+    expect(tool.annotations).toEqual({ readOnlyHint: false, destructiveHint: true });
+    expect(toolClass('propose_variants')).toBeUndefined();
+    expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['path', 'question', 'variants']);
+  });
+
+  it('shows the card at once, builds the variants one after the other, waits, and writes the one the user picks', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    // The first build is held, so the card is seen before any tile fills in.
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchBuild = async (source) => {
+      if (source === RIB) {
+        await held;
+      }
+      return builds(source);
+    };
+    const pending = client.callTool(call());
+    await expect.poll(() => host.variants()[0]?.variants[0].state).toBe('building');
+    const card = host.variants()[0];
+    expect(card).toEqual({
+      type: 'variants',
+      id: card.id,
+      state: 'building',
+      file: 'bracket.fluid.js',
+      question: 'Which stiffener?',
+      variants: [
+        { label: 'Rib', description: 'One rib under the arm.', state: 'building' },
+        { label: 'Gusset', state: 'queued' },
+      ],
+    });
+    // One build at a time; a reply before they are done is refused; nothing waits for the user yet.
+    expect(scratchBuilds).toHaveLength(1);
+    expect(gate.choose(card.id, { pick: 'Rib' })).toEqual({ result: 'building' });
+    expect(gate.pendingQuestionIds()).toEqual([]);
+    expect(gate.pendingVariantIds('t1')).toEqual([card.id]);
+    expect(host.questionChanges).toEqual([]);
+    expect(host.persisted).toBeGreaterThan(0);
+
+    release();
+    const waiting = await host.variantsIn('awaiting-choice');
+    // Each candidate was built as the file would be with it: the whole text, and the edits applied to the disk's.
+    expect(scratchBuilds).toEqual([
+      { file: file('bracket.fluid.js'), source: RIB },
+      { file: file('bracket.fluid.js'), source: GUSSET },
+    ]);
+    expect(waiting.variants).toEqual([
+      {
+        label: 'Rib',
+        description: 'One rib under the arm.',
+        state: 'ready',
+        buildId: RIB_BUILD.id,
+        sceneKind: 'part',
+        facts: { solidCount: 1, size: [80, 40, 30.5], volume: 41200, unit: 'mm', sound: true },
+      },
+      {
+        label: 'Gusset',
+        state: 'ready',
+        buildId: GUSSET_BUILD.id,
+        sceneKind: 'part',
+        facts: { solidCount: 1, size: [80, 40, 30], volume: 44000, unit: 'mm', sound: true },
+      },
+    ]);
+    // It waits as a question does; nothing is written, copied or asked for approval (the mode is `ask`).
+    expect(host.questionChanges).toEqual([[card.id]]);
+    expect(gate.pendingQuestionIds('t1')).toEqual([card.id]);
+    expect(host.tools()).toEqual([]);
+    expect(host.approvalChanges).toEqual([]);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+
+    expect(gate.choose(card.id, { pick: 'Gusset' })).toEqual({ result: 'ok' });
+    const result = await pending;
+    expect(result.isError).not.toBe(true);
+    // The stand-in engine has no render route: the write reports that, as write_file would.
+    expect(JSON.parse(textOf(result))).toEqual({ picked: 'Gusset', render: { state: 'render-failed', error: expect.any(String) } });
+    expect(read('bracket.fluid.js')).toBe(GUSSET);
+    // Checkpointed as a write_file of the turn is: reverting the turn puts the file back.
+    expect([...host.checkpoints.get('t1')!.values()]).toEqual([{ path: file('bracket.fluid.js'), existed: true, content: BASE }]);
+    expect(host.variants()[0]).toMatchObject({ state: 'picked', picked: 'Gusset' });
+    // The write is a card of its own after the variants card, with its diff and its result.
+    const [write] = host.tools();
+    expect(write).toMatchObject({
+      name: 'write_file',
+      title: 'Apply "Gusset" to bracket.fluid.js',
+      kind: 'edit',
+      state: 'done',
+      input: { path: 'bracket.fluid.js', variant: 'Gusset' },
+    });
+    expect(write.approval).toBeUndefined();
+    expect(write.diff).toContain('+gusset();');
+    expect(JSON.parse(write.output!.text!).render.state).toBe('render-failed');
+    expect(host.messages[0].parts.map((p) => p.type)).toEqual(['variants', 'tool']);
+    expect(host.questionChanges).toEqual([[card.id], []]);
+    expect(gate.pendingVariantIds()).toEqual([]);
+    // The first reply won: a second (another tab) finds nothing waiting.
+    expect(gate.choose(card.id, { skip: true })).toEqual({ result: 'not-found' });
+  });
+
+  it('shows a variant that does not build as failed with its reason, and it cannot be picked', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    const featureFails = {
+      ...GUSSET_BUILD,
+      state: 'build-error',
+      objectErrors: [
+        { index: 3, id: 'x', name: 'Fillet 1', uniqueKind: 'fillet', message: 'the radius may be too large', sourceLocation: { filePath: 'x', line: 7, column: 1 } },
+        { index: 4, id: 'y', name: 'Shell 1', uniqueKind: 'shell', message: 'no' },
+      ],
+    };
+    scratchBuild = (source) => (source === RIB ? RIB_BUILD : featureFails);
+    const pending = client.callTool(call());
+    const card = await host.variantsIn('awaiting-choice');
+    // A build with a failed feature still has a scene: its tile keeps the build to draw, and says what failed.
+    expect(card.variants[1]).toMatchObject({
+      label: 'Gusset',
+      state: 'failed',
+      buildId: GUSSET_BUILD.id,
+      error: 'Fillet 1 does not build (line 7): the radius may be too large, and 1 more',
+    });
+    expect(gate.choose(card.id, { pick: 'Gusset' })).toEqual({ result: 'invalid', error: '"Gusset" did not build, so it cannot be picked.' });
+    expect(gate.choose(card.id, { pick: 'Web' })).toMatchObject({ result: 'invalid' });
+    expect(gate.choose(card.id, {})).toMatchObject({ result: 'invalid' });
+    expect(gate.choose(card.id, { pick: 'Rib' })).toEqual({ result: 'ok' });
+    const result = JSON.parse(textOf(await pending));
+    expect(result.picked).toBe('Rib');
+    expect(result.failed).toEqual([{ label: 'Gusset', reason: 'Fillet 1 does not build (line 7): the radius may be too large, and 1 more' }]);
+    expect(read('bracket.fluid.js')).toBe(RIB);
+  });
+
+  it('builds as many variants as the call carries, up to four, and writes the one picked', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    const four = [...VARIANTS, { label: 'Web', content: WEB }, { label: 'Flange', content: FLANGE }];
+    const pending = client.callTool(call(four));
+    const waiting = await host.variantsIn('awaiting-choice');
+    expect(scratchBuilds.map((build: any) => build.source)).toEqual([RIB, GUSSET, WEB, FLANGE]);
+    expect(waiting.variants.map((tile) => [tile.label, tile.state, tile.buildId])).toEqual([
+      ['Rib', 'ready', RIB_BUILD.id],
+      ['Gusset', 'ready', GUSSET_BUILD.id],
+      ['Web', 'ready', WEB_BUILD.id],
+      ['Flange', 'ready', FLANGE_BUILD.id],
+    ]);
+    expect(gate.choose(waiting.id, { pick: 'Flange' })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await pending)).picked).toBe('Flange');
+    expect(read('bracket.fluid.js')).toBe(FLANGE);
+    expect(host.variants()[0]).toMatchObject({ state: 'picked', picked: 'Flange' });
+  });
+
+  it('says none of three built, without asking', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    scratchBuild = () => COMPILE_ERROR;
+    const result = await client.callTool(call([...VARIANTS, { label: 'Web', content: WEB }]));
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('None of the variants built, so the user was not asked');
+    expect(host.variants()[0]).toMatchObject({ state: 'failed', reason: 'None of the variants built.' });
+    expect(read('bracket.fluid.js')).toBe(BASE);
+  });
+
+  it('returns an error without asking when neither variant builds', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    scratchBuild = () => COMPILE_ERROR;
+    const result = await client.callTool(call());
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('Neither variant built, so the user was not asked');
+    expect(textOf(result)).toContain('- "Rib": It does not compile: gusset is not defined (line 2)');
+    expect(host.variants()[0]).toMatchObject({
+      state: 'failed',
+      reason: 'Neither variant built.',
+      variants: [{ state: 'failed', error: 'It does not compile: gusset is not defined (line 2)' }, { state: 'failed' }],
+    });
+    expect(host.variants()[0].variants[0].buildId).toBeUndefined();
+    expect(host.questionChanges).toEqual([]);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+  });
+
+  it('refuses a call a write would refuse, naming the variant, before anything is built or shown', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    const refused = async (variants: object[], extra: object = {}) => {
+      const result = await client.callTool(call(variants, extra));
+      expect(result.isError, JSON.stringify(variants).slice(0, 80)).toBe(true);
+      return textOf(result);
+    };
+    expect(await refused([VARIANTS[0], { label: ' Rib ', content: GUSSET }])).toBe('Both variants are labelled "Rib". Give each its own label.');
+    expect(await refused([VARIANTS[0], { label: 'Gusset', content: GUSSET, edits: GUSSET_EDIT }])).toContain('Variant "Gusset": give the candidate as `content` (the whole file) or as `edits`, not both.');
+    expect(await refused([VARIANTS[0], { label: 'Gusset' }])).toContain('Variant "Gusset"');
+    expect(await refused([VARIANTS[0], { label: 'Same', content: RIB }])).toBe('"Rib" and "Same" are the same text. Offer variants that differ, or make the change directly.');
+    // Among three or four, any two that share a label or a text.
+    expect(await refused([...VARIANTS, { label: 'Gusset', content: WEB }])).toBe('Two variants are labelled "Gusset". Give each its own label.');
+    expect(await refused([...VARIANTS, { label: 'Web', content: WEB }, { label: 'Same', content: GUSSET }])).toBe('"Gusset" and "Same" are the same text. Offer variants that differ, or make the change directly.');
+    const five = [...VARIANTS, ...['Web', 'Flange', 'Strut'].map((label) => ({ label, content: `base();\n${label.toLowerCase()}();\n` }))];
+    // Fewer than two or more than four: the tool's schema refuses the call, and so does the reading of it.
+    expect(await refused(five)).toContain('expected array to have <=4 items');
+    expect(await refused([VARIANTS[0]])).toContain('expected array to have >=2 items');
+    expect(readVariants({ path: 'bracket.fluid.js', variants: five as any })).toEqual({
+      ok: false,
+      error: 'propose_variants takes 2 variants, or up to 4 when the user asked for that many; this call has 5. Offer the 4 that differ most, or ask with ask_user.',
+    });
+    expect(readVariants({ path: 'bracket.fluid.js', variants: [VARIANTS[0]] as any })).toMatchObject({ ok: false, error: expect.stringContaining('this call has 1. Offer two that differ') });
+    expect(JSON.parse(await refused(VARIANTS, { path: 'notes.txt' }))).toMatchObject({ code: 'invalid-input', details: { variant: 'Rib' } });
+    expect(JSON.parse(await refused(VARIANTS, { path: '../outside.fluid.js' }))).toMatchObject({ code: 'invalid-input' });
+
+    // write_file's lint: the second candidate uses a symbol without its import.
+    lint = (code) => (code === GUSSET
+      ? { missing: [{ symbol: 'gusset', module: 'fluidcad/core', line: 1, column: 0 }], suggestion: 'import { gusset } from "fluidcad/core";' }
+      : { missing: [], suggestion: '' });
+    const missing = JSON.parse(await refused(VARIANTS));
+    expect(missing).toMatchObject({ code: 'missing-imports', details: { variant: 'Gusset', suggestion: 'import { gusset } from "fluidcad/core";' } });
+    expect(missing.message).toMatch(/^Variant "Gusset": Not built: write_file would refuse this candidate/);
+    lint = null;
+
+    // Unsaved changes in the editor: a pick could not be written, so nothing is built for it.
+    dirtyFiles = [file('bracket.fluid.js')];
+    const dirty = JSON.parse(await refused(VARIANTS));
+    expect(dirty.code).toBe('dirty-buffer');
+    expect(dirty.message).toContain('"bracket.fluid.js" has unsaved changes in the editor');
+    expect(dirty.message).not.toContain('force');
+
+    expect(scratchBuilds).toEqual([]);
+    expect(host.events).toEqual([]);
+  });
+
+  it('a skip or an answer in the user\'s own words writes nothing and tells the model so', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { variants: true });
+    const skipped = client.callTool(call());
+    expect(gate.choose((await host.variantsIn('awaiting-choice')).id, { skip: true })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await skipped))).toEqual({ skipped: true, note: VARIANTS_SKIPPED_NOTE });
+    expect(host.variants()[0]).toMatchObject({ state: 'skipped' });
+
+    const answered = client.callTool(call());
+    const second = await host.variantsIn('awaiting-choice', 1);
+    expect(gate.choose(second.id, { text: '   ' })).toMatchObject({ result: 'invalid' });
+    expect(gate.choose(second.id, { text: ' neither — make the base thicker ' })).toEqual({ result: 'ok' });
+    expect(JSON.parse(textOf(await answered))).toEqual({ answer: 'neither — make the base thicker', note: VARIANTS_ANSWERED_NOTE });
+    expect(host.variants()[1]).toMatchObject({ state: 'answered', text: 'neither — make the base thicker' });
+
+    expect(read('bracket.fluid.js')).toBe(BASE);
+    expect(host.tools()).toEqual([]);
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+  });
+
+  it('reads a reply: a pick of a built tile, bounded words, or a skip', () => {
+    const tiles: VariantTile[] = [{ label: 'Rib', state: 'ready' }, { label: 'Gusset', state: 'failed' }];
+    expect(readVariantsReply(tiles, { pick: 'Rib' })).toEqual({ ok: true, reply: { pick: 'Rib' } });
+    expect(readVariantsReply(tiles, { skip: true, pick: 'Gusset' })).toEqual({ ok: true, reply: { skip: true } });
+    expect(readVariantsReply(tiles, { text: ' thicker ' })).toEqual({ ok: true, reply: { text: 'thicker' } });
+    expect(readVariantsReply(tiles, { text: 'x'.repeat(2001) })).toMatchObject({ ok: false });
+    expect(readVariantsReply(tiles, { pick: 3 })).toMatchObject({ ok: false });
+    expect(readVariantsReply(tiles, null)).toMatchObject({ ok: false });
+  });
+
+  it('a stop cancels the build that has not started, and ends the card unanswered', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchBuild = async (source) => {
+      await held;
+      return builds(source);
+    };
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    await expect.poll(() => scratchBuilds.length).toBe(1);
+    host.turn = null;
+    gate.settleAll('stopped');
+    // The card says so at once; the build in progress cannot be cancelled and its tile stays cancelled when it ends.
+    expect(host.variants()[0]).toMatchObject({ state: 'unanswered', reason: 'Stopped before you chose.', variants: [{ state: 'cancelled' }, { state: 'cancelled' }] });
+    release();
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(VARIANTS_STOPPED_MESSAGE);
+    expect(scratchBuilds).toHaveLength(1);
+    expect(host.variants()[0].variants.map((t) => t.state)).toEqual(['cancelled', 'cancelled']);
+    expect(gate.pendingVariantIds()).toEqual([]);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+  });
+
+  it('ends unanswered when the engine shuts down, the client cancels, or an hour passes', async () => {
+    const host = new FakeHost();
+    const timers = new ManualTimers();
+    const gate = new ToolGate(host, { timers });
+    const signal = () => new AbortController().signal;
+
+    const closing = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, signal());
+    await host.variantsIn('awaiting-choice', 0);
+    // The hour starts when the card starts waiting, not while it builds.
+    expect([...timers.scheduled.values()].map((t) => t.ms)).toEqual([60 * 60 * 1000]);
+    gate.settleAll('shutdown');
+    expect(textOf(await closing)).toBe(VARIANTS_STOPPED_MESSAGE);
+    expect(host.variants()[0]).toMatchObject({ state: 'unanswered', reason: 'The app closed before you chose.', variants: [{ state: 'ready' }, { state: 'ready' }] });
+    expect(timers.scheduled.size).toBe(0);
+
+    const controller = new AbortController();
+    const cancelled = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, controller.signal);
+    await host.variantsIn('awaiting-choice', 1);
+    controller.abort();
+    expect(textOf(await cancelled)).toBe(CANCELLED_MESSAGE);
+    expect(host.variants()[1]).toMatchObject({ state: 'unanswered', reason: 'Cancelled.' });
+
+    const late = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, signal());
+    await host.variantsIn('awaiting-choice', 2);
+    timers.fireAll();
+    const result = await late;
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(VARIANTS_TIMED_OUT_MESSAGE);
+    expect(host.variants()[2]).toMatchObject({ state: 'unanswered', reason: 'Not chosen within an hour.' });
+    expect(host.questionChanges.at(-1)).toEqual([]);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+  });
+
+  it('shows nothing outside a turn', async () => {
+    const host = new FakeHost();
+    host.turn = null;
+    const result = await new ToolGate(host).propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(NO_TURN_MESSAGE);
+    expect(host.events).toEqual([]);
+    expect(scratchBuilds).toEqual([]);
+  });
+
+  it('does not write a pick over a file that changed while the user was choosing', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    const card = await host.variantsIn('awaiting-choice');
+    // The user saved an edit of their own meanwhile: the tiles show builds of the old text.
+    fs.writeFileSync(file('bracket.fluid.js'), 'base();\nhole();\n');
+    expect(gate.choose(card.id, { pick: 'Rib' })).toEqual({ result: 'ok' });
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('The user picked "Rib", but bracket.fluid.js changed on disk while they were choosing, so it was not written.');
+    expect(read('bracket.fluid.js')).toBe('base();\nhole();\n');
+    expect(host.variants()[0]).toMatchObject({ state: 'failed', reason: 'bracket.fluid.js changed after these were built, so "Rib" was not written.' });
+    expect(host.variants()[0].picked).toBeUndefined();
+    expect(host.tools()).toEqual([]);
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+  });
+
+  it('refuses the write of a pick over unsaved editor changes as a write_file is refused, and keeps no copy', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    const card = await host.variantsIn('awaiting-choice');
+    // The user started typing in the editor after the card came up.
+    dirtyFiles = [file('bracket.fluid.js')];
+    gate.choose(card.id, { pick: 'Rib' });
+    const result = await pending;
+    expect(result.isError).toBe(true);
+    const error = JSON.parse(textOf(result));
+    expect(error.code).toBe('dirty-buffer');
+    expect(error.message).toMatch(/^The user picked "Rib", but it was not written: /);
+    expect(read('bracket.fluid.js')).toBe(BASE);
+    expect(host.variants()[0]).toMatchObject({ state: 'picked', picked: 'Rib' });
+    expect(host.tools()[0]).toMatchObject({
+      name: 'write_file',
+      state: 'error',
+      errorCode: 'dirty-buffer',
+      error: 'Not written: bracket.fluid.js has unsaved changes in the editor. Save it, then ask again.',
+    });
+    expect(host.checkpoints.get('t1')?.size ?? 0).toBe(0);
+  });
+
+  it('leaves the engine free for a moment between two builds, so a page can fetch the first to draw it', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host, { buildPauseMs: 120 });
+    const at: number[] = [];
+    scratchBuild = (source) => {
+      at.push(Date.now());
+      return builds(source);
+    };
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    const card = await host.variantsIn('awaiting-choice');
+    expect(at[1] - at[0]).toBeGreaterThanOrEqual(110);
+    gate.choose(card.id, { skip: true });
+    await pending;
+  });
+
+  it('keeps a picture the page added to a tile while the other variant built', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchBuild = async (source) => {
+      if (source === GUSSET) {
+        await held;
+      }
+      return builds(source);
+    };
+    const pending = gate.propose({ path: 'bracket.fluid.js', variants: VARIANTS }, new AbortController().signal);
+    await expect.poll(() => host.variants()[0]?.variants[1].state).toBe('building');
+    // As the session's picture route does: the tile gains its `image` in the transcript.
+    const card = host.variants()[0];
+    host.emit({ type: 'part-update', messageId: 'a1', partId: card.id, patch: { variants: card.variants.map((t, i) => (i === 0 ? { ...t, image: 'rib.png' } : t)) } });
+    release();
+    const waiting = await host.variantsIn('awaiting-choice');
+    expect(waiting.variants.map((t) => [t.state, t.image])).toEqual([['ready', 'rib.png'], ['ready', undefined]]);
+    gate.choose(card.id, { skip: true });
+    await pending;
+    expect(host.variants()[0].variants[0].image).toBe('rib.png');
+  });
+});
+
+describe('ToolGate: parameter cards (offer_params, §26)', () => {
+  const WIDTH: ModelParam = { label: 'Width', kind: 'part', body: 'Plate', defaultValue: 40, currentValue: 40, controlType: 'slider', min: 20, max: 80, step: 1 };
+  // Declared with no control (`param('Depth', 5)`), and showing a session value.
+  const DEPTH: ModelParam = { label: 'Depth', kind: 'part', body: 'Plate', defaultValue: 5, currentValue: 6, controlType: 'auto' };
+  const STYLE: ModelParam = {
+    label: 'Style',
+    kind: 'part',
+    body: 'Plate',
+    defaultValue: 'round',
+    currentValue: 'round',
+    controlType: 'select',
+    options: [{ label: 'Round', value: 'round' }, { label: 'Square', value: 'square' }],
+  };
+  const RIBBED: ModelParam = { label: 'Ribbed', kind: 'part', body: 'Plate', defaultValue: true, currentValue: true, controlType: 'auto' };
+  const LID_WIDTH: ModelParam = { label: 'Width', kind: 'part', body: 'Lid', defaultValue: 30, currentValue: 30, controlType: 'number', min: 10 };
+  const WALL: ModelParam = { label: 'Wall', kind: 'global', defaultValue: 2, currentValue: 2, controlType: 'number' };
+
+  function hostWith(...params: ModelParam[]): FakeHost {
+    const host = new FakeHost();
+    host.modelFile = 'parts/plate.part.js';
+    host.modelParams = params;
+    return host;
+  }
+  const offer = (client: Client, args: object = {}) => client.callTool({ name: 'offer_params', arguments: args as Record<string, unknown> });
+
+  it('is offered by a chat session\'s server only, as a read-only tool outside the class table', async () => {
+    const plain = await connect(new ToolGate(new FakeHost()), { ask: true, variants: true });
+    expect((await plain.listTools()).tools.map((t) => t.name)).not.toContain('offer_params');
+    const offering = await connect(new ToolGate(new FakeHost()), { params: true });
+    const tool = (await offering.listTools()).tools.find((t) => t.name === 'offer_params')!;
+    expect(tool.annotations).toEqual({ readOnlyHint: true });
+    expect(toolClass('offer_params')).toBeUndefined();
+    expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['params', 'note']);
+  });
+
+  it('puts the named parameters on a card and returns at once with what it shows', async () => {
+    const host = hostWith(WIDTH, DEPTH, STYLE, RIBBED, LID_WIDTH);
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { params: true });
+    const result = await offer(client, {
+      params: [{ label: 'Style' }, { label: 'Width', part: 'Plate' }, { label: 'Depth' }, { label: 'Ribbed' }, { label: 'Style' }],
+      note: '  Wider plates\n need the ribs.  ',
+    });
+    expect(result.isError).not.toBe(true);
+    // What the model is told: each parameter with its control and range; a value that is not the declared default says so.
+    expect(JSON.parse(textOf(result))).toEqual({
+      file: 'parts/plate.part.js',
+      params: [
+        { label: 'Style', part: 'Plate', type: 'select', value: 'round', options: ['round', 'square'] },
+        { label: 'Width', part: 'Plate', type: 'slider', value: 40, min: 20, max: 80, step: 1 },
+        { label: 'Depth', part: 'Plate', type: 'number', value: 6, default: 5 },
+        { label: 'Ribbed', part: 'Plate', type: 'checkbox', value: true },
+      ],
+    });
+    // The card: in the order asked, a parameter named twice once, the note on one line.
+    expect(host.paramCards()).toEqual([
+      {
+        type: 'params',
+        id: expect.stringMatching(/^params-/),
+        file: 'parts/plate.part.js',
+        absPath: path.join(workspace, 'parts/plate.part.js'),
+        note: 'Wider plates need the ribs.',
+        // Which parameters, and no more: their controls and values are the model's, read by the page.
+        params: [
+          { label: 'Style', part: 'Plate' },
+          { label: 'Width', part: 'Plate' },
+          { label: 'Depth', part: 'Plate' },
+          { label: 'Ribbed', part: 'Plate' },
+        ],
+      },
+    ]);
+    // A card of its own: no tool card, nothing to approve or to answer, and it is saved.
+    expect(host.tools()).toEqual([]);
+    expect(host.approvalChanges).toEqual([]);
+    expect(host.questionChanges).toEqual([]);
+    expect(gate.pendingApprovalIds()).toEqual([]);
+    expect(gate.pendingQuestionIds()).toEqual([]);
+    expect(host.persisted).toBeGreaterThan(0);
+    // Stopping the turn settles nothing of it: the card stays as it is.
+    gate.settleAll('stopped');
+    expect(host.paramCards()).toHaveLength(1);
+    expect(host.events.filter((e) => e.type === 'part-update')).toEqual([]);
+  });
+
+  it('offers every parameter of the model when none is named, never a project parameter, and refuses more than a card shows', async () => {
+    const host = hostWith(WIDTH, WALL, DEPTH);
+    const client = await connect(new ToolGate(host), { params: true });
+    const result = await offer(client);
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result)).params.map((p: any) => p.label)).toEqual(['Width', 'Depth']);
+    expect(host.paramCards()[0].params.map((p) => p.label)).toEqual(['Width', 'Depth']);
+    expect(host.paramCards()[0].note).toBeUndefined();
+
+    const many = hostWith(...Array.from({ length: 13 }, (_, i): ModelParam => ({ label: `P${i}`, kind: 'part', body: 'Plate', defaultValue: i, currentValue: i, controlType: 'number' })));
+    const crowded = await offer(await connect(new ToolGate(many), { params: true }));
+    expect(crowded.isError).toBe(true);
+    expect(textOf(crowded)).toContain('declares 13 parameters, more than a card shows (12)');
+    expect(textOf(crowded)).toContain('"P12" (part "Plate")');
+    expect(many.paramCards()).toEqual([]);
+  });
+
+  it('refuses a label the model does not declare, naming the ones it does, and shows nothing', async () => {
+    const host = hostWith(WIDTH, DEPTH, LID_WIDTH, WALL);
+    const client = await connect(new ToolGate(host), { params: true });
+    const declares = 'The model on screen (parts/plate.part.js) declares: "Width" (part "Plate"), "Depth" (part "Plate"), "Width" (part "Lid").';
+
+    const unknown = await offer(client, { params: [{ label: 'Depth' }, { label: 'Widht' }, { label: 'Depth', part: 'Lid' }] });
+    expect(unknown.isError).toBe(true);
+    expect(textOf(unknown)).toBe(`No parameter labelled "Widht". No parameter labelled "Depth" in "Lid". ${declares}`);
+
+    // A label two parts declare needs its part; with it, each is its own parameter.
+    const ambiguous = await offer(client, { params: [{ label: 'Width' }] });
+    expect(ambiguous.isError).toBe(true);
+    expect(textOf(ambiguous)).toBe(`"Width" is declared by "Plate" and "Lid": name the one you mean with \`part\`. ${declares}`);
+
+    // A project parameter has no session value: it is not a card's to offer.
+    const project = await offer(client, { params: [{ label: 'Wall' }] });
+    expect(project.isError).toBe(true);
+    expect(textOf(project)).toContain('"Wall" is a project parameter (a *.params.js file)');
+
+    expect(host.paramCards()).toEqual([]);
+    expect(host.events.filter((e) => e.type === 'part-start')).toEqual([]);
+
+    const both = await offer(client, { params: [{ label: 'Width', part: 'Lid' }, { label: 'Width', part: 'Plate' }] });
+    expect(both.isError).not.toBe(true);
+    expect(host.paramCards()[0].params).toEqual([
+      { label: 'Width', part: 'Lid' },
+      { label: 'Width', part: 'Plate' },
+    ]);
+  });
+
+  it('has nothing to offer without a model, without parameters, or outside a turn', async () => {
+    const none = new FakeHost();
+    const noModel = await offer(await connect(new ToolGate(none), { params: true }));
+    expect(noModel.isError).toBe(true);
+    expect(textOf(noModel)).toBe('No model is on screen, so there are no parameters to offer.');
+
+    const bare = hostWith(WALL);
+    const noParams = await offer(await connect(new ToolGate(bare), { params: true }));
+    expect(noParams.isError).toBe(true);
+    expect(textOf(noParams)).toBe(
+      'The model on screen (parts/plate.part.js) declares no parameters in a part() or assembly() body, so there is nothing to offer. ' +
+        'Its project parameters (*.params.js) are edited in the Parameters column, not on a card.',
+    );
+
+    const idle = hostWith(WIDTH);
+    idle.turn = null;
+    const late = await offer(await connect(new ToolGate(idle), { params: true }), { params: [{ label: 'Width' }] });
+    expect(late.isError).toBe(true);
+    expect(textOf(late)).toBe(NO_TURN_MESSAGE);
+    for (const host of [none, bare, idle]) {
+      expect(host.events).toEqual([]);
+    }
+  });
+});
+
+describe('ToolGate: pointing at the model (show_user, §27)', () => {
+  const match = (shapeId: string, kind: string, index: number) => ({ shapeId, kind, index, sceneObjectId: 'ex-1', sceneObjectName: 'extrude', part: null, summary: { form: 'plane', center: [0, 0, 0] } });
+  const found = (...matches: unknown[]) => ({ status: 200, json: { ok: true, count: matches.length, matches, scope: { kind: 'root' }, unit: 'mm' } });
+  const show = (client: Client, args: object) => client.callTool({ name: 'show_user', arguments: args as Record<string, unknown> });
+
+  function hostWithModel(): FakeHost {
+    const host = new FakeHost();
+    host.modelFile = 'parts/plate.part.js';
+    return host;
+  }
+
+  it('is offered by a chat session\'s server only, as a read-only tool outside the class table', async () => {
+    const plain = await connect(new ToolGate(new FakeHost()), { ask: true, variants: true, params: true });
+    expect((await plain.listTools()).tools.map((t) => t.name)).not.toContain('show_user');
+    const showing = await connect(new ToolGate(new FakeHost()), { show: true });
+    const tool = (await showing.listTools()).tools.find((t) => t.name === 'show_user')!;
+    expect(tool.annotations).toEqual({ readOnlyHint: true });
+    expect(toolClass('show_user')).toBeUndefined();
+    expect(Object.keys((tool.inputSchema as any).properties)).toEqual(['items', 'note']);
+  });
+
+  it('puts the items on a card with a number and a colour each, and returns at once with what they resolved to', async () => {
+    const host = hostWithModel();
+    const gate = new ToolGate(host);
+    const client = await connect(gate, { show: true });
+    const ref = { shapeId: 'sh-1', kind: 'edge', index: 4 };
+    resolveSelection = (body) => {
+      if (body.picks) {
+        return { status: 200, json: { ...found(match('sh-1', 'edge', 4)).json, synthesized: { ok: true, expression: '$obj["ex-1"].endEdges(0)', source: 'e.endEdges(0)' } } };
+      }
+      return body.expression === '$obj["ex-1"].endEdges(0)' ? found(match('sh-1', 'edge', 4)) : found(match('sh-1', 'face', 5), match('sh-1', 'face', 6));
+    };
+    const result = await show(client, {
+      items: [{ label: ' the two\n mounting faces ', expression: 'face().onPlane("xy", 30)' }, { label: '<b>this edge</b>', ref }],
+      note: '  Which one\n carries the load?  ',
+    });
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toEqual({
+      shown: [
+        { n: 1, color: 'red', label: 'the two mounting faces', faces: 2, edges: 0 },
+        { n: 2, color: 'blue', label: '<b>this edge</b>', faces: 0, edges: 1 },
+      ],
+    });
+    // The card carries what to resolve again, never the shape ids a selector resolved to; a ref goes on as its verified selector.
+    const card = host.showCards()[0];
+    expect(card).toEqual({
+      type: 'show',
+      id: card.id,
+      file: 'parts/plate.part.js',
+      absPath: path.join(workspace, 'parts/plate.part.js'),
+      note: 'Which one carries the load?',
+      items: [
+        { n: 1, color: 'red', label: 'the two mounting faces', target: { expression: 'face().onPlane("xy", 30)' }, faces: 2, edges: 0 },
+        { n: 2, color: 'blue', label: '<b>this edge</b>', target: { expression: '$obj["ex-1"].endEdges(0)' }, faces: 0, edges: 1 },
+      ],
+    });
+    expect(card.id).toMatch(/^show-/);
+    // A card of its own, never a tool card; nothing to approve, nothing to wait for, nothing kept to revert.
+    expect(host.tools()).toEqual([]);
+    expect(host.approvalChanges).toEqual([]);
+    expect(host.questionChanges).toEqual([]);
+    expect(host.checkpoints.size).toBe(0);
+    expect(host.persisted).toBeGreaterThan(0);
+  });
+
+  it('keeps a ref as the ref when no selector resolves back to it', async () => {
+    const host = hostWithModel();
+    const client = await connect(new ToolGate(host), { show: true });
+    const ref = { shapeId: 'sh-1', kind: 'face', index: 5 };
+    resolveSelection = () => ({ status: 200, json: { ...found(match('sh-1', 'face', 5)).json, synthesized: { ok: false, reason: 'geometry from a loop' } } });
+    expect((await show(client, { items: [{ label: 'this face', ref }] })).isError).not.toBe(true);
+    expect(host.showCards()[0].items).toEqual([{ n: 1, color: 'red', label: 'this face', target: { pick: ref }, faces: 1, edges: 0 }]);
+    expect(host.showCards()[0].note).toBeUndefined();
+  });
+
+  it('refuses a call with an item that resolves to nothing, naming it, and shows nothing', async () => {
+    const host = hostWithModel();
+    const client = await connect(new ToolGate(host), { show: true });
+    resolveSelection = (body) => (body.expression === 'face().cylinder(4)' ? found() : found(match('sh-1', 'face', 5)));
+    const empty = await show(client, { items: [{ label: 'top', expression: 'face().onPlane("xy", 30)' }, { label: 'the bore', expression: 'face().cylinder(4)' }] });
+    expect(empty.isError).toBe(true);
+    expect(textOf(empty)).toBe('Item 2 ("the bore"): the expression matches nothing in the current model. Nothing was shown.');
+    resolveSelection = () => ({ status: 422, json: { error: 'face().nope is not a function', code: 'evaluation-error' } });
+    const broken = await show(client, { items: [{ label: 'the bore', expression: 'face().nope()' }] });
+    expect(textOf(broken)).toBe('Item 1 ("the bore"): face().nope is not a function. Nothing was shown.');
+    const both = await show(client, { items: [{ label: 'both', expression: 'face()', ref: { shapeId: 'sh-1', kind: 'face', index: 0 } }] });
+    expect(textOf(both)).toContain('Item 1 ("both"): give exactly one of `expression`');
+    expect(host.events).toEqual([]);
+  });
+
+  it('shows nothing without a model, outside a turn, or once the turn was stopped while the items resolved', async () => {
+    resolveSelection = () => found(match('sh-1', 'face', 5));
+    const items = [{ label: 'top', expression: 'face().onPlane("xy", 30)' }];
+
+    const none = new FakeHost();
+    none.modelFile = null;
+    const noModel = await show(await connect(new ToolGate(none), { show: true }), { items });
+    expect(noModel.isError).toBe(true);
+    expect(textOf(noModel)).toBe(NO_MODEL_TO_SHOW_MESSAGE);
+
+    const idle = hostWithModel();
+    idle.turn = null;
+    const late = await show(await connect(new ToolGate(idle), { show: true }), { items });
+    expect(late.isError).toBe(true);
+    expect(textOf(late)).toBe(NO_TURN_MESSAGE);
+    expect(resolveSelections).toEqual([]);
+
+    const stopped = hostWithModel();
+    resolveSelection = () => {
+      stopped.turn = null;
+      return found(match('sh-1', 'face', 5));
+    };
+    const cut = await show(await connect(new ToolGate(stopped), { show: true }), { items });
+    expect(cut.isError).toBe(true);
+    expect(textOf(cut)).toBe(STOPPED_MESSAGE);
+    for (const host of [none, idle, stopped]) {
+      expect(host.events).toEqual([]);
+    }
+  });
+});
+
+describe('ToolGate: what a change does to the model (§25)', () => {
+  const BEFORE = 'base();\n';
+  const AFTER = 'base();\nrib();\n';
+  /** The change as the model makes it: a line appended. */
+  const edit = (name = 'bracket.fluid.js', newText = 'rib();\n') => ({
+    name: 'edit_range',
+    arguments: { path: name, start: { line: 1, column: 0 }, end: { line: 1, column: 0 }, newText },
+  });
+
+  /** A scratch build that rendered, as the engine answers one. */
+  const rendered = (id: string, size: [number, number, number], volume: number, geometry: string) => ({
+    state: 'rendered',
+    id,
+    file: 'bracket.fluid.js',
+    sceneKind: 'part',
+    unit: 'mm',
+    durationMs: 12,
+    builtFrom: 'source',
+    configuration: 'Default',
+    sessionOverrides: 0,
+    unusedParams: [],
+    solidCount: 1,
+    bounds: { min: [0, 0, 0], max: size },
+    volume,
+    validation: { ok: true, checked: 1, findings: [], skipped: 0 },
+    geometry,
+  });
+  const BEFORE_BUILD = rendered('11111111-1111-4111-8111-111111111111', [80, 40, 30], 96000, 'digest-before');
+  const AFTER_BUILD = rendered('22222222-2222-4222-8222-222222222222', [80, 40, 36], 97500, 'digest-after');
+  const COMPILE_ERROR = {
+    state: 'compile-error',
+    file: 'x',
+    durationMs: 2,
+    compileError: { message: 'rib is not defined\n    at eval', sourceLocation: { filePath: 'x', line: 2, column: 1 } },
+  };
+  const builds = (source: string) => (source === BEFORE ? BEFORE_BUILD : source === AFTER ? AFTER_BUILD : COMPILE_ERROR);
+  /** Nothing kept, and the file's last build took `lastBuildMs`. */
+  const costs = (lastBuildMs: number | null, kept: string[] = []) => (source: string) =>
+    ({ reusable: kept.includes(source) ? { ...builds(source), reused: true } : null, lastBuildMs });
+  const previewIn = async (host: FakeHost, state: ChangePreview['state'], index = 0): Promise<ChangePreview> => {
+    for (let i = 0; i < 400; i++) {
+      const preview = host.tools()[index]?.preview;
+      if (preview?.state === state) {
+        return preview;
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`no preview is ${state}: ${JSON.stringify(host.tools()[index])}`);
+  };
+  /** Lets every request already on its way to the stand-in engine be answered. */
+  const settled = () => new Promise((r) => setTimeout(r, 60));
+
+  beforeEach(() => {
+    fs.writeFileSync(file('bracket.fluid.js'), BEFORE);
+    scratchBuild = builds;
+    scratchCost = costs(140);
+  });
+
+  it('shows the card at once, then builds the file as it is and with the change, and says what differs', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchCost = async (source) => {
+      await held;
+      return costs(140)(source);
+    };
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    // The approval waits with its diff before anything is known of the preview, and is saved.
+    expect(host.tools()[0]).toMatchObject({ state: 'awaiting-approval', approval: { id }, diff: expect.stringContaining('+rib();') });
+    expect(host.tools()[0].preview).toBeUndefined();
+    expect(host.persisted).toBeGreaterThanOrEqual(1);
+    expect(scratchBuilds).toEqual([]);
+    release();
+
+    const preview = await previewIn(host, 'ready');
+    expect(preview).toEqual({
+      state: 'ready',
+      same: false,
+      before: {
+        state: 'built',
+        buildId: BEFORE_BUILD.id,
+        sceneKind: 'part',
+        facts: { solidCount: 1, size: [80, 40, 30], volume: 96000, unit: 'mm', sound: true },
+        bounds: { min: [0, 0, 0], max: [80, 40, 30] },
+      },
+      after: {
+        state: 'built',
+        buildId: AFTER_BUILD.id,
+        sceneKind: 'part',
+        facts: { solidCount: 1, size: [80, 40, 36], volume: 97500, unit: 'mm', sound: true },
+        bounds: { min: [0, 0, 0], max: [80, 40, 36] },
+      },
+    });
+    // Asked what each side costs, then each built once, the file as it is first, a kept build welcome.
+    expect(scratchCosts).toEqual([BEFORE, AFTER]);
+    expect(scratchBuilds).toEqual([
+      { file: file('bracket.fluid.js'), source: BEFORE, reuse: true },
+      { file: file('bracket.fluid.js'), source: AFTER, reuse: true },
+    ]);
+    // The card said it was building in between.
+    const previews = host.events.flatMap((e) => (e.type === 'part-update' && (e.patch as Partial<ToolPart>).preview ? [(e.patch as Partial<ToolPart>).preview!] : []));
+    expect(previews.map((p) => [p.state, p.before?.state, p.after?.state])).toEqual([
+      ['building', undefined, undefined],
+      ['building', 'built', undefined],
+      ['building', 'built', 'built'],
+      ['ready', 'built', 'built'],
+    ]);
+    // Nothing was written, and the approval is still the user's.
+    expect(read('bracket.fluid.js')).toBe(BEFORE);
+    expect(host.tools()[0].state).toBe('awaiting-approval');
+    expect(gate.decide(id, 'allow')).toBe('ok');
+    await call;
+    expect(read('bracket.fluid.js')).toBe(AFTER);
+    // Settled, the card keeps what it showed.
+    expect(host.tools()[0]).toMatchObject({ approval: { decision: 'allow' }, preview: { state: 'ready', before: { buildId: BEFORE_BUILD.id }, after: { buildId: AFTER_BUILD.id } } });
+  });
+
+  it('builds only the file with the change when the change creates it', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'write_file', arguments: { path: 'new.part.js', content: AFTER } });
+    const id = await host.waiting();
+    const preview = await previewIn(host, 'ready');
+    expect(preview.before).toBeNull();
+    expect(preview.same).toBeUndefined();
+    expect(preview.after).toMatchObject({ state: 'built', buildId: AFTER_BUILD.id });
+    expect(scratchCosts).toEqual([AFTER]);
+    expect(scratchBuilds).toEqual([{ file: file('new.part.js'), source: AFTER, reuse: true }]);
+    gate.decide(id, 'deny');
+    await call;
+    expect(host.tools()[0]).toMatchObject({ state: 'denied', preview: { state: 'ready', before: null } });
+  });
+
+  it('says a change does not build, with the reasons, and still lets the user answer', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool(edit('bracket.fluid.js', 'rib(;\n'));
+    const id = await host.waiting();
+    const preview = await previewIn(host, 'ready');
+    expect(preview.before).toMatchObject({ state: 'built' });
+    // No build, so no picture and no facts: the reason, and its line.
+    expect(preview.after).toEqual({ state: 'failed', problems: [{ title: 'Compile error', message: 'rib is not defined', line: 2 }] });
+    expect(preview.same).toBe(false);
+    expect(host.tools()[0].state).toBe('awaiting-approval');
+    expect(gate.decide(id, 'allow')).toBe('ok');
+    await call;
+
+    // Features that fail: what did build is kept and drawn, the first few failures are listed and the rest counted.
+    const failures = Array.from({ length: 7 }, (_, i) => ({
+      index: i, id: `f${i}`, name: `Fillet ${i + 1}`, uniqueKind: 'fillet', message: `radius ${i} is too large\nBRep_API: command not done`,
+      sourceLocation: { filePath: 'x', line: 10 + i, column: 3 },
+    }));
+    scratchBuild = (source) => (source === BEFORE ? BEFORE_BUILD : { ...AFTER_BUILD, state: 'build-error', geometry: 'digest-before', objectErrors: failures });
+    fs.writeFileSync(file('bracket.fluid.js'), BEFORE);
+    const second = client.callTool(edit());
+    const secondId = await host.waiting(1);
+    const failed = await previewIn(host, 'ready', 1);
+    expect(failed.after).toMatchObject({
+      state: 'failed',
+      buildId: AFTER_BUILD.id,
+      facts: { volume: 97500 },
+      problems: [
+        { title: 'Fillet 1 failed', message: 'radius 0 is too large', line: 10 },
+        { title: 'Fillet 2 failed', message: 'radius 1 is too large', line: 11 },
+        { title: 'Fillet 3 failed', message: 'radius 2 is too large', line: 12 },
+        { title: 'Fillet 4 failed', message: 'radius 3 is too large', line: 13 },
+        { title: 'Fillet 5 failed', message: 'radius 4 is too large', line: 14 },
+      ],
+      moreProblems: 2,
+    });
+    // The failed features were skipped: what builds is what was there.
+    expect(failed.same).toBe(true);
+    gate.decide(secondId, 'deny');
+    await second;
+
+    // A build the engine refuses is a reason too.
+    scratchBuild = null;
+    const third = client.callTool(edit());
+    const thirdId = await host.waiting(2);
+    const refused = await previewIn(host, 'ready', 2);
+    expect(refused.after).toEqual({ state: 'failed', problems: [{ title: 'Not built', message: expect.stringContaining('no scratch builds') }] });
+    gate.decide(thirdId, 'deny');
+    await third;
+  });
+
+  it('says so when the change moves no geometry', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    scratchBuild = (source) => (source === BEFORE ? BEFORE_BUILD : { ...AFTER_BUILD, bounds: BEFORE_BUILD.bounds, volume: 96000, geometry: 'digest-before' });
+    const call = client.callTool(edit('bracket.fluid.js', '// a rib goes here\n'));
+    const id = await host.waiting();
+    expect(await previewIn(host, 'ready')).toMatchObject({ same: true, before: { state: 'built' }, after: { state: 'built' } });
+    gate.decide(id, 'deny');
+    await call;
+
+    // An engine that does not digest its builds never says two are the same.
+    const { geometry: _geometry, ...plain } = BEFORE_BUILD;
+    scratchBuild = () => plain;
+    const second = client.callTool(edit('bracket.fluid.js', '// a rib goes here\n'));
+    const secondId = await host.waiting(1);
+    expect((await previewIn(host, 'ready', 1)).same).toBe(false);
+    gate.decide(secondId, 'deny');
+    await second;
+
+    // A change that leaves the text as it is: one build is both sides.
+    scratchBuilds = [];
+    scratchBuild = builds;
+    const third = client.callTool({ name: 'write_file', arguments: { path: 'bracket.fluid.js', content: BEFORE } });
+    const thirdId = await host.waiting(2);
+    expect((await previewIn(host, 'ready', 2)).same).toBe(true);
+    expect(scratchBuilds).toHaveLength(1);
+    gate.decide(thirdId, 'deny');
+    await third;
+  });
+
+  it('previews only a model file, and only a change that waits', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    // A file that is no model: the approval as it always was.
+    fs.writeFileSync(file('helper.js'), BEFORE);
+    fs.writeFileSync(file('dims.params.js'), BEFORE);
+    for (const [index, name] of ['helper.js', 'dims.params.js'].entries()) {
+      const call = client.callTool(edit(name));
+      const id = await host.waiting(index);
+      await settled();
+      expect(host.tools()[index].preview).toBeUndefined();
+      gate.decide(id, 'deny');
+      await call;
+    }
+    // Allowed for the session: the write no longer waits, and the viewport shows the result.
+    const first = client.callTool(edit());
+    const firstId = await host.waiting(2);
+    await previewIn(host, 'ready', 2);
+    gate.decide(firstId, 'allow-session');
+    await first;
+    scratchCosts = [];
+    scratchBuilds = [];
+    await client.callTool(edit());
+    await settled();
+    expect(host.tools()[3].preview).toBeUndefined();
+
+    // Auto-apply edits: nothing waits, nothing is previewed.
+    const auto = new FakeHost();
+    auto.turn = { turnId: 't1', mode: 'auto-edits' };
+    const autoClient = await connect(new ToolGate(auto));
+    await autoClient.callTool(edit());
+    await settled();
+    expect(auto.tools()[0].preview).toBeUndefined();
+    expect(scratchCosts).toEqual([]);
+    expect(scratchBuilds).toEqual([]);
+  });
+
+  it('offers the preview instead of building it when the file is slow to build, and builds it when asked', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    scratchCost = costs(6200);
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    expect(await previewIn(host, 'offered')).toEqual({ state: 'offered', estimateMs: 6200 });
+    await settled();
+    expect(scratchBuilds).toEqual([]);
+    expect(gate.requestPreview('nope')).toBe('not-found');
+
+    expect(gate.requestPreview(id)).toBe('ok');
+    // Asked once: a second click finds it building.
+    expect(gate.requestPreview(id)).toBe('not-offered');
+    expect(await previewIn(host, 'ready')).toMatchObject({ before: { state: 'built' }, after: { state: 'built' } });
+    expect(scratchBuilds).toHaveLength(2);
+    expect(gate.requestPreview(id)).toBe('not-offered');
+    gate.decide(id, 'deny');
+    await call;
+    expect(gate.requestPreview(id)).toBe('not-found');
+
+    // The threshold is the gate's: at it the preview is built, past it offered.
+    scratchBuilds = [];
+    const atLimit = new FakeHost();
+    const atLimitGate = new ToolGate(atLimit, { autoPreviewMaxBuildMs: 6200 });
+    const atLimitCall = (await connect(atLimitGate)).callTool(edit());
+    const atLimitId = await atLimit.waiting();
+    await previewIn(atLimit, 'ready');
+    atLimitGate.decide(atLimitId, 'deny');
+    await atLimitCall;
+  });
+
+  it('builds unasked however slow the file is when the engine already keeps both builds, or has never built the file', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    // Both kept (the before from the last change, the after from a try_build): nothing to wait for.
+    scratchCost = costs(9000, [BEFORE, AFTER]);
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    await previewIn(host, 'ready');
+    gate.decide(id, 'deny');
+    await call;
+
+    // Only the before is kept: the after is one slow build, so it is offered.
+    scratchCost = costs(9000, [BEFORE]);
+    const second = client.callTool(edit());
+    const secondId = await host.waiting(1);
+    expect(await previewIn(host, 'offered', 1)).toEqual({ state: 'offered', estimateMs: 9000 });
+    gate.decide(secondId, 'deny');
+    await second;
+    // An offered preview nobody asked for ends with the approval, and the card shows none.
+    expect(host.tools()[1].preview).toEqual({ state: 'cancelled', estimateMs: 9000 });
+
+    // A file this engine has not built yet: nothing says it is slow.
+    scratchCost = costs(null);
+    const third = client.callTool(edit());
+    const thirdId = await host.waiting(2);
+    await previewIn(host, 'ready', 2);
+    gate.decide(thirdId, 'deny');
+    await third;
+  });
+
+  it('does not start a build once the approval is settled: a decision, a stop, the client giving up', async () => {
+    for (const end of ['allow', 'deny', 'stop', 'abort'] as const) {
+      fs.writeFileSync(file('bracket.fluid.js'), BEFORE);
+      scratchBuilds = [];
+      const host = new FakeHost();
+      const gate = new ToolGate(host);
+      const client = await connect(gate);
+      let release: () => void = () => {};
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      scratchBuild = async (source) => {
+        await held;
+        return builds(source);
+      };
+      const controller = new AbortController();
+      const call = client.callTool(edit(), undefined, { signal: controller.signal }).catch(() => null);
+      const id = await host.waiting();
+      // The file as it is is building.
+      await expect.poll(() => scratchBuilds.length).toBe(1);
+      expect(host.tools()[0].preview).toEqual({ state: 'building' });
+      if (end === 'stop') {
+        host.turn = null;
+        gate.settleAll('stopped');
+      } else if (end === 'abort') {
+        controller.abort();
+        await expect.poll(() => host.tools()[0].state).toBe('error');
+      } else {
+        gate.decide(id, end);
+      }
+      // The card says so at once, in the same change as the approval's own outcome.
+      expect(host.tools()[0].preview, end).toEqual({ state: 'cancelled' });
+      release();
+      await call;
+      await settled();
+      // The build in progress ran to its end and is dropped; the file with the change was never built.
+      expect(scratchBuilds, end).toEqual([{ file: file('bracket.fluid.js'), source: BEFORE, reuse: true }]);
+      expect(host.tools()[0].preview, end).toEqual({ state: 'cancelled' });
+      expect(read('bracket.fluid.js'), end).toBe(end === 'allow' ? AFTER : BEFORE);
+    }
+  });
+
+  it('shows no preview when the approval is settled before the engine said what one costs, or cannot say', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchCost = async (source) => {
+      await held;
+      return costs(140)(source);
+    };
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    await expect.poll(() => scratchCosts.length).toBe(1);
+    gate.decide(id, 'deny');
+    release();
+    await call;
+    await settled();
+    expect(host.tools()[0].preview).toBeUndefined();
+    expect(scratchBuilds).toEqual([]);
+
+    // An engine without scratch builds: the card is the approval card it always was.
+    scratchCost = null;
+    const second = client.callTool(edit());
+    const secondId = await host.waiting(1);
+    await settled();
+    expect(host.tools()[1].preview).toBeUndefined();
+    expect(scratchBuilds).toEqual([]);
+    gate.decide(secondId, 'allow');
+    await second;
+    expect(read('bracket.fluid.js')).toBe(AFTER);
+  });
+
+  it('keeps a picture the page added to one side while the other built', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    scratchBuild = async (source) => {
+      if (source === AFTER) {
+        await held;
+      }
+      return builds(source);
+    };
+    const call = client.callTool(edit());
+    const id = await host.waiting();
+    await expect.poll(() => host.tools()[0].preview?.before?.state).toBe('built');
+    // As the session's picture route does: the side gains its `image` in the transcript.
+    const card = host.tools()[0];
+    host.emit({ type: 'part-update', messageId: 'a1', partId: card.id, patch: { preview: { ...card.preview!, before: { ...card.preview!.before!, image: 'before.png' } } } });
+    release();
+    const preview = await previewIn(host, 'ready');
+    expect([preview.before?.image, preview.after?.image]).toEqual(['before.png', undefined]);
+    gate.decide(id, 'deny');
+    await call;
   });
 });

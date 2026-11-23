@@ -4,6 +4,7 @@ import { Convert } from "../convert.js";
 import { Explorer } from "../explorer.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
+import { HiddenLineProjection } from "./hidden-line.js";
 
 /**
  * Outline (apparent-contour, "silhouette") edges of a face for a viewing
@@ -13,8 +14,9 @@ import { Vector3d } from "../../math/vector3d.js";
  * boundary edges, or a side-on cylinder projects to nothing but its end
  * circles.
  *
- * Computed by OCCT's hidden-line front end without the hiding pass:
- * HLRBRep_Algo.Update() runs the apparent-contour computation (Contap) and
+ * Computed by OCCT's hidden-line front end without the hiding pass
+ * (`HiddenLineProjection.withAlgo`): HLRBRep_Algo.Update() runs the
+ * apparent-contour computation (Contap) and
  * splits the face along it, ShowAll() marks every edge visible so no
  * visibility work runs, and HLRToShape's 3D outline compound hands back the
  * contour as real edges on the surface, in world coordinates, trimmed to the
@@ -26,27 +28,18 @@ export class SilhouetteOps {
     const [origin, disposeOrigin] = Convert.toGpPnt(new Point(0, 0, 0));
     const [dir, disposeDir] = Convert.toGpDir(direction.normalize());
     const frame = new oc.gp_Ax2(origin, dir);
-    const projector = new oc.HLRAlgo_Projector(frame);
-    const algo = new oc.HLRBRep_Algo();
-    let toShape: InstanceType<typeof oc.HLRBRep_HLRToShape> | null = null;
     try {
-      algo.Add(face, 0);
-      algo.Projector(projector);
-      algo.Update();
-      algo.ShowAll();
-      toShape = new oc.HLRBRep_HLRToShape(algo);
-      const compound = toShape.OutLineVCompound3d();
-      if (compound.IsNull()) {
-        return [];
-      }
-      const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
-      return Explorer.findShapes<TopoDS_Edge>(compound, EDGE)
-        .map(e => oc.TopoDS.Edge(e))
-        .filter(e => !oc.BRep_Tool.Degenerated(e));
+      return HiddenLineProjection.withAlgo([face], frame, false, (toShape) => {
+        const compound = toShape.OutLineVCompound3d();
+        if (compound.IsNull()) {
+          return [];
+        }
+        const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+        return Explorer.findShapes<TopoDS_Edge>(compound, EDGE)
+          .map(e => oc.TopoDS.Edge(e))
+          .filter(e => !oc.BRep_Tool.Degenerated(e));
+      });
     } finally {
-      toShape?.delete();
-      algo.delete();
-      projector.delete();
       frame.delete();
       disposeDir();
       disposeOrigin();

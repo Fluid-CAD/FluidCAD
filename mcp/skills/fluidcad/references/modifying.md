@@ -13,6 +13,7 @@ Read when the task starts from a file that already exists rather than from a bla
 
 - **`edit_range` for a local change, `write_file` for a restructure.** `edit_range` takes 0-based `{ line, column }` positions; the scene summary's line is 1-based, so subtract one. Re-read the lines you are replacing immediately before the edit so the range is exact.
 - **Change one thing per write.** The render outcome then answers one question.
+- **Write the edit; do not rehearse it.** `try_build` is for a choice between real alternatives or a risky value in an edit that waits for approval (SKILL.md, "`try_build`: a candidate built without writing it"), never a step before every write: the write reports the same render.
 - **Keep the user's style.** Their constant names, their comment voice, their quote style, their order of imports. Add an import only when the guard asks (`missing-imports` with `details.suggestion`); do not reorder existing ones.
 - **Add to the constants, do not inline.** A new dimension becomes a named `const` beside the existing ones, derived from them where it depends on them.
 - **Do not reformat.** No re-indentation, no trailing-whitespace cleanup, no reflowing comments. A diff the user cannot read is a diff they cannot trust.

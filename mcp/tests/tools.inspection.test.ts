@@ -724,7 +724,8 @@ describe('inspection tools (over MCP)', () => {
       expect(interfereTool.description).toContain('NOT a pass');
       expect(interfereTool.description).toContain('`tolerance`');
       expect(interfereTool.description).toContain('document unit cubed');
-      expect(interfereTool.description).toContain('STATEMENT poses');
+      expect(interfereTool.description).toContain('where the MATES put them');
+      expect(interfereTool.description).not.toContain('STATEMENT poses');
       expect(interfereTool.description).toContain('`poses`');
       const interfereSchema = JSON.stringify(interfereTool.inputSchema);
       for (const field of ['instanceIds', 'shapeIds', 'tolerance', 'poses']) {
@@ -766,15 +767,21 @@ describe('inspection tools (over MCP)', () => {
       expect(byName.get('get_face_properties')).toContain('no normal');
       expect(byName.get('get_face_properties')).toContain('resolve_selection');
       // The tools send agents to get_scene_summary for instance ids and
-      // poses, so it must say it lists them and what the pose is; interfere
-      // must not promise a solved pose the summary never carries.
+      // poses, so it must say it lists them and what the pose is — the
+      // engine's own solve of the mates, the rest configuration — and how
+      // each joint came out of that solve.
       expect(byName.get('get_scene_summary')).toContain('`instances`');
       expect(byName.get('get_scene_summary')).toContain('`instancePoses`');
-      expect(byName.get('get_scene_summary')).toContain('NOT the mate-solved pose');
+      expect(byName.get('get_scene_summary')).toContain('source: "solved"');
+      expect(byName.get('get_scene_summary')).toContain('REST configuration');
+      expect(byName.get('get_scene_summary')).toContain('`solve`');
+      expect(byName.get('get_scene_summary')).toContain('"unenforced"');
+      expect(byName.get('get_scene_summary')).not.toContain('solved only in the viewer');
       expect(interfereTool.description).toContain('`instances[].pose`');
       expect(interfereTool.description).not.toContain('after a viewport drag writes it back');
       const measureSchema = JSON.stringify(tools.tools.find((t) => t.name === 'measure')!.inputSchema);
-      expect(measureSchema).toContain('statement pose');
+      expect(measureSchema).toContain('where the mates put the instance');
+      expect(measureSchema).not.toContain('statement pose');
       expect(measureSchema).not.toContain('dragged poses');
       // `pack` packs the workspace's package; the old model packer's tool is gone.
       expect(byName.has('pack_model')).toBe(false);

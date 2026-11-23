@@ -12,6 +12,20 @@ export type {
 } from './query-types.ts';
 export type { SerializedAssembly } from './assembly-types.ts';
 export type { ObjectBuildError, ObjectBuildWarning, PreviewRender, PreviewRendered, RenderOptions, SceneConfigurations, SceneConfigurationTable, SceneRenderedData, ScratchRender } from './render-types.ts';
+export {
+  ModelBuildTimes,
+  ScratchBuildRefusal,
+  ScratchBuildReport,
+  ScratchBuildStore,
+  type ScratchBuildBounds,
+  type ScratchBuildCost,
+  type ScratchBuildFacts,
+  type ScratchBuildMeshes,
+  type ScratchBuildOutcome,
+  type ScratchBuildRequest,
+  type ScratchBuildReuse,
+  type ScratchBuildValidation,
+} from './scratch-build.ts';
 export { RenderClock, type RenderPhase } from './render-clock.ts';
 export { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection, type UnmappedShape } from './shape-export-selection.ts';
 export { PartPropertiesAggregator, type PartMaterialSummary, type PartProperties } from './part-properties.ts';
@@ -70,15 +84,16 @@ export {
   type SceneSummaryInstance,
   type SceneSummaryInstancePose,
   type SceneSummaryInstancePoses,
-  type SceneSummaryJoints,
   type SceneSummaryMate,
   type SceneSummaryMateOptions,
+  type SceneSummaryMateOutcome,
   type SceneSummaryMateSide,
   type SceneSummaryObject,
   type SceneSummaryOccurrence,
   type SceneSummaryRelation,
   type SceneSummaryRelationMate,
   type SceneSummaryShape,
+  type SceneSummarySolve,
   type ShapeList,
   type ShapeListEntry,
 } from './scene-summary.ts';

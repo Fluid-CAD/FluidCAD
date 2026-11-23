@@ -1,4 +1,4 @@
-import { ICON_AGENT, ICON_CODE, ICON_LIST_TREE, ICON_SLIDERS } from './icons';
+import { ICON_AGENT, ICON_BUG, ICON_CODE, ICON_LIST_TREE, ICON_SLIDERS } from './icons';
 import { HubIcons } from './hub/hub-icons';
 
 /**
@@ -91,13 +91,21 @@ export interface PanelRailHandlers {
    * absent means shown.
    */
   isAgentAvailable?: () => boolean;
+  /**
+   * Toggle the bug report panel. Its button is not one of the workspace's
+   * surfaces, so it sits apart from them, at the foot of the bar; absent,
+   * there is no button.
+   */
+  onToggleBugReport?: () => void;
+  isBugReportOpen?: () => boolean;
 }
 
 /**
  * The panel rail: a full-height vertical bar pinned to the window's left edge,
  * holding one latch button per surface it opens — the feature tree (timeline)
  * on top, the code-editor pane beneath it, the project Parameters column
- * under that, the Hub panel (H11), the Agent panel last. It replaces the top bar's hamburger
+ * under that, the Hub panel (H11), the Agent panel last, and the bug report
+ * at the foot of the bar, apart from them. It replaces the top bar's hamburger
  * menu, which hid the
  * toggles behind a click and gave no sign of what was open.
  *
@@ -122,6 +130,7 @@ export class PanelRail {
   private readonly editorBtn: RailButton | null;
   private readonly hubBtn: RailButton | null;
   private readonly agentBtn: RailButton | null;
+  private readonly bugReportBtn: RailButton | null;
   private readonly treeBtn: RailButton;
   private readonly globalParamsBtn: RailButton | null;
   private readonly floatQuery: MediaQueryList | null;
@@ -153,6 +162,11 @@ export class PanelRail {
     this.agentBtn = handlers.onToggleAgent
       ? this.addButton(ICON_AGENT, handlers.onToggleAgent)
       : null;
+    this.bugReportBtn = handlers.onToggleBugReport
+      ? this.addButton(ICON_BUG, handlers.onToggleBugReport)
+      : null;
+    // The foot of the docked bar; the floating column hugs its buttons, where this does nothing.
+    this.bugReportBtn?.wrap.classList.add('mt-auto');
 
     this.floatQuery = window.matchMedia?.(FLOAT_QUERY) ?? null;
     this.floatQuery?.addEventListener('change', () => this.applyMode());
@@ -200,6 +214,9 @@ export class PanelRail {
     if (this.agentBtn) {
       this.setState(this.agentBtn, this.handlers.isAgentOpen?.() === true, 'Agent');
       this.agentBtn.wrap.classList.toggle('hidden', this.handlers.isAgentAvailable?.() === false);
+    }
+    if (this.bugReportBtn) {
+      this.setState(this.bugReportBtn, this.handlers.isBugReportOpen?.() === true, 'Report a bug');
     }
   }
 

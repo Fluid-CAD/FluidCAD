@@ -11,13 +11,16 @@ import {
   type ChatEvent,
   type ChatEventEnvelope,
   type ChatMessage,
+  type ParamKeptValue,
   type PermissionMode,
+  type QuestionReply,
   type RevertResult,
   type SendMessage,
   type SessionSnapshot,
   type SessionStatus,
   type SessionSummary,
   type TurnRecord,
+  type VariantsReply,
 } from './chat-types';
 
 /** The timer functions the state retries with (tests pass fake ones). */
@@ -509,6 +512,127 @@ export class ChatState {
         this.error = answer.error;
         this.emit({ kind: 'activity' });
       }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Ask for the preview an approval card offers (§25). Resolves true once
+   * the engine took it; the card then fills in through the events that
+   * follow. One that is building already, or whose approval was settled
+   * elsewhere, is not an error: its events say so.
+   */
+  async requestPreview(approvalId: string): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.requestPreview(id, approvalId);
+    if (answer.ok === false) {
+      if (answer.status !== 409) {
+        this.error = answer.error;
+        this.emit({ kind: 'activity' });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Hand the engine the pictures this page drew of the two sides of a
+   * change (PNG data URLs), to be kept with the session. Best effort: a
+   * side whose picture was not kept is drawn again by the next page that
+   * shows it, while the engine has its build.
+   */
+  savePreviewPictures(approvalId: string, pictures: { before?: string; after?: string }): void {
+    const id = this.session?.id;
+    const body: { before?: { mediaType: 'image/png'; base64: string }; after?: { mediaType: 'image/png'; base64: string } } = {};
+    for (const side of ['before', 'after'] as const) {
+      const base64 = /^data:image\/png;base64,(.+)$/.exec(pictures[side] ?? '')?.[1];
+      if (base64) {
+        body[side] = { mediaType: 'image/png', base64 };
+      }
+    }
+    if (!id || (!body.before && !body.after)) {
+      return;
+    }
+    void this.client.savePreviewPictures(id, approvalId, body);
+  }
+
+  /**
+   * Answer (or skip) a question the agent asked. Resolves true once the
+   * engine took it; the card then changes through the event that follows. A
+   * question already settled elsewhere (another tab, a stop) is not an
+   * error: its event says how it ended.
+   */
+  async answerQuestion(questionId: string, reply: QuestionReply): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.answerQuestion(id, questionId, reply);
+    if (answer.ok === false) {
+      if (answer.status !== 409) {
+        this.error = answer.error;
+        this.emit({ kind: 'activity' });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Reply to a variants card: a pick, the user's own words, or a skip.
+   * Resolves true once the engine took it; the card then changes through the
+   * event that follows. A card already settled elsewhere (another tab, a
+   * stop) is not an error: its event says how it ended.
+   */
+  async chooseVariant(variantsId: string, reply: VariantsReply): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.chooseVariant(id, variantsId, reply);
+    if (answer.ok === false) {
+      if (answer.status !== 409) {
+        this.error = answer.error;
+        this.emit({ kind: 'activity' });
+      }
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Hand the engine the picture this page drew of a variant's tile (a PNG
+   * data URL), to be kept with the session. Best effort: a tile whose
+   * picture was not kept is drawn again by the next page that shows it.
+   */
+  saveVariantPicture(variantsId: string, label: string, dataUrl: string): void {
+    const id = this.session?.id;
+    const base64 = /^data:image\/png;base64,(.+)$/.exec(dataUrl)?.[1];
+    if (!id || !base64) {
+      return;
+    }
+    void this.client.saveVariantPicture(id, variantsId, { label, image: { mediaType: 'image/png', base64 } });
+  }
+
+  /**
+   * Tell the engine what Keep wrote into the source from a parameter card
+   * (§26). Resolves true once the engine took it: the card then says what
+   * was kept through the event that follows, and the agent is told with the
+   * next message. The values are in the file either way.
+   */
+  async paramsKept(paramsId: string, kept: ParamKeptValue[]): Promise<boolean> {
+    const id = this.session?.id;
+    if (!id) {
+      return false;
+    }
+    const answer = await this.client.paramsKept(id, paramsId, { kept });
+    if (answer.ok === false) {
+      this.error = answer.error;
+      this.emit({ kind: 'activity' });
       return false;
     }
     return true;

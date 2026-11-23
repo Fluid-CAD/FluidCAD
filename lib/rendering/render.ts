@@ -136,6 +136,7 @@ export class SceneRenderer {
   }
 
   render(scene: Scene): Scene {
+    scene.renderStarting();
     const sceneObjects = scene.getAllSceneObjects();
     console.log("============ Rendering ==============", sceneObjects.length);
     this.occurrenceIndexes = computeCallSiteOccurrences(sceneObjects);

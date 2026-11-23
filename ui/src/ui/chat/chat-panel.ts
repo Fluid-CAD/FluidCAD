@@ -21,13 +21,21 @@ import {
   type ApiProviderStatus,
   type ApprovalDecision,
   type Effort,
+  type ParamKeptValue,
   type PermissionMode,
+  type QuestionReply,
   type SessionStatus,
   type TurnRecord,
+  type VariantsReply,
 } from './chat-types';
 import type { Colorizer } from './code-block';
-import { ImageAttachments, type ImagePreparer } from './image-attachments';
+import type { ParamCardHost } from './parts/params-part';
+import { ImageAttachments, MAX_ATTACHMENTS, type ImagePreparer } from './image-attachments';
+import { VIEWPORT_CAPTURE_NAME, VIEWPORT_MARKUP_NAME } from './markup';
+import { MarkupAnnotator, type MarkupAnnotatorOptions, type MarkupImaging, type MarkupResult } from './markup-annotator';
 import { SceneReferences, blobToBase64, type ChatSceneHost } from './scene-references';
+import { AnswerPicks } from './answer-picks';
+import { Pointing, type ChatPointHost } from './pointing';
 import { resetsText } from './time-format';
 import { usageText } from './usage';
 import './chat-panel.css';
@@ -66,6 +74,23 @@ export type ChatConfirmOptions = {
   kind?: 'revert' | 'delete';
 };
 
+/**
+ * What draws a scratch build for a card: a variant's tile, the two sides of
+ * a change waiting for approval, and the ghost of either in the viewport.
+ */
+export type ChatVariantsHost = {
+  /** A PNG data URL of scratch build `buildId`, or null when it can no longer be drawn (the engine let the build go). */
+  picture(buildId: string): Promise<string | null>;
+  /** PNG data URLs of several builds drawn from one camera, framed on what they draw together; null for one that cannot be drawn. */
+  pictures(buildIds: string[]): Promise<(string | null)[]>;
+  /** Show the build over the model on screen, translucent; false when it cannot. */
+  showGhost(buildId: string): Promise<boolean>;
+  hideGhost(): void;
+};
+
+/** The model on screen as a parameter card reads and sets it (§26). */
+export type { ParamCardHost as ChatParamsHost } from './parts/params-part';
+
 /** The permission modes as the panel names them (§12.1); Settings → Agent uses the same words. */
 export { PERMISSION_MODES } from './permission-modes';
 
@@ -101,10 +126,31 @@ export type ChatPanelDeps = {
    * idle selection, renders, the capture. Absent: no references.
    */
   scene?: ChatSceneHost;
+  /**
+   * Pictures and viewport ghosts of the variants the agent proposes (§24)
+   * and of a change waiting for approval (§25), drawn from their scratch
+   * builds. Absent: a card shows only the pictures the session kept, and
+   * offers no "Show in viewport".
+   */
+  variants?: ChatVariantsHost;
+  /**
+   * The parameters of the model on screen, for the cards the agent offers
+   * them on (§26): their values, a session value set from a control, Reset
+   * and Keep. Absent: a card lists its parameters without controls.
+   */
+  params?: ParamCardHost;
+  /**
+   * The viewport, for what the agent points at with `show_user` (§27): its
+   * items drawn over the model on screen, each in its chip's colour.
+   * Absent: a card lists its items, with nothing highlighted.
+   */
+  point?: ChatPointHost;
   /** The project's files, for naming one in a message with `@`; absent: no file mentions. */
   listFiles?(): Promise<MentionFile[]>;
   /** Makes an attached image ready to send (tests); absent: the browser's decoder and a canvas. */
   prepareImage?: ImagePreparer;
+  /** Decodes and encodes the picture of the markup dialog (tests); absent: the browser's decoder and a canvas. */
+  markupImaging?: MarkupImaging;
   /** Timers for reattaching after a refused stream (tests). */
   timers?: ChatTimers;
 };
@@ -146,7 +192,11 @@ const UNAVAILABLE_AGENT: Record<'not-found' | 'too-old' | 'signed-out', { suffix
  * automatically, the `agent.permissionMode` preference), and say how the
  * agent is paid for (subscription or API key). Images go with a message
  * too ({@link ImageAttachments}): picked with the composer's Attach button,
- * pasted into the message box, or dropped anywhere on the panel. The session's status drives what shows: Stop while
+ * pasted into the message box, or dropped anywhere on the panel. The
+ * composer's Capture button takes a picture of the viewport and opens it to
+ * draw on ({@link MarkupAnnotator}, §28) before it is attached; the pen on an
+ * attached image's thumbnail does the same for that image.
+ * The session's status drives what shows: Stop while
  * a turn runs, the approval cards while it waits, Continue after the engine
  * restarted mid-turn, the errors. Under each user message, Revert this turn
  * while the turn has changes to put back (§12.2). Until the agent can run,
@@ -161,6 +211,16 @@ export class ChatPanel {
   readonly references: SceneReferences | null;
   /** The images attached to the next message. */
   readonly images: ImageAttachments;
+  /** The markup dialog while it is open (§28): one at a time. */
+  private markup: MarkupAnnotator | null = null;
+  /** The viewport is being captured for it. */
+  private capturing = false;
+  /** Which question card, if any, the viewport selection answers (§27). */
+  private readonly answerPicks: AnswerPicks;
+  /** Which `show_user` card is highlighted in the viewport (§27); null without a viewport. */
+  private readonly pointing: Pointing | null;
+  /** The chat the highlighted card belongs to. */
+  private pointedSession: string | null = null;
   private readonly sessionButton: HTMLButtonElement;
   private readonly sessionTitle: HTMLSpanElement;
   private readonly agentSlot: HTMLSpanElement;
@@ -258,12 +318,32 @@ export class ChatPanel {
     this.center = document.createElement('div');
     this.center.className = 'chat-center hidden';
     this.center.dataset.ref = 'center';
+    // A question answered by picking takes the selection from the composer's references while it is armed (§27).
+    this.answerPicks = new AnswerPicks(deps.scene ?? null, () => this.syncReferences());
+    this.pointing = deps.point ? new Pointing(deps.point) : null;
     const partContext = {
+      picks: this.answerPicks,
+      ...(this.pointing ? { pointer: this.pointing } : {}),
       openLink: (url: string) => deps.openExternal(url),
       colorizer: () => deps.colorizer?.() ?? null,
       fileUrl: (name: string) => (this.state.session ? deps.client.fileUrl(this.state.session.id, name) : ''),
       ...(deps.openSource ? { openSource: deps.openSource } : {}),
       decideApproval: (approvalId: string, decision: ApprovalDecision) => this.state.decideApproval(approvalId, decision),
+      answerQuestion: (questionId: string, reply: QuestionReply) => this.state.answerQuestion(questionId, reply),
+      chooseVariant: (variantsId: string, reply: VariantsReply) => this.state.chooseVariant(variantsId, reply),
+      saveVariantPicture: (variantsId: string, label: string, dataUrl: string) => this.state.saveVariantPicture(variantsId, label, dataUrl),
+      requestPreview: (approvalId: string) => this.state.requestPreview(approvalId),
+      savePreviewPictures: (approvalId: string, pictures: { before?: string; after?: string }) => this.state.savePreviewPictures(approvalId, pictures),
+      paramsKept: (paramsId: string, kept: ParamKeptValue[]) => this.state.paramsKept(paramsId, kept),
+      ...(deps.params ? { params: deps.params } : {}),
+      ...(deps.variants
+        ? {
+            variantPicture: (buildId: string) => deps.variants!.picture(buildId),
+            buildPictures: (buildIds: string[]) => deps.variants!.pictures(buildIds),
+            showVariantGhost: (buildId: string) => deps.variants!.showGhost(buildId),
+            hideVariantGhost: () => deps.variants!.hideGhost(),
+          }
+        : {}),
     };
     this.transcript = new ChatTranscript(partContext);
     body.append(this.center, this.transcript.el);
@@ -278,12 +358,15 @@ export class ChatPanel {
       onSubmit: (text) => this.send(text),
       onStop: () => void this.state.stop(),
       onAttach: (files) => this.images.add(files),
+      ...(deps.scene?.captureViewport ? { onCapture: () => void this.captureViewport() } : {}),
       ...(deps.listFiles ? { listFiles: deps.listFiles } : {}),
     });
     this.composer.controls.append(this.agentSlot, this.modelSlot, this.effortSlot, this.modeButton);
     this.references = deps.scene ? new SceneReferences(deps.scene, this.composer) : null;
     this.images = new ImageAttachments({
       ...(deps.prepareImage ? { prepare: deps.prepareImage } : {}),
+      // The pen on a thumbnail: the image as it would be sent, back with marks on it (null: nothing drawn).
+      annotate: async (image, name) => (await this.markUp({ image, title: `Mark up ${name}`, confirmLabel: 'Replace', requireMarks: true }))?.blob ?? null,
       onChange: () => this.composer.setSendsWithoutText(this.images.size > 0),
     });
     this.composer.setAttachments(this.images.el, ...(this.references ? [this.references.el] : []));
@@ -335,7 +418,11 @@ export class ChatPanel {
       return;
     }
     this.open = false;
+    // What the agent pointed at goes with the card that says so.
+    this.pointing?.clearAll();
     this.el.classList.add('hidden');
+    // A variant or a change shown in the viewport goes with the card that showed it.
+    this.transcript.releaseOverlays();
     this.deps.slot.release(this);
     this.deps.onOpenChange?.(false);
     this.syncReferences();
@@ -365,7 +452,9 @@ export class ChatPanel {
     this.sessionsMenu.close();
     window.removeEventListener('resize', this.onResize);
     this.unsubscribe();
+    this.markup?.close();
     this.references?.destroy();
+    this.pointing?.destroy();
     this.images.destroy();
     this.state.dispose();
     this.transcript.destroy();
@@ -593,6 +682,51 @@ export class ChatPanel {
     return sent;
   }
 
+  /**
+   * The composer's Capture button (§28): a picture of the viewport as it is
+   * now, opened to draw on, then attached like any image. With marks it is
+   * `viewport-markup.png`, without `viewport-capture.png`: the name is what
+   * tells the agent which of the message's images is the viewport.
+   */
+  private async captureViewport(): Promise<void> {
+    const scene = this.deps.scene;
+    if (!scene?.captureViewport || this.markup || this.capturing || !this.composerUsable) {
+      return;
+    }
+    if (this.images.full) {
+      this.images.say(`A message takes at most ${MAX_ATTACHMENTS} images.`);
+      return;
+    }
+    this.capturing = true;
+    try {
+      const image = await scene.captureViewport();
+      const result = await this.markUp({ image, title: 'Mark up the viewport' });
+      if (result) {
+        this.images.add([new File([result.blob], result.marked ? VIEWPORT_MARKUP_NAME : VIEWPORT_CAPTURE_NAME, { type: 'image/png' })]);
+      }
+    } catch (err) {
+      console.warn('FluidCAD: the viewport capture failed:', err);
+      this.images.say('The viewport could not be captured.');
+    } finally {
+      this.capturing = false;
+    }
+    this.composer.focus();
+  }
+
+  /** Open the markup dialog; resolves with what the user attached, null when they cancelled or one is already open. */
+  private async markUp(options: MarkupAnnotatorOptions): Promise<MarkupResult | null> {
+    if (this.markup) {
+      return null;
+    }
+    const markup = new MarkupAnnotator({ ...options, ...(this.deps.markupImaging ? { imaging: this.deps.markupImaging } : {}) });
+    this.markup = markup;
+    try {
+      return await markup.result;
+    } finally {
+      this.markup = null;
+    }
+  }
+
   /** Whether a drag carries files (the only thing the panel takes). */
   private static carriesFiles(event: DragEvent): boolean {
     return [...(event.dataTransfer?.types ?? [])].includes('Files');
@@ -697,6 +831,11 @@ export class ChatPanel {
     const messages = session?.messages ?? [];
     const last = messages[messages.length - 1];
     const live = session && isBusy(session.status) && last?.role === 'assistant' ? last.id : null;
+    if ((session?.id ?? null) !== this.pointedSession) {
+      // Another chat is on screen: what the last one pointed at is not its to show.
+      this.pointedSession = session?.id ?? null;
+      this.pointing?.clearAll();
+    }
     this.transcript.render(messages, live);
     void this.state.loadModels(this.state.agent);
     this.paintAll();
@@ -1251,7 +1390,11 @@ export class ChatPanel {
 
   /** The selection attaches only while the panel is open and its composer usable (§11.1). */
   private syncReferences(): void {
-    this.references?.setActive(this.open && this.composerUsable);
+    if (!this.open) {
+      // Nothing picks into a card nobody sees.
+      this.answerPicks.release();
+    }
+    this.references?.setActive(this.open && this.composerUsable && !this.answerPicks.armed);
   }
 
   /** Sign in to `kind` from the app: the sign-in page opens in the browser, the panel waits for it. */
@@ -1290,6 +1433,8 @@ export class ChatPanel {
         return 'Working…';
       case 'awaiting-approval':
         return 'Waiting for your approval…';
+      case 'awaiting-answer':
+        return 'Waiting for your answer…';
       default:
         return null;
     }

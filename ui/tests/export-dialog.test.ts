@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
 import { ExportDialog, exportBaseName, type ExportAssemblyProvider } from '../src/ui/export-dialog';
 import type { EngineClient } from '../src/engine-client';
 import type { SceneContext } from '../src/scene/scene-context';
-import { EVERY_SOLID, type MeasurePose } from '../src/api';
+import { EVERY_SOLID, type ExportResult, type MeasurePose } from '../src/api';
+import type { ExportViewProvider } from '../src/ui/export-drawing-views';
+import { PREVIEW_DEBOUNCE_MS } from '../src/ui/export-drawing-preview';
 import type { SceneDocument } from '../src/units/scene-document';
 
 // The export dialog's two targets. Shapes: the listed solids, as before.
@@ -27,10 +29,40 @@ import { deliverFile } from '../src/desktop';
 
 const deliverFileMock = vi.mocked(deliverFile);
 
+// A drawing's preview is shown through an object URL, which jsdom does not
+// make: each blob gets a numbered one, so a test can tell which drawing is on
+// screen and which URLs were let go.
+const previewBlobs = new Map<string, Blob>();
+const createObjectURL = vi.fn((blob: Blob): string => {
+  const url = `blob:preview-${previewBlobs.size + 1}`;
+  previewBlobs.set(url, blob);
+  return url;
+});
+const revokeObjectURL = vi.fn((_url: string): void => {});
+URL.createObjectURL = createObjectURL as unknown as typeof URL.createObjectURL;
+URL.revokeObjectURL = revokeObjectURL as unknown as typeof URL.revokeObjectURL;
+
+/** Every dialog a test mounted: closed after it, so no preview still waiting on its timer outlives the test. */
+const mounted: ExportDialog[] = [];
+
 afterEach(() => {
+  for (const dialog of mounted.splice(0)) {
+    dialog.hide();
+  }
   document.body.innerHTML = '';
   vi.clearAllMocks();
+  vi.useRealTimers();
+  previewBlobs.clear();
 });
+
+/**
+ * The export requests among a client's calls. A drawing format also asks for
+ * its preview — always an SVG, never of "one row of a zip run" — a moment
+ * after the options rest, so a slow export can find one among its own calls.
+ */
+function requestsOf(exportShapes: { mock: { calls: unknown[][] } }, format: string): any[] {
+  return exportShapes.mock.calls.map((call) => call[0] as any).filter((body) => body.format === format);
+}
 
 const POSES: Record<string, MeasurePose> = {
   'inst-a': { position: { x: 1, y: 2, z: 3 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } },
@@ -48,12 +80,14 @@ function provider(poseOf: (id: string) => MeasurePose | null = (id) => POSES[id]
   };
 }
 
-function mount(assembly: ExportAssemblyProvider | null = null) {
+function mount(assembly: ExportAssemblyProvider | null = null, view: ExportViewProvider | null = null) {
   const container = document.createElement('div');
   document.body.appendChild(container);
-  const exportShapes = vi.fn(async () => new Blob(['step']));
+  // A host answers the bare file, or the file with the export's warnings.
+  const exportShapes = vi.fn(async (_body: unknown): Promise<Blob | ExportResult> => new Blob(['step']));
   const client = { exportShapes } as unknown as EngineClient;
-  const dialog = new ExportDialog(container, client, {} as SceneContext, assembly);
+  const dialog = new ExportDialog(container, client, {} as SceneContext, assembly, view);
+  mounted.push(dialog);
   const q = <T extends HTMLElement>(ref: string): T => container.querySelector<T>(`[data-ref="${ref}"]`)!;
   const pickFormat = (format: string): void => {
     const pill = container.querySelector<HTMLInputElement>(`[data-format="${format}"]`)!;
@@ -262,13 +296,13 @@ describe('ExportDialog configurations', () => {
     expect(q('configuration-note').classList.contains('hidden')).toBe(true);
   });
 
-  it('sends the picked row, and says an off-screen row is not where the mates put it', async () => {
+  it('sends the picked row, and says an off-screen row sits where its mates settle it, not as dragged', async () => {
     const { dialog, exportShapes, q } = mount(provider());
     dialog.setConfigurations(TABLE);
     dialog.show({ kind: 'assembly' });
     pickConfiguration(q, 'Compact');
     expect(q('configuration-note').classList.contains('hidden')).toBe(false);
-    expect(q('configuration-note').textContent).toContain('not where the mates do');
+    expect(q('configuration-note').textContent).toContain('where the mates settle them');
 
     await clickExport(q);
 
@@ -464,6 +498,698 @@ describe('ExportDialog configurations in a part scene', () => {
     expect(q<HTMLSelectElement>('configuration').disabled).toBe(true);
     expect(selectedLabel(q)).toBe('Default (on screen)');
     expect(q('configuration-note').textContent).toBe('A PNG captures the configuration on screen.');
+  });
+});
+
+// A DXF or an SVG is a drawing of the solids' view on a standard plane: their
+// own options section (the view, hidden lines, tangent edges; the stroke
+// width for an SVG), a body without any STEP or STL option (the server
+// refuses them with it), the view in every file name, and — for the whole
+// assembly — a note in place of the options, with Export disabled.
+describe('ExportDialog drawing (DXF, SVG)', () => {
+  const PART_TABLE = {
+    active: 'Default',
+    names: ['M6', 'M8'],
+    rows: { M6: { Hole: 6 }, M8: { Hole: 8 } },
+  };
+  const partTarget = { kind: 'shapes' as const, shapeIds: ['s-1', 's-2'], fileBase: 'plate' };
+  const lookingFrom = (x: number, y: number, z: number): ExportViewProvider => ({ eyeDirection: () => ({ x, y, z }) });
+
+  const viewLabel = (q: <T extends HTMLElement>(ref: string) => T): string | undefined =>
+    q<HTMLSelectElement>('drawing-view').selectedOptions[0]?.textContent ?? undefined;
+  const pickView = (q: <T extends HTMLElement>(ref: string) => T, view: string): void => {
+    const select = q<HTMLSelectElement>('drawing-view');
+    select.value = view;
+    select.dispatchEvent(new Event('change'));
+  };
+  const toggle = (q: <T extends HTMLElement>(ref: string) => T, ref: string): void => {
+    const input = q<HTMLInputElement>(ref);
+    input.checked = !input.checked;
+    input.dispatchEvent(new Event('change'));
+  };
+
+  it('lists the pills STEP, STL, DXF, SVG, PNG and shows each format its own section only', () => {
+    const { dialog, container, q, pickFormat } = mount();
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect([...container.querySelectorAll<HTMLInputElement>('[data-format]')].map((pill) => pill.getAttribute('aria-label')))
+      .toEqual(['STEP', 'STL', 'DXF', 'SVG', 'PNG']);
+
+    const shown = (): string[] => ['step-section', 'stl-section', 'drawing-section', 'png-section']
+      .filter((ref) => !q(ref).classList.contains('hidden'));
+    expect(shown()).toEqual(['step-section']);
+    pickFormat('dxf');
+    expect(shown()).toEqual(['drawing-section']);
+    // The stroke width is the SVG's alone.
+    expect(q('stroke-section').classList.contains('hidden')).toBe(true);
+    pickFormat('svg');
+    expect(shown()).toEqual(['drawing-section']);
+    expect(q('stroke-section').classList.contains('hidden')).toBe(false);
+    pickFormat('stl');
+    expect(shown()).toEqual(['stl-section']);
+    pickFormat('png');
+    expect(shown()).toEqual(['png-section']);
+  });
+
+  it('offers the six standard views, with hidden lines and tangent edges off', () => {
+    const { dialog, q, pickFormat } = mount();
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    pickFormat('dxf');
+    expect([...q<HTMLSelectElement>('drawing-view').options].map((o) => [o.value, o.textContent])).toEqual([
+      ['top', 'Top (XY)'],
+      ['bottom', 'Bottom (−XY)'],
+      ['front', 'Front (XZ)'],
+      ['back', 'Back (−XZ)'],
+      ['right', 'Right (YZ)'],
+      ['left', 'Left (−YZ)'],
+    ]);
+    expect(q<HTMLInputElement>('hidden-lines').checked).toBe(false);
+    expect(q<HTMLInputElement>('tangent-edges').checked).toBe(false);
+    expect(q('drawing-section').textContent).toContain('dashed, on their own layer');
+  });
+
+  it('sends the plane and the two edge options, and none of the STEP or STL ones', async () => {
+    const { dialog, exportShapes, q, pickFormat } = mount();
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1', 's-2'] });
+    // Options left behind by the other formats must not ride along.
+    pickFormat('stl');
+    q<HTMLSelectElement>('resolution').value = 'custom';
+    pickFormat('dxf');
+    pickView(q, 'front');
+    toggle(q, 'hidden-lines');
+
+    await clickExport(q);
+
+    expect(exportShapes).toHaveBeenCalledWith({
+      format: 'dxf',
+      shapeIds: ['s-1', 's-2'],
+      plane: 'front',
+      hiddenLines: true,
+      tangentEdges: false,
+    });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('export-front.dxf');
+    expect(deliverFileMock.mock.calls[0][2]).toEqual([{ name: 'DXF Files', extensions: ['dxf'] }]);
+  });
+
+  it('opens on the standard view the camera clearly faces, anew at every opening', () => {
+    let eye = { x: 0.1, y: -0.95, z: 0.2 };
+    const { dialog, q, pickFormat } = mount(null, { eyeDirection: () => eye });
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    pickFormat('dxf');
+    expect(viewLabel(q)).toBe('Front (XZ)');
+
+    // A pick made while open holds until the dialog is opened again.
+    pickView(q, 'left');
+    expect(viewLabel(q)).toBe('Left (−YZ)');
+    eye = { x: -0.2, y: 0.1, z: -5 };
+    dialog.hide();
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect(viewLabel(q)).toBe('Bottom (−XY)');
+  });
+
+  it('opens on Top without a camera to ask, and from a camera on no side in particular', () => {
+    const none = mount();
+    none.dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect(viewLabel(none.q)).toBe('Top (XY)');
+
+    const unknown = mount(null, { eyeDirection: () => null });
+    unknown.dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect(viewLabel(unknown.q)).toBe('Top (XY)');
+
+    const iso = mount(null, lookingFrom(1, -1, 1));
+    iso.dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect(viewLabel(iso.q)).toBe('Top (XY)');
+  });
+
+  it('names a part scene\'s drawing <file>-<view>.dxf, whichever row is exported', async () => {
+    const { dialog, exportShapes, q, pickFormat } = mount(null, lookingFrom(1, 0, 0));
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(partTarget);
+    pickFormat('dxf');
+    pickConfiguration(q, 'M8');
+
+    await clickExport(q);
+
+    expect(exportShapes).toHaveBeenCalledWith({
+      format: 'dxf',
+      shapeIds: ['s-1', 's-2'],
+      plane: 'right',
+      hiddenLines: false,
+      tangentEdges: false,
+      configuration: 'M8',
+    });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('plate-right.dxf');
+  });
+
+  it('All configurations draws every row on the picked view: <file>-<Row>-<view>.dxf in <file>-<view>-configurations.zip', async () => {
+    const { dialog, exportShapes, q, pickFormat } = mount();
+    exportShapes.mockImplementation(async (body: any) => new Blob([`dxf ${body.configuration}`]));
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(partTarget);
+    pickFormat('dxf');
+    pickView(q, 'front');
+    pickConfiguration(q, 'All configurations (.zip)');
+    expect(q<HTMLSelectElement>('configuration').disabled).toBe(false);
+
+    q<HTMLButtonElement>('export-btn').click();
+    await waitForStatus(q, () => deliverFileMock.mock.calls.length > 0);
+
+    expect(requestsOf(exportShapes, 'dxf')).toEqual(['Default', 'M6', 'M8'].map((configuration) => ({
+      format: 'dxf', shapeIds: ['s-1', 's-2'], plane: 'front', hiddenLines: false, tangentEdges: false, configuration,
+    })));
+    const [archive, name] = deliverFileMock.mock.calls[0];
+    expect(name).toBe('plate-front-configurations.zip');
+    const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+    expect(Object.keys(zip.files)).toEqual(['plate-front.dxf', 'plate-M6-front.dxf', 'plate-M8-front.dxf']);
+    expect(await zip.file('plate-M8-front.dxf')!.async('string')).toBe('dxf M8');
+  });
+
+  it('lets the whole assembly pick DXF or SVG, which shows a note in place of the options and disables Export', async () => {
+    const { dialog, container, exportShapes, q, pickFormat } = mount(provider());
+    const noteShown = (): boolean => !q('format-note').classList.contains('hidden');
+    const exportBtn = q<HTMLButtonElement>('export-btn');
+
+    dialog.show({ kind: 'assembly' });
+    // Every pill is on screen and can be picked; the note waits for a drawing format.
+    expect([...container.querySelectorAll<HTMLInputElement>('[data-format]')]
+      .filter((p) => !p.classList.contains('hidden') && !p.disabled).map((p) => p.dataset.format)).toEqual(['step', 'stl', 'dxf', 'svg', 'png']);
+    expect(noteShown()).toBe(false);
+    expect(exportBtn.disabled).toBe(false);
+
+    for (const format of ['dxf', 'svg']) {
+      pickFormat(format);
+      expect(noteShown()).toBe(true);
+      expect(q('format-note').textContent).toBe('DXF/SVG exports are supported only on single parts');
+      expect(q('drawing-section').classList.contains('hidden')).toBe(true);
+      expect(exportBtn.disabled).toBe(true);
+    }
+    exportBtn.click();
+    await Promise.resolve();
+    expect(exportShapes).not.toHaveBeenCalled();
+    expect(q('status').classList.contains('hidden')).toBe(true);
+
+    // Another format takes the note away and gives Export back.
+    pickFormat('stl');
+    expect(noteShown()).toBe(false);
+    expect(q('stl-section').classList.contains('hidden')).toBe(false);
+    expect(exportBtn.disabled).toBe(false);
+  });
+
+  it('opens the whole assembly on STEP when a drawing format was left selected, and gives solids their options back', async () => {
+    const { dialog, container, exportShapes, q, pickFormat } = mount(provider());
+    const pill = (format: string): HTMLInputElement => container.querySelector<HTMLInputElement>(`[data-format="${format}"]`)!;
+
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    pickFormat('svg');
+    expect(q('format-note').classList.contains('hidden')).toBe(true);
+    expect(q('drawing-section').classList.contains('hidden')).toBe(false);
+    dialog.hide();
+
+    dialog.show({ kind: 'assembly' });
+    expect(pill('step').checked).toBe(true);
+    expect(q('format-note').classList.contains('hidden')).toBe(true);
+    expect(q('drawing-section').classList.contains('hidden')).toBe(true);
+    expect(q('step-section').classList.contains('hidden')).toBe(false);
+
+    await clickExport(q);
+    expect((exportShapes.mock.calls[0][0] as any).format).toBe('step');
+    expect(deliverFileMock.mock.calls[0][1]).toBe('robot.step');
+
+    // A drawing format picked on the assembly is a drawing again on solids.
+    dialog.show({ kind: 'assembly' });
+    pickFormat('dxf');
+    dialog.hide();
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    expect(pill('dxf').checked).toBe(true);
+    expect(q('format-note').classList.contains('hidden')).toBe(true);
+    expect(q('drawing-section').classList.contains('hidden')).toBe(false);
+    expect(q<HTMLButtonElement>('export-btn').disabled).toBe(false);
+  });
+
+  it('SVG sends the drawing options and its stroke width, and downloads <base>-<view>.svg', async () => {
+    const { dialog, exportShapes, q, pickFormat } = mount();
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    pickFormat('svg');
+    const stroke = q<HTMLInputElement>('stroke-width');
+    expect([stroke.value, stroke.min, stroke.step]).toEqual(['0.25', '0.01', '0.05']);
+    expect(q('stroke-section').textContent).toContain('Stroke width (mm)');
+    pickView(q, 'right');
+    toggle(q, 'tangent-edges');
+    stroke.value = '0.5';
+
+    await clickExport(q);
+
+    expect(requestsOf(exportShapes, 'svg')).toContainEqual({
+      format: 'svg',
+      shapeIds: ['s-1'],
+      plane: 'right',
+      hiddenLines: false,
+      tangentEdges: true,
+      strokeWidth: 0.5,
+    });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('export-right.svg');
+    expect(deliverFileMock.mock.calls[0][2]).toEqual([{ name: 'SVG Images', extensions: ['svg'] }]);
+  });
+
+  it('leaves a stroke width that is no width to the server, and never sends one with a DXF', async () => {
+    const svg = mount();
+    svg.dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    svg.pickFormat('svg');
+    svg.q<HTMLInputElement>('stroke-width').value = '';
+    await clickExport(svg.q);
+    expect(deliverFileMock.mock.calls[0][1]).toBe('export-top.svg');
+    // Preview and export alike: no body of this run carries a stroke width.
+    expect(requestsOf(svg.exportShapes, 'svg').length).toBeGreaterThan(0);
+    for (const body of requestsOf(svg.exportShapes, 'svg')) {
+      expect(body).toEqual({ format: 'svg', shapeIds: ['s-1'], plane: 'top', hiddenLines: false, tangentEdges: false });
+    }
+
+    deliverFileMock.mockClear();
+    const zero = mount();
+    zero.dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    zero.pickFormat('svg');
+    zero.q<HTMLInputElement>('stroke-width').value = '0';
+    await clickExport(zero.q);
+    expect(requestsOf(zero.exportShapes, 'svg').every((body) => !('strokeWidth' in body))).toBe(true);
+
+    deliverFileMock.mockClear();
+    const dxf = mount();
+    dxf.dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    dxf.pickFormat('svg');
+    dxf.q<HTMLInputElement>('stroke-width').value = '0.7';
+    dxf.pickFormat('dxf');
+    await clickExport(dxf.q);
+    expect(requestsOf(dxf.exportShapes, 'dxf')).toEqual([
+      { format: 'dxf', shapeIds: ['s-1'], plane: 'top', hiddenLines: false, tangentEdges: false },
+    ]);
+  });
+
+  it('names a part scene\'s SVGs as its DXFs: <file>-<view>.svg, <file>-<Row>-<view>.svg in <file>-<view>-configurations.zip', async () => {
+    const one = mount();
+    one.dialog.setConfigurations(PART_TABLE);
+    one.dialog.show(partTarget);
+    one.pickFormat('svg');
+    pickView(one.q, 'front');
+    pickConfiguration(one.q, 'M8');
+    await clickExport(one.q);
+    expect(one.exportShapes).toHaveBeenCalledWith({
+      format: 'svg', shapeIds: ['s-1', 's-2'], plane: 'front', hiddenLines: false, tangentEdges: false, strokeWidth: 0.25, configuration: 'M8',
+    });
+    expect(deliverFileMock.mock.calls[0][1]).toBe('plate-front.svg');
+
+    deliverFileMock.mockClear();
+    const { dialog, exportShapes, q, pickFormat } = mount();
+    exportShapes.mockImplementation(async (body: any) => new Blob([`svg ${body.configuration}`]));
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(partTarget);
+    pickFormat('svg');
+    pickView(q, 'front');
+    pickConfiguration(q, 'All configurations (.zip)');
+
+    q<HTMLButtonElement>('export-btn').click();
+    await waitForStatus(q, () => deliverFileMock.mock.calls.length > 0);
+
+    // The rows of the run carry their configuration; the preview of the row on screen does not.
+    expect(requestsOf(exportShapes, 'svg').filter((body) => body.configuration !== undefined)).toEqual(
+      ['Default', 'M6', 'M8'].map((configuration) => ({
+        format: 'svg', shapeIds: ['s-1', 's-2'], plane: 'front', hiddenLines: false, tangentEdges: false, strokeWidth: 0.25, configuration,
+      })),
+    );
+    const [archive, name] = deliverFileMock.mock.calls[0];
+    expect(name).toBe('plate-front-configurations.zip');
+    const zip = await JSZip.loadAsync(await archive.arrayBuffer());
+    expect(Object.keys(zip.files)).toEqual(['plate-front.svg', 'plate-M6-front.svg', 'plate-M8-front.svg']);
+    expect(await zip.file('plate-M6-front.svg')!.async('string')).toBe('svg M6');
+  });
+
+  it('delivers a file the server warned about and stays open on what it said', async () => {
+    const { dialog, container, exportShapes, q, pickFormat } = mount();
+    exportShapes.mockResolvedValue({
+      blob: new Blob(['dxf']),
+      warnings: ['2 curves were approximated by polylines: the kernel could not hand them over as splines.'],
+    });
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    pickFormat('dxf');
+
+    q<HTMLButtonElement>('export-btn').click();
+    await waitForStatus(q, () => deliverFileMock.mock.calls.length > 0 && !q('status').textContent?.includes('Exporting'));
+
+    expect(deliverFileMock.mock.calls[0][1]).toBe('export-top.dxf');
+    const overlay = container.firstElementChild!;
+    expect(overlay.classList.contains('hidden')).toBe(false);
+    expect(q('status').classList.contains('hidden')).toBe(false);
+    expect(q('status').textContent).toContain('2 curves were approximated by polylines');
+    expect(q<HTMLButtonElement>('export-btn').disabled).toBe(false);
+  });
+
+  it('closes after a drawing the server had nothing to say about', async () => {
+    const { dialog, container, exportShapes, q, pickFormat } = mount();
+    exportShapes.mockResolvedValue({ blob: new Blob(['dxf']), warnings: [] });
+    dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    pickFormat('dxf');
+
+    await clickExport(q);
+    await vi.waitFor(() => {
+      if (!container.firstElementChild!.classList.contains('hidden')) {
+        throw new Error('still open');
+      }
+    });
+  });
+
+  it('names each row\'s warnings in an All configurations run', async () => {
+    const { dialog, exportShapes, q, pickFormat } = mount();
+    exportShapes.mockImplementation(async (body: any) => ({
+      blob: new Blob(['dxf']),
+      warnings: body.configuration === 'M8' ? ['1 curve was approximated by polylines.'] : [],
+    }));
+    dialog.setConfigurations(PART_TABLE);
+    dialog.show(partTarget);
+    pickFormat('dxf');
+    pickConfiguration(q, 'All configurations (.zip)');
+
+    q<HTMLButtonElement>('export-btn').click();
+    await waitForStatus(q, () => deliverFileMock.mock.calls.length > 0 && !q('status').textContent?.includes('Packing'));
+
+    expect(q('status').textContent).toContain('M8: 1 curve was approximated by polylines.');
+    expect(q('status').textContent).not.toContain('M6:');
+  });
+});
+
+// The drawing section previews what its options export: the SVG of the same
+// request (a DXF's too), asked for once the options have rested, shown in an
+// <img> through an object URL. An answer overtaken by a newer question or by
+// the dialog closing is dropped, every URL is let go, and a preview that
+// cannot be had never stands in the way of the export.
+describe('ExportDialog drawing preview', () => {
+  const SVG = '<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><g id="visible"><path d="M0 0L10 10"/></g></svg>';
+  const PART_TABLE = {
+    active: 'Default',
+    names: ['M6', 'M8'],
+    rows: { M6: { Hole: 6 }, M8: { Hole: 8 } },
+  };
+  const partTarget = { kind: 'shapes' as const, shapeIds: ['s-1', 's-2'], fileBase: 'plate' };
+  const PREVIEW = { format: 'svg', shapeIds: ['s-1'], plane: 'top', hiddenLines: false, tangentEdges: false };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  function open(target: Parameters<ExportDialog['show']>[0] = { kind: 'shapes', shapeIds: ['s-1'] }) {
+    const opened = mount();
+    opened.exportShapes.mockImplementation(async () => new Blob([SVG], { type: 'image/svg+xml' }));
+    opened.dialog.show(target);
+    const image = (): HTMLImageElement => opened.q<HTMLImageElement>('drawing-preview-image');
+    const status = (): HTMLElement => opened.q('drawing-preview-status');
+    const change = (ref: string, value?: string): void => {
+      const control = opened.q<HTMLInputElement | HTMLSelectElement>(ref);
+      if (value === undefined) {
+        (control as HTMLInputElement).checked = !(control as HTMLInputElement).checked;
+      } else {
+        control.value = value;
+      }
+      control.dispatchEvent(new Event('change'));
+    };
+    return { ...opened, image, status, change };
+  }
+
+  /** Let the debounce run out and the answer land. */
+  async function rest(): Promise<void> {
+    await vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS);
+    // The answer's text is read off the timer queue.
+    for (let turn = 0; turn < 20; turn++) {
+      await Promise.resolve();
+    }
+    await vi.advanceTimersByTimeAsync(0);
+  }
+
+  it('asks for the SVG of the options once they have rested, and shows it in the image', async () => {
+    const { exportShapes, pickFormat, image, status } = open();
+    expect(exportShapes).not.toHaveBeenCalled();
+    pickFormat('dxf');
+    expect(status().textContent).toBe('Loading preview…');
+    await vi.advanceTimersByTimeAsync(PREVIEW_DEBOUNCE_MS - 1);
+    expect(exportShapes).not.toHaveBeenCalled();
+
+    await rest();
+
+    expect(exportShapes.mock.calls.map((call) => call[0])).toEqual([PREVIEW]);
+    expect(image().getAttribute('src')).toBe('blob:preview-1');
+    expect(image().classList.contains('hidden')).toBe(false);
+    expect(status().classList.contains('hidden')).toBe(true);
+    // The drawing is shown as a file, on a white panel: its markup never enters the page.
+    expect(image().tagName).toBe('IMG');
+    expect(image().parentElement!.querySelector('svg')).toBeNull();
+    expect(image().parentElement!.classList.contains('bg-white')).toBe(true);
+  });
+
+  it('opens straight on the preview when a drawing format was left selected', async () => {
+    const { dialog, exportShapes, pickFormat } = open();
+    pickFormat('svg');
+    await rest();
+    dialog.hide();
+    exportShapes.mockClear();
+
+    dialog.show({ kind: 'shapes', shapeIds: ['s-9'] });
+    await rest();
+
+    expect(exportShapes.mock.calls.map((call) => call[0])).toEqual([{ ...PREVIEW, shapeIds: ['s-9'] }]);
+  });
+
+  it('asks again for each change of what the drawing shows, once per rest', async () => {
+    const { exportShapes, pickFormat, change } = open();
+    pickFormat('dxf');
+    await rest();
+    exportShapes.mockClear();
+
+    change('drawing-view', 'front');
+    await rest();
+    change('hidden-lines');
+    await rest();
+    change('tangent-edges');
+    await rest();
+    expect(exportShapes.mock.calls.map((call) => call[0])).toEqual([
+      { ...PREVIEW, plane: 'front' },
+      { ...PREVIEW, plane: 'front', hiddenLines: true },
+      { ...PREVIEW, plane: 'front', hiddenLines: true, tangentEdges: true },
+    ]);
+
+    // Changes in quick succession are one question: the last.
+    exportShapes.mockClear();
+    change('drawing-view', 'left');
+    await vi.advanceTimersByTimeAsync(100);
+    change('drawing-view', 'back');
+    await vi.advanceTimersByTimeAsync(100);
+    change('hidden-lines');
+    await rest();
+    expect(exportShapes.mock.calls.map((call) => call[0])).toEqual([
+      { ...PREVIEW, plane: 'back', hiddenLines: false, tangentEdges: true },
+    ]);
+  });
+
+  it('is the same drawing for DXF and SVG, whatever the stroke width: neither asks again', async () => {
+    const { exportShapes, pickFormat, q, image } = open();
+    pickFormat('dxf');
+    await rest();
+    expect(exportShapes).toHaveBeenCalledTimes(1);
+
+    pickFormat('svg');
+    const stroke = q<HTMLInputElement>('stroke-width');
+    stroke.value = '1.5';
+    stroke.dispatchEvent(new Event('change'));
+    stroke.dispatchEvent(new Event('input'));
+    await rest();
+
+    expect(exportShapes).toHaveBeenCalledTimes(1);
+    expect('strokeWidth' in (exportShapes.mock.calls[0][0] as object)).toBe(false);
+    expect(image().getAttribute('src')).toBe('blob:preview-1');
+  });
+
+  it('asks nothing for STEP, STL or PNG, and a move to one of them stops a preview not yet asked for', async () => {
+    const { exportShapes, pickFormat, q } = open();
+    await rest();
+    pickFormat('stl');
+    await rest();
+    pickFormat('png');
+    await rest();
+    expect(exportShapes).not.toHaveBeenCalled();
+
+    pickFormat('dxf');
+    await vi.advanceTimersByTimeAsync(100);
+    pickFormat('step');
+    expect(q('drawing-section').classList.contains('hidden')).toBe(true);
+    await rest();
+    expect(exportShapes).not.toHaveBeenCalled();
+
+    // Back on a drawing, the preview that never went out goes out.
+    pickFormat('svg');
+    await rest();
+    expect(exportShapes.mock.calls.map((call) => call[0])).toEqual([PREVIEW]);
+
+    // ...and once shown, leaving and coming back to the same options asks nothing more.
+    pickFormat('step');
+    pickFormat('dxf');
+    await rest();
+    expect(exportShapes).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks nothing for the whole assembly', async () => {
+    const whole = mount(provider());
+    whole.dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
+    whole.pickFormat('dxf');
+    whole.dialog.hide();
+    whole.dialog.show({ kind: 'assembly' });
+    await rest();
+    expect(whole.exportShapes).not.toHaveBeenCalled();
+  });
+
+  it('previews the picked configuration row, and the row on screen for All configurations, saying so', async () => {
+    const { dialog, exportShapes, pickFormat, q } = open(partTarget);
+    dialog.setConfigurations(PART_TABLE);
+    pickFormat('dxf');
+    await rest();
+    pickConfiguration(q, 'M8');
+    await rest();
+    expect(q('drawing-preview-note').classList.contains('hidden')).toBe(true);
+    pickConfiguration(q, 'All configurations (.zip)');
+    await rest();
+
+    const base = { ...PREVIEW, shapeIds: ['s-1', 's-2'] };
+    expect(exportShapes.mock.calls.map((call) => call[0])).toEqual([
+      { ...base, configuration: 'Default' },
+      { ...base, configuration: 'M8' },
+      base,
+    ]);
+    expect(q('drawing-preview-note').classList.contains('hidden')).toBe(false);
+    expect(q('drawing-preview-note').textContent).toBe('The preview shows the configuration on screen.');
+  });
+
+  it('asks again when a render lands while it is open: the scene it drew is gone', async () => {
+    const { dialog, exportShapes, pickFormat } = open(partTarget);
+    pickFormat('dxf');
+    await rest();
+    expect(exportShapes).toHaveBeenCalledTimes(1);
+
+    dialog.setConfigurations(null);
+    await rest();
+    expect(exportShapes).toHaveBeenCalledTimes(2);
+    expect(exportShapes.mock.calls[1][0]).toEqual(exportShapes.mock.calls[0][0]);
+
+    // A render while the dialog is closed asks nothing.
+    dialog.hide();
+    dialog.setConfigurations(null);
+    await rest();
+    expect(exportShapes).toHaveBeenCalledTimes(2);
+  });
+
+  it('drops an answer a newer question overtook', async () => {
+    const { exportShapes, pickFormat, change, image } = open();
+    const answers: Record<string, (blob: Blob) => void> = {};
+    exportShapes.mockImplementation((body: any) => new Promise<Blob>((resolve) => {
+      answers[body.plane] = resolve;
+    }));
+    pickFormat('dxf');
+    await rest();
+    change('drawing-view', 'front');
+    await rest();
+    expect(Object.keys(answers)).toEqual(['top', 'front']);
+
+    // The newer answer lands first, then the older one.
+    answers.front(new Blob([SVG.replace('M0 0', 'M5 5')], { type: 'image/svg+xml' }));
+    await rest();
+    answers.top(new Blob([SVG], { type: 'image/svg+xml' }));
+    await rest();
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(image().getAttribute('src')).toBe('blob:preview-1');
+    expect(await previewBlobs.get('blob:preview-1')!.text()).toContain('M5 5');
+  });
+
+  it('drops an answer that lands after the dialog closed', async () => {
+    const { dialog, exportShapes, pickFormat, image } = open();
+    let answer!: (blob: Blob) => void;
+    exportShapes.mockImplementation(() => new Promise<Blob>((resolve) => {
+      answer = resolve;
+    }));
+    pickFormat('dxf');
+    await rest();
+    dialog.hide();
+    answer(new Blob([SVG], { type: 'image/svg+xml' }));
+    await rest();
+
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(image().getAttribute('src')).toBeNull();
+  });
+
+  it('lets go of each object URL when the next drawing replaces it and when the dialog closes', async () => {
+    const { dialog, pickFormat, change, image } = open();
+    pickFormat('dxf');
+    await rest();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+
+    change('hidden-lines');
+    // The drawing on screen stays, dimmed, until the next one is in.
+    expect(image().getAttribute('src')).toBe('blob:preview-1');
+    expect(image().classList.contains('opacity-40')).toBe(true);
+    await rest();
+    expect(image().getAttribute('src')).toBe('blob:preview-2');
+    expect(image().classList.contains('opacity-40')).toBe(false);
+    expect(revokeObjectURL.mock.calls.map((call) => call[0])).toEqual(['blob:preview-1']);
+
+    dialog.hide();
+    expect(revokeObjectURL.mock.calls.map((call) => call[0])).toEqual(['blob:preview-1', 'blob:preview-2']);
+    expect(image().getAttribute('src')).toBeNull();
+    expect(image().classList.contains('hidden')).toBe(true);
+  });
+
+  it('draws the preview\'s lines for the screen, leaving the file\'s own markup as it came', async () => {
+    const { pickFormat } = open();
+    pickFormat('svg');
+    await rest();
+
+    const shown = previewBlobs.get('blob:preview-1')!;
+    expect(shown.type).toBe('image/svg+xml');
+    const text = await shown.text();
+    const [head, tail] = text.split('<style>');
+    expect(head).toBe('<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">');
+    expect(tail).toContain('non-scaling-stroke');
+    expect(tail.endsWith('</style><g id="visible"><path d="M0 0L10 10"/></g></svg>')).toBe(true);
+  });
+
+  it('says in one line why there is no preview, and exports all the same', async () => {
+    const { exportShapes, pickFormat, q, image, status, container } = open();
+    exportShapes.mockImplementation(async (body: any) => {
+      if (body.format === 'svg') {
+        throw new Error('Invalid format. Must be "step", "stl" or "dxf".');
+      }
+      return new Blob(['dxf']);
+    });
+    pickFormat('dxf');
+    await rest();
+
+    expect(status().textContent).toBe('Preview unavailable: Invalid format. Must be "step", "stl" or "dxf".');
+    expect(status().classList.contains('hidden')).toBe(false);
+    expect(status().classList.contains('truncate')).toBe(true);
+    expect(image().classList.contains('hidden')).toBe(true);
+    // Not an export error: the dialog's own status line is untouched, the button live.
+    expect(q('status').classList.contains('hidden')).toBe(true);
+    expect(q<HTMLButtonElement>('export-btn').disabled).toBe(false);
+
+    q<HTMLButtonElement>('export-btn').click();
+    await rest();
+    expect(deliverFileMock.mock.calls[0][1]).toBe('export-top.dxf');
+    expect(container.firstElementChild!.classList.contains('hidden')).toBe(true);
+  });
+
+  it('keeps a preview\'s warnings to itself: they are the export\'s to report', async () => {
+    const { exportShapes, pickFormat, q } = open();
+    exportShapes.mockImplementation(async () => ({
+      blob: new Blob([SVG], { type: 'image/svg+xml' }),
+      warnings: ['1 curve was approximated by polylines.'],
+    }));
+    pickFormat('dxf');
+    await rest();
+
+    expect(q('status').classList.contains('hidden')).toBe(true);
+    expect(q('drawing-section').textContent).not.toContain('approximated');
   });
 });
 

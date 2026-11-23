@@ -6,6 +6,7 @@ import type {
   EdgeProperties,
   EditorHistoryResult,
   ExportRequestBody,
+  ExportResult,
   FaceProperties,
   Material,
   MeasureEntityRef,
@@ -135,7 +136,12 @@ export interface EngineClient {
    * otherwise.
    */
   writeParam?(label: string, value: unknown, body?: string, configuration?: string): Promise<ConfigurationEditResult>;
-  resetParams(): void;
+  /**
+   * Drop the session's value overrides: all of them, or with `params` only
+   * those parameters' (each named as {@link setParam} names one), leaving
+   * the rest — what a chat's parameter card resets.
+   */
+  resetParams(params?: { label: string; body?: string }[]): void;
   /**
    * Show the named `configurations()` row (`'Default'` for the literals):
    * the session's overrides go, the file re-renders with the row's cells
@@ -183,8 +189,12 @@ export interface EngineClient {
    */
   getPartProperties?(partId: string): Promise<PartProperties | null>;
   measureEntities(entities: MeasureEntityRef[], signal?: AbortSignal): Promise<MeasureResult | null>;
-  /** `POST /api/export` — a list of solids, or the whole assembly; see {@link ExportRequestBody}. */
-  exportShapes(body: ExportRequestBody): Promise<Blob>;
+  /**
+   * `POST /api/export` — a list of solids, or the whole assembly; see
+   * {@link ExportRequestBody}. Answers the file, alone or with the export's
+   * warnings ({@link ExportResult}); `toExportResult` reads either.
+   */
+  exportShapes(body: ExportRequestBody): Promise<Blob | ExportResult>;
   loadPreferences(): Promise<UserPreferences | null>;
   savePreference<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]): void;
   /** Editing affordances; null in read-only hosts. */

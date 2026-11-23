@@ -15,7 +15,8 @@ import { McpEndpoints } from '../src/mcp-endpoint.ts';
 import { RESTART_REASON } from '../src/session.ts';
 import { SessionStore, type SessionRecord } from '../src/session-store.ts';
 import { NO_TURN_MESSAGE, STOPPED_MESSAGE } from '../src/tool-gate.ts';
-import type { ChatEventEnvelope, SessionSnapshot, ToolPart } from '../src/types.ts';
+import type { ModelParam } from '../src/param-cards.ts';
+import type { ChatEventEnvelope, ParamsPart, QuestionPart, SessionSnapshot, ShowPart, ToolPart, VariantsPart } from '../src/types.ts';
 
 // The runtime end to end, with a fake backend in place of a CLI: the fake run
 // connects to the session's MCP endpoint over HTTP the way Claude Code does,
@@ -149,6 +150,15 @@ let backend: FakeBackend;
 let prefs: any;
 /** What this test engine reports as unsaved editor buffers (write_file asks before writing). */
 let dirtyFiles: string[] = [];
+/** What this test engine's scratch build answers for a candidate text (propose_variants); null: 404, an engine without them. */
+let scratchBuild: ((source: string) => unknown) | null = null;
+/** What it answers a build of a candidate text would cost (the preview of a change waiting for approval); null: 404. */
+let scratchCost: ((source: string) => unknown) | null = null;
+
+/** What this test engine's model on screen (plate.part.js) declared in its last render. */
+let modelParams: ModelParam[] = [];
+/** What this test engine's `POST /api/resolve-selection` answers (show_user); null: 404. */
+let resolveSelection: ((body: any) => { status: number; json: unknown }) | null = null;
 
 async function start(options: { idleMs?: number } = {}): Promise<void> {
   backend = new FakeBackend();
@@ -158,6 +168,28 @@ async function start(options: { idleMs?: number } = {}): Promise<void> {
   // and the render answer 404 (an older engine), and the tools carry on.
   app.get('/api/editor/dirty-files', (_req, res) => {
     res.json(dirtyFiles.map((p) => ({ path: p, lastModifiedMs: 0 })));
+  });
+  app.post('/api/scratch-build', (req, res) => {
+    if (!scratchBuild) {
+      res.status(404).json({ error: 'not here' });
+      return;
+    }
+    res.json(scratchBuild(req.body.source));
+  });
+  app.post('/api/resolve-selection', (req, res) => {
+    if (!resolveSelection) {
+      res.status(404).json({ error: 'not here' });
+      return;
+    }
+    const answer = resolveSelection(req.body);
+    res.status(answer.status).json(answer.json);
+  });
+  app.post('/api/scratch-build/cost', (req, res) => {
+    if (!scratchCost) {
+      res.status(404).json({ error: 'not here' });
+      return;
+    }
+    res.json(scratchCost(req.body.source));
   });
   server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
@@ -173,6 +205,7 @@ async function start(options: { idleMs?: number } = {}): Promise<void> {
       renderState: () => ({ state: 'rendered' }),
       unit: () => 'mm',
       loadPreferences: async () => prefs,
+      modelParams: () => modelParams,
     },
     { backends: { claude: backend }, env: { PATH: '/bin', ANTHROPIC_API_KEY: 'sk-x' }, ...options },
   );
@@ -182,6 +215,10 @@ async function start(options: { idleMs?: number } = {}): Promise<void> {
 beforeEach(async () => {
   workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-agent-runtime-')));
   dirtyFiles = [];
+  scratchBuild = null;
+  scratchCost = null;
+  modelParams = [];
+  resolveSelection = null;
   prefs = { agent: { defaultAgent: null, permissionMode: 'ask' } };
   await start();
 });
@@ -855,6 +892,518 @@ const WEBP_BYTES = Buffer.concat([Buffer.from('RIFF'), Buffer.from([4, 0, 0, 0])
 const GIF_BYTES = Buffer.from('GIF89a-body');
 const attachment = (mediaType: string, bytes: Buffer, name?: string) => ({ mediaType, base64: bytes.toString('base64'), ...(name ? { name } : {}) });
 
+describe('questions (ask_user, §22)', () => {
+  const ask = (...questions: object[]) => ({ name: 'ask_user', arguments: { questions } });
+  const THREAD = { question: 'Which thread should the holes take?', options: [{ label: 'M4' }, { label: 'M5' }] };
+  const WALL = { question: 'How thick should the wall be?' };
+  const questionParts = (snap: SessionSnapshot) => snap.messages.flatMap((m) => m.parts).filter((p): p is QuestionPart => p.type === 'question');
+  const awaitingAnswer = (id: string) => until(() => snapshot(id), (s) => s.status.state === 'awaiting-answer');
+
+  it('waits for the user, takes the first valid answer, and hands it to the model', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const turnId = (await json('POST', `${base}/sessions/${id}/messages`, { text: calls(ask(THREAD, WALL)) })).body.turnId;
+    const waiting = await awaitingAnswer(id);
+    const [part] = questionParts(waiting);
+    expect(part).toEqual({ type: 'question', id: expect.any(String), state: 'awaiting-answer', questions: [THREAD, WALL] });
+    expect(waiting.status).toEqual({ state: 'awaiting-answer', turnId, questionIds: [part.id] });
+    // The card is the question's own: no tool card beside it.
+    expect(toolParts(waiting)).toEqual([]);
+    // Saved while it waits.
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    expect(store.read(id)!.messages.flatMap((m) => m.parts).some((p) => p.type === 'question' && p.state === 'awaiting-answer')).toBe(true);
+
+    const url = `${base}/sessions/${id}/questions/${part.id}`;
+    expect((await json('POST', `${base}/sessions/${id}/questions/nope`, { skip: true })).status).toBe(404);
+    const refused = await json('POST', url, { answers: [{ selected: ['M6'] }, { selected: [] }] });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toContain('does not offer');
+    expect((await json('POST', url, { answers: [{ selected: [] }, { selected: [] }] })).status).toBe(400);
+    expect((await snapshot(id)).status.state).toBe('awaiting-answer');
+
+    expect((await json('POST', url, { answers: [{ selected: ['M5'] }, { selected: [], text: '2.5 mm' }] })).status).toBe(204);
+    const done = await idle(id);
+    expect((await json('POST', url, { skip: true })).status).toBe(409);
+    expect(questionParts(done)[0]).toMatchObject({ state: 'answered', answers: [{ selected: ['M5'] }, { selected: [], text: '2.5 mm' }] });
+    const result = backend.runs[0].results[0];
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toEqual({
+      answers: [
+        { question: THREAD.question, selected: ['M5'] },
+        { question: WALL.question, text: '2.5 mm' },
+      ],
+    });
+  });
+
+  it('a skip lets the turn go on; a stop while it waits ends the question unanswered', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(ask(WALL)) });
+    const [first] = questionParts(await awaitingAnswer(id));
+    expect((await json('POST', `${base}/sessions/${id}/questions/${first.id}`, { skip: true })).status).toBe(204);
+    const skipped = await idle(id);
+    expect(questionParts(skipped)[0].state).toBe('skipped');
+    expect(JSON.parse(textOf(backend.runs[0].results[0])).skipped).toBe(true);
+
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(ask(THREAD)) });
+    const [, second] = questionParts(await awaitingAnswer(id));
+    expect((await json('POST', `${base}/sessions/${id}/cancel`)).status).toBeLessThan(300);
+    const stopped = await idle(id);
+    expect(questionParts(stopped)[1]).toMatchObject({ id: second.id, state: 'unanswered', reason: 'Stopped before you answered.' });
+    expect((await json('POST', `${base}/sessions/${id}/questions/${second.id}`, { skip: true })).status).toBe(409);
+  });
+
+  it('a question nobody answered before a restart is settled, and the continue note says so', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000002';
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-21T10:00:00.000Z',
+      updatedAt: '2026-11-21T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'Add mounting holes' }] },
+        {
+          id: 'a',
+          role: 'assistant',
+          turnId: 't',
+          createdAt: '',
+          parts: [
+            { type: 'question', id: 'q-old', state: 'answered', questions: [WALL], answers: [{ selected: [], text: '3' }] },
+            { type: 'question', id: 'q-open', state: 'awaiting-answer', questions: [THREAD] },
+          ],
+        },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+    });
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(questionParts(snap).map((p) => [p.state, p.reason])).toEqual([
+      ['answered', undefined],
+      ['unanswered', 'The app restarted before you answered.'],
+    ]);
+    expect((await json('POST', `${base}/sessions/${id}/questions/q-open`, { skip: true })).status).toBe(409);
+
+    expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(202);
+    await idle(id);
+    const sent = backend.runs[0].sent[0];
+    expect(sent).toContain('- ask_user — answered by the user\n- ask_user — not answered: it was waiting for the user when the app restarted');
+  });
+});
+
+describe('variants (propose_variants, §24)', () => {
+  const BASE = 'base();\n';
+  const RIB = 'base();\nrib();\n';
+  const GUSSET = 'base();\ngusset();\n';
+  const propose = () => ({
+    name: 'propose_variants',
+    arguments: {
+      path: 'plate.part.js',
+      question: 'Which stiffener?',
+      variants: [{ label: 'Rib', description: 'One rib.', content: RIB }, { label: 'Gusset', content: GUSSET }],
+    },
+  });
+  const built = (id: string, volume: number) => ({
+    state: 'rendered',
+    id,
+    file: 'plate.part.js',
+    sceneKind: 'part',
+    unit: 'mm',
+    durationMs: 9,
+    builtFrom: 'source',
+    configuration: 'Default',
+    sessionOverrides: 0,
+    unusedParams: [],
+    solidCount: 1,
+    bounds: { min: [0, 0, 0], max: [80, 40, 30] },
+    volume,
+    validation: { ok: true, checked: 1, findings: [], skipped: 0 },
+  });
+  const RIB_ID = '11111111-1111-4111-8111-111111111111';
+  const GUSSET_ID = '22222222-2222-4222-8222-222222222222';
+  const variantsParts = (snap: SessionSnapshot) => snap.messages.flatMap((m) => m.parts).filter((p): p is VariantsPart => p.type === 'variants');
+  const awaitingChoice = (id: string) => until(() => snapshot(id), (s) => s.status.state === 'awaiting-answer');
+
+  beforeEach(() => {
+    fs.writeFileSync(path.join(workspace, 'plate.part.js'), BASE);
+    scratchBuild = (source) => (source === RIB ? built(RIB_ID, 41200) : built(GUSSET_ID, 44000));
+  });
+
+  it('builds, waits for the pick, keeps the tiles\' pictures, writes the pick as a change of the turn, and a revert puts the file back', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const turnId = (await json('POST', `${base}/sessions/${id}/messages`, { text: calls(propose()), mode: 'ask' })).body.turnId;
+    const waiting = await awaitingChoice(id);
+    const [part] = variantsParts(waiting);
+    expect(part).toMatchObject({
+      type: 'variants',
+      state: 'awaiting-choice',
+      file: 'plate.part.js',
+      question: 'Which stiffener?',
+      variants: [
+        { label: 'Rib', description: 'One rib.', state: 'ready', buildId: RIB_ID, facts: { solidCount: 1, size: [80, 40, 30], volume: 41200, unit: 'mm' } },
+        { label: 'Gusset', state: 'ready', buildId: GUSSET_ID },
+      ],
+    });
+    // It waits as a question does, under the card's id; no approval is asked in `ask` mode.
+    expect(waiting.status).toEqual({ state: 'awaiting-answer', turnId, questionIds: [part.id] });
+    expect(toolParts(waiting)).toEqual([]);
+    // Saved while it waits.
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    expect(store.read(id)!.messages.flatMap((m) => m.parts).some((p) => p.type === 'variants' && p.state === 'awaiting-choice')).toBe(true);
+
+    // The page draws each tile and hands the picture over: it is kept with the session and named on the tile.
+    const pictures = `${base}/sessions/${id}/variants/${part.id}/pictures`;
+    const png = { mediaType: 'image/png', base64: PNG_BYTES.toString('base64') };
+    expect((await json('POST', pictures, { label: 'Rib', image: png })).status).toBe(204);
+    const [drawn] = variantsParts(await snapshot(id));
+    expect(drawn.variants[0].image).toMatch(/^[0-9a-f-]+\.png$/);
+    expect(drawn.variants[1].image).toBeUndefined();
+    const served = await fetch(`${base}/sessions/${id}/files/${drawn.variants[0].image}`);
+    expect(served.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await served.arrayBuffer()).equals(PNG_BYTES)).toBe(true);
+    // The first picture of a tile is the one kept (a second tab drew it too).
+    expect((await json('POST', pictures, { label: 'Rib', image: png })).status).toBe(204);
+    expect(variantsParts(await snapshot(id))[0].variants[0].image).toBe(drawn.variants[0].image);
+    expect((await json('POST', pictures, { label: 'Web', image: png })).status).toBe(404);
+    expect((await json('POST', pictures, { label: 'Gusset', image: { mediaType: 'image/png', base64: JPEG_BYTES.toString('base64') } })).status).toBe(400);
+    expect((await json('POST', `${base}/sessions/${id}/variants/nope/pictures`, { label: 'Rib', image: png })).status).toBe(404);
+
+    const url = `${base}/sessions/${id}/variants/${part.id}`;
+    expect((await json('POST', `${base}/sessions/${id}/variants/nope`, { skip: true })).status).toBe(404);
+    expect((await json('POST', url, { pick: 'Web' })).status).toBe(400);
+    expect((await snapshot(id)).status.state).toBe('awaiting-answer');
+    expect((await json('POST', url, { pick: 'Gusset' })).status).toBe(204);
+    const done = await idle(id);
+    expect((await json('POST', url, { skip: true })).status).toBe(409);
+
+    expect(fs.readFileSync(path.join(workspace, 'plate.part.js'), 'utf8')).toBe(GUSSET);
+    expect(variantsParts(done)[0]).toMatchObject({ state: 'picked', picked: 'Gusset' });
+    expect(variantsParts(done)[0].variants[0].image).toBe(drawn.variants[0].image);
+    const [write] = toolParts(done);
+    expect(write).toMatchObject({ name: 'write_file', title: 'Apply "Gusset" to plate.part.js', state: 'done' });
+    expect(write.approval).toBeUndefined();
+    const result = backend.runs[0].results[0];
+    expect(result.isError).not.toBe(true);
+    expect(JSON.parse(textOf(result))).toMatchObject({ picked: 'Gusset', render: { state: 'render-failed' } });
+    // A change of the turn like any write_file of it: revertible, and reverted with it.
+    expect(done.turns[0]).toMatchObject({ id: turnId, revertible: true, files: ['plate.part.js'] });
+    const reverted = await json('POST', `${base}/sessions/${id}/revert`, { turnId });
+    expect(reverted.body.restored).toEqual(['plate.part.js']);
+    expect(fs.readFileSync(path.join(workspace, 'plate.part.js'), 'utf8')).toBe(BASE);
+    // A picture can still come after the card settled (a tab that opened late, while the engine has the build).
+    expect((await json('POST', pictures, { label: 'Gusset', image: png })).status).toBe(204);
+    expect(variantsParts(await snapshot(id))[0].variants[1].image).toMatch(/\.png$/);
+  });
+
+  it('a skip lets the turn go on with nothing written; a stop while it waits ends the card unanswered', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(propose()) });
+    const [first] = variantsParts(await awaitingChoice(id));
+    expect((await json('POST', `${base}/sessions/${id}/variants/${first.id}`, { skip: true })).status).toBe(204);
+    const skipped = await idle(id);
+    expect(variantsParts(skipped)[0].state).toBe('skipped');
+    expect(JSON.parse(textOf(backend.runs[0].results[0])).skipped).toBe(true);
+    expect(skipped.turns[0].revertible).toBe(false);
+
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(propose()) });
+    const [, second] = variantsParts(await awaitingChoice(id));
+    expect((await json('POST', `${base}/sessions/${id}/cancel`)).status).toBeLessThan(300);
+    const stopped = await idle(id);
+    expect(variantsParts(stopped)[1]).toMatchObject({ id: second.id, state: 'unanswered', reason: 'Stopped before you chose.' });
+    expect((await json('POST', `${base}/sessions/${id}/variants/${second.id}`, { pick: 'Rib' })).status).toBe(409);
+    expect(fs.readFileSync(path.join(workspace, 'plate.part.js'), 'utf8')).toBe(BASE);
+  });
+
+  it('cards cut off by a restart are settled with the pictures they had, and the continue note says how each ended', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000003';
+    const ready = { state: 'ready' as const, buildId: RIB_ID, sceneKind: 'part' as const, facts: { solidCount: 1, size: [80, 40, 30] as [number, number, number], volume: 41200, unit: 'mm' } };
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-22T10:00:00.000Z',
+      updatedAt: '2026-11-22T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'Stiffen the arm' }] },
+        {
+          id: 'a',
+          role: 'assistant',
+          turnId: 't',
+          createdAt: '',
+          parts: [
+            { type: 'variants', id: 'v-skipped', state: 'skipped', file: 'plate.part.js', variants: [{ label: 'A', ...ready }, { label: 'B', ...ready }] },
+            {
+              type: 'variants',
+              id: 'v-waiting',
+              state: 'awaiting-choice',
+              file: 'plate.part.js',
+              variants: [{ label: 'Rib', ...ready, image: 'rib.png' }, { label: 'Gusset', ...ready }],
+            },
+            // The engine went down inside the second build.
+            { type: 'variants', id: 'v-building', state: 'building', file: 'arm.part.js', variants: [{ label: 'Thin', ...ready }, { label: 'Thick', state: 'building' }] },
+          ],
+        },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+    });
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(variantsParts(snap).map((p) => [p.state, p.reason, p.variants.map((t) => t.state)])).toEqual([
+      ['skipped', undefined, ['ready', 'ready']],
+      ['unanswered', 'The app restarted before you chose.', ['ready', 'ready']],
+      ['unanswered', 'The app restarted while these were building.', ['ready', 'cancelled']],
+    ]);
+    // The picture drawn before the restart is still the tile's.
+    expect(variantsParts(snap)[1].variants[0].image).toBe('rib.png');
+    expect((await json('POST', `${base}/sessions/${id}/variants/v-waiting`, { pick: 'Rib' })).status).toBe(409);
+
+    expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(202);
+    await idle(id);
+    const sent = backend.runs[0].sent[0];
+    expect(sent).toContain(
+      '- propose_variants plate.part.js — skipped by the user\n'
+        + '- propose_variants plate.part.js — not chosen: it was waiting for the user when the app restarted\n'
+        + '- propose_variants arm.part.js — not shown: the app restarted while the variants were building',
+    );
+  });
+});
+
+describe('parameter cards (offer_params, §26)', () => {
+  const offer = (args: object = {}) => ({ name: 'offer_params', arguments: args });
+  const paramCards = (snap: SessionSnapshot) => snap.messages.flatMap((m) => m.parts).filter((p): p is ParamsPart => p.type === 'params');
+  const model = (): ModelParam[] => [
+    {
+      label: 'Width',
+      kind: 'part',
+      body: 'Plate',
+      defaultValue: 40,
+      currentValue: 40,
+      controlType: 'slider',
+      min: 20,
+      max: 80,
+      // Declared in a file the model imports.
+      sourceLocation: { filePath: `virtual:live-render:${path.join(workspace, 'lib', 'sizes.part.js')}`, line: 3, column: 16 },
+    },
+    { label: 'Style', kind: 'part', body: 'Plate', defaultValue: 'round', currentValue: 'round', controlType: 'select', options: [{ label: 'Round', value: 'round' }, { label: 'Square', value: 'square' }] },
+    { label: 'Ribbed', kind: 'part', body: 'Plate', defaultValue: false, currentValue: false, controlType: 'checkbox' },
+  ];
+
+  it('puts the card in the chat without waiting, and the turn goes on', async () => {
+    modelParams = model();
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(offer({ params: [{ label: 'Width' }, { label: 'Style' }], note: 'Try it wider.' }), offer({ params: [{ label: 'Lenght' }] })) });
+    // Nothing waits for the user: the turn ends by itself.
+    const done = await idle(id);
+    expect(done.status).toEqual({ state: 'idle' });
+    const [card] = paramCards(done);
+    expect(paramCards(done)).toHaveLength(1);
+    expect(card).toEqual({
+      type: 'params',
+      id: expect.any(String),
+      file: 'plate.part.js',
+      absPath: path.join(workspace, 'plate.part.js'),
+      note: 'Try it wider.',
+      params: [
+        { label: 'Width', part: 'Plate' },
+        { label: 'Style', part: 'Plate' },
+      ],
+    });
+    expect(toolParts(done)).toEqual([]);
+    const [shown, refused] = backend.runs[0].results;
+    expect(JSON.parse(textOf(shown))).toEqual({
+      file: 'plate.part.js',
+      params: [
+        { label: 'Width', part: 'Plate', type: 'slider', value: 40, min: 20, max: 80 },
+        { label: 'Style', part: 'Plate', type: 'select', value: 'round', options: ['round', 'square'] },
+      ],
+    });
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toBe(
+      'No parameter labelled "Lenght". The model on screen (plate.part.js) declares: "Width" (part "Plate"), "Style" (part "Plate"), "Ribbed" (part "Plate").',
+    );
+    // The card is in the stored session, as it is in the snapshot.
+    expect(runtime.store.read(id)!.messages.flatMap((m) => m.parts).filter((p) => p.type === 'params')).toEqual([card]);
+  });
+
+  it('takes what the page kept after the turn, says so on the card, and tells the agent once with the next message', async () => {
+    modelParams = model();
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(offer()) });
+    const [card] = paramCards(await idle(id));
+    const url = `${base}/sessions/${id}/params/${card.id}`;
+
+    expect((await json('POST', `${base}/sessions/${id}/params/nope`, { kept: [{ label: 'Width', part: 'Plate', value: 55 }] })).status).toBe(404);
+    for (const body of [
+      {},
+      { kept: [] },
+      { kept: [{ label: 'Height', part: 'Plate', value: 5 }] },
+      // The card's Width is the Plate's: another part's, or none, is not on it.
+      { kept: [{ label: 'Width', part: 'Lid', value: 5 }] },
+      { kept: [{ label: 'Width', value: 5 }] },
+      { kept: [{ label: 'Width', part: 'Plate', value: { nested: true } }] },
+      { kept: [{ label: 'Width', part: 'Plate', value: Number.NaN }] },
+      { kept: [{ label: 'Width', part: 'Plate', value: 5, configuration: 7 }] },
+    ]) {
+      const refused = await json('POST', url, body);
+      expect(refused.status, JSON.stringify(body)).toBe(400);
+      expect(typeof refused.body.error).toBe('string');
+    }
+    expect(paramCards(await snapshot(id))[0].kept).toBeUndefined();
+    expect(runtime.store.read(id)?.paramChanges).toBeUndefined();
+
+    // Keep, after the turn ended: the user's own action, with no turn to belong to.
+    expect((await json('POST', url, { kept: [{ label: 'Width', part: 'Plate', value: 55 }, { label: 'Ribbed', part: 'Plate', value: true, configuration: 'Default' }] })).status).toBe(204);
+    // Kept again before the next message, one of them on a configuration row: the card keeps the last of each.
+    expect((await json('POST', url, { kept: [{ label: 'Width', part: 'Plate', value: 60 }, { label: 'Style', part: 'Plate', value: 'square', configuration: 'Large' }] })).status).toBe(204);
+    const kept = await snapshot(id);
+    expect(kept.status).toEqual({ state: 'idle' });
+    expect(paramCards(kept)[0].kept).toEqual([
+      { label: 'Width', part: 'Plate', value: 60 },
+      { label: 'Ribbed', part: 'Plate', value: true },
+      { label: 'Style', part: 'Plate', value: 'square', configuration: 'Large' },
+    ]);
+    // Not a change of a turn: nothing to revert, no checkpoint.
+    expect(kept.turns.map((t) => t.revertible)).toEqual([false]);
+    // Saved: a restart before the next message still tells the agent.
+    expect(runtime.store.read(id)?.paramChanges).toHaveLength(3);
+
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'now add holes' });
+    await idle(id);
+    const told = backend.runs[0].sent[1];
+    expect(told.startsWith('now add holes\n\n<param_changes>\n')).toBe(true);
+    // The default is where the parameter is declared; a configuration's value is in the file on screen.
+    expect(told).toContain(
+      '- lib/sizes.part.js: "Width" of "Plate" = 60\n' +
+        '- plate.part.js: "Ribbed" of "Plate" = true\n' +
+        '- plate.part.js: "Style" of "Plate" = "square" (configuration "Large")\n' +
+        '</param_changes>\n<workspace_state',
+    );
+    expect(told).not.toContain('= 55');
+    await json('POST', `${base}/sessions/${id}/messages`, { text: 'again' });
+    await idle(id);
+    expect(backend.runs[0].sent[2]).not.toContain('param_changes');
+    expect(runtime.store.read(id)?.paramChanges).toBeUndefined();
+  });
+
+  it('a stored card is as usable after a restart, and a cut-off turn\'s continue note lists the offer', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000026';
+    const card: ParamsPart = {
+      type: 'params',
+      id: 'params-old',
+      file: 'plate.part.js',
+      absPath: path.join(workspace, 'plate.part.js'),
+      params: [{ label: 'Width', part: 'Plate' }],
+      kept: [{ label: 'Width', part: 'Plate', value: 44 }],
+    };
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-22T10:00:00.000Z',
+      updatedAt: '2026-11-22T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'A plate, roughly 40 wide' }] },
+        { id: 'a', role: 'assistant', turnId: 't', createdAt: '', parts: [card] },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+      paramChanges: [{ file: 'plate.part.js', label: 'Width', part: 'Plate', value: 44 }],
+    });
+    // The restart leaves the card alone: it waited for nothing.
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(paramCards(snap)).toEqual([card]);
+    // The model on screen no longer declares it: keeping from the card is still taken (the page decides what is live).
+    expect((await json('POST', `${base}/sessions/${id}/params/params-old`, { kept: [{ label: 'Width', part: 'Plate', value: 48 }] })).status).toBe(204);
+    expect(paramCards(await snapshot(id))[0].kept).toEqual([{ label: 'Width', part: 'Plate', value: 48 }]);
+
+    expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(202);
+    await idle(id);
+    const sent = backend.runs[0].sent[0];
+    expect(sent).toContain('- offer_params plate.part.js — done: the card is in the chat');
+    // What was kept before the restart, and since, is told with the continue.
+    expect(sent).toContain('<param_changes>');
+    expect(sent).toContain('- plate.part.js: "Width" of "Plate" = 48\n</param_changes>');
+  });
+});
+
+
+describe('pointing at the model (show_user, §27)', () => {
+  const show = (args: object) => ({ name: 'show_user', arguments: args });
+  const showCards = (snap: SessionSnapshot) => snap.messages.flatMap((m) => m.parts).filter((p): p is ShowPart => p.type === 'show');
+  const face = { shapeId: 'sh-1', kind: 'face', index: 5, sceneObjectId: 'ex-1', sceneObjectName: 'extrude', part: null, summary: { form: 'plane', center: [0, 0, 5] } };
+
+  it('puts the card in the chat without waiting, refuses an item that resolves to nothing, and a restart leaves the card as it is', async () => {
+    resolveSelection = (body) => ({
+      status: 200,
+      json: { ok: true, count: body.expression === 'face().cylinder(4)' ? 0 : 1, matches: body.expression === 'face().cylinder(4)' ? [] : [face], scope: { kind: 'root' }, unit: 'mm' },
+    });
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, {
+      text: calls(
+        show({ items: [{ label: 'the mounting face', expression: 'face().onPlane("xy", 5)' }], note: 'The holes go here.' }),
+        show({ items: [{ label: 'the bore', expression: 'face().cylinder(4)' }] }),
+      ),
+    });
+    // Nothing waits for the user: the turn ends by itself.
+    const done = await idle(id);
+    expect(done.status).toEqual({ state: 'idle' });
+    const [card] = showCards(done);
+    expect(showCards(done)).toHaveLength(1);
+    expect(card).toEqual({
+      type: 'show',
+      id: expect.any(String),
+      file: 'plate.part.js',
+      absPath: path.join(workspace, 'plate.part.js'),
+      note: 'The holes go here.',
+      items: [{ n: 1, color: 'red', label: 'the mounting face', target: { expression: 'face().onPlane("xy", 5)' }, faces: 1, edges: 0 }],
+    });
+    expect(toolParts(done)).toEqual([]);
+    expect(done.turns.map((t) => t.revertible)).toEqual([false]);
+    const [shown, refused] = backend.runs[0].results;
+    expect(JSON.parse(textOf(shown))).toEqual({ shown: [{ n: 1, color: 'red', label: 'the mounting face', faces: 1, edges: 0 }] });
+    expect(refused.isError).toBe(true);
+    expect(textOf(refused)).toBe('Item 1 ("the bore"): the expression matches nothing in the current model. Nothing was shown.');
+    // The card is in the stored session, as it is in the snapshot.
+    expect(runtime.store.read(id)!.messages.flatMap((m) => m.parts).filter((p) => p.type === 'show')).toEqual([card]);
+
+  });
+
+  it('a stored card is left as it is by a restart, and a cut-off turn\'s continue note lists the call', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000027';
+    const card: ShowPart = {
+      type: 'show',
+      id: 'show-old',
+      file: 'plate.part.js',
+      absPath: path.join(workspace, 'plate.part.js'),
+      items: [{ n: 1, color: 'red', label: 'the mounting face', target: { pick: { shapeId: 'sh-1', kind: 'face', index: 5 } }, faces: 1, edges: 0 }],
+    };
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-22T10:00:00.000Z',
+      updatedAt: '2026-11-22T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'Where do the holes go?' }] },
+        { id: 'a', role: 'assistant', turnId: 't', createdAt: '', parts: [card] },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+    });
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(showCards(snap)).toEqual([card]);
+    expect((await json('POST', `${base}/sessions/${id}/continue`)).status).toBe(202);
+    await idle(id);
+    expect(backend.runs[0].sent[0]).toContain('- show_user plate.part.js — done: the items are on a card in the chat');
+  });
+});
+
 describe('images attached to a message', () => {
   it('tells the four image types apart by their bytes', () => {
     expect(sniffImageType(PNG_BYTES)).toBe('image/png');
@@ -936,5 +1485,165 @@ describe('images attached to a message', () => {
     await idle(id);
     expect(backend.runs[0].images[1]).toEqual([]);
     expect(backend.runs[0].sent[1]).not.toContain('attached_images');
+  });
+});
+
+describe('what a change does to the model (§25)', () => {
+  const BEFORE = 'base();\n';
+  const AFTER = 'base();\nrib();\n';
+  const built = (id: string, height: number, volume: number) => ({
+    state: 'rendered',
+    id,
+    file: 'plate.part.js',
+    sceneKind: 'part',
+    unit: 'mm',
+    durationMs: 9,
+    builtFrom: 'source',
+    configuration: 'Default',
+    sessionOverrides: 0,
+    unusedParams: [],
+    solidCount: 1,
+    bounds: { min: [0, 0, 0], max: [80, 40, height] },
+    volume,
+    validation: { ok: true, checked: 1, findings: [], skipped: 0 },
+    geometry: `digest-${id}`,
+  });
+  const BEFORE_ID = '11111111-1111-4111-8111-111111111111';
+  const AFTER_ID = '22222222-2222-4222-8222-222222222222';
+  const previewOf = (snap: SessionSnapshot) => toolParts(snap).at(-1)?.preview;
+  const withPreview = (id: string, state: string) => until(() => snapshot(id), (s) => previewOf(s)?.state === state);
+
+  beforeEach(() => {
+    fs.writeFileSync(inWorkspace('plate.part.js'), BEFORE);
+    scratchBuild = (source) => (source === BEFORE ? built(BEFORE_ID, 30, 96000) : built(AFTER_ID, 36, 97500));
+    scratchCost = () => ({ reusable: null, lastBuildMs: 120 });
+  });
+
+  it('fills the approval card with the before and after, keeps the pictures a page draws, and keeps both once decided', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('plate.part.js', AFTER)), mode: 'ask' });
+    const ready = await withPreview(id, 'ready');
+    const [part] = toolParts(ready);
+    // The approval still waits: the preview is beside it.
+    expect(ready.status.state).toBe('awaiting-approval');
+    expect(part).toMatchObject({
+      state: 'awaiting-approval',
+      preview: {
+        state: 'ready',
+        same: false,
+        before: { state: 'built', buildId: BEFORE_ID, facts: { solidCount: 1, size: [80, 40, 30], volume: 96000, unit: 'mm' } },
+        after: { state: 'built', buildId: AFTER_ID, facts: { solidCount: 1, size: [80, 40, 36], volume: 97500, unit: 'mm' } },
+      },
+    });
+    // Saved with the card: a restart finds it.
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    expect(store.read(id)!.messages.flatMap((m) => m.parts).some((p) => p.type === 'tool' && p.preview?.state === 'ready')).toBe(true);
+    // It was not offered: there is nothing to ask for.
+    const approval = `${base}/sessions/${id}/approvals/${part.approval!.id}`;
+    expect((await json('POST', `${approval}/preview`)).status).toBe(409);
+    expect((await json('POST', `${base}/sessions/${id}/approvals/nope/preview`)).status).toBe(404);
+
+    // The page draws both sides from one camera and hands them over together.
+    const png = { mediaType: 'image/png', base64: PNG_BYTES.toString('base64') };
+    expect((await json('POST', `${approval}/preview/pictures`, { before: png, after: png })).status).toBe(204);
+    const drawn = previewOf(await snapshot(id))!;
+    expect(drawn.before!.image).toMatch(/^[0-9a-f-]+\.png$/);
+    expect(drawn.after!.image).toMatch(/^[0-9a-f-]+\.png$/);
+    expect(drawn.after!.image).not.toBe(drawn.before!.image);
+    const served = await fetch(`${base}/sessions/${id}/files/${drawn.after!.image}`);
+    expect(served.headers.get('content-type')).toBe('image/png');
+    expect(Buffer.from(await served.arrayBuffer()).equals(PNG_BYTES)).toBe(true);
+    // The first pictures are the ones kept (a second tab drew them too).
+    expect((await json('POST', `${approval}/preview/pictures`, { before: png, after: png })).status).toBe(204);
+    expect(previewOf(await snapshot(id))).toEqual(drawn);
+    expect((await json('POST', `${approval}/preview/pictures`, {})).status).toBe(400);
+    expect((await json('POST', `${approval}/preview/pictures`, { after: { mediaType: 'image/png', base64: JPEG_BYTES.toString('base64') } })).status).toBe(400);
+    expect((await json('POST', `${base}/sessions/${id}/approvals/nope/preview/pictures`, { after: png })).status).toBe(404);
+
+    expect((await json('POST', approval, { decision: 'allow' })).status).toBe(204);
+    const done = await idle(id);
+    expect(readFile('plate.part.js')).toBe(AFTER);
+    expect(toolParts(done)[0]).toMatchObject({ state: 'done', approval: { decision: 'allow' }, preview: drawn });
+    expect((await json('POST', `${approval}/preview`)).status).toBe(409);
+  });
+
+  it('offers the preview of a file that is slow to build, builds it when asked, and takes its pictures after the decision too', async () => {
+    scratchCost = () => ({ reusable: null, lastBuildMs: 7400 });
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('plate.part.js', AFTER)), mode: 'ask' });
+    const offered = await withPreview(id, 'offered');
+    expect(previewOf(offered)).toEqual({ state: 'offered', estimateMs: 7400 });
+    const approval = `${base}/sessions/${id}/approvals/${toolParts(offered)[0].approval!.id}`;
+    const png = { mediaType: 'image/png', base64: PNG_BYTES.toString('base64') };
+    // Nothing is built yet, so there is nothing to be a picture of.
+    expect((await json('POST', `${approval}/preview/pictures`, { after: png })).status).toBe(409);
+
+    expect((await json('POST', `${approval}/preview`)).status).toBe(204);
+    await withPreview(id, 'ready');
+    expect((await json('POST', approval, { decision: 'deny' })).status).toBe(204);
+    await idle(id);
+    expect(readFile('plate.part.js')).toBe(BEFORE);
+    // The engine still has the builds: a page that draws them now is kept.
+    expect((await json('POST', `${approval}/preview/pictures`, { after: png })).status).toBe(204);
+    const kept = previewOf(await snapshot(id))!;
+    expect(kept.after!.image).toMatch(/\.png$/);
+    expect(kept.before!.image).toBeUndefined();
+  });
+
+  it('a stop ends a preview nobody asked for, and the card shows none', async () => {
+    scratchCost = () => ({ reusable: null, lastBuildMs: 7400 });
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    await json('POST', `${base}/sessions/${id}/messages`, { text: calls(write('plate.part.js', AFTER)), mode: 'ask' });
+    const offered = await withPreview(id, 'offered');
+    const approval = `${base}/sessions/${id}/approvals/${toolParts(offered)[0].approval!.id}`;
+    expect((await json('POST', `${base}/sessions/${id}/cancel`)).status).toBe(204);
+    const stopped = await idle(id);
+    expect(toolParts(stopped)[0]).toMatchObject({ state: 'denied', preview: { state: 'cancelled' } });
+    expect((await json('POST', `${approval}/preview`)).status).toBe(409);
+  });
+
+  it('a preview a restart cut off is not built, and one that was ready keeps its pictures', async () => {
+    const store = new SessionStore(path.join(workspace, '.fluidcad', 'agent', 'sessions'));
+    const id = '7a1d2c3e-0000-4000-8000-000000000004';
+    const side = (buildId: string, image?: string) => ({ state: 'built' as const, buildId, sceneKind: 'part' as const, facts: { solidCount: 1, size: [80, 40, 30] as [number, number, number], volume: 96000, unit: 'mm' }, ...(image ? { image } : {}) });
+    const tool = (partId: string, preview: ToolPart['preview']): ToolPart => ({
+      type: 'tool', id: partId, source: 'fluidcad', name: 'write_file', title: 'Write plate.part.js', kind: 'edit', state: 'awaiting-approval',
+      input: { path: 'plate.part.js' }, approval: { id: `approval-${partId}`, canAllowSession: true }, ...(preview ? { preview } : {}),
+    });
+    store.write({
+      schemaVersion: 1,
+      id,
+      title: 'Cut off',
+      createdAt: '2026-11-22T10:00:00.000Z',
+      updatedAt: '2026-11-22T10:00:00.000Z',
+      agent: { kind: 'claude', ref: 'cli-ref', model: null },
+      messages: [
+        { id: 'u', role: 'user', turnId: 't', createdAt: '', parts: [{ type: 'text', id: 'p', text: 'Add a rib' }] },
+        {
+          id: 'a',
+          role: 'assistant',
+          turnId: 't',
+          createdAt: '',
+          parts: [
+            tool('ready', { state: 'ready', same: false, before: side(BEFORE_ID, 'before.png'), after: side(AFTER_ID, 'after.png') }),
+            // The engine went down inside the second build.
+            tool('building', { state: 'building', before: side(BEFORE_ID) }),
+            tool('offered', { state: 'offered', estimateMs: 7400 }),
+            tool('none', undefined),
+          ],
+        },
+      ],
+      turns: [{ id: 't', userMessageId: 'u', revertible: false }],
+    });
+    const snap = await snapshot(id);
+    expect(snap.status).toEqual({ state: 'interrupted', reason: RESTART_REASON });
+    expect(toolParts(snap).map((p) => [p.state, p.preview?.state])).toEqual([
+      ['error', 'ready'],
+      ['error', 'cancelled'],
+      ['error', 'cancelled'],
+      ['error', undefined],
+    ]);
+    expect(toolParts(snap)[0].preview).toMatchObject({ before: { image: 'before.png' }, after: { image: 'after.png' } });
+    expect((await json('POST', `${base}/sessions/${id}/approvals/approval-offered/preview`)).status).toBe(409);
   });
 });

@@ -197,8 +197,16 @@ export function buildApplicationMenu(actions: MenuActions): void {
         ...(isMac ? [] : updateItems()),
         { label: 'Documentation', click: () => void shell.openExternal('https://fluidcad.io/docs/introduction/') },
         {
+          // With a project open the page's bug report panel fills the issue in
+          // (a screenshot, project files); with none, GitHub's issues page.
           label: 'Report an Issue',
-          click: () => void shell.openExternal('https://github.com/Fluid-CAD/FluidCAD/issues'),
+          click: () => {
+            if (project) {
+              toProject('report-bug');
+            } else {
+              void shell.openExternal('https://github.com/Fluid-CAD/FluidCAD/issues');
+            }
+          },
         },
       ],
     },

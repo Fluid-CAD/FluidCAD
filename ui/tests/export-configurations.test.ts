@@ -43,6 +43,17 @@ describe('ConfigurationExport', () => {
     expect(names).toEqual(['robot.stl', 'robot-A-B.stl', 'robot-A-B-2.stl', 'robot-a-b-3.stl']);
   });
 
+  it('puts a drawing\'s view after the row, ahead of the extension and of a collision number\'s place', () => {
+    expect(ConfigurationExport.entries(table(['Wide', 'M8 (zinc)']), 'plate', '.dxf', '-top')).toEqual([
+      { configuration: 'Default', fileName: 'plate-top.dxf' },
+      { configuration: 'Wide', fileName: 'plate-Wide-top.dxf' },
+      { configuration: 'M8 (zinc)', fileName: 'plate-M8-zinc-top.dxf' },
+    ]);
+    const names = ConfigurationExport.entries(table(['A/B', 'A B']), 'plate', '.dxf', '-front').map((e) => e.fileName);
+    expect(names).toEqual(['plate-front.dxf', 'plate-A-B-front.dxf', 'plate-A-B-2-front.dxf']);
+    expect(ConfigurationExport.archiveName('plate-top')).toBe('plate-top-configurations.zip');
+  });
+
   it('packs the files into one zip', async () => {
     const archive = await ConfigurationExport.archive([
       { fileName: 'robot.step', blob: new Blob(['ISO-10303-21; default']) },

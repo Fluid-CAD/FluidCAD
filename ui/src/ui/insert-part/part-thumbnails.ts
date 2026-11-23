@@ -1,33 +1,46 @@
 import {
   ACESFilmicToneMapping,
+  Box3,
   DirectionalLight,
   AmbientLight,
   Group,
   Object3D,
   PerspectiveCamera,
-  Quaternion,
   Scene,
   SRGBColorSpace,
   Vector3,
   WebGLRenderer,
 } from 'three';
 import { SceneIndex } from '../../helpers/scene-index';
-import { buildObjectMesh } from '../../meshes/mesh-factory';
+import { buildObjectMesh, buildSceneMesh } from '../../meshes/mesh-factory';
 import { disposeEnvironmentOf, environmentFor } from '../../meshes/appearance/environment';
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
-import { Solver, makeWorldBody, matesReferenceWorld, worldConnectorRef } from '../../solver';
-import type { BodyState, ConnectorState, MateRecord } from '../../solver';
+import { AssemblySolverModel, Solver } from '../../../../lib/assembly-solver/index.js';
+import { PartMateGeometryReader } from '../../scene/part-mate-geometry';
 import type {
-  ConnectorData,
   SceneObjectRender,
   SerializedAssemblyInstance,
   SerializedAssemblyConnector,
   SerializedAssemblyMate,
 } from '../../types';
 
+/** A thumbnail's side in pixels, unless its renderer was made for another. */
 const THUMB_SIZE = 160;
 const CAMERA_FOV = 35;
+
+/**
+ * What one picture shows: a model's rendered rows — and, for an assembly,
+ * the instances its rows are the part templates of.
+ */
+export type ThumbnailSubject = {
+  objects: SceneObjectRender[];
+  assembly?: {
+    instances: SerializedAssemblyInstance[];
+    mates: SerializedAssemblyMate[];
+    connectors?: SerializedAssemblyConnector[];
+  };
+};
 
 /**
  * Renders catalog entries to small PNG data-URLs for the Insert dialog.
@@ -39,10 +52,19 @@ const CAMERA_FOV = 35;
  * instance groups), framed from the standard iso direction, rendered, and
  * read back synchronously. Call `dispose()` when the dialog closes to free
  * the GL context; the next render lazily recreates it.
+ *
+ * `size` is the side of the square picture in pixels: the Insert dialog's
+ * tiles take the default, a tile shown larger (a chat card's variant) asks
+ * for more.
  */
 export class PartThumbnailRenderer {
   private renderer: WebGLRenderer | null = null;
   private solver = new Solver();
+  private readonly size: number;
+
+  constructor(options: { size?: number } = {}) {
+    this.size = options.size ?? THUMB_SIZE;
+  }
 
   /** A single part: its rendered subtree, camera-framed. */
   render(objects: SceneObjectRender[], rootId: string): string | null {
@@ -53,6 +75,39 @@ export class PartThumbnailRenderer {
     const camera = this.makeCamera();
     const group = buildObjectMesh(root, objects, null, camera, false);
     return this.renderGroup(group, camera);
+  }
+
+  /**
+   * A whole model: every root row of a rendered scene with what is under
+   * it — a file's parts, or the bare statements of a model without one (a
+   * scratch build's rows).
+   */
+  renderScene(objects: SceneObjectRender[]): string | null {
+    const camera = this.makeCamera();
+    return this.renderGroup(buildSceneMesh(objects, null, camera), camera);
+  }
+
+  /**
+   * Several models, each its own picture, all from one camera: the same
+   * direction and one frame, the union of what they draw. Two versions of a
+   * model then sit at the same place and scale in their pictures, so a
+   * change of size or shape between them reads at a glance instead of each
+   * being zoomed to fit. Null for a subject that shows nothing.
+   */
+  renderTogether(subjects: ThumbnailSubject[]): (string | null)[] {
+    const camera = this.makeCamera();
+    const groups = subjects.map(subject => (subject.assembly
+      ? this.assemblyGroup(subject.objects, subject.assembly.instances, subject.assembly.mates, subject.assembly.connectors ?? [], camera)
+      : buildSceneMesh(subject.objects, null, camera)));
+    const frame = new Box3();
+    for (const group of groups) {
+      if (group) {
+        hideConnectors(group);
+        group.updateMatrixWorld(true);
+        frame.union(computeSceneBounds(group));
+      }
+    }
+    return groups.map(group => (group ? this.renderGroup(group, camera, frame) : null));
   }
 
   /**
@@ -67,6 +122,27 @@ export class PartThumbnailRenderer {
     mates: SerializedAssemblyMate[],
     connectors: SerializedAssemblyConnector[] = [],
   ): string | null {
+    const camera = this.makeCamera();
+    const container = this.assemblyGroup(objects, instances, mates, connectors, camera);
+    return container ? this.renderGroup(container, camera) : null;
+  }
+
+  dispose(): void {
+    if (this.renderer) {
+      disposeEnvironmentOf(this.renderer);
+      this.renderer.dispose();
+    }
+    this.renderer = null;
+  }
+
+  /** An assembly's instances, each a group of its part template, posed and solved; null when none could be drawn. */
+  private assemblyGroup(
+    objects: SceneObjectRender[],
+    instances: SerializedAssemblyInstance[],
+    mates: SerializedAssemblyMate[],
+    connectors: SerializedAssemblyConnector[],
+    camera: PerspectiveCamera,
+  ): Group | null {
     const templates = new Map<string, SceneObjectRender>();
     for (const obj of objects) {
       if (obj.type === 'part' && obj.id) {
@@ -74,10 +150,8 @@ export class PartThumbnailRenderer {
       }
     }
 
-    const camera = this.makeCamera();
     const container = new Group();
     const groups = new Map<string, Group>();
-    const bodies: BodyState[] = [];
     for (const inst of instances) {
       const template = templates.get(inst.partId);
       if (!template) {
@@ -89,13 +163,6 @@ export class PartThumbnailRenderer {
       group.add(buildObjectMesh(template, objects, null, camera, false));
       container.add(group);
       groups.set(inst.instanceId, group);
-      bodies.push({
-        instanceId: inst.instanceId,
-        position: new Vector3(inst.position.x, inst.position.y, inst.position.z),
-        quaternion: new Quaternion(inst.quaternion.x, inst.quaternion.y, inst.quaternion.z, inst.quaternion.w),
-        grounded: inst.grounded,
-        connectors: collectConnectorStates(objects, inst.partId),
-      });
     }
     if (groups.size === 0) {
       return null;
@@ -104,11 +171,17 @@ export class PartThumbnailRenderer {
     // Best-effort: a solve that fails (or an over-free assembly) keeps the
     // warm-start poses, which the source authored to be roughly right.
     try {
-      const mateRecords = mates.map(toMateRecord);
-      if (matesReferenceWorld(mateRecords)) {
-        bodies.push(makeWorldBody(connectors));
-      }
-      const out = this.solver.solve({ bodies, mates: mateRecords });
+      const model = new AssemblySolverModel({
+        instances,
+        mates,
+        connectors,
+        partGeometry: partId => PartMateGeometryReader.of(objects, partId),
+      });
+      // Only the instances that drew a group are solved — the same set the
+      // assembly view solves.
+      const out = this.solver.solve(model.input({
+        poseOf: instanceId => groups.get(instanceId) ?? null,
+      }));
       if (out.result === 'okay') {
         for (const solved of out.bodies) {
           const group = groups.get(solved.instanceId);
@@ -122,19 +195,15 @@ export class PartThumbnailRenderer {
       // Keep warm-start poses.
     }
 
-    return this.renderGroup(container, camera);
+    return container;
   }
 
-  dispose(): void {
-    if (this.renderer) {
-      disposeEnvironmentOf(this.renderer);
-      this.renderer.dispose();
-    }
-    this.renderer = null;
-  }
-
-  /** Shared tail: frame the group, light it, render, read back, clean up. */
-  private renderGroup(group: Object3D, camera: PerspectiveCamera): string | null {
+  /**
+   * Shared tail: frame the group, light it, render, read back, clean up.
+   * `frame` is what the camera is fitted to in place of the group's own
+   * bounds (see {@link renderTogether}).
+   */
+  private renderGroup(group: Object3D, camera: PerspectiveCamera, frame?: Box3): string | null {
     const renderer = this.ensureRenderer();
     const scene = new Scene();
     scene.add(new AmbientLight(0xddeeff, 2.5));
@@ -145,12 +214,13 @@ export class PartThumbnailRenderer {
     scene.add(group);
     scene.updateMatrixWorld(true);
 
-    const box = computeSceneBounds(group);
-    if (box.isEmpty()) {
+    const own = computeSceneBounds(group);
+    if (own.isEmpty()) {
       scene.remove(group);
       disposeMaterials(group);
       return null;
     }
+    const box = frame && !frame.isEmpty() ? frame : own;
 
     const center = box.getCenter(new Vector3());
     const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
@@ -194,46 +264,13 @@ export class PartThumbnailRenderer {
         alpha: true,
         preserveDrawingBuffer: true,
       });
-      this.renderer.setSize(THUMB_SIZE, THUMB_SIZE);
+      this.renderer.setSize(this.size, this.size);
       this.renderer.setPixelRatio(1);
       this.renderer.toneMapping = ACESFilmicToneMapping;
       this.renderer.outputColorSpace = SRGBColorSpace;
     }
     return this.renderer;
   }
-}
-
-/** Connector frames of one part's subtree, copies included — same read the assembly view does. */
-function collectConnectorStates(objects: SceneObjectRender[], partId: string): ConnectorState[] {
-  const out: ConnectorState[] = [];
-  for (const obj of SceneIndex.of(objects).connectorsOf(partId)) {
-    if (!obj.id) {
-      continue;
-    }
-    const data = obj.object as ConnectorData | undefined;
-    if (!data) {
-      continue;
-    }
-    out.push({
-      connectorId: obj.id,
-      localOrigin: new Vector3(data.origin.x, data.origin.y, data.origin.z),
-      localXDirection: new Vector3(data.xDirection.x, data.xDirection.y, data.xDirection.z),
-      localNormal: new Vector3(data.normal.x, data.normal.y, data.normal.z),
-    });
-  }
-  return out;
-}
-
-function toMateRecord(m: SerializedAssemblyMate): MateRecord {
-  return {
-    mateId: m.mateId,
-    type: m.type,
-    // Assembly-connector sides resolve on the synthetic grounded world
-    // body, same as the assembly controller's conversion.
-    connectorA: m.frameA ? worldConnectorRef(m.frameA) : m.connectorA,
-    connectorB: m.frameB ? worldConnectorRef(m.frameB) : m.connectorB,
-    options: m.options,
-  };
 }
 
 function hideConnectors(root: Object3D): void {

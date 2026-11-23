@@ -431,6 +431,13 @@ export class Scene {
   }
 
   /**
+   * The renderer is about to build this scene: its script has run, and from
+   * here on its objects and records are what they will stay. A scene that
+   * keeps something derived from them drops it here.
+   */
+  renderStarting(): void {}
+
+  /**
    * A breakpoint() is about to stop this build: note the part it fires in
    * (null at the file's top level) and the last object built before it.
    */

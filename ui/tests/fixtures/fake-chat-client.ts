@@ -10,12 +10,18 @@ import type {
   ChatEvent,
   ChatPart,
   LoginStatus,
+  ParamsKept,
   PermissionMode,
+  QuestionReply,
   RevertResult,
   SendMessage,
   SessionSnapshot,
   SessionStatus,
   SessionSummary,
+  ChangePreview,
+  ChangePreviewPictures,
+  VariantPicture,
+  VariantsReply,
 } from '../../src/ui/chat/chat-types';
 
 const BUILT_INS = ['anthropic', 'openai', 'openrouter'];
@@ -60,6 +66,10 @@ export class FakeChatClient implements ChatClient {
   revertAnswer: ChatAnswer<RevertResult> | null = null;
   /** What `decideApproval` answers (before the engine settles the card); null: 204 and the card settles. */
   decideAnswer: ChatAnswer<null> | null = null;
+  /** What `answerQuestion` answers (before the engine settles the card); null: 204 and the card settles. */
+  questionAnswer: ChatAnswer<null> | null = null;
+  /** What `chooseVariant` answers (before the engine settles the card); null: 204 and the card settles. */
+  variantsAnswer: ChatAnswer<null> | null = null;
   private nextId = 1;
 
   static install(overrides: Partial<AgentInstall> = {}): AgentInstall {
@@ -369,6 +379,183 @@ export class FakeChatClient implements ChatClient {
           });
           const status = snapshot.status as SessionStatus & { turnId?: string };
           this.emit(id, { type: 'status', status: { state: 'running', turnId: status.turnId ?? 'turn' } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such approval.' };
+  });
+
+  /**
+   * Answers like the runtime: the waiting card settles (`answered` with the
+   * answers, or `skipped`), the status goes back to `running`.
+   */
+  answerQuestion = vi.fn(async (id: string, questionId: string, reply: QuestionReply): Promise<ChatAnswer<null>> => {
+    if (this.questionAnswer) {
+      return this.questionAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'question' && part.id === questionId) {
+          if (part.state !== 'awaiting-answer') {
+            return { ok: false, status: 409, error: 'This question was already settled.' };
+          }
+          this.emit(id, {
+            type: 'part-update',
+            messageId: message.id,
+            partId: part.id,
+            patch: 'skip' in reply ? { state: 'skipped' } : { state: 'answered', answers: reply.answers },
+          });
+          const status = snapshot.status as SessionStatus & { turnId?: string };
+          this.emit(id, { type: 'status', status: { state: 'running', turnId: status.turnId ?? 'turn' } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such question.' };
+  });
+
+  /**
+   * Answers like the runtime: the waiting card settles (`picked`, with the
+   * write of the pick as a tool part after it; `answered`; `skipped`), the
+   * status goes back to `running`.
+   */
+  chooseVariant = vi.fn(async (id: string, variantsId: string, reply: VariantsReply): Promise<ChatAnswer<null>> => {
+    if (this.variantsAnswer) {
+      return this.variantsAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'variants' && part.id === variantsId) {
+          if (part.state === 'building') {
+            return { ok: false, status: 409, error: 'The variants are still building.' };
+          }
+          if (part.state !== 'awaiting-choice') {
+            return { ok: false, status: 409, error: 'These variants were already settled.' };
+          }
+          this.emit(id, {
+            type: 'part-update',
+            messageId: message.id,
+            partId: part.id,
+            patch: 'skip' in reply ? { state: 'skipped' } : 'pick' in reply ? { state: 'picked', picked: reply.pick } : { state: 'answered', text: reply.text },
+          });
+          if ('pick' in reply) {
+            this.emit(id, {
+              type: 'part-start',
+              messageId: message.id,
+              part: {
+                type: 'tool',
+                id: `${part.id}-write`,
+                source: 'fluidcad',
+                name: 'write_file',
+                title: `Apply "${reply.pick}" to ${part.file}`,
+                kind: 'edit',
+                state: 'running',
+                input: { path: part.file, variant: reply.pick },
+              },
+            });
+          }
+          const status = snapshot.status as SessionStatus & { turnId?: string };
+          this.emit(id, { type: 'status', status: { state: 'running', turnId: status.turnId ?? 'turn' } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such variants.' };
+  });
+
+  /** Keeps the first picture of a tile, as the runtime: the tile gains its `image` (`<label>.png`). */
+  saveVariantPicture = vi.fn(async (id: string, variantsId: string, picture: VariantPicture): Promise<ChatAnswer<null>> => {
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'variants' && part.id === variantsId) {
+          const tile = part.variants.find((t) => t.label === picture.label);
+          if (!tile) {
+            return { ok: false, status: 404, error: 'No such variant.' };
+          }
+          if (!tile.image) {
+            this.emit(id, {
+              type: 'part-update',
+              messageId: message.id,
+              partId: part.id,
+              patch: { variants: part.variants.map((t) => (t === tile ? { ...t, image: `${t.label}.png` } : t)) },
+            });
+          }
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such variants.' };
+  });
+
+  /** What `paramsKept` answers; null: 204 and the card says what was kept. */
+  keptAnswer: ChatAnswer<null> | null = null;
+
+  /** Answers like the runtime: the card keeps the last value kept of each parameter. */
+  paramsKept = vi.fn(async (id: string, paramsId: string, body: ParamsKept): Promise<ChatAnswer<null>> => {
+    if (this.keptAnswer) {
+      return this.keptAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'params' && part.id === paramsId) {
+          const kept = new Map((part.kept ?? []).map((k) => [JSON.stringify([k.part ?? null, k.label]), k]));
+          for (const value of body.kept) {
+            kept.set(JSON.stringify([value.part ?? null, value.label]), value);
+          }
+          this.emit(id, { type: 'part-update', messageId: message.id, partId: part.id, patch: { kept: [...kept.values()] } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such parameter card.' };
+  });
+
+  /** What `requestPreview` answers (before the engine starts the builds); null: 204 and the card builds. */
+  previewAnswer: ChatAnswer<null> | null = null;
+
+  /** Answers like the runtime: an offered preview starts building; anything else is refused. */
+  requestPreview = vi.fn(async (id: string, approvalId: string): Promise<ChatAnswer<null>> => {
+    if (this.previewAnswer) {
+      return this.previewAnswer;
+    }
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'tool' && part.approval?.id === approvalId) {
+          if (part.state !== 'awaiting-approval') {
+            return { ok: false, status: 409, error: 'This approval was already settled.' };
+          }
+          if (part.preview?.state !== 'offered') {
+            return { ok: false, status: 409, error: 'This approval offers no preview to build.' };
+          }
+          const preview: ChangePreview = { state: 'building', ...(part.preview.before === null ? { before: null } : {}) };
+          this.emit(id, { type: 'part-update', messageId: message.id, partId: part.id, patch: { preview } });
+          return { ok: true, value: null };
+        }
+      }
+    }
+    return { ok: false, status: 404, error: 'No such approval.' };
+  });
+
+  /** Keeps the first picture of each side, as the runtime: the side gains its `image` (`<side>-<build>.png`). */
+  savePreviewPictures = vi.fn(async (id: string, approvalId: string, pictures: ChangePreviewPictures): Promise<ChatAnswer<null>> => {
+    const snapshot = this.snapshots.get(id)!;
+    for (const message of snapshot.messages) {
+      for (const part of message.parts) {
+        if (part.type === 'tool' && part.approval?.id === approvalId && part.preview) {
+          const preview: ChangePreview = { ...part.preview };
+          for (const side of ['before', 'after'] as const) {
+            const built = preview[side];
+            if (pictures[side] && built?.buildId && !built.image) {
+              preview[side] = { ...built, image: `${side}-${built.buildId}.png` };
+            }
+          }
+          this.emit(id, { type: 'part-update', messageId: message.id, partId: part.id, patch: { preview } });
           return { ok: true, value: null };
         }
       }

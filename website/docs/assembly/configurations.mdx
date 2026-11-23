@@ -103,7 +103,7 @@ In an assembly with configurations, exporting the **Whole assembly** opens the *
 A single part chosen from the Export menu exports in its own frame, as on screen, without the select.
 
 :::note
-Mates are solved in the viewport for the configuration on screen. A configuration exported without being on screen — another row in the select, or every row but the one on screen under All configurations — is rendered for the export alone and places its parts where the source puts them (`.translate()` / `.rotate()`), not where the joints would. Switch to the row first for its mated layout. PNG export always captures the configuration on screen.
+The configuration on screen exports as you see it, parts you dragged or drove along their joints included. A configuration exported without being on screen — another row in the select, or every row but the one on screen under All configurations — is rendered for the export alone and places its parts where its joints settle them, the layout it shows when first opened. Switch to the row first to export it in another position. PNG export always captures the configuration on screen.
 :::
 
 ## In code
@@ -208,4 +208,4 @@ npx fluidcad export stl --all-configurations -o build/gearbox.stl
 
 Row names become file-safe in the file name: anything other than letters, digits, `.`, `_` and `-` turns into `-`. With `-o`, its path without the extension is the base name. `--all-configurations` renders every row before writing anything, so a row that fails leaves no files behind. The two flags cannot be combined, and `--all-configurations` does not apply to `png`.
 
-In a STEP file, an instance or sub-assembly inserted with a configuration carries the row in its name — `gearbox (Ratio 3:1)` — so a BOM downstream can tell the variants apart. As with every CLI export of an assembly, parts sit where the source places them; see [CLI Reference](/docs/cli#assemblies).
+In a STEP file, an instance or sub-assembly inserted with a configuration carries the row in its name — `gearbox (Ratio 3:1)` — so a BOM downstream can tell the variants apart. As with every CLI export of an assembly, parts sit where their joints settle them; see [CLI Reference](/docs/cli#assemblies).

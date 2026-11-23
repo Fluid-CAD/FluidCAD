@@ -28,10 +28,23 @@ import iconBolt from '@tabler/icons/outline/bolt.svg?raw';
 import iconArrowBackUp from '@tabler/icons/outline/arrow-back-up.svg?raw';
 import iconFilePencil from '@tabler/icons/outline/file-pencil.svg?raw';
 import iconPencil from '@tabler/icons/outline/pencil.svg?raw';
+import iconCamera from '@tabler/icons/outline/camera.svg?raw';
+import iconBallpen from '@tabler/icons/outline/ballpen.svg?raw';
+import iconScribble from '@tabler/icons/outline/scribble.svg?raw';
+import iconArrowUpRight from '@tabler/icons/outline/arrow-up-right.svg?raw';
+import iconOval from '@tabler/icons/outline/oval.svg?raw';
+import iconRectangle from '@tabler/icons/outline/rectangle.svg?raw';
+import iconLetterT from '@tabler/icons/outline/letter-t.svg?raw';
+import iconArrowForwardUp from '@tabler/icons/outline/arrow-forward-up.svg?raw';
 import iconTrash from '@tabler/icons/outline/trash.svg?raw';
 import iconLogin from '@tabler/icons/outline/login-2.svg?raw';
 import iconPin from '@tabler/icons/outline/pin.svg?raw';
 import iconPaperclip from '@tabler/icons/outline/paperclip.svg?raw';
+import iconEye from '@tabler/icons/outline/eye.svg?raw';
+import iconCubeOff from '@tabler/icons/outline/cube-off.svg?raw';
+import iconAdjustments from '@tabler/icons/outline/adjustments-horizontal.svg?raw';
+import iconPointer from '@tabler/icons/outline/pointer.svg?raw';
+import iconMapPin from '@tabler/icons/outline/map-pin.svg?raw';
 
 export const ChatIcons = {
   SEND: iconArrowUp,
@@ -63,12 +76,33 @@ export const ChatIcons = {
   REVERT: iconArrowBackUp,
   FILE_EDIT: iconFilePencil,
   RENAME: iconPencil,
+  /** Capture the viewport to mark it up. */
+  CAPTURE: iconCamera,
+  /** Mark up an attached image. */
+  MARKUP: iconBallpen,
+  /** The markup tools and its redo (undo is {@link REVERT}'s arrow, clear {@link DELETE}'s bin). */
+  MARK_PEN: iconScribble,
+  MARK_ARROW: iconArrowUpRight,
+  MARK_ELLIPSE: iconOval,
+  MARK_RECT: iconRectangle,
+  MARK_TEXT: iconLetterT,
+  REDO: iconArrowForwardUp,
   DELETE: iconTrash,
   SIGN_IN: iconLogin,
   /** Keep the live reference chip. */
   PIN: iconPin,
   /** Attach an image to the message. */
   ATTACH: iconPaperclip,
+  /** Show a proposed variant in the viewport. */
+  VIEW: iconEye,
+  /** A variant's tile with no picture to show. */
+  NO_PICTURE: iconCubeOff,
+  /** A parameter card. */
+  PARAMS: iconAdjustments,
+  /** Pick in the viewport: a question answered by clicking geometry. */
+  PICK: iconPointer,
+  /** What the agent points at in the viewport. */
+  POINT: iconMapPin,
 
   /** `svg` in a span sized by `className`. */
   span(svg: string, className = '[&>svg]:size-4'): HTMLSpanElement {

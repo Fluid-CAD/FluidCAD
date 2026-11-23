@@ -193,6 +193,16 @@ When no tool matches, the box asks [FluidCAD Hub](/docs/packages) for packages t
 
 Every toolbar operation is one edit to the source file, so Undo and Redo step the editor's own history: the first two buttons on the toolbar, <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> (<kbd>Ctrl</kbd>+<kbd>Y</kbd> also redoes; on macOS use <kbd>⌘</kbd>). The keys work in both workbenches with the viewport focused; inside the code editor or a text field they keep their native meaning. The group appears once the in-page editor is attached.
 
+## Reporting a bug
+
+The bug button at the foot of the left rail (**Help → Report an Issue** in the desktop app) opens a form for a GitHub issue: a title, a description, screenshots of the scene and any of the project's files.
+
+- **Screenshots**: in the desktop app, **Capture the window** takes a picture of the whole window, toolbars and panels included; the form steps aside for the picture and comes back. In a browser or an editor, **Capture the scene** takes a picture of the current view. Either shows in the form; press **Capture another** for more, up to eight, and the **×** on a picture removes it.
+- **Project files**: none are ticked to begin with. Tick the ones the report needs, or **All**; the file on screen is listed first.
+- **Issue text**: the text the issue starts with, exactly as it is handed to GitHub, with the FluidCAD version and system details at the end (untick the box under it to leave them out).
+
+**Continue on GitHub** opens GitHub's new-issue page in your browser with the title and the text filled in. A link can carry text only, so the rest stays with you to add: the first screenshot is copied to the clipboard to paste into the issue, and the ticked files are saved as `fluidcad-bug-report.zip` to drop into it. The panel then lists those steps; with several screenshots it lists each one with **Copy**, since the clipboard holds one picture at a time: copy one, paste it, copy the next. FluidCAD sends nothing itself: nothing leaves your computer until you submit the issue on GitHub, where it is public.
+
 ## Editors
 
 The in-page editor is enough for most work: it completes against the engine's own type declarations and shows diagnostics inline. To edit in your own editor instead, see [Editor setup](/docs/installation#editor-setup).

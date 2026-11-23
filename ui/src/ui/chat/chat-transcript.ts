@@ -1,11 +1,15 @@
 import type { ChatEvent, ChatMessage, ChatPart } from './chat-types';
 import { ImagePartView } from './parts/image-part';
 import { NoticePartView } from './parts/notice-part';
+import { ParamsPartView } from './parts/params-part';
 import type { PartContext, PartView } from './parts/part-view';
+import { QuestionPartView } from './parts/question-part';
 import { ReasoningPartView } from './parts/reasoning-part';
 import { ReferencesPartView } from './parts/references-part';
+import { ShowPartView } from './parts/show-part';
 import { TextPartView } from './parts/text-part';
 import { ToolPartView } from './parts/tool-part';
+import { VariantsPartView } from './parts/variants-part';
 
 /** Within this many pixels of the end counts as "at the bottom". */
 const STICK_SLACK_PX = 32;
@@ -61,6 +65,7 @@ export class ChatTranscript {
 
   /** Everything again, from a snapshot. `liveMessageId`: the message still streaming, if any. */
   render(messages: readonly ChatMessage[], liveMessageId: string | null): void {
+    this.disposeViews();
     this.list.replaceChildren();
     this.views.clear();
     for (const message of messages) {
@@ -143,8 +148,22 @@ export class ChatTranscript {
     this.follow();
   }
 
+  /** The panel is closing: what a card put outside the panel (a variant, or a change waiting for approval, shown in the viewport) is taken back. */
+  releaseOverlays(): void {
+    for (const view of this.views.values()) {
+      view.releaseOverlays();
+    }
+  }
+
   destroy(): void {
+    this.disposeViews();
     this.resizeObserver?.disconnect();
+  }
+
+  private disposeViews(): void {
+    for (const view of this.views.values()) {
+      view.dispose();
+    }
   }
 
   private follow(): void {
@@ -251,6 +270,21 @@ export class MessageView {
     }
   }
 
+  /** See {@link ChatTranscript.releaseOverlays}. */
+  releaseOverlays(): void {
+    for (const view of this.parts.values()) {
+      if (view instanceof VariantsPartView || view instanceof ToolPartView) {
+        view.hideGhost();
+      }
+    }
+  }
+
+  dispose(): void {
+    for (const view of this.parts.values()) {
+      view.dispose?.();
+    }
+  }
+
   private createView(part: ChatPart): PartView {
     switch (part.type) {
       case 'text':
@@ -259,6 +293,14 @@ export class MessageView {
         return new ReasoningPartView(part, this.ctx, this.live);
       case 'tool':
         return new ToolPartView(part, this.ctx);
+      case 'question':
+        return new QuestionPartView(part, this.ctx);
+      case 'variants':
+        return new VariantsPartView(part, this.ctx);
+      case 'params':
+        return new ParamsPartView(part, this.ctx);
+      case 'show':
+        return new ShowPartView(part, this.ctx, this.live);
       case 'notice':
         return new NoticePartView(part);
       case 'image':

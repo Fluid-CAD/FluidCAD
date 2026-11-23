@@ -43,7 +43,7 @@ import {
   type SerializedReplicateSide,
   type SubSelection,
 } from '../../types';
-import { WORLD_BODY_ID } from '../../solver';
+import { WORLD_BODY_ID } from '../../../../lib/assembly-solver/index.js';
 
 /** What fills a target column or a row cell: the same three side kinds a mate takes. */
 export type ReplicateCellState = ConnectorSlotState | WorldSlotState | GeometrySlotState;

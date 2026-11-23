@@ -7,7 +7,7 @@
 
 import { SERVER_INSTRUCTIONS } from '../../mcp/dist/server.js';
 import type { AgentRenderState } from '../../server/dist/agent-host.js';
-import type { AgentKind, SceneReference } from './types.ts';
+import type { AgentKind, ParamChange, SceneReference } from './types.ts';
 
 /** What the CLI's own tools may do, per agent. */
 const OWN_TOOLS: Record<Exclude<AgentKind, 'api'>, string> = {
@@ -49,6 +49,29 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     'A `dirty-buffer` refusal means the user has unsaved changes in that file: ask them to save it. Never pass',
     '`force`.',
     '',
+    'ask_user puts a question to the user as a card with choices and waits for the answer. Use it when a choice is',
+    'theirs and a wrong guess would cost real rework (a dimension the request leaves open, which of two readings',
+    'they mean); not for what the tools can tell you, and not to confirm a plan. Its description says how.',
+    'A question may take `pick` instead of options: the user answers by clicking a face or edges in the viewport. Only when',
+    'the answer is a piece of the model the request leaves open and a wrong guess costs rework; not when they attached it',
+    'as a scene reference, when what they said identifies it (resolve_selection finds it), or when there is one candidate.',
+    '',
+    'propose_variants builds two versions of a model file, shows them as 3D tiles and writes the one the user picks. Not by',
+    'default: only when they ask to see options, or the form is open and the two look different (a rib versus a gusset);',
+    'never for a number they could state, to confirm a plan, or after every change. Two variants; three or four only when',
+    'the user asked for that many. It costs a full build per variant; the app waits.',
+    '',
+    'offer_params puts a few parameters of the rendered model in the chat as live controls, and does not wait. Not by default:',
+    'only when a new or reworked model has dimensions the user is likely to tune (they said "roughly", gave a range, are',
+    'exploring) or they ask to play with the sizes; never after every edit, for values they fixed, twice for the same',
+    'parameters, or in place of a question that blocks the work. Never add a param() only to have something to offer.',
+    '',
+    'show_user highlights faces and edges of the model in the user\'s viewport, each in its own colour, as numbered chips in the',
+    'chat; write `[1]`, `[2]` in your text to refer to them. It does not wait and changes nothing. Not by default (they see the',
+    'model): only when words would not locate the geometry reliably — a problem on a particular face or edge, the candidates of',
+    'a question, a proposal touching particular geometry. Never after every edit, to illustrate what you just built, for a whole',
+    'body, or again in the same turn unless what you point at changed; show the few items your text refers to.',
+    '',
     '`@path` in the user\'s text names a file of the project by its path from the project\'s root (in quotes when',
     'it has a space: `@"my parts/plate.part.js"`): that file is what they mean. Read it when what they ask depends',
     'on its contents.',
@@ -59,6 +82,11 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     '  project\'s length unit.',
     '- `<attached_images>`, when the user attached images of their own (a drawing, a photo, a screenshot): they',
     '  are the first images of the message, in the order listed, each by its file name.',
+    '  `viewport-capture.png` and `viewport-markup.png` are pictures the user took of the 3D viewport, as it was then.',
+    '  Arrows, circles, boxes, strokes and short labels drawn over an image are the user pointing at what they mean',
+    '  (a name ending in `-markup.png`: drawn in this chat). They are not geometry: never model them. Work out what a',
+    '  mark points at with the scene tools; when it could be two things and a wrong one costs rework, ask (a pick',
+    '  question, under its own conditions).',
     '- `<scene_references>`, when the user attached geometry from the viewport: `[n]` in their text refers to',
     '  `<ref n="…">` and to the geometry drawn in that colour in the capture, the last image of the message',
     '  (`image="attached"`). A ref\'s `selector` is the',
@@ -71,6 +99,9 @@ export function inAppPreamble(kind: AgentKind = 'claude'): string {
     '  features it names, resolve it again before relying on it.',
     '- `<reverted_changes>`, when the user reverted changes you made in an earlier turn: those files are back to',
     '  what they were before that turn, whatever your history shows. Read them again before editing them.',
+    '- `<param_changes>`, when the user kept values from a parameter card: each listed `param()` now has that default',
+    '  in its file (or, where a configuration is named, that value in the configuration), whatever your history',
+    '  shows. Read a file again before editing it, and do not put the old values back.',
     '- `<interrupted_turn>`, when the app restarted while you were working: what you had been asked and how each of',
     '  your tool calls in that turn ended. Check the files and the model, then carry on from where you were.',
   ].join('\n');
@@ -120,27 +151,49 @@ export function formatSceneReferences(references: SceneReference[], options: { i
       ...(ref.unit !== unit ? [`unit="${escapeAttr(ref.unit)}"`] : []),
     ];
     lines.push(`  <ref ${attrs.join(' ')}>`);
-    // The page builds references; one line per field keeps the block's shape whatever it sent.
-    lines.push(`    selector: ${oneLine(ref.selector.source)}`);
-    const imports = ref.selector.imports ?? [];
-    if (imports.length > 0) {
-      lines.push(`    imports: ${imports.map(oneLine).join(', ')}`);
+    const words = sceneReferenceWords(ref);
+    lines.push(`    selector: ${words.selector}`);
+    if (words.imports.length > 0) {
+      lines.push(`    imports: ${words.imports.join(', ')}`);
     }
-    for (const producer of ref.selector.producers ?? []) {
-      lines.push(`    ${oneLine(producerLine(producer))}`);
+    for (const producer of words.producers) {
+      lines.push(`    ${producer}`);
     }
-    const alternatives = ref.selector.alternatives ?? [];
-    if (alternatives.length > 0) {
-      lines.push(`    alternatives: ${alternatives.map(oneLine).join(' | ')}`);
+    if (words.alternatives.length > 0) {
+      lines.push(`    alternatives: ${words.alternatives.join(' | ')}`);
     }
-    const geometry = Array.isArray(ref.geometry) ? oneLine(describeGeometry(ref.geometry as GeometrySummary[])) : '';
-    if (geometry) {
-      lines.push(`    geometry: ${geometry}`);
+    if (words.geometry) {
+      lines.push(`    geometry: ${words.geometry}`);
     }
     lines.push('  </ref>');
   }
   lines.push('</scene_references>');
   return lines.join('\n');
+}
+
+/**
+ * What a `<ref>` says of one reference, field by field: the selector to
+ * write, the imports it needs, one line per feature it names (and whether
+ * its statement has a variable yet), the verified alternatives and the
+ * geometry. The block above is made of these, and so is a picked answer to
+ * a question (§27), so the agent reads geometry the user pointed at in the
+ * same words wherever it comes from. The page builds references: every
+ * value is put on one line, whatever it sent.
+ */
+export function sceneReferenceWords(ref: SceneReference): {
+  selector: string;
+  imports: string[];
+  producers: string[];
+  alternatives: string[];
+  geometry: string;
+} {
+  return {
+    selector: oneLine(ref.selector.source),
+    imports: (ref.selector.imports ?? []).map(oneLine),
+    producers: (ref.selector.producers ?? []).map((producer) => oneLine(producerLine(producer))),
+    alternatives: (ref.selector.alternatives ?? []).map(oneLine),
+    geometry: Array.isArray(ref.geometry) ? oneLine(describeGeometry(ref.geometry as GeometrySummary[])) : '',
+  };
 }
 
 type Producer = SceneReference['selector']['producers'][number];
@@ -238,6 +291,32 @@ export function revertedChangesNote(files: string[]): string {
   );
 }
 
+/**
+ * The note the CLI gets with the next message after the user kept values
+ * from a parameter card (§26): its own history still holds the old defaults.
+ * Labels, part names and values are the model file's and the user's: each
+ * stays on its line and opens or closes no tag.
+ */
+export function paramChangesNote(changes: ParamChange[]): string {
+  const list = changes.map((change) => {
+    const where = change.part ? ` of ${quoted(change.part)}` : '';
+    const row = change.configuration ? ` (configuration ${quoted(change.configuration)})` : '';
+    return `- ${oneLine(change.file).replace(/[<>]/g, '')}: ${quoted(change.label)}${where} = ${quoted(change.value)}${row}`;
+  });
+  return (
+    '<param_changes>\n' +
+    'The user kept these values from a parameter card in the chat. Each is now in the source, as the default of its ' +
+    'param() (or, where a configuration is named, as that configuration\'s value), whatever your history shows:\n' +
+    `${list.join('\n')}\n` +
+    '</param_changes>'
+  );
+}
+
+/** A label or a value as JSON, on one line, with nothing a tag could start with. */
+function quoted(value: unknown): string {
+  return JSON.stringify(value).replace(/[<>]/g, '');
+}
+
 /** One tool call of an interrupted turn, as the continue note lists it. */
 export type InterruptedToolCall = {
   name: string;
@@ -291,6 +370,8 @@ export function buildCliText(input: {
   workspace: WorkspaceState;
   /** Files reverted since the CLI was last told (§12.2). */
   revertedFiles?: string[];
+  /** Values kept from a parameter card since the CLI was last told (§26). */
+  paramChanges?: ParamChange[];
   /** The note about a turn an engine restart cut off ({@link interruptedTurnNote}), when continuing it. */
   interruptedTurn?: string;
 }): string {
@@ -303,6 +384,9 @@ export function buildCliText(input: {
   }
   if (input.revertedFiles && input.revertedFiles.length > 0) {
     tail.push(revertedChangesNote(input.revertedFiles));
+  }
+  if (input.paramChanges && input.paramChanges.length > 0) {
+    tail.push(paramChangesNote(input.paramChanges));
   }
   if (input.attachedImages && input.attachedImages.length > 0) {
     tail.push(attachedImagesTag(input.attachedImages));

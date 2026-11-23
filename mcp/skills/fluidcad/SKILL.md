@@ -130,6 +130,77 @@ The first goal is not a finished part. It is the smallest solid that proves the 
 
 From there, work down the plan's steps in order, one plan step (one feature, or one group of identical repeated features) per write. Say what is coming next ("base plate is done; next is the 4x 5 mm bolt pattern"). Never batch the whole part into one write: compile and build errors get harder to localize as the file grows, and a long silent stretch gives the user no chance to catch a mistake.
 
+### `try_build`: a candidate built without writing it
+
+`try_build` builds a candidate version of a model file in a throwaway scene and reports what it would produce: `state` (with `objectErrors` on a `build-error`), solid count, total volume, exact bounds and the `validate` verdict. It changes nothing: no file is written, the model on screen and the Parameters panel stay as they are, and no approval is asked. The candidate is `content` (the whole file), `edits` (replacements in the file on disk, each as `edit_range` takes one) or `params` (values by label), and it passes the guards a write passes, so a candidate that builds is one `write_file` accepts.
+
+**The default is not to call it.** Write the edit: `write_file` and `edit_range` already report the render.
+
+Call it when:
+
+- **You are choosing between real alternatives** whose outcome differs and cannot be told from the source: which of two constructions builds, which is lighter, which fits a size. Try each, compare the facts, write the one you keep.
+- **A risky value may not build** (a large fillet, a thin shell, a tight offset) and the edit that commits it waits for the user's approval. Find the value that builds, then ask once.
+- **You are about to offer the user several variants in words.** Every one offered is known to build. (`propose_variants`, below, builds its own: do not try those first.)
+
+Do not call it:
+
+- before an ordinary write, "to be safe";
+- to re-check what a write just reported;
+- for anything `measure`, `get_scene_summary` or `get_shape_properties` already answer about the model as it is;
+- to look at a candidate: the scratch scene is discarded, so nothing can screenshot or measure it. To inspect a candidate, write it.
+
+**What a call costs.** It is a full build from scratch (nothing is reused from the open model), and the engine does nothing else while it runs: the user's own renders wait behind it. A candidate that crashes the kernel restarts the engine, as a write of it would.
+
+### `propose_variants`: built alternatives for the user to choose from
+
+When your tools include `propose_variants` (the in-app chat; a standalone MCP client does not have it), it builds candidate versions of one model file, shows them to the user side by side as 3D tiles with their body count, overall size and volume, and waits. The variant the user picks is written and rendered for you: the pick is their approval, so do not write it again. A call carries two variants (three or four only when the user asked for that many, see below), each a `label`, a one-sentence `description` of what differs, and the candidate as `content` or `edits`, as `try_build` takes one.
+
+**The default is not to call it.** An ordinary change is one write.
+
+Call it when:
+
+- **The user asks to see options or alternatives.**
+- **The request leaves the form or the layout genuinely open** and the two alternatives look different: a rib versus a gusset, two hole layouts, two handle shapes.
+
+Do not call it:
+
+- for a request with one sensible reading;
+- for variants that differ only by a number the user could simply state: a dimension is a question (`ask_user`) or a `param()`, not two variants;
+- to confirm a plan;
+- with an option added only to fill the card, one you would not build yourself;
+- after every change.
+
+**How many.** Two. Send three or four only when the user asked for that many in their own words ("show me three options", "four layouts"); "some options", "a few" or "alternatives" is two. Asked for more than four, send the four that differ most and say so. Never add a variant because you can think of one: every extra tile is another full build the user waits for and another thing to compare.
+
+**What a call costs.** One full build from scratch per variant, one after the other, and the app waits while each runs. The call builds them itself, so do not `try_build` them first. A variant that does not build is shown as failed and cannot be picked; when none builds, the call returns an error instead of asking.
+
+**After it returns.** `{ picked, render }`: the picked variant is in the file, so check `render` as after any write and carry on from it. `{ skipped: true }`: decide yourself, write your choice, and say what you assumed. `{ answer }`: the user wrote what they want instead, and nothing was written. An error (the turn was stopped, an hour passed, the file changed while they were choosing): do not propose the same choice again in this turn.
+
+Without the tool, describe the alternatives in words and let the user say which.
+
+### `offer_params`: the model's parameters as live controls in the chat
+
+When your tools include `offer_params` (the in-app chat; a standalone MCP client does not have it), it puts parameters of the model on screen into the chat as a card of controls. The user drags one and the model follows; nothing is written until they press Keep. It does not wait for the user: it returns at once, and it is not a question.
+
+**The default is not to call it.** Most turns end without a card.
+
+Call it when:
+
+- **A new or reworked model is finished and rendered, and it has a few dimensions the user is plausibly going to tune**: they said "roughly", gave a range, or are exploring a design.
+- **The user asks to play with the sizes.**
+
+Do not call it:
+
+- after every edit;
+- when the user gave exact values and asked for nothing else;
+- for a model with no dimension worth tuning;
+- again for parameters this conversation already offered, unless they changed;
+- in place of a question that blocks the work: `ask_user` waits, the card does not.
+
+Offer the few parameters that matter, not all of them, and never add a `param()` only to have something to offer. When the user keeps values, their next message lists them in `<param_changes>`: read the file again before editing it, and do not put the old values back.
+
+Without the tool, say which parameters the user can change in the Parameters panel.
+
 ## After writing the code
 
 `write_file` and `edit_range` return once the render settles. Check the outcome in this order:
@@ -179,10 +250,56 @@ The selector you write is the one the tool verified. Never edit the user's file 
 
 - scope = a scene object or a part (id from `get_scene_summary`, or a part name): only that part's geometry, so a filter inside `part("base", ...)` never matches a face of `part("pillar", ...)`;
 - no scope: the whole scene, which is what a root-level `select()` sees; every result names the part that owns it;
-- assembly files: scope by `instanceId`; results carry the instance and its statement pose so they feed `measure` unchanged (no `before`, and no synthesis: selectors are written in the part file);
+- assembly files: scope by `instanceId`; results carry the instance and the pose the mates put it at so they feed `measure` unchanged (no `before`, and no synthesis: selectors are written in the part file);
 - `.from(obj)` inside the expression crosses parts, as it does in source.
 
 Indices from `hit_test` and the scene summary still work as a fallback, but they renumber after every feature; a filter survives edits, and an accessor survives more.
+
+### A pick question: the user clicks the geometry
+
+When your tools include `ask_user` (the in-app chat; a standalone MCP client does not have it), one of its questions may take `pick` instead of options: the user answers by clicking a face or edges in the viewport, and the answer carries the selector for what they clicked.
+
+**The default is not to ask one.** The clarification policy above still decides whether to ask at all.
+
+Ask one only when all three hold:
+
+- **The answer is a piece of the model**: "which of these faces is the mounting face?", "which edges get the fillet?".
+- **The request leaves it genuinely ambiguous**: several faces or edges fit what the user said.
+- **A wrong guess costs rework**: features will be built on it.
+
+Do not ask one:
+
+- when the user already attached the geometry to their message as a scene reference (`<scene_references>`): that is the answer;
+- when what they said identifies it ("the top face", "the four vertical edges"): find it with `resolve_selection` and read the count;
+- when only one candidate exists;
+- for a choice with a sensible default: take it and say so.
+
+A question takes `pick` or `options`, never both. Each pick reads as a scene reference does: its `selector` is the code to write, copied exactly, with its `imports` added and a producer that says "not bound" bound first. In an assembly, faces and edges cannot be picked yet: the user answers in words.
+
+Without the tool, ask in words, and tell the candidates apart by what `resolve_selection` says of them (the feature, the plane and its normal, the size).
+
+### `show_user`: pointing at geometry in the user's viewport
+
+When your tools include `show_user` (the in-app chat; a standalone MCP client does not have it), it highlights faces and edges of the model in the user's own viewport, each in its own colour, and lists them in the chat as numbered chips with your labels; your text then refers to them as `[1]`, `[2]`. It does not wait for the user: it returns at once, and it changes no file.
+
+**The default is not to call it.** The user already sees the viewport.
+
+Call it only when words would not locate the geometry reliably:
+
+- **A problem you found on a particular face or edge**: a wall thinner than it should be, an edge a fillet refuses.
+- **The candidates of a question**: "this face [1] or that one [2]?".
+- **A proposal that touches particular geometry**, before you make the change.
+
+Do not call it:
+
+- after every edit;
+- to illustrate what you just built;
+- for a whole body, or everything a feature made;
+- again in the same turn, unless what you point at changed.
+
+Show the few items your text refers to, not everything near them. Give an item the `expression` that `resolve_selection` verified rather than a `ref`: a selector keeps pointing at the geometry when the model re-renders, and an item that no longer resolves is shown to the user as stale. An item that matches nothing refuses the whole call, so resolve it first.
+
+Without the tool, say where the geometry is by what `resolve_selection` returns for it (the feature, the plane and its normal, the size).
 
 ## When something is wrong, roll the scene back and look
 
@@ -232,7 +349,7 @@ Load only what the task needs, from this skill's `references/` folder. If you ar
 - `references/verification.md`: read before declaring any feature or part done. Screenshot skip list, the visual-concern-to-deterministic-check table, the mandatory `interfere` and section gates and how to read a section, what never to claim, the final report template.
 - `references/modifying.md`: read when the task starts from an existing file rather than a blank one.
 - `references/sketching.md`: read before the first sketch, or when a sketch solves somewhere you did not draw it.
-- `references/handoff.md`: read when the user wants an STL, a STEP, a package, or asks "how do I use this".
+- `references/handoff.md`: read when the user wants an STL, a STEP, a DXF or SVG drawing, a package, or asks "how do I use this".
 
 Assemblies (parts, inserts, mates, connectors) are covered by the separate **fluidcad-assembly** skill; modeling from a drawing by **fluidcad-from-drawing**; writing a custom feature (a reusable feature type in a `*.feature.js` module, offered under the toolbar's Custom dropdown) by **fluidcad-custom-features**. All three are also served by the MCP server (`skill://fluidcad-assembly/SKILL.md`, `skill://fluidcad-from-drawing/SKILL.md`, `skill://fluidcad-custom-features/SKILL.md`, or `read_skill`).
 

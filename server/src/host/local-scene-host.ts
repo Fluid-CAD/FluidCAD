@@ -444,6 +444,37 @@ export class LocalSceneHost implements SceneHost {
     return Array.from(importers);
   }
 
+  /**
+   * `SceneHost.holdModuleImports`: the import edges of `filePath`'s graph
+   * nodes as they are now, put back by the answered function — each node's
+   * imports, and its place among the importers of the modules on either
+   * side of the change. A node the load in between created is left with no
+   * imports: nothing listed it before.
+   */
+  holdModuleImports(filePath: string): () => void {
+    const graph = this.server.environments.ssr.moduleGraph;
+    const normalized = normalizePath(filePath);
+    const ids = [normalized, `virtual:live-render:${normalized}`];
+    const held = ids.map(id => new Set(graph.getModuleById(id)?.importedModules ?? []));
+    return () => {
+      ids.forEach((id, index) => {
+        const node = graph.getModuleById(id);
+        if (!node) {
+          return;
+        }
+        for (const imported of node.importedModules) {
+          if (!held[index].has(imported)) {
+            imported.importers.delete(node);
+          }
+        }
+        for (const imported of held[index]) {
+          imported.importers.add(node);
+        }
+        node.importedModules = new Set(held[index]);
+      });
+    };
+  }
+
   /** The packages the current render loaded (see `PackageResolver.resolved`). */
   resolvedPackages(): ResolvedPackage[] {
     return this.packages.resolved();

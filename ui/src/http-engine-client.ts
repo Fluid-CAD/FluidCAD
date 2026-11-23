@@ -33,7 +33,7 @@ import {
   setPartAppearance,
   setProjectUnit,
 } from './api';
-import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, PauseAfterOptions, PauseAfterResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
+import type { CatalogParamValue, ConfigurationEditResult, ConfigurationSourceTable, ConfigurationTableCommit, EdgeProperties, EditorHistoryResult, ExportRequestBody, ExportResult, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, PartProperties, PauseAfterOptions, PauseAfterResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocation, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -132,8 +132,10 @@ export class HttpEngineClient implements EngineClient {
     }).catch(err => console.error('Set param failed:', err));
   }
 
-  resetParams(): void {
-    fetch('api/reset-params', { method: 'POST' })
+  resetParams(params?: { label: string; body?: string }[]): void {
+    fetch('api/reset-params', params === undefined
+      ? { method: 'POST' }
+      : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ params }) })
       .catch(err => console.error('Reset params failed:', err));
   }
 
@@ -193,7 +195,7 @@ export class HttpEngineClient implements EngineClient {
     return measureEntities(entities, signal);
   }
 
-  exportShapes(body: ExportRequestBody): Promise<Blob> {
+  exportShapes(body: ExportRequestBody): Promise<ExportResult> {
     return exportShapes(body);
   }
 

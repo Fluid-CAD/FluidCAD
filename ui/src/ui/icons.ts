@@ -58,6 +58,8 @@ import iconArrowBarToRight from '@tabler/icons/outline/arrow-bar-to-right.svg?ra
 import iconPackage from '@tabler/icons/outline/package.svg?raw';
 import iconPin from '@tabler/icons/outline/pin.svg?raw';
 import iconSearch from '@tabler/icons/outline/search.svg?raw';
+import iconBug from '@tabler/icons/outline/bug.svg?raw';
+import iconCamera from '@tabler/icons/outline/camera.svg?raw';
 import iconPinnedOff from '@tabler/icons/outline/pinned-off.svg?raw';
 import iconPuzzle from '@tabler/icons/outline/puzzle.svg?raw';
 
@@ -97,6 +99,8 @@ export const ICON_SLIDERS = iconAdjustmentsHorizontal;
 export const ICON_SETTINGS = iconSettings;
 /** The rail's Agent button (docs/agent-chat-plan.md §10.1). */
 export const ICON_AGENT = iconSparkles;
+export const ICON_BUG = iconBug;
+export const ICON_CAMERA = iconCamera;
 export const ICON_VIDEO = iconVideo;
 export const ICON_RULER = iconRulerMeasure;
 export const ICON_LINE = iconLinear;

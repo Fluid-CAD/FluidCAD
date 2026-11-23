@@ -4,10 +4,13 @@ import { captureScreenshot } from '../screenshot';
 import { deliverFile } from '../desktop';
 import type { DesktopFileFilter } from '../desktop';
 import type { EngineClient } from '../engine-client';
-import type { ExportFormat, ExportFormatOptions, ExportInstancePose, ExportRequestBody, MeasurePose, ShapeSelection } from '../api';
+import { toExportResult } from '../api';
+import type { ExportDrawingView, ExportFormat, ExportFormatOptions, ExportInstancePose, ExportRequestBody, MeasurePose, ShapeSelection } from '../api';
 import type { UIConfigurations } from '../types';
 import type { SceneDocument } from '../units/scene-document';
 import { ConfigurationExport, type ConfigurationPick } from './export-configurations';
+import { DrawingPreview } from './export-drawing-preview';
+import { DrawingViews, type ExportViewProvider } from './export-drawing-views';
 import { ICON_CLOSE } from './icons';
 
 /**
@@ -48,10 +51,30 @@ export interface ExportAssemblyProvider {
 /** The download name of solids that name no file; a part scene's and the assembly's are named after their file. */
 const SHAPES_FILE_BASE = 'export';
 
+/**
+ * The 2D formats: a drawing of the solids' view on a standard plane rather
+ * than the solids themselves. They share one options section (the preview,
+ * the view and which edges are drawn) and carry the view in the download's
+ * name.
+ */
+const DRAWING_FORMATS: ReadonlySet<string> = new Set<ExportFormat>(['dxf', 'svg']);
+
+/** What the whole assembly's dialog says in place of the drawing options. */
+const DRAWING_PARTS_ONLY = 'DXF/SVG exports are supported only on single parts';
+
+/** The SVG stroke width the dialog opens on, in millimetres — the server's own default. */
+const DEFAULT_STROKE_WIDTH_MM = 0.25;
+/** The thinnest stroke the dialog sends; anything under it (or not a number) is left to the server's default. */
+const MIN_STROKE_WIDTH_MM = 0.01;
+
 const ZIP_FILTER: DesktopFileFilter = { name: 'ZIP Archives', extensions: ['zip'] };
 
-/** Why a configuration other than the one on screen can sit differently: the viewer solved the mates for the row it shows. */
-const OFF_SCREEN_POSES = 'place their parts where the source puts them, not where the mates do';
+/**
+ * Why a configuration other than the one on screen can sit differently: the
+ * engine solves its mates from the source's poses, as when a file opens,
+ * while the row on screen exports wherever its parts were dragged or driven.
+ */
+const OFF_SCREEN_POSES = 'place their parts where the mates settle them, not where they were dragged';
 
 /**
  * The download's base name for a document: the file name without its
@@ -83,9 +106,20 @@ export class ExportDialog {
   private titleEl: HTMLHeadingElement;
   private purposeEl: HTMLParagraphElement;
   private pillsContainer: HTMLDivElement;
+  private formatNoteEl: HTMLParagraphElement;
+  /** An export of this opening is running: Export stays disabled until it ends. */
+  private busy = false;
   private stepSection: HTMLDivElement;
   private stlSection: HTMLDivElement;
   private pngSection: HTMLDivElement;
+  private drawingSection: HTMLDivElement;
+  private drawingViewSelect: HTMLSelectElement;
+  private hiddenLinesToggle: HTMLInputElement;
+  private tangentEdgesToggle: HTMLInputElement;
+  private strokeSection: HTMLDivElement;
+  private strokeWidthInput: HTMLInputElement;
+  private previewNote: HTMLParagraphElement;
+  private preview: DrawingPreview;
   private includeColorsToggle: HTMLInputElement;
   private resolutionSelect: HTMLSelectElement;
   private customSection: HTMLDivElement;
@@ -117,13 +151,16 @@ export class ExportDialog {
   /**
    * `assembly` is the host's window onto the live assembly; a host that never
    * shows one (a part-only viewer) passes nothing and the assembly target
-   * reports that it has nothing to export.
+   * reports that it has nothing to export. `view` says where the camera is,
+   * so a drawing opens on the side being looked at; without it a drawing
+   * opens on Top.
    */
   constructor(
     container: HTMLElement,
     private client: EngineClient,
     private sceneCtx: SceneContext,
     private assembly: ExportAssemblyProvider | null = null,
+    private view: ExportViewProvider | null = null,
   ) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'fixed inset-0 z-[300] bg-black/50 flex items-center justify-center hidden';
@@ -133,9 +170,30 @@ export class ExportDialog {
     this.titleEl = this.overlay.querySelector('[data-ref="title"]')!;
     this.purposeEl = this.overlay.querySelector('[data-ref="purpose"]')!;
     this.pillsContainer = this.overlay.querySelector('[data-ref="format-pills"]')!;
+    this.formatNoteEl = this.overlay.querySelector('[data-ref="format-note"]')!;
     this.stepSection = this.overlay.querySelector('[data-ref="step-section"]')!;
     this.stlSection = this.overlay.querySelector('[data-ref="stl-section"]')!;
     this.pngSection = this.overlay.querySelector('[data-ref="png-section"]')!;
+    this.drawingSection = this.overlay.querySelector('[data-ref="drawing-section"]')!;
+    this.drawingViewSelect = this.overlay.querySelector('[data-ref="drawing-view"]')!;
+    this.hiddenLinesToggle = this.overlay.querySelector('[data-ref="hidden-lines"]')!;
+    this.tangentEdgesToggle = this.overlay.querySelector('[data-ref="tangent-edges"]')!;
+    this.strokeSection = this.overlay.querySelector('[data-ref="stroke-section"]')!;
+    this.strokeWidthInput = this.overlay.querySelector('[data-ref="stroke-width"]')!;
+    this.previewNote = this.overlay.querySelector('[data-ref="drawing-preview-note"]')!;
+    this.preview = new DrawingPreview(
+      {
+        image: this.overlay.querySelector('[data-ref="drawing-preview-image"]')!,
+        status: this.overlay.querySelector('[data-ref="drawing-preview-status"]')!,
+      },
+      async (body) => toExportResult(await this.client.exportShapes(body)).blob,
+    );
+    for (const { view: name, label } of DrawingViews.OPTIONS) {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = label;
+      this.drawingViewSelect.appendChild(option);
+    }
     this.includeColorsToggle = this.overlay.querySelector('[data-ref="include-colors"]')!;
     this.resolutionSelect = this.overlay.querySelector('[data-ref="resolution"]')!;
     this.customSection = this.overlay.querySelector('[data-ref="custom-section"]')!;
@@ -181,6 +239,8 @@ export class ExportDialog {
     }
     this.renderConfigurationOptions();
     this.syncConfigurationControls();
+    // The table comes with every render: the scene a preview was drawn from is no longer the one on screen.
+    this.syncPreview(true);
   }
 
   show(target: ExportTarget): void {
@@ -192,23 +252,33 @@ export class ExportDialog {
       : '';
     this.purposeEl.classList.toggle('hidden', !whole);
     this.statusEl.classList.add('hidden');
-    this.exportBtn.disabled = false;
+    this.busy = false;
     this.session++;
     // Every opening starts on the row on screen.
     this.configurationPick = null;
+    this.syncFormatPills();
+    // ...and a drawing on the side the model is being looked at from.
+    this.drawingViewSelect.value = DrawingViews.facing(this.view?.eyeDirection() ?? null);
     this.syncConfigurationControls();
     this.overlay.classList.remove('hidden');
+    // A preview left by an earlier opening was of another target, or of a scene since rebuilt.
+    this.preview.clear();
+    this.syncPreview();
   }
 
-  /** Close the dialog; an export still running is abandoned and delivers nothing. */
+  /**
+   * Close the dialog; an export still running is abandoned and delivers
+   * nothing, and so is a preview still on its way.
+   */
   hide(): void {
     this.session++;
     this.overlay.classList.add('hidden');
+    this.preview.clear();
   }
 
   private buildHTML(): string {
     return `
-      <div class="w-[380px] bg-base-100 border border-base-content/10 rounded-lg p-5 shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
+      <div class="w-[380px] max-h-[calc(100vh-2rem)] overflow-y-auto bg-base-100 border border-base-content/10 rounded-lg p-5 shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
         <div class="flex items-center justify-between mb-4">
           <h3 data-ref="title" class="text-sm font-medium text-base-content/90">Export</h3>
           <button data-ref="close-btn" class="btn btn-ghost btn-square btn-xs text-base-content/60">
@@ -229,8 +299,11 @@ export class ExportDialog {
             <div data-ref="format-pills" class="join w-full border border-base-content/10 rounded-lg">
               <input class="join-item btn btn-sm flex-1 border-0 border-r border-base-content/10 checked:btn-primary" type="radio" name="export-format" aria-label="STEP" data-format="step" checked />
               <input class="join-item btn btn-sm flex-1 border-0 border-r border-base-content/10 checked:btn-primary" type="radio" name="export-format" aria-label="STL" data-format="stl" />
+              <input class="join-item btn btn-sm flex-1 border-0 border-r border-base-content/10 checked:btn-primary" type="radio" name="export-format" aria-label="DXF" data-format="dxf" />
+              <input class="join-item btn btn-sm flex-1 border-0 border-r border-base-content/10 checked:btn-primary" type="radio" name="export-format" aria-label="SVG" data-format="svg" />
               <input class="join-item btn btn-sm flex-1 border-0 checked:btn-primary" type="radio" name="export-format" aria-label="PNG" data-format="png" />
             </div>
+            <p data-ref="format-note" class="hidden mt-2 text-xs text-base-content/60">${DRAWING_PARTS_ONLY}</p>
           </div>
 
           <div data-ref="step-section">
@@ -264,6 +337,33 @@ export class ExportDialog {
                 <label data-ref="linear-label" class="text-xs text-base-content/60 mb-1 block">Linear Deflection (mm)</label>
                 <input data-ref="linear" type="number" class="input input-sm input-bordered w-full" value="0.3" min="0.001" max="10" step="0.01" />
               </div>
+            </div>
+          </div>
+
+          <div data-ref="drawing-section" class="hidden flex flex-col gap-3">
+            <div>
+              <label class="text-xs text-base-content/60 mb-1 block">Preview</label>
+              <div data-ref="drawing-preview" class="relative h-[180px] rounded-md border border-base-content/10 bg-white overflow-hidden">
+                <img data-ref="drawing-preview-image" class="hidden w-full h-full object-contain p-2 transition-opacity" alt="The drawing these options export" />
+                <span data-ref="drawing-preview-status" class="hidden absolute inset-x-2 top-1/2 -translate-y-1/2 truncate text-center text-[11px] text-black/50"></span>
+              </div>
+              <p data-ref="drawing-preview-note" class="hidden mt-1.5 text-[11px] text-base-content/50"></p>
+            </div>
+            <div>
+              <label class="text-xs text-base-content/60 mb-1 block">View</label>
+              <select data-ref="drawing-view" class="select select-sm select-bordered w-full"></select>
+            </div>
+            <label class="flex items-center justify-between cursor-pointer">
+              <span class="text-xs text-base-content/70">Hidden lines (dashed, on their own layer)</span>
+              <input type="checkbox" data-ref="hidden-lines" class="toggle toggle-sm toggle-primary" />
+            </label>
+            <label class="flex items-center justify-between cursor-pointer">
+              <span class="text-xs text-base-content/70">Tangent edges</span>
+              <input type="checkbox" data-ref="tangent-edges" class="toggle toggle-sm toggle-primary" />
+            </label>
+            <div data-ref="stroke-section" class="hidden">
+              <label class="text-xs text-base-content/60 mb-1 block">Stroke width (mm)</label>
+              <input data-ref="stroke-width" type="number" class="input input-sm input-bordered w-full" value="${DEFAULT_STROKE_WIDTH_MM}" min="${MIN_STROKE_WIDTH_MM}" step="0.05" />
             </div>
           </div>
 
@@ -317,7 +417,120 @@ export class ExportDialog {
     this.stepSection.classList.toggle('hidden', format !== 'step');
     this.stlSection.classList.toggle('hidden', format !== 'stl');
     this.pngSection.classList.toggle('hidden', format !== 'png');
+    this.strokeSection.classList.toggle('hidden', format !== 'svg');
+    this.syncDrawingAvailability();
     this.syncConfigurationControls();
+    this.syncPreview();
+  }
+
+  /**
+   * The drawing formats belong to solids: the whole assembly cannot be drawn
+   * yet. Its dialog still offers the pills, but a drawing format picked on it
+   * has nothing to export.
+   */
+  private drawingUnavailable(): boolean {
+    return this.target.kind === 'assembly' && DRAWING_FORMATS.has(this.selectedFormat);
+  }
+
+  /**
+   * Show the drawing options for a drawing format — or, on the whole
+   * assembly, the note saying drawings are for single parts, with Export
+   * disabled.
+   */
+  private syncDrawingAvailability(): void {
+    const unavailable = this.drawingUnavailable();
+    this.drawingSection.classList.toggle('hidden', unavailable || !DRAWING_FORMATS.has(this.selectedFormat));
+    this.formatNoteEl.classList.toggle('hidden', !unavailable);
+    this.syncExportButton();
+  }
+
+  /** Export is pressable unless an export is running or the format picked has nothing to export. */
+  private syncExportButton(): void {
+    this.exportBtn.disabled = this.busy || this.drawingUnavailable();
+  }
+
+  private setBusy(busy: boolean): void {
+    this.busy = busy;
+    this.syncExportButton();
+  }
+
+  /**
+   * Every opening on the whole assembly starts on a format it can export: a
+   * drawing pill left selected by an earlier opening goes back to STEP.
+   */
+  private syncFormatPills(): void {
+    if (this.drawingUnavailable()) {
+      this.pillsContainer.querySelector<HTMLInputElement>('[data-format="step"]')!.checked = true;
+      this.setFormat('step');
+      return;
+    }
+    this.syncDrawingAvailability();
+  }
+
+  /**
+   * Bring the preview in step with the dialog: the drawing the options on
+   * screen would export, while the dialog is open on solids with a drawing
+   * format picked; nothing is asked of the server otherwise. `force` asks
+   * again for options already previewed — the scene behind them changed.
+   *
+   * The preview is always an SVG, for a DXF too: the two are the same
+   * drawing, and only an SVG can be shown. It leaves the stroke width out —
+   * the preview draws its lines one pixel wide at any scale, so the width on
+   * paper would not show — and for "All configurations" it draws the row on
+   * screen and says so.
+   */
+  private syncPreview(force = false): void {
+    if (this.overlay.classList.contains('hidden')) {
+      return;
+    }
+    if (this.target.kind !== 'shapes' || !DRAWING_FORMATS.has(this.selectedFormat)) {
+      this.preview.pause();
+      return;
+    }
+    const configuration = this.configurationToExport();
+    const body: ExportRequestBody = {
+      format: 'svg',
+      shapeIds: this.target.shapeIds,
+      ...this.drawingOptions(),
+      ...(configuration?.kind === 'one' ? { configuration: configuration.name } : {}),
+    };
+    const everyRow = configuration?.kind === 'all';
+    this.previewNote.textContent = everyRow ? 'The preview shows the configuration on screen.' : '';
+    this.previewNote.classList.toggle('hidden', !everyRow);
+    this.preview.show(body, force);
+  }
+
+  /** What every drawing format sends: the view and which edges are drawn. */
+  private drawingOptions(): ExportFormatOptions {
+    return {
+      plane: this.drawingView(),
+      hiddenLines: this.hiddenLinesToggle.checked,
+      tangentEdges: this.tangentEdgesToggle.checked,
+    };
+  }
+
+  /**
+   * The SVG stroke width to send, in millimetres; undefined — the server's
+   * default — for a field left empty or holding nothing a line can be.
+   */
+  private strokeWidth(): number | undefined {
+    const value = parseFloat(this.strokeWidthInput.value);
+    return Number.isFinite(value) && value >= MIN_STROKE_WIDTH_MM ? value : undefined;
+  }
+
+  /** The view a drawing export draws: the select's, on Top should it ever hold anything else. */
+  private drawingView(): ExportDrawingView {
+    const value = this.drawingViewSelect.value;
+    return DrawingViews.isView(value) ? value : DrawingViews.DEFAULT;
+  }
+
+  /**
+   * What a download's name carries between its base and its extension: a
+   * drawing's view (`-top`), since one part is usually drawn on several
+   * planes and the files must not overwrite each other; nothing otherwise.
+   */
+  private nameSuffix(format: ExportFormat): string {
+    return DRAWING_FORMATS.has(format) ? `-${this.drawingView()}` : '';
   }
 
   /**
@@ -383,9 +596,9 @@ export class ExportDialog {
    * screen (the pick comes back with STEP or STL). The note says how the
    * export differs from the viewport: All configurations is one file per
    * row in a zip, and — the assembly only — a row other than the one on
-   * screen sits at its statement poses, the viewer having solved the mates
-   * for the row it shows. A part scene's other row needs no note: its
-   * solids are simply that row's.
+   * screen sits where the engine's own solve settles its mates, the
+   * viewer's dragged poses belonging to the row it shows. A part scene's
+   * other row needs no note: its solids are simply that row's.
    */
   private syncConfigurationControls(): void {
     const offered = this.configurationsOffered();
@@ -437,7 +650,13 @@ export class ExportDialog {
     this.configurationSelect.addEventListener('change', () => {
       this.configurationPick = ConfigurationExport.parseOptionValue(this.configurationSelect.value);
       this.syncConfigurationControls();
+      this.syncPreview();
     });
+
+    // What the drawing shows: each change is a new preview.
+    for (const control of [this.drawingViewSelect, this.hiddenLinesToggle, this.tangentEdgesToggle]) {
+      control.addEventListener('change', () => this.syncPreview());
+    }
 
     this.exportBtn.addEventListener('click', () => this.onExport());
   }
@@ -447,11 +666,15 @@ export class ExportDialog {
       return this.exportPng();
     }
 
-    const format: ExportFormat = this.selectedFormat === 'stl' ? 'stl' : 'step';
+    const format = ExportDialog.fileFormat(this.selectedFormat);
     const options = this.formatOptions(format);
 
     let body: ExportRequestBody;
     if (this.target.kind === 'assembly') {
+      if (DRAWING_FORMATS.has(format)) {
+        this.showError(DRAWING_PARTS_ONLY);
+        return;
+      }
       const poses = this.collectAssemblyPoses();
       if ('reason' in poses) {
         this.showError(poses.reason);
@@ -462,39 +685,40 @@ export class ExportDialog {
       body = { format, shapeIds: this.target.shapeIds, ...options };
     }
     const fileBase = this.downloadBase();
+    const suffix = this.nameSuffix(format);
 
     const configuration = this.configurationToExport();
     if (configuration?.kind === 'all') {
-      return this.exportAllConfigurations(body, fileBase, format);
+      return this.exportAllConfigurations(body, fileBase, format, suffix);
     }
     if (configuration) {
       body = { ...body, configuration: configuration.name };
     }
 
     const session = this.session;
-    this.exportBtn.disabled = true;
+    this.setBusy(true);
     this.statusEl.classList.remove('hidden');
     this.showProgress('Exporting...');
 
     try {
-      const blob = await this.client.exportShapes(body);
+      const { blob, warnings } = toExportResult(await this.client.exportShapes(body));
       if (session !== this.session) {
         return;
       }
       const { extension, filter } = ExportDialog.fileType(format);
       // Desktop: a native Save dialog. Browser: the usual download.
-      const outcome = await deliverFile(blob, `${fileBase}${extension}`, [filter]);
+      const outcome = await deliverFile(blob, `${fileBase}${suffix}${extension}`, [filter]);
       if (outcome === 'failed') {
         throw new Error('The file could not be written.');
       }
-      this.finishDelivery(session, outcome === 'cancelled');
+      this.finishDelivery(session, outcome === 'cancelled', warnings);
     } catch (err: any) {
       if (session === this.session) {
         this.showError(err?.message ?? String(err));
       }
     } finally {
       if (session === this.session) {
-        this.exportBtn.disabled = false;
+        this.setBusy(false);
       }
     }
   }
@@ -506,30 +730,34 @@ export class ExportDialog {
    * ({@link ConfigurationExport.entries} names them), delivered once. A
    * failed row stops the run and names it, and nothing is delivered: a
    * partial archive would pass for a complete one. Closing the dialog
-   * abandons the run.
+   * abandons the run. `suffix` is the drawing's view in every name, the
+   * archive's included (`plate-top.dxf`, `plate-M8-top.dxf`,
+   * `plate-top-configurations.zip`).
    */
-  private async exportAllConfigurations(body: ExportRequestBody, fileBase: string, format: ExportFormat): Promise<void> {
+  private async exportAllConfigurations(body: ExportRequestBody, fileBase: string, format: ExportFormat, suffix: string): Promise<void> {
     const { extension } = ExportDialog.fileType(format);
     // The rows as the export starts: a render landing mid-run changes the table, not this run.
-    const entries = ConfigurationExport.entries(this.configurations!, fileBase, extension);
+    const entries = ConfigurationExport.entries(this.configurations!, fileBase, extension, suffix);
     const session = this.session;
-    this.exportBtn.disabled = true;
+    this.setBusy(true);
     this.statusEl.classList.remove('hidden');
 
     try {
       const files: { fileName: string; blob: Blob }[] = [];
+      const warnings: string[] = [];
       for (const [index, entry] of entries.entries()) {
         this.showProgress(`Exporting ${entry.configuration} (${index + 1} of ${entries.length})...`);
-        let blob: Blob;
+        let exported: { blob: Blob; warnings: string[] };
         try {
-          blob = await this.client.exportShapes({ ...body, configuration: entry.configuration });
+          exported = toExportResult(await this.client.exportShapes({ ...body, configuration: entry.configuration }));
         } catch (err: any) {
           throw new Error(`${entry.configuration}: ${err?.message ?? String(err)}`);
         }
         if (session !== this.session) {
           return;
         }
-        files.push({ fileName: entry.fileName, blob });
+        files.push({ fileName: entry.fileName, blob: exported.blob });
+        warnings.push(...exported.warnings.map((warning) => `${entry.configuration}: ${warning}`));
       }
 
       this.showProgress('Packing the archive...');
@@ -537,24 +765,30 @@ export class ExportDialog {
       if (session !== this.session) {
         return;
       }
-      const outcome = await deliverFile(archive, ConfigurationExport.archiveName(fileBase), [ZIP_FILTER]);
+      const outcome = await deliverFile(archive, ConfigurationExport.archiveName(`${fileBase}${suffix}`), [ZIP_FILTER]);
       if (outcome === 'failed') {
         throw new Error('The archive could not be written.');
       }
-      this.finishDelivery(session, outcome === 'cancelled');
+      this.finishDelivery(session, outcome === 'cancelled', warnings);
     } catch (err: any) {
       if (session === this.session) {
         this.showError(err?.message ?? String(err));
       }
     } finally {
       if (session === this.session) {
-        this.exportBtn.disabled = false;
+        this.setBusy(false);
       }
     }
   }
 
-  /** A delivered file closes the dialog; a cancelled Save dialog leaves it open, its progress line cleared. */
-  private finishDelivery(session: number, cancelled: boolean): void {
+  /**
+   * A delivered file closes the dialog; a cancelled Save dialog leaves it
+   * open, its progress line cleared. A file the server had something to say
+   * about (a drawing whose curves were approximated) is delivered all the
+   * same, and the dialog stays open on what was said: closing over it would
+   * hand over a file that is not quite what was asked for without a word.
+   */
+  private finishDelivery(session: number, cancelled: boolean, warnings: string[] = []): void {
     if (session !== this.session) {
       return;
     }
@@ -562,13 +796,29 @@ export class ExportDialog {
       this.statusEl.classList.add('hidden');
       return;
     }
+    if (warnings.length > 0) {
+      this.showWarnings(warnings);
+      return;
+    }
     this.hide();
   }
 
+  /** The file format a pill other than PNG exports. */
+  private static fileFormat(selected: string): ExportFormat {
+    return selected === 'stl' || selected === 'dxf' || selected === 'svg' ? selected : 'step';
+  }
+
   private static fileType(format: ExportFormat): { extension: string; filter: DesktopFileFilter } {
-    return format === 'step'
-      ? { extension: '.step', filter: { name: 'STEP Files', extensions: ['step', 'stp'] } }
-      : { extension: '.stl', filter: { name: 'STL Files', extensions: ['stl'] } };
+    switch (format) {
+      case 'step':
+        return { extension: '.step', filter: { name: 'STEP Files', extensions: ['step', 'stp'] } };
+      case 'stl':
+        return { extension: '.stl', filter: { name: 'STL Files', extensions: ['stl'] } };
+      case 'dxf':
+        return { extension: '.dxf', filter: { name: 'DXF Files', extensions: ['dxf'] } };
+      case 'svg':
+        return { extension: '.svg', filter: { name: 'SVG Images', extensions: ['svg'] } };
+    }
   }
 
   private showProgress(message: string): void {
@@ -583,6 +833,12 @@ export class ExportDialog {
   private formatOptions(format: ExportFormat): ExportFormatOptions {
     if (format === 'step') {
       return { includeColors: this.includeColorsToggle.checked };
+    }
+    if (DRAWING_FORMATS.has(format)) {
+      // A drawing takes its own options only: the server refuses the 3D ones
+      // with it, and the stroke width with anything but an SVG.
+      const strokeWidth = format === 'svg' ? this.strokeWidth() : undefined;
+      return { ...this.drawingOptions(), ...(strokeWidth !== undefined ? { strokeWidth } : {}) };
     }
     const resolution = this.resolutionSelect.value as ExportFormatOptions['resolution'];
     // STL has no unit; an mm document is unaffected either way.
@@ -624,6 +880,23 @@ export class ExportDialog {
     return { poses };
   }
 
+  /** The file is out; what the server said about it stays on the status line, one line each. */
+  private showWarnings(warnings: string[]): void {
+    this.statusEl.classList.remove('hidden');
+    this.statusEl.replaceChildren();
+    const list = document.createElement('div');
+    list.className = 'flex flex-col gap-1 text-warning text-xs';
+    const lead = document.createElement('span');
+    lead.textContent = 'Exported, with a note:';
+    list.appendChild(lead);
+    for (const warning of [...new Set(warnings)]) {
+      const line = document.createElement('span');
+      line.textContent = warning;
+      list.appendChild(line);
+    }
+    this.statusEl.appendChild(list);
+  }
+
   private showError(message: string): void {
     this.statusEl.classList.remove('hidden');
     this.statusEl.replaceChildren();
@@ -634,7 +907,7 @@ export class ExportDialog {
   }
 
   private async exportPng(): Promise<void> {
-    this.exportBtn.disabled = true;
+    this.setBusy(true);
 
     try {
       const blob = await captureScreenshot(this.sceneCtx, {
@@ -659,7 +932,7 @@ export class ExportDialog {
     } catch (err: any) {
       this.showError(err.message);
     } finally {
-      this.exportBtn.disabled = false;
+      this.setBusy(false);
     }
   }
 }

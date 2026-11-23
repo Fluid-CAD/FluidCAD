@@ -94,6 +94,17 @@ export interface SceneHost {
    * a host without one can't preview.
    */
   setRenderOverlay?(overlay: RenderOverlay | null): void;
+  /**
+   * Note the imports the loader lists for `filePath` (its raw path and its
+   * live-render id) and answer a function that lists them again. A scratch
+   * build evaluates other text than the file holds, under the file's own
+   * id: until the file's next load, the loader would name that text's
+   * imports as the file's ({@link getModuleDependencies},
+   * {@link getModuleImporters}). The caller holds the engine's lock from
+   * the note to the restore. Optional: a host without a module graph has
+   * nothing to put back.
+   */
+  holdModuleImports?(filePath: string): () => void;
 }
 
 /**

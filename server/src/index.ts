@@ -44,6 +44,7 @@ import { PackagePins } from './packages/package-pins.ts';
 import { PackageRoots } from './packages/package-roots.ts';
 import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
+import { createScratchBuildRouter } from './routes/scratch-build.ts';
 import { createFeatureCatalogRouter } from './routes/feature-catalog.ts';
 import { FeatureCatalog } from './feature-catalog/catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
@@ -78,7 +79,7 @@ import {
   type LengthUnit,
 } from './project-config.ts';
 import { PageWriteLedger } from './files/page-write-ledger.ts';
-import type { CompileError, SerializedAssembly, ServerToUIMessage } from './ws-protocol.ts';
+import type { CompileError, ExportPosesSource, SerializedAssembly, ServerToUIMessage } from './ws-protocol.ts';
 import { detectKind, isParamsFile } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
@@ -87,6 +88,7 @@ import { describeOcException, KernelTraps } from '../../lib/dist/index.js';
 import { EngineHealth } from './engine-health.ts';
 import { createEngineRouter } from './routes/engine.ts';
 import { setMaxWorkers } from '../../lib/dist/oc/init.js';
+import { STANDARD_PLANES, isStandardPlane } from '../../lib/dist/math/plane.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
 // through vite's SSR wrapper, whose transform shifts raw stack lines (+3) and
@@ -398,6 +400,7 @@ app.use('/api', createHubRouter({
 }));
 app.use('/api', createHostActionsRouter({ send: sendToHost, hasHost: () => hosts.effectiveCapabilities() !== null }));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
+app.use('/api', createScratchBuildRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createFeatureCatalogRouter(featureCatalog, WORKSPACE_PATH));
 app.use('/api', createGlobalParamsRouter(globalParamsDeps));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher, WORKSPACE_PATH));
@@ -416,6 +419,7 @@ app.use('/api', createAgentRoutes({
   renderState: agentRenderState,
   unit: projectUnitNow,
   loadPreferences,
+  modelParams: () => fluidCadServer.getParamDefinitions(),
 }));
 app.use('/api', MeshesRoute.router(core.meshes));
 app.use('/api', PackageEditGuard.errorHandler());
@@ -896,8 +900,28 @@ async function handleExtensionMessage(msg: any) {
         try {
           // `assembly` (optionally with live poses) exports the whole
           // assembly; otherwise `shapeIds` picks solids, as the UI's route does.
-          let result: { data: string | Uint8Array; fileName: string } | null = null;
-          let posesSource: 'live' | 'statement' | undefined;
+          let result: { data: string | Uint8Array; fileName: string; warnings?: string[] } | null = null;
+          let posesSource: ExportPosesSource | undefined;
+          // A drawing format needs its plane, and has no whole-assembly form
+          // yet — the same refusals the HTTP route gives.
+          const drawing = msg.options?.format === 'dxf' || msg.options?.format === 'svg';
+          const drawingName = String(msg.options?.format ?? '').toUpperCase();
+          if (drawing && !isStandardPlane(msg.options.plane)) {
+            sendToExtension({
+              type: 'export-complete',
+              success: false,
+              error: `${drawingName} draws the model's view on a plane: plane must be one of ${STANDARD_PLANES.join(', ')}.`,
+            });
+            break;
+          }
+          if (drawing && msg.assembly !== undefined) {
+            sendToExtension({
+              type: 'export-complete',
+              success: false,
+              error: `A ${drawingName} drawing of the whole assembly is not available yet. Export a part or its solids instead.`,
+            });
+            break;
+          }
           if (msg.assembly !== undefined) {
             const outcome = fluidCadServer.exportAssembly(msg.options, msg.assembly.poses);
             if (outcome) {
@@ -928,6 +952,7 @@ async function handleExtensionMessage(msg: any) {
               data,
               fileName: result.fileName,
               ...(posesSource ? { posesSource } : {}),
+              ...(result.warnings && result.warnings.length > 0 ? { warnings: result.warnings } : {}),
             });
           } else {
             sendToExtension({ type: 'export-complete', success: false, error: 'No active scene to export.' });

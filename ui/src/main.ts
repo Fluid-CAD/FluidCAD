@@ -27,7 +27,7 @@ import { PublishDialog } from './ui/publish/publish-dialog';
 import { PublishState } from './ui/publish/publish-state';
 import { PanelRail } from './ui/panel-rail';
 import { DEFAULT_PARAMS_FILE, GlobalParamsPanel } from './ui/global-params-panel';
-import { listWorkspaceFiles } from './editor/editor-api';
+import { listWorkspaceFiles, rawWorkspaceFileUrl } from './editor/editor-api';
 import { Navbar } from './ui/navbar';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
@@ -69,6 +69,7 @@ import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
+import { LiveHighlight } from './scene/live-highlight';
 import { RenderedInstance, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate, SerializedAssemblyRelation } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, savePreferenceNow, resetPreferences, gotoSource, parseFeatureAt, addBreakpoint, pauseAfterStatement, removeFeature, setSketchClosed, applyInstancePose, renameInstance, setInstanceTransparency, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection, getEngineVersion, applyAssemblyConnectorCopy, restartEngine, getGlobalParams, setGlobalParam, EVERY_SOLID, type PauseAfterResult, type ShapeSelection, type UserPreferences } from './api';
@@ -95,7 +96,7 @@ import { AssemblyConnectorCopyService } from './interactive/assembly-connector-c
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import { FeatureDialogRegistry } from './interactive/feature-dialog-registry';
 import { PartFeatureDialogs } from './interactive/part-feature-dialogs';
-import type { ConnectorData, SceneObjectRender, UIConfigurations } from './types';
+import type { ConnectorData, SceneObjectRender, UIConfigurations, UIParamDefinition } from './types';
 import { ICON_CLOUD_UPLOAD, ICON_LIST_TREE, ICON_PACKAGE, ICON_SEARCH, ICON_SHARE, ICON_TRASH, ICON_UNDO } from './ui/icons';
 import { HubPanelState } from './ui/hub/hub-panel-state';
 import { escapeHtml } from './ui/expression-core';
@@ -109,6 +110,7 @@ import { applyPackagePreferences, packageSettings } from './ui/settings/package-
 import { agentSettings, applyAgentPreferences, rememberEffort, rememberModel } from './ui/settings/agent-settings';
 import { HttpChatClient } from './ui/chat/chat-client';
 import type { ChatPanel } from './ui/chat/chat-panel';
+import { viewportCaptureSize } from './ui/chat/markup';
 import { isChatComposer } from './editable-target';
 import { HttpHubClient, HttpPackagesClient, HttpPublishClient, ProjectUiStateClient, recompute, fetchMeshes } from './api';
 import { MeshCache, meshCache } from './scene/mesh-cache';
@@ -127,7 +129,10 @@ import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
 import type { LengthUnit } from './units/units';
-import { desktop, installDesktopMenu } from './desktop';
+import { canCaptureDesktopWindow, captureDesktopWindow, deliverFile, desktop, installDesktopMenu } from './desktop';
+import { BugReportClipboard, BugReportPanel } from './ui/bug-report/bug-report-panel';
+import { BugReportEnvironment } from './ui/bug-report/bug-report';
+import { ConfigurationExport } from './ui/export-configurations';
 import type { EditorSurface } from './editor';
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
@@ -348,9 +353,9 @@ const measureController = new MeasureController(
   container, engineClient, viewer,
   (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
   {
-    // The browser-side solver owns instance poses (drags, mate drives, the
-    // animate bar); the server only knows the statement pose. Each measured
-    // entity carries the live one.
+    // The viewer owns the live instance poses (drags, mate drives, the
+    // animate bar); the engine's own solve only knows the rest
+    // configuration. Each measured entity carries the live one.
     poseOf: (instanceId) => {
       const pose = viewer.getAssemblyController()?.getInstancePose(instanceId);
       if (!pose) {
@@ -371,7 +376,7 @@ viewer.referenceImage.onStatus = (message) => {
   }
 };
 // The whole-assembly export ships the same live poses measure does — the
-// browser-side solver owns them, the server only knows the statement pose.
+// viewer owns them, the engine's own solve only knows the rest configuration.
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext, {
   instances: () => (lastAssemblyPayload?.instances ?? []).map(i => ({ instanceId: i.instanceId, name: i.name })),
   poseOf: (instanceId) => {
@@ -385,10 +390,27 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
     };
   },
   fileBaseName: () => exportBaseName(sceneDocument.current?.absPath ?? ''),
+}, {
+  // A drawing export opens on Top, or on the standard view the camera
+  // clearly faces (`DrawingViews.facing`). The camera looks down its own
+  // −Z, so its +Z axis in the world — the third column of its world
+  // matrix — points from the model back to the eye.
+  eyeDirection: () => {
+    const camera = viewer.sceneContext.camera;
+    camera.updateMatrixWorld();
+    const m = camera.matrixWorld.elements;
+    return { x: m[8], y: m[9], z: m[10] };
+  },
 });
 
 /** The rendered file's `configurations()` table as its last render reported it — the export and share dialogs read it. */
 let renderedConfigurations: UIConfigurations | null = null;
+/** The rendered file's parameters as its last render reported them — what a chat's parameter card draws its controls from. */
+let renderedParams: UIParamDefinition[] = [];
+/** Told after every render: the Agent panel's parameter cards follow the model on screen. */
+const modelParamsListeners = new Set<() => void>();
+/** What the Agent points at with `show_user` (docs/agent-chat-plan.md §27), drawn over the model until it is cleared. */
+const agentHighlight = new LiveHighlight(() => viewer.sceneContext);
 /**
  * `?configuration=Name` — a link that opens on a `configurations()` row.
  * Selected once, on the first render of a file, when that render shows
@@ -1283,6 +1305,51 @@ const hubPanel = new HubPanel({
   onOpenChange: () => panelRail.sync(),
 });
 
+// The bug report panel, from the bug button at the foot of the rail (and the
+// desktop's Help → Report an Issue): a title, a description, a screenshot of
+// the scene and any project files, handed to GitHub's new-issue page. It
+// shares the left slot with the editor, the Hub and the Agent.
+const bugReportPanel = new BugReportPanel({
+  container,
+  slot: leftSlot,
+  listFiles: async () => (await listWorkspaceFiles()).files,
+  readFile: async (file) => {
+    const res = await fetch(rawWorkspaceFileUrl(file.absPath));
+    if (!res.ok) {
+      throw new Error(res.status === 413 ? 'it is too large' : `the engine answered ${res.status}`);
+    }
+    return res.blob();
+  },
+  currentFile: () => currentSceneAbsPath,
+  // The view on screen, at the viewport's proportions, with the grid and the axes.
+  capture: () => {
+    const width = 1600;
+    const aspect = container.clientWidth > 0 && container.clientHeight > 0
+      ? container.clientHeight / container.clientWidth
+      : 0.625;
+    return captureScreenshot(viewer.sceneContext, {
+      width,
+      height: Math.round(width * Math.min(1.25, Math.max(0.4, aspect))),
+      view: { kind: 'current' },
+      showGrid: true,
+      showAxes: true,
+    });
+  },
+  // The desktop app pictures its whole window instead, toolbars and panels included.
+  captureWindow: canCaptureDesktopWindow() ? () => captureDesktopWindow() : undefined,
+  environment: async () => BugReportEnvironment.lines({
+    version: await getEngineVersion(),
+    desktopPlatform: desktop()?.platform ?? null,
+    framed: window.parent !== window,
+    userAgent: navigator.userAgent,
+  }),
+  copyImage: (image) => BugReportClipboard.copyImage(image),
+  archive: (files) => ConfigurationExport.archive(files),
+  deliver: (blob, name, filters) => deliverFile(blob, name, filters),
+  openExternal: (url) => void ExternalLinks.open(url),
+  onOpenChange: () => panelRail.sync(),
+});
+
 // The project Parameters column: every `*.params.js` file's exports, the
 // same column in both workbenches — it is not part of the rail that
 // ensureRailFor() swaps. Declaration edits go through the part dialog in its
@@ -1348,6 +1415,8 @@ const panelRail = new PanelRail(container, {
   onToggleAgent: () => toggleAgentPanel(),
   isAgentOpen: () => agentPanel?.isOpen() === true,
   isAgentAvailable: () => agentAvailable,
+  onToggleBugReport: () => bugReportPanel.toggle(),
+  isBugReportOpen: () => bugReportPanel.isOpen(),
 });
 
 // The Agent panel (docs/agent-chat-plan.md §10): a chat with the user's own
@@ -1371,7 +1440,10 @@ function toggleAgentPanel(): void {
 }
 
 function loadAgentPanel(): Promise<ChatPanel> {
-  agentPanelLoading ??= import('./ui/chat/chat-panel').then(({ ChatPanel }) => {
+  agentPanelLoading ??= Promise.all([
+    import('./ui/chat/chat-panel'),
+    import('./ui/scratch-build/scratch-build-views'),
+  ]).then(([{ ChatPanel }, { ScratchBuildViews }]) => {
     agentPanel = new ChatPanel({
       container,
       client: chatClient,
@@ -1403,6 +1475,42 @@ function loadAgentPanel(): Promise<ChatPanel> {
       onEffortChosen: (kind, effort) => savePreference('agent', rememberEffort(kind, effort) as UserPreferences['agent']),
       confirm: ({ kind, ...options }) => confirmDialog({ ...options, icon: kind === 'delete' ? ICON_TRASH : ICON_UNDO }),
       onOpenChange: () => panelRail.sync(),
+      // The variants the agent proposes (§24) and a change waiting for approval (§25): their pictures, and the one shown over the model.
+      variants: new ScratchBuildViews(viewer),
+      // What the agent points at (§27): faces and edges of the model on
+      // screen, kept highlighted in the colours of their chips.
+      point: {
+        // Set before the render's listeners are told, unlike `currentSceneAbsPath`.
+        file: () => sceneDocument.current?.absPath ?? null,
+        draw: (highlight) => agentHighlight.draw(highlight),
+        addRenderListener: (fn) => {
+          sceneRenderedListeners.add(fn);
+          return () => {
+            sceneRenderedListeners.delete(fn);
+          };
+        },
+      },
+      // The parameter cards the agent offers (§26): a control sets a session
+      // value as a read-only host's Parameters panel does, Keep writes it as
+      // this host's panel writes a committed value.
+      params: {
+        model: () => ({
+          file: currentSceneAbsPath,
+          params: renderedParams,
+          configuration: renderedConfigurations?.active ?? 'Default',
+        }),
+        onModelChange: (listener) => {
+          modelParamsListeners.add(listener);
+          return () => {
+            modelParamsListeners.delete(listener);
+          };
+        },
+        set: (label, value, body) => engineClient.setParam(label, value, body),
+        reset: (params) => engineClient.resetParams(params),
+        ...(engineClient.writeParam
+          ? { keep: (label, value, body, configuration) => engineClient.writeParam!(label, value, body, configuration) }
+          : {}),
+      },
       // Attaching the selected geometry to a message (§11).
       scene: {
         selection: () => measureController.selection,
@@ -1416,16 +1524,34 @@ function loadAgentPanel(): Promise<ChatPanel> {
         clearSelection: () => measureController.clearSelection(),
         isRolledBack: () => sceneRolledBack,
         currentFile: () => currentSceneAbsPath,
+        // A question answered by picking (§27) says this in place of its pick
+        // button: the selector synthesis reads a part file's own geometry.
+        unpickable: () => {
+          const doc = sceneDocument.current;
+          if (!doc) {
+            return 'No model is on screen to pick from.';
+          }
+          return doc.kind === 'assembly' ? 'Faces and edges of an assembly cannot be picked yet.' : null;
+        },
         // The idle selection's amber is left out of the picture (back on
         // screen right after): when it goes with the message, `highlight`
         // draws it in its reference's colour instead.
-        capture: (highlight) => measureController.withSelectionHidden(() => captureScreenshot(viewer.sceneContext, {
+        // Nor is what the agent pointed at: its colours are the references' own.
+        capture: (highlight) => agentHighlight.hidden(() => measureController.withSelectionHidden(() => captureScreenshot(viewer.sceneContext, {
           width: 1024,
           height: 768,
           view: { kind: 'current' },
           fitTo: 'highlight',
           highlight,
-        })),
+        }))),
+        // The composer's Capture button (§28): the view on screen at the
+        // viewport's proportions, with what it shows (grid, axes, the
+        // selection, what the agent pointed at), for the user to draw on.
+        captureViewport: () => {
+          const canvas = viewer.sceneContext.renderer.domElement;
+          const { width, height, pixelRatio } = viewportCaptureSize(canvas.clientWidth, canvas.clientHeight);
+          return captureScreenshot(viewer.sceneContext, { width, height, pixelRatio, view: { kind: 'current' }, keepHelpers: true });
+        },
       },
     });
     return agentPanel;
@@ -1527,6 +1653,7 @@ installDesktopMenu({
   'toggle-editor': () => toggleEditorPane(),
   undo: () => runEditorHistory('undo'),
   redo: () => runEditorHistory('redo'),
+  'report-bug': () => bugReportPanel.show(),
   import: () => fileImporter.openPicker(),
   // An assembly exports whole, where its parts sit; a part scene offers
   // every solid of the scene exported — the server collects them from the
@@ -3435,9 +3562,12 @@ async function handleScreenshotRequest(ws: WebSocket, requestId: string, options
     const opts = { ...(options || {}) };
     const multi = !!opts.multi;
     delete opts.multi;
-    const blob = multi
-      ? await captureScreenshotMulti(viewer.sceneContext, opts)
-      : await captureScreenshot(viewer.sceneContext, opts);
+    // What the agent pointed at for the user (§27) is not part of a picture it
+    // asks for: a capture draws its own highlight. The render is synchronous;
+    // only the PNG encoding is awaited.
+    const blob = await agentHighlight.hidden(() => (multi
+      ? captureScreenshotMulti(viewer.sceneContext, opts)
+      : captureScreenshot(viewer.sceneContext, opts)));
 
     const buffer = await blob.arrayBuffer();
     const bytes = new Uint8Array(buffer);
@@ -3794,8 +3924,13 @@ function applySceneRendered(msg: any): void {
     if (msg.params !== undefined) {
       (rail.kind === 'assembly' ? assemblyParamsPanel : paramsPanel).update(msg.params, msg.properties ?? [], msg.configurations);
       renderedConfigurations = msg.configurations ?? null;
+      renderedParams = msg.params;
       exportDialog.setConfigurations(renderedConfigurations);
       selectUrlConfiguration(msg.absPath);
+    }
+    // After the file and its parameters are both this render's.
+    for (const listener of [...modelParamsListeners]) {
+      listener();
     }
     errorBanner.update(msg.result, msg.compileError ?? null);
     if (msg.compileError?.packageProblems?.length) {

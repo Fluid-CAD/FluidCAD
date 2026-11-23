@@ -5,7 +5,7 @@
 // name after a render re-mints the scene id.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssemblyMateService } from '../src/interactive/assembly-mate/mate-service';
-import { WORLD_BODY_ID } from '../src/solver';
+import { WORLD_BODY_ID } from '../../lib/assembly-solver/index.js';
 import type { Viewer } from '../src/viewer';
 import type { SerializedAssembly } from '../src/types';
 

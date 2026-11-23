@@ -56,7 +56,16 @@ function frontmatter(markdown: string): string {
 let registeredTools: Set<string>;
 
 beforeAll(async () => {
-  const server = buildServer();
+  // The skills ship to the in-app chat too, whose server offers four tools
+  // the standalone one does not (`ask_user`, `propose_variants`,
+  // `offer_params`, `show_user`): a skill names those conditionally ("when
+  // your tools include …").
+  const server = buildServer({
+    askUser: async () => ({ content: [] }),
+    proposeVariants: async () => ({ content: [] }),
+    offerParams: async () => ({ content: [] }),
+    showUser: async () => ({ content: [] }),
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'skills-test', version: '0.0.0' });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
@@ -71,6 +80,102 @@ beforeAll(async () => {
 
 describe('skills policy', () => {
   const files = listMarkdown(skillsDir);
+
+  it('names propose_variants as a tool only the in-app chat has, with when to call it, when not to, how many variants and what it costs', () => {
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
+    const start = core.indexOf('### `propose_variants`');
+    expect(start).toBeGreaterThan(0);
+    const block = core.slice(start, core.indexOf('\n## ', start));
+    expect(block).toContain('When your tools include `propose_variants` (the in-app chat; a standalone MCP client does not have it)');
+    expect(block).toContain('**The default is not to call it.**');
+    expect(block).toContain('asks to see options or alternatives');
+    expect(block).toContain('a rib versus a gusset');
+    expect(block).toContain('differ only by a number');
+    expect(block).toContain('to confirm a plan');
+    expect(block).toContain('after every change');
+    expect(block).toContain('One full build from scratch per variant');
+    expect(block).toContain('**How many.** Two. Send three or four only when the user asked for that many in their own words');
+    expect(block).toContain('"some options", "a few" or "alternatives" is two');
+    expect(block).toContain('Never add a variant because you can think of one');
+  });
+
+  it('names offer_params as a tool only the in-app chat has, with when to call it and when not to', () => {
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
+    const start = core.indexOf('### `offer_params`');
+    expect(start).toBeGreaterThan(0);
+    const block = core.slice(start, core.indexOf('\n## ', start));
+    expect(block).toContain('When your tools include `offer_params` (the in-app chat; a standalone MCP client does not have it)');
+    expect(block).toContain('**The default is not to call it.**');
+    // When: the two triggers.
+    expect(block).toContain('plausibly going to tune');
+    expect(block).toContain('asks to play with the sizes');
+    // When not.
+    expect(block).toContain('after every edit');
+    expect(block).toContain('gave exact values and asked for nothing else');
+    expect(block).toContain('no dimension worth tuning');
+    expect(block).toContain('already offered, unless they changed');
+    expect(block).toContain('in place of a question that blocks the work');
+    // What: a few, and never a parameter made for the card.
+    expect(block).toContain('Offer the few parameters that matter, not all of them');
+    expect(block).toContain('never add a `param()` only to have something to offer');
+    expect(block).toContain('It does not wait for the user');
+    expect(block).toContain('`<param_changes>`');
+    // It sits after the variants block, and the standalone server still does not offer the tool.
+    expect(start).toBeGreaterThan(core.indexOf('### `propose_variants`'));
+  });
+
+  it('names a pick question as something only the in-app chat can ask, with when to ask one and when not to', () => {
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
+    const start = core.indexOf('### A pick question');
+    expect(start).toBeGreaterThan(0);
+    const block = core.slice(start, core.indexOf('\n### ', start + 5));
+    expect(block).toContain('When your tools include `ask_user` (the in-app chat; a standalone MCP client does not have it)');
+    expect(block).toContain('**The default is not to ask one.**');
+    // When: all three.
+    expect(block).toContain('only when all three hold');
+    expect(block).toContain('The answer is a piece of the model');
+    expect(block).toContain('The request leaves it genuinely ambiguous');
+    expect(block).toContain('A wrong guess costs rework');
+    // When not.
+    expect(block).toContain('already attached the geometry to their message as a scene reference');
+    expect(block).toContain('find it with `resolve_selection`');
+    expect(block).toContain('when only one candidate exists');
+    expect(block).toContain('a sensible default');
+    // How, and what a client without it does.
+    expect(block).toContain('`pick` or `options`, never both');
+    expect(block).toContain('Without the tool, ask in words');
+    // It belongs with naming geometry, after the resolve-first procedure.
+    expect(start).toBeGreaterThan(core.indexOf('## Naming geometry'));
+    expect(start).toBeLessThan(core.indexOf('## When something is wrong'));
+  });
+
+  it('names show_user as a tool only the in-app chat has, with when to point and when not to', () => {
+    const core = fs.readFileSync(path.join(skillsDir, 'fluidcad', 'SKILL.md'), 'utf8');
+    const start = core.indexOf('### `show_user`');
+    expect(start).toBeGreaterThan(0);
+    const block = core.slice(start, core.indexOf('\n## ', start));
+    expect(block).toContain('When your tools include `show_user` (the in-app chat; a standalone MCP client does not have it)');
+    expect(block).toContain('**The default is not to call it.**');
+    expect(block).toContain('The user already sees the viewport');
+    expect(block).toContain('It does not wait for the user');
+    // When: the three triggers.
+    expect(block).toContain('only when words would not locate the geometry reliably');
+    expect(block).toContain('A problem you found on a particular face or edge');
+    expect(block).toContain('The candidates of a question');
+    expect(block).toContain('A proposal that touches particular geometry');
+    // When not.
+    expect(block).toContain('after every edit');
+    expect(block).toContain('to illustrate what you just built');
+    expect(block).toContain('for a whole body');
+    expect(block).toContain('again in the same turn');
+    // What: few items, by selector.
+    expect(block).toContain('Show the few items your text refers to');
+    expect(block).toContain('rather than a `ref`');
+    expect(block).toContain('Without the tool');
+    // After the pick question, in the same section.
+    expect(start).toBeGreaterThan(core.indexOf('### A pick question'));
+    expect(start).toBeLessThan(core.indexOf('## When something is wrong'));
+  });
 
   it('finds the skill files', () => {
     const skillFiles = files.filter((f) => path.basename(f) === 'SKILL.md');

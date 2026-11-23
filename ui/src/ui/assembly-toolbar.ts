@@ -40,7 +40,7 @@ export class AssemblyToolbar {
       this.addPlaceholder(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' });
     }
     // One button per mate type the solver implements (JOINT_SPECS in
-    // ui/src/solver/joint-model.ts). Types the solver doesn't support yet are
+    // lib/assembly-solver/joint-model.ts). Types the solver doesn't support yet are
     // commented out below — restore each entry when its phase lands.
     const mateGroup = navbar.addGroup('assembly-mate', { mode: 'assembly' });
     const mates: { type: AssemblyMateType; label: string }[] = [

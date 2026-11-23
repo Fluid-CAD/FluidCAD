@@ -22,6 +22,9 @@ import {
   setUnitRegistry,
   type AssemblyExportOutcome,
   type AssemblyExportPose,
+  type ExportOptions,
+  type ExportResult,
+  type SolidExportOptions,
   type FeatureSlotRequest,
   type FeatureSlotSynthesis,
   type ImportReport,
@@ -88,6 +91,18 @@ import type {
   ScratchRender,
 } from './render-types.ts';
 import { SessionWrites } from './session-writes.ts';
+import { CompileErrors } from './compile-errors.ts';
+import {
+  ModelBuildTimes,
+  ScratchBuildRefusal,
+  ScratchBuildReport,
+  ScratchBuildStore,
+  type ScratchBuildCost,
+  type ScratchBuildFacts,
+  type ScratchBuildMeshes,
+  type ScratchBuildOutcome,
+  type ScratchBuildRequest,
+} from './scratch-build.ts';
 import type { RenderClock } from './render-clock.ts';
 import type { SceneManager } from './scene-manager.ts';
 import type { SerializedAssembly } from './assembly-types.ts';
@@ -288,6 +303,10 @@ export class FluidCadServer {
    * {@link previewTokenOf}); weak, so a replaced scene takes its mark along.
    */
   private readonly previewScenes = new WeakMap<object, string>();
+  /** The meshes of the scratch builds most recently made ({@link scratchBuild}), by build id. */
+  readonly scratchBuilds = new ScratchBuildStore();
+  /** How long each model file last took to build here ({@link scratchBuildCost}). */
+  readonly buildTimes = new ModelBuildTimes();
 
   constructor(host: SceneHost = new LocalSceneHost()) {
     this.host = host;
@@ -811,6 +830,8 @@ export class FluidCadServer {
         });
         const packages = this.host.resolvedPackages?.() ?? [];
 
+        // A render with no earlier scene to compare against reuses nothing.
+        const fromNothing = !this.previousScenes.has(sessionId);
         if (this.previousScenes.has(sessionId)) {
           const previousScene = this.previousScenes.get(sessionId);
           const rebuild = owed ? await this.featureIdsOwed(owed, fingerprint) : new Set<string>();
@@ -841,6 +862,17 @@ export class FluidCadServer {
         const renderStart = performance.now();
         this.sceneManager.renderScene(scene);
         run.clock?.add('render', performance.now() - renderStart);
+        // What a build of this file costs, for a build nobody asked for by
+        // name (see ModelBuildTimes). A preview's code is not the file's, and
+        // a draft tier is not what a scratch build builds.
+        if (!preview && (run.detail ?? 'full') === 'full') {
+          const took = performance.now() - evaluateStart;
+          if (fromNothing) {
+            this.buildTimes.noteFull(normalizedFileName, took);
+          } else {
+            this.buildTimes.noteRender(normalizedFileName, took);
+          }
+        }
         const collectStart = performance.now();
         const result = scene.getRenderedObjects();
         const renderChanges = changes ? changes.summarize(scene) : undefined;
@@ -2436,18 +2468,16 @@ export class FluidCadServer {
    * same statement and position), since every render mints shape ids
    * afresh. Null when nothing is rendered; a refusal when the selection
    * names nothing the exported scene has.
+   *
+   * `options.format` decides what is written: the solids (`step`, `stl`), or
+   * a 2D drawing of their view on `options.plane` (`dxf`, `svg`), whose result may
+   * carry `warnings`. An engine too old to know the format is a refusal.
    */
   exportShapes(
     selection: ShapeSelection,
-    options: {
-      format: 'step' | 'stl';
-      includeColors?: boolean;
-      resolution?: string;
-      customLinearDeflection?: number;
-      customAngularDeflectionDeg?: number;
-    },
+    options: ExportOptions,
     scratch?: Extract<ScratchRender, { ok: true }>,
-  ): { data: string | Uint8Array; fileName: string } | ShapeExportRefusal | null {
+  ): ExportResult | ShapeExportRefusal | null {
     if (!this.sceneManager) {
       return null;
     }
@@ -2460,25 +2490,30 @@ export class FluidCadServer {
     if ('reason' in resolved) {
       return resolved;
     }
-    return this.sceneManager.exportShapes(target?.scene ?? scene, resolved.shapeIds, options);
+    const exported = this.sceneManager.exportShapes(target?.scene ?? scene, resolved.shapeIds, options);
+    // An engine that predates the drawing formats falls through to its last
+    // writer and answers with an STL mesh; the file's extension gives that away.
+    const drawing = options.format !== 'step' && options.format !== 'stl';
+    if (drawing && !String(exported?.fileName ?? '').toLowerCase().endsWith(`.${options.format}`)) {
+      return {
+        status: 422,
+        reason: `This workspace's FluidCAD engine cannot export ${options.format.toUpperCase()}: it predates the format. `
+          + 'Update the fluidcad package the workspace uses.',
+      };
+    }
+    return exported;
   }
 
   /**
    * Export the current assembly — every instance where it sits. `livePoses`
-   * are the browser's solved placements (the engine only knows the statement
-   * poses); absent, the statement configuration is written and the outcome
-   * says so. Null when nothing is rendered; a refusal (`reason`) when the
-   * current scene is not an assembly or the poses do not cover it.
+   * are a viewer's placements (parts dragged along free joints, a driven
+   * mate); absent, the instances go where the engine's own mate solve puts
+   * them, and the outcome says which was written. Null when nothing is
+   * rendered; a refusal (`reason`) when the current scene is not an assembly
+   * or the poses do not cover it.
    */
   exportAssembly(
-    options: {
-      format: 'step' | 'stl';
-      includeColors?: boolean;
-      resolution?: string;
-      customLinearDeflection?: number;
-      customAngularDeflectionDeg?: number;
-      scaleTo?: 'mm' | 'document';
-    },
+    options: Omit<SolidExportOptions, 'unit'>,
     livePoses?: AssemblyExportPose[],
     scratch?: Extract<ScratchRender, { ok: true }>,
   ): AssemblyExportOutcome | null {
@@ -2588,6 +2623,316 @@ export class FluidCadServer {
     });
   }
 
+  /**
+   * Build a candidate version of a model file and report what it produces,
+   * touching nothing live: no file or editor buffer is written, no session
+   * state changes (the scene the viewer shows and its compare baseline, the
+   * current file, the override map and active configuration, the dedup and
+   * render caches, the fingerprints, the timeline, the compile error),
+   * nothing is broadcast, and the loader's record of the file's imports is
+   * put back (`SceneHost.holdModuleImports`).
+   *
+   * The candidate is `request.source`, evaluated as `request.file` through
+   * the render overlay (`SceneHost.setRenderOverlay`) — or, without one, the
+   * file as a render would read it now. It builds as a render of that file
+   * would at this moment: the file's session overrides and active
+   * configuration apply (read, never settled — an override the candidate's
+   * literal makes stale is dropped for the build only), with
+   * `request.params` on top for this build.
+   *
+   * Like a render it holds the engine's lock and its event loop for as long
+   * as the build takes, and a kernel abort ends the engine process. The
+   * scratch scene is freed before the answer; its rendered rows — plain
+   * arrays — are kept in {@link scratchBuilds} under the answered `id`.
+   *
+   * Null without an engine. A file that is no model or cannot be read, or a
+   * host that cannot evaluate text it does not hold, is a
+   * {@link ScratchBuildRefusal}.
+   */
+  async scratchBuild(request: ScratchBuildRequest): Promise<ScratchBuildOutcome | null> {
+    const file = normalizePath(request.file).replace('virtual:live-render:', '');
+    const sceneKind = detectKind(file);
+    if (sceneKind === null) {
+      throw new ScratchBuildRefusal(422, `${file} is not a model: a scratch build takes a .fluid.js, .part.js or .assembly.js file.`);
+    }
+    return this.serialized(async () => {
+      if (!this.sceneManager) {
+        return null;
+      }
+      if (typeof this.host.setRenderOverlay !== 'function') {
+        throw new ScratchBuildRefusal(501, 'This host cannot build a candidate: it evaluates only the text it holds.');
+      }
+      const manager = this.sceneManager;
+      const candidate = await this.scratchSource(file, request.source);
+      const key = this.scratchKey(file, candidate.code, request.params);
+      if (request.reuse === true) {
+        const kept = this.scratchReusable(key, true);
+        if (kept) {
+          this.scratchBuilds.touch(kept.id);
+          return kept;
+        }
+      }
+      const startedAt = performance.now();
+      // Everything a render leaves behind on the engine side, captured to be
+      // put back (as `renderWithConfiguration` does).
+      const liveRegistry = getParamRegistry();
+      const liveUnits = getUnitRegistry();
+      const managerState = manager as unknown as { currentScene?: unknown; currentFile?: string; renderInputs?: unknown };
+      const liveScene = managerState.currentScene;
+      const liveFile = managerState.currentFile;
+      const liveInputs = managerState.renderInputs;
+      const restoreImports = this.host.holdModuleImports?.(file);
+      let scene: any = null;
+      try {
+        this.seatEngine();
+        scene = sceneKind === 'assembly' ? manager.startAssemblyScene() : manager.startScene();
+        manager.setCurrentFile(file);
+        this.host.setRenderOverlay({ code: new Map([[file, candidate.code]]), pins: {} });
+        this.invalidateModules();
+
+        const registry = createParamRegistry();
+        const session = this.paramSessions.get(file);
+        const extra = new Map(Object.entries(request.params ?? {}));
+        if (session) {
+          session.install(registry, extra);
+        } else if (extra.size > 0) {
+          registry.setOverrides(extra);
+        }
+        registry.setActiveConfiguration(this.activeConfigurations.get(file) ?? null);
+
+        // A breakpoint() stops the scratch build where it stops a render:
+        // what ran before it is what is built.
+        let breakpointHit = false;
+        try {
+          // The live-render id: the engine reads it as the file, and the
+          // session's next render loads it again whichever text this left.
+          await this.host.loadModule(`virtual:live-render:${file}`, FluidCadServer.entryExports(scene, file));
+          if (sceneKind !== 'assembly') {
+            (scene as { materializeLeftoverDefinitions?: () => void }).materializeLeftoverDefinitions?.();
+          }
+        } catch (e) {
+          if (!(e instanceof BreakpointHit)) {
+            throw e;
+          }
+          breakpointHit = true;
+        }
+        const dangling: string[] | undefined = breakpointHit
+          ? undefined
+          : (scene as { getDanglingDefinitionNames?: () => string[] }).getDanglingDefinitionNames?.();
+        if (dangling && dangling.length > 0) {
+          throw new Error(`assembly('${dangling[0]}') is defined but never rendered — export it, or insert() it from another assembly.`);
+        }
+
+        manager.renderScene(scene);
+        const objects = scene.getRenderedObjects() as any[];
+        for (const row of objects) {
+          if (row.sourceLocation) {
+            row.sourceLocation.filePath = row.sourceLocation.filePath.replace('virtual:live-render:', '');
+          }
+        }
+        this.stampPackageRows(objects);
+        const assembly = manager.getAssemblyData(scene);
+
+        const validated = manager.validate?.(scene, {});
+        const report = validated?.kind === 'report' ? validated.report : null;
+        const declared = registry.getDefinitions().filter(def => def.kind !== 'global');
+        const unusedParams = [...extra.keys()].filter((name) => {
+          const key = ParamKey.parse(name);
+          return !declared.some(def => def.label === key.label && (key.labelOnly || def.body === key.body));
+        });
+        const objectErrors = FluidCadServer.collectObjectErrors(objects);
+        const id = ScratchBuildStore.newId();
+        const unit = FluidCadServer.sceneUnitOf(scene);
+        const facts: ScratchBuildFacts = {
+          id,
+          file,
+          sceneKind,
+          unit,
+          durationMs: Math.round(performance.now() - startedAt),
+          builtFrom: candidate.from,
+          configuration: registry.getConfigurations().active,
+          sessionOverrides: session?.size ?? 0,
+          unusedParams,
+          ...ScratchBuildReport.solids(objects, report, assembly !== null),
+          bounds: manager.getRenderedBounds?.(scene) ?? null,
+          validation: ScratchBuildReport.validation(report),
+          geometry: ScratchBuildReport.geometryOf(objects, assembly ? { instances: assembly.instances, mates: assembly.mates, connectors: assembly.connectors ?? [] } : null),
+          ...(assembly ? { instanceCount: assembly.instances.length } : {}),
+          ...(breakpointHit ? { breakpointHit: true as const } : {}),
+        };
+        const meshes: ScratchBuildMeshes = {
+          id,
+          file,
+          sceneKind,
+          unit,
+          objects,
+          ...(assembly ? { assembly: { instances: assembly.instances, mates: assembly.mates, connectors: assembly.connectors ?? [] } } : {}),
+        };
+        const outcome = objectErrors.length > 0
+          ? { state: 'build-error' as const, objectErrors, ...facts }
+          : { state: 'rendered' as const, ...facts };
+        // Every other file the build read, by content, while the loader
+        // still lists the candidate's imports (the `finally` puts the
+        // file's own back): what a later request for the same inputs is
+        // checked against before this build answers it.
+        let fingerprint: RenderFingerprint | null = null;
+        try {
+          fingerprint = this.scratchFingerprint(file);
+        } catch {
+          // Its inputs could not be listed: the build answers, and is not reused.
+        }
+        this.scratchBuilds.put(meshes, fingerprint ? { key, outcome, fingerprint } : undefined);
+        this.buildTimes.noteFull(file, facts.durationMs);
+        return outcome;
+      } catch (error) {
+        // The candidate did not evaluate. Read before the modules are
+        // invalidated: that starts the resolver over.
+        const problems = FluidCadServer.problemsOf(this.host.packageProblems?.() ?? []);
+        return {
+          state: 'compile-error' as const,
+          file,
+          durationMs: Math.round(performance.now() - startedAt),
+          compileError: CompileErrors.describe(file, error, problems),
+        };
+      } finally {
+        this.host.setRenderOverlay(null);
+        if (scene) {
+          try {
+            manager.disposeScene?.(scene);
+          } catch {
+            // Disposal is best-effort; a failure must not mask the outcome.
+          }
+        }
+        // The module cache now holds the scratch evaluation; drop it so the
+        // next render (which always reloads) cannot see it, and put the
+        // live file's state back for what the server answers with.
+        this.invalidateModules();
+        restoreImports?.();
+        setParamRegistry(liveRegistry);
+        setUnitRegistry(liveUnits);
+        if (liveFile !== undefined) {
+          manager.setCurrentFile(liveFile);
+        }
+        if (liveScene !== undefined) {
+          managerState.currentScene = liveScene;
+        }
+        if (liveInputs !== undefined) {
+          managerState.renderInputs = liveInputs;
+        }
+      }
+    });
+  }
+
+  /**
+   * What a scratch build of `request` would cost, without building it and
+   * without waiting for the engine: nothing when a build of the same inputs
+   * is kept (`reusable`, its outcome — what `reuse: true` would answer), else
+   * about `lastBuildMs`, how long the file's last build took here. Null
+   * without an engine; the refusals of {@link scratchBuild}.
+   */
+  async scratchBuildCost(request: ScratchBuildRequest): Promise<ScratchBuildCost | null> {
+    const file = normalizePath(request.file).replace('virtual:live-render:', '');
+    if (detectKind(file) === null) {
+      throw new ScratchBuildRefusal(422, `${file} is not a model: a scratch build takes a .fluid.js, .part.js or .assembly.js file.`);
+    }
+    if (!this.sceneManager) {
+      return null;
+    }
+    if (typeof this.host.setRenderOverlay !== 'function') {
+      throw new ScratchBuildRefusal(501, 'This host cannot build a candidate: it evaluates only the text it holds.');
+    }
+    const candidate = await this.scratchSource(file, request.source);
+    return {
+      reusable: this.scratchReusable(this.scratchKey(file, candidate.code, request.params), false),
+      lastBuildMs: this.buildTimes.of(file),
+    };
+  }
+
+  /**
+   * The inputs a scratch build request names, as one key: the file, the
+   * text evaluated as it, the session's overrides under its configuration
+   * (as a render's dedup keys them) and the request's own params. The files
+   * the build reads beside its own are not in it: they are the kept build's
+   * fingerprint, checked when it is asked for.
+   */
+  private scratchKey(file: string, code: string, params: Record<string, unknown> | undefined): string {
+    const own = Object.entries(params ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return createHash('sha1')
+      .update(file)
+      .update('\0')
+      .update(code)
+      .update('\0')
+      .update(this.overridesKey(file))
+      .update('\0')
+      .update(JSON.stringify(own))
+      .digest('hex');
+  }
+
+  /**
+   * The kept build of the inputs `key` names, when every other file it read
+   * is still what it read; marked `reused`. `refreshSeeds`: bring the
+   * disk-seeded buffers among those files up to date first, as a render's
+   * cache check does — only under the engine's lock, since it writes them.
+   */
+  private scratchReusable(key: string, refreshSeeds: boolean): (Exclude<ScratchBuildOutcome, { state: 'compile-error' }> & { reused: true }) | null {
+    const kept = this.scratchBuilds.find(key);
+    if (!kept) {
+      return null;
+    }
+    if (refreshSeeds) {
+      for (const input of kept.fingerprint.files.keys()) {
+        this.refreshDiskSeed(input);
+      }
+    }
+    return this.renderInputs.isCurrent(kept.fingerprint, kept.fingerprint.params) ? { ...kept.outcome, reused: true } : null;
+  }
+
+  /**
+   * The fingerprint of the scratch build that just ran, without its own
+   * file (the key holds the text evaluated as it): the modules it imported,
+   * the project config and the files the engine read. Null when the host
+   * cannot list them — such a build is never reused.
+   */
+  private scratchFingerprint(file: string): RenderFingerprint | null {
+    const extraFiles: string[] = [];
+    if (this.workspacePath) {
+      extraFiles.push(join(this.workspacePath, PROJECT_CONFIG_FILENAME));
+    }
+    extraFiles.push(...this.engineRenderInputs());
+    const captured = this.renderInputs.capture({ entryFile: file, extraFiles, params: '' });
+    if (!captured) {
+      return null;
+    }
+    const files = new Map(captured.files);
+    files.delete(normalizePath(file));
+    return { files, params: '' };
+  }
+
+  /**
+   * The text a scratch build evaluates as `file`: the candidate it was
+   * handed, else what a render would read — the editor's buffer, unless it
+   * is only this server's own copy of the disk (a seed, which may be behind
+   * its file), else the bytes on disk.
+   */
+  private async scratchSource(file: string, source: string | undefined): Promise<{ code: string; from: ScratchBuildFacts['builtFrom'] }> {
+    if (source !== undefined) {
+      return { code: source, from: 'source' };
+    }
+    const buffer = this.host.getBuffer(file);
+    const seed = this.diskSeeds.get(file);
+    if (buffer !== null && !(seed && seed.bufferHash === RenderInputs.hashOf(buffer))) {
+      return { code: buffer, from: 'buffer' };
+    }
+    try {
+      return { code: await readFile(file, 'utf8'), from: 'disk' };
+    } catch {
+      if (buffer !== null) {
+        return { code: buffer, from: 'buffer' };
+      }
+      throw new ScratchBuildRefusal(404, `${file} cannot be read, and no candidate source was given.`);
+    }
+  }
+
   private static unknownConfiguration(name: string, names: string[]): string {
     return names.length > 0
       ? `Unknown configuration '${name}'. Declared: ${names.map(n => `'${n}'`).join(', ')} (and Default).`
@@ -2659,6 +3004,36 @@ export class FluidCadServer {
     sessionId = normalizePath(sessionId);
     this.paramSessions.get(sessionId)?.clear();
     this.lastRendered.delete(sessionId);
+  }
+
+  /**
+   * Drop the session overrides of `params` only, each named as
+   * {@link setParam} names a parameter, so those read their configuration
+   * cell or literal again and every other override stays. All or none: a
+   * label two parts declare, named without its part, is refused with the
+   * refusal's text and nothing is dropped (null when done). A parameter
+   * with no override is left as it is.
+   */
+  unsetParams(sessionId: string, params: { label: string; body?: string }[]): string | null {
+    sessionId = normalizePath(sessionId);
+    const session = this.paramSessions.get(sessionId);
+    if (!session) {
+      return null;
+    }
+    const keys: ParamKey[] = [];
+    for (const { label, body } of params) {
+      const resolved = session.keyFor(label, body);
+      if ('error' in resolved) {
+        return resolved.error;
+      }
+      keys.push(resolved.key);
+    }
+    for (const key of keys) {
+      // The baseline goes with it; the render that follows records it again.
+      session.forget(key);
+    }
+    this.lastRendered.delete(sessionId);
+    return null;
   }
 
   /**
@@ -3076,7 +3451,14 @@ export class FluidCadServer {
       rollbackStop: this.lastRollbackStop,
       ...(this.lastRollbackScopePartId ? { rollbackScopePartId: this.lastRollbackScopePartId } : {}),
       compileError: this.compileError,
-      ...(assembly ? AssemblySummary.fields(assembly, this.sceneManager?.getInstanceShapeIds?.(scene) ?? null, rendered) : {}),
+      ...(assembly
+        ? AssemblySummary.fields(
+          assembly,
+          this.sceneManager?.getInstanceShapeIds?.(scene) ?? null,
+          rendered,
+          this.sceneManager?.getAssemblySolution?.(scene) ?? null,
+        )
+        : {}),
     };
   }
 

@@ -84,8 +84,21 @@ export type ChatSceneHost = {
    * its reference's colour; when it does not, it is not part of the message.
    */
   capture(highlight: CaptureHighlight[]): Promise<Blob>;
+  /**
+   * One PNG of the viewport as it is on screen now: the same view and
+   * proportions, the grid, the axes and the selection as shown, nothing
+   * framed or hidden (§28). The composer's Capture button opens it to draw
+   * on. Absent: no Capture button.
+   */
+  captureViewport?(): Promise<Blob>;
   /** Defaults to {@link httpSelectionResolver}. */
   resolve?: SelectionResolver;
+  /**
+   * Why no face or edge of the model on screen can be attached (an assembly,
+   * no model): what a question answered by picking says in place of its
+   * pick control (§27). Null, or absent, when the model can be picked from.
+   */
+  unpickable?(): string | null;
 };
 
 /** `POST api/resolve-selection` with `{ picks }` (a relative URL: the page is served at `/` and `/p/<id>/`). */
@@ -206,6 +219,28 @@ type LiveReference =
   | { kind: 'refused'; picks: ReferencePick[]; label: string; reason: string; oneAtATime: boolean; busy: boolean }
   | { kind: 'hint'; label: string; hint: string };
 
+/** How a {@link SceneReferences} differs from the composer's: the picks of one question of the agent (§27). */
+export type SceneReferencesOptions = {
+  /**
+   * Why this selection cannot be taken (a question that takes one face was
+   * given two, or an edge); null when it can. Shown on the live chip, which
+   * is then not attached.
+   */
+  accept?(picks: readonly ReferencePick[]): string | null;
+  /**
+   * One reference at most: there is no pin, and a selection that
+   * synthesizes replaces the reference kept before it (and takes its number).
+   */
+  single?: boolean;
+  /**
+   * Numbers (and so colours) taken elsewhere: by the other questions of the
+   * same card, so no two chips of a card share one.
+   */
+  reserved?(): readonly number[];
+  /** Told after every change of what shows. */
+  onChange?(): void;
+};
+
 export const MODEL_CHANGED_NOTICE = 'The model changed — select again.';
 export const ROLLED_BACK_HINT = 'Roll the timeline forward to the last feature to attach geometry.';
 export const FULL_HINT = `At most ${MAX_REFERENCES} references per message.`;
@@ -225,6 +260,10 @@ export const RESOLVE_DEBOUNCE_MS = 150;
  * frees them without renumbering the others. Clicking a chip's label puts its
  * `[n]` in the message; nothing is typed for the user otherwise. A render
  * drops the kept references with "The model changed — select again.".
+ *
+ * A question the agent asks to be answered by picking (§27) holds one of
+ * these too, with {@link SceneReferencesOptions}: the same selection, the
+ * same synthesis and the same chips, on the question's card.
  */
 export class SceneReferences {
   readonly el: HTMLDivElement;
@@ -248,6 +287,7 @@ export class SceneReferences {
   constructor(
     private readonly host: ChatSceneHost,
     private readonly tokens: ReferenceTokenTarget,
+    private readonly options: SceneReferencesOptions = {},
   ) {
     this.resolve = host.resolve ?? httpSelectionResolver;
     this.el = document.createElement('div');
@@ -467,7 +507,9 @@ export class SceneReferences {
         this.live = { kind: 'refused', picks, label, reason: INSTANCE_REASON, oneAtATime: false, busy: false };
       } else if (this.host.isRolledBack()) {
         this.live = { kind: 'hint', label, hint: ROLLED_BACK_HINT };
-      } else if (this.kept.length >= MAX_REFERENCES) {
+      } else if (this.options.accept?.(picks)) {
+        this.live = { kind: 'hint', label, hint: this.options.accept(picks)! };
+      } else if (this.nextNumber() > MAX_REFERENCES) {
         this.live = { kind: 'hint', label, hint: FULL_HINT };
       } else {
         this.live = { kind: 'pending', n: this.nextNumber(), picks, label };
@@ -493,7 +535,11 @@ export class SceneReferences {
       const built = this.build(outcome, live.n);
       this.live = built.ok === true
         ? { kind: 'ready', reference: built.reference, picks: live.picks }
-        : { kind: 'refused', picks: live.picks, label: live.label, reason: built.reason, oneAtATime: live.picks.length > 1, busy: false };
+        : { kind: 'refused', picks: live.picks, label: live.label, reason: built.reason, oneAtATime: live.picks.length > 1 && !this.options.single, busy: false };
+      if (built.ok === true && this.options.single) {
+        // The one reference there is: this selection takes the place of the one kept.
+        this.kept.length = 0;
+      }
       this.paint();
     })());
   }
@@ -534,7 +580,8 @@ export class SceneReferences {
 
   /** The lowest number (and colour) no kept reference holds. */
   private nextNumber(): number {
-    const used = new Set(this.kept.map((p) => p.reference.n));
+    // The one reference of a `single` takes the place of the one kept, number included.
+    const used = new Set([...(this.options.single ? [] : this.kept.map((p) => p.reference.n)), ...(this.options.reserved?.() ?? [])]);
     let n = 1;
     while (used.has(n)) {
       n++;
@@ -564,6 +611,7 @@ export class SceneReferences {
     this.noticeEl.textContent = this.notice ?? '';
     this.noticeEl.classList.toggle('hidden', this.notice === null);
     this.el.classList.toggle('hidden', chips.length === 0 && this.notice === null);
+    this.options.onChange?.();
   }
 
   private keptChip(reference: SceneReference): HTMLElement {
@@ -600,7 +648,7 @@ export class SceneReferences {
         if (live.kind === 'pending') {
           chip.setAttribute('aria-busy', 'true');
         }
-        chip.append(this.tokenLabel(n, text, live.kind === 'ready' ? live.reference.selector.source : null), keep, dismiss);
+        chip.append(this.tokenLabel(n, text, live.kind === 'ready' ? live.reference.selector.source : null), ...(this.options.single ? [] : [keep]), dismiss);
         break;
       }
       case 'refused': {

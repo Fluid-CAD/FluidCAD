@@ -368,6 +368,75 @@ export class BSplineCurve2D {
     return segments;
   }
 
+  /** Whether both ends of the knot vector have full multiplicity, so the curve starts on its first pole and ends on its last. */
+  static isClamped(curve: BSpline): boolean {
+    const { degree, knots } = curve;
+    const last = knots.length - 1;
+    return knots[0] === knots[degree] && knots[last] === knots[last - degree];
+  }
+
+  /**
+   * The same curve with a clamped knot vector; the curve itself when it
+   * already has one. A periodic spline as a DXF writes it has a uniform knot
+   * vector whose curve covers only `[knots[degree], knots[poles.length]]`
+   * and touches neither end pole; the drawing model wants the form that
+   * starts and ends on its poles.
+   *
+   * The result is the curve's own pieces, one per knot span, each as the
+   * Bézier form the blossom gives — exact, weights included — joined with a
+   * knot of multiplicity `degree` at every break.
+   */
+  static clamped(curve: BSpline): BSpline {
+    if (BSplineCurve2D.isClamped(curve)) {
+      return curve;
+    }
+    const { degree, knots, poles, weights } = curve;
+    const outKnots: number[] = [];
+    const outPoles: Vec2[] = [];
+    const outWeights: number[] = [];
+    let end = NaN;
+    for (let span = degree; span < poles.length; span++) {
+      const a = knots[span];
+      const b = knots[span + 1];
+      if (!(b > a)) {
+        continue;
+      }
+      const control: number[][] = [];
+      for (let j = 0; j <= degree; j++) {
+        const index = span - degree + j;
+        const w = weights ? weights[index] : 1;
+        control.push([poles[index].x * w, poles[index].y * w, w]);
+      }
+      const first = outPoles.length === 0;
+      for (let k = 0; k < (first ? degree + 1 : degree); k++) {
+        outKnots.push(a);
+      }
+      for (let i = first ? 0 : 1; i <= degree; i++) {
+        const args: number[] = [];
+        for (let r = 0; r < degree; r++) {
+          args.push(r < degree - i ? a : b);
+        }
+        const point = BSplineCurve2D.blossom(knots, degree, span, control, args);
+        outPoles.push({ x: point[0] / point[2], y: point[1] / point[2] });
+        outWeights.push(point[2]);
+      }
+      end = b;
+    }
+    if (outPoles.length === 0) {
+      return curve;
+    }
+    for (let k = 0; k <= degree; k++) {
+      outKnots.push(end);
+    }
+    return {
+      kind: 'bspline',
+      degree,
+      knots: outKnots,
+      poles: outPoles,
+      ...(weights ? { weights: outWeights } : {}),
+    };
+  }
+
   /**
    * The blossom (polar form) of the piece on `span` at `args` — de Boor's
    * recursion with its own argument at each of the `degree` levels. With

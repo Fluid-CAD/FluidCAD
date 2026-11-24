@@ -122,7 +122,7 @@ describe('DrawingImportEmission', () => {
   };
 
   it('writes the plan as one emission: a statement each, a coincident per join, a bezier by its end points', () => {
-    const request = DrawingImportEmission.request(PLAN, { joins: true });
+    const request = DrawingImportEmission.request(PLAN, { joins: true, fix: false, decimals: 6 });
     expect(request.geometry.map((g) => g.kind)).toEqual(['line', 'arc', 'bezier']);
     expect(request.constraints).toEqual([
       { kind: 'coincident', targets: [{ newIndex: 0, role: 'start' }, { newIndex: 2, featureType: 'bezier', pointIndex: 3 }] },
@@ -134,8 +134,63 @@ describe('DrawingImportEmission', () => {
   });
 
   it('writes the geometry alone with joins off', () => {
-    const request = DrawingImportEmission.request(PLAN, { joins: false });
+    const request = DrawingImportEmission.request(PLAN, { joins: false, fix: false, decimals: 6 });
     expect(request.geometry).toHaveLength(3);
     expect(request.constraints).toEqual([]);
+  });
+
+  it('fixes the plan in place: one fix per meeting point, a bezier\'s inner points, the arc\'s radius', () => {
+    const request = DrawingImportEmission.request(PLAN, { joins: true, fix: true, decimals: 6 });
+    expect(request.constraints.slice(0, 3).every((c) => c.kind === 'coincident')).toBe(true);
+    expect(request.constraints.slice(3)).toEqual([
+      // The line's two ends lead their meeting points; every other end is carried by a join.
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+      // The arc's end leads the point it shares with the bezier. It is a half turn: its centre is held level with its start, not by a radius.
+      { kind: 'fix', targets: [{ newIndex: 1, role: 'end' }] },
+      { kind: 'vertical', targets: [{ newIndex: 1, role: 'start' }, { newIndex: 1, role: 'center' }] },
+      { kind: 'fix', targets: [{ newIndex: 2, featureType: 'bezier', pointIndex: 1 }] },
+      { kind: 'fix', targets: [{ newIndex: 2, featureType: 'bezier', pointIndex: 2 }] },
+    ]);
+  });
+
+  it('holds a half turn askew by the distance of its centre from its start along one axis', () => {
+    const plan: SketchImportPlan = {
+      // A half turn of radius 5 about (3, 4), its chord running from (0, 0) up to (6, 8).
+      primitives: [{ kind: 'arc', start: { x: 0, y: 0 }, end: { x: 6, y: 8 }, center: { x: 3, y: 4 } }],
+      joins: [],
+      duplicates: 0,
+      approximated: 0,
+    };
+    expect(DrawingImportEmission.request(plan, { joins: true, fix: true, decimals: 6 }).constraints).toEqual([
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+      // The chord climbs more than it runs, so its normal is nearer the x axis.
+      { kind: 'distance', targets: [{ newIndex: 0, role: 'start' }, { newIndex: 0, role: 'center' }], valueExpr: '3', axis: 'x' },
+    ]);
+  });
+
+  it('fixes every end on its own with joins off, and sizes circles, arcs and ellipses', () => {
+    const plan: SketchImportPlan = {
+      primitives: [
+        { kind: 'arc', start: { x: 10, y: 0 }, end: { x: 0, y: 10 }, center: { x: 0, y: 0 } },
+        { kind: 'circle', center: { x: 20, y: 15 }, diameter: 8 },
+        { kind: 'ellipse', center: { x: 5, y: -5 }, rx: 10, ry: 4, rotation: 0 },
+      ],
+      joins: [],
+      duplicates: 0,
+      approximated: 0,
+    };
+    expect(DrawingImportEmission.request(plan, { joins: false, fix: true, decimals: 6 }).constraints).toEqual([
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+      { kind: 'radius', targets: [{ newIndex: 0 }], valueExpr: '10' },
+      { kind: 'fix', targets: [{ newIndex: 1, role: 'center' }] },
+      { kind: 'diameter', targets: [{ newIndex: 1 }], valueExpr: '8' },
+      { kind: 'fix', targets: [{ newIndex: 2, role: 'center' }] },
+      { kind: 'radius', targets: [{ newIndex: 2 }], valueExpr: '10', axis: 'x' },
+      { kind: 'radius', targets: [{ newIndex: 2 }], valueExpr: '4', axis: 'y' },
+      { kind: 'horizontal', targets: [{ newIndex: 2 }] },
+    ]);
   });
 });

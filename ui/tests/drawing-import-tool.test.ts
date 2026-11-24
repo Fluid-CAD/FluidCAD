@@ -133,7 +133,7 @@ describe('DrawingImportTool: reading a file', () => {
     await choose(PLATE);
     expect(role('file-label').textContent).toBe('plate.dxf');
     expect(role('options').classList.contains('hidden')).toBe(false);
-    expect(role('readout').textContent).toBe('40.00 × 20.00 mm, centre at 120.00, 60.00');
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 120.00, 60.00');
     expect(role('summary').textContent).toBe('5 sketch entities, 4 joins');
     expect(role('layers').classList.contains('hidden')).toBe(false);
     expect(layerBox('OUTLINE').checked).toBe(true);
@@ -147,7 +147,7 @@ describe('DrawingImportTool: reading a file', () => {
   it('puts a drawing made far from its file\'s origin in the middle of the view', async () => {
     const { role, choose, ctx } = makeTool();
     await choose(dxf([...line('0', [5000, 5000], [5040, 5000]), ...line('0', [5040, 5000], [5040, 5020])]));
-    expect(role('readout').textContent).toBe('40.00 × 20.00 mm, centre at 0.00, 0.00');
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 0.00, 0.00');
     expect(ctx.fitToBox).not.toHaveBeenCalled();
   });
 
@@ -155,7 +155,7 @@ describe('DrawingImportTool: reading a file', () => {
     const { role, choose, ctx } = makeTool();
     // 400 away from the origin and 2000 across: the view (±500) shows only its near end.
     await choose(dxf([...line('0', [400, 600], [2400, 600]), ...line('0', [2400, 600], [2400, 700])]));
-    expect(role('readout').textContent).toBe('2000.00 × 100.00 mm, centre at 1400.00, 650.00');
+    expect(role('readout').textContent).toBe('2000.00 × 100.00 mm at 1400.00, 650.00');
     expect(ctx.fitToBox).toHaveBeenCalledTimes(1);
   });
 
@@ -167,7 +167,7 @@ describe('DrawingImportTool: reading a file', () => {
 
     const large = makeTool();
     await large.choose(dxf([...line('0', [0, 0], [3000, 0]), ...line('0', [3000, 0], [3000, 900])]));
-    expect(large.role('readout').textContent).toBe('3000.00 × 900.00 mm, centre at 1500.00, 450.00');
+    expect(large.role('readout').textContent).toBe('3000.00 × 900.00 mm at 1500.00, 450.00');
     expect(large.ctx.fitToBox).toHaveBeenCalledTimes(1);
     const box = large.ctx.fitToBox.mock.calls[0][0];
     expect([box.min.x, box.min.y, box.max.x, box.max.y]).toEqual([0, 0, 3000, 900]);
@@ -263,6 +263,31 @@ describe('DrawingImportTool: Import', () => {
     expect(emit.mock.calls[0][0].constraints).toEqual([]);
   });
 
+  it('fixes the drawing in place when asked: off to start with, counted in the summary, written after the joins', async () => {
+    const { choose, role, apply, emit } = makeTool();
+    await choose(PLATE);
+    const toggle = role<HTMLInputElement>('fix');
+    expect(toggle.checked).toBe(false);
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    // Four corners fixed once each, the circle's centre and its diameter.
+    expect(role('summary').textContent).toBe('5 sketch entities, 4 joins, fixed by 6 constraints');
+    await apply();
+    const kinds = emit.mock.calls[0][0].constraints.map((c) => c.kind);
+    expect(kinds).toEqual(['coincident', 'coincident', 'coincident', 'coincident', 'fix', 'fix', 'fix', 'fix', 'fix', 'diameter']);
+  });
+
+  it('fixes every end when the joins are off', async () => {
+    const { choose, role, apply, emit } = makeTool({ autoConstraints: false });
+    await choose(PLATE);
+    const toggle = role<HTMLInputElement>('fix');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    expect(role('summary').textContent).toBe('5 sketch entities, fixed by 10 constraints');
+    await apply();
+    expect(emit.mock.calls[0][0].constraints.filter((c) => c.kind === 'fix')).toHaveLength(9);
+  });
+
   it('stays open with the reason when the sketch refuses the edit', async () => {
     const { choose, apply, message, onRequestExit, role } = makeTool({ emitResult: { success: false, reason: 'no sketch statement at line 7' } });
     await choose(PLATE);
@@ -279,7 +304,7 @@ describe('DrawingImportTool: Import', () => {
     outline.checked = false;
     outline.dispatchEvent(new Event('change'));
     expect(role('summary').textContent).toBe('1 sketch entity');
-    expect(role('readout').textContent).toBe('8.00 × 8.00 mm, centre at 120.00, 60.00');
+    expect(role('readout').textContent).toBe('8.00 × 8.00 mm at 120.00, 60.00');
     await apply();
     expect(texts()).toEqual(['circle([120, 60], 8)']);
   });
@@ -316,7 +341,7 @@ describe('DrawingImportTool: units and scale', () => {
     await choose(dxf([...line('0', [1, 0], [2, 0]), ...line('0', [2, 0], [2, 1])], [9, '$INSUNITS', 70, 1]));
     expect(role<HTMLSelectElement>('unit').selectedOptions[0].textContent).toBe('Same as file (in)');
     // Out of nothing: 1 in is 25.4 mm, and the drawing stays where the file has it.
-    expect(role('readout').textContent).toBe('25.40 × 25.40 mm, centre at 38.10, 12.70');
+    expect(role('readout').textContent).toBe('25.40 × 25.40 mm at 38.10, 12.70');
     await apply();
     expect(texts()).toEqual(['line([25.4, 0], [50.8, 0])', 'line([50.8, 0], [50.8, 25.4])']);
   });
@@ -327,10 +352,10 @@ describe('DrawingImportTool: units and scale', () => {
     await choose(dxf([...line('0', [0, 0], [25.4, 0])]));
     const select = role<HTMLSelectElement>('unit');
     expect(select.selectedOptions[0].textContent).toBe('Document unit (in)');
-    expect(role('readout').textContent).toBe('25.400 × 0.000 in, centre at 12.700, 0.000');
+    expect(role('readout').textContent).toBe('25.400 × 0.000 in at 12.700, 0.000');
     select.value = 'mm';
     select.dispatchEvent(new Event('change'));
-    expect(role('readout').textContent).toBe('1.000 × 0.000 in, centre at 0.500, 0.000');
+    expect(role('readout').textContent).toBe('1.000 × 0.000 in at 0.500, 0.000');
     await apply();
     expect(texts()).toEqual(['line([0, 0], [1, 0])']);
   });
@@ -341,7 +366,7 @@ describe('DrawingImportTool: units and scale', () => {
     const scale = role<HTMLInputElement>('scale');
     scale.value = '0.5';
     scale.dispatchEvent(new Event('change'));
-    expect(role('readout').textContent).toBe('20.00 × 10.00 mm, centre at 60.00, 30.00');
+    expect(role('readout').textContent).toBe('20.00 × 10.00 mm at 60.00, 30.00');
     await apply();
     expect(texts()[0]).toBe('line([50, 25], [70, 25])');
     expect(texts()[4]).toBe('circle([60, 30], 4)');
@@ -357,7 +382,7 @@ describe('DrawingImportTool: placing by hand', () => {
     moveTo([20, 10]);
     release([20, 10]);
     expect(cameraControls.enabled).toBe(true);
-    expect(role('readout').textContent).toBe('40.00 × 20.00 mm, centre at 20.00, 10.00');
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 20.00, 10.00');
     await apply();
     expect(texts()[0]).toBe('line([0, 0], [40, 0])');
     expect(texts()[4]).toBe('circle([20, 10], 8)');
@@ -371,7 +396,7 @@ describe('DrawingImportTool: placing by hand', () => {
     press([120, 60]);
     moveTo([121, 60]);
     release([121, 60]);
-    expect(role('readout').textContent).toBe('40.00 × 20.00 mm, centre at 120.00, 60.00');
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 120.00, 60.00');
   });
 
   it('scales from a corner in proportion, and shows the factor in the dialog', async () => {
@@ -380,7 +405,7 @@ describe('DrawingImportTool: placing by hand', () => {
     // The top-right corner (140, 70) out to twice as far from the bottom-left one (100, 50).
     drag([140, 70], [180, 90]);
     expect(role<HTMLInputElement>('scale').value).toBe('2');
-    expect(role('readout').textContent).toBe('80.00 × 40.00 mm, centre at 140.00, 70.00');
+    expect(role('readout').textContent).toBe('80.00 × 40.00 mm at 140.00, 70.00');
     await apply();
     expect(texts()[0]).toBe('line([100, 50], [180, 50])');
     expect(texts()[4]).toBe('circle([140, 70], 16)');
@@ -393,7 +418,7 @@ describe('DrawingImportTool: placing by hand', () => {
     press([120, 98]);
     moveTo([60, 62], { shiftKey: true });
     release([60, 62]);
-    expect(role('readout').textContent).toBe('40.00 × 20.00 mm, centre at 120.00, 60.00 · 90°');
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 120.00, 60.00 · 90°');
     await apply();
     // A quarter turn about the centre (120, 60): the bottom edge now runs up the right side.
     expect(texts()[0]).toBe('line([130, 40], [130, 80])');
@@ -406,9 +431,9 @@ describe('DrawingImportTool: placing by hand', () => {
     await choose(PLATE);
     drag([120, 60], [300, -200]);
     role<HTMLButtonElement>('center').click();
-    expect(role('readout').textContent).toBe('40.00 × 20.00 mm, centre at 0.00, 0.00');
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 0.00, 0.00');
     role<HTMLButtonElement>('as-drawn').click();
-    expect(role('readout').textContent).toBe('40.00 × 20.00 mm, centre at 120.00, 60.00');
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 120.00, 60.00');
   });
 
   it('folds a drag on Escape, and clears the scene when it leaves', async () => {

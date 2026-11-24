@@ -87,10 +87,11 @@ export type DrawingImportToolDeps = {
  * it is drawn far from it, the camera zooming out to it if it has to. It is placed by
  * hand like a reference picture: drag it to move it, a corner to scale it,
  * the knob above it to rotate (Shift snaps to 15°). The dialog holds the
- * file, the unit its numbers are in, a scale, the layers and whether ends
- * that meet are joined. Import writes one statement per curve — `line`,
- * `arc`, `circle`, `ellipse`, `bezier` — and a `coincident` per join, in one
- * edit; the file itself is not kept or linked.
+ * file, the unit its numbers are in, a scale, the layers, whether ends that
+ * meet are joined and whether the geometry is fixed in place. Import writes
+ * one statement per curve — `line`, `arc`, `circle`, `ellipse`, `bezier` —
+ * a `coincident` per join and, when asked, the constraints that pin it all,
+ * in one edit; the file itself is not kept or linked.
  */
 export class DrawingImportTool extends SketchTool {
   readonly id: ToolId;
@@ -146,6 +147,7 @@ export class DrawingImportTool extends SketchTool {
     this.panel.onScale = (scale) => this.setUserScale(scale);
     this.panel.onLayers = (layers) => this.setLayers(layers);
     this.panel.onJoins = () => this.refreshSummary();
+    this.panel.onFix = () => this.refreshSummary();
     this.panel.onAsDrawn = () => this.placeAsDrawn();
     this.panel.onCenter = () => this.placeInView();
     this.panel.onApply = () => void this.apply();
@@ -578,8 +580,13 @@ export class DrawingImportTool extends SketchTool {
     return SketchImport.plan(placed, {
       tolerance,
       joinTolerance: DrawingImportTool.fromMm(JOIN_TOLERANCE_MM),
-      decimals: UNIT_DISPLAY_DECIMALS[sceneUnit.current] + EXTRA_DECIMALS,
+      decimals: DrawingImportTool.decimals(),
     });
+  }
+
+  /** The decimals an imported coordinate is written with, in the document's unit. */
+  private static decimals(): number {
+    return UNIT_DISPLAY_DECIMALS[sceneUnit.current] + EXTRA_DECIMALS;
   }
 
   /** What Import would write, as the dialog's summary. Not run while dragging: a move or a turn changes none of it. */
@@ -609,7 +616,11 @@ export class DrawingImportTool extends SketchTool {
       blocked = `This would write ${entities.toLocaleString('en-US')} sketch entities; one import takes up to ${MAX_IMPORT_STATEMENTS.toLocaleString('en-US')}.`
         + (drawing.layers.length > 1 ? ' Untick layers to bring in less.' : '');
     }
-    this.panel.setSummary({ entities, joins: this.panel.joins ? plan?.joins.length ?? 0 : 0, notes, blocked });
+    const joined = this.panel.joins;
+    const pins = plan && this.panel.fix
+      ? SketchImport.pins(plan, { joined, decimals: DrawingImportTool.decimals() }).length
+      : 0;
+    this.panel.setSummary({ entities, joins: joined ? plan?.joins.length ?? 0 : 0, pins, notes, blocked });
   }
 
   // --------------------------------------------------------------- commit
@@ -628,7 +639,11 @@ export class DrawingImportTool extends SketchTool {
     }
     this.setBusy(true);
     try {
-      const result = await this.emit(DrawingImportEmission.request(plan, { joins: this.panel.joins }));
+      const result = await this.emit(DrawingImportEmission.request(plan, {
+        joins: this.panel.joins,
+        fix: this.panel.fix,
+        decimals: DrawingImportTool.decimals(),
+      }));
       if (!result.success) {
         this.panel.setMessage(result.reason ?? 'The drawing could not be written to the sketch.');
         return;

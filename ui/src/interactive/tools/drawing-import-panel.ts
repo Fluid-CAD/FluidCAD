@@ -25,6 +25,8 @@ export type DrawingImportSummary = {
   entities: number;
   /** `coincident` statements, when joins are on. */
   joins: number;
+  /** Constraints that pin the geometry (`fix`, radii, diameters), when Fix in place is on. */
+  pins: number;
   /** One line each, shown folded under "Warnings (n)": what was left out, approximated, or needs saying. */
   notes: string[];
   /** Why Apply is off, when it is (too many statements, nothing on the chosen layers). */
@@ -45,6 +47,7 @@ export class DrawingImportPanel {
   /** The names of the layers left ticked. */
   onLayers?: (layers: Set<string>) => void;
   onJoins?: (joins: boolean) => void;
+  onFix?: (fix: boolean) => void;
   onAsDrawn?: () => void;
   onCenter?: () => void;
   onApply?: () => void;
@@ -59,6 +62,7 @@ export class DrawingImportPanel {
   private layersBox: HTMLDivElement;
   private layersList: HTMLDivElement;
   private joinsToggle: HTMLInputElement;
+  private fixToggle: HTMLInputElement;
   private readout: HTMLDivElement;
   private summary: HTMLDivElement;
   private warnings: HTMLDivElement;
@@ -100,6 +104,11 @@ export class DrawingImportPanel {
           <span class="text-base-content/70">Join ends that meet</span>
           <input data-role="joins" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
         </label>
+        <label class="flex items-center justify-between cursor-pointer"
+          title="Pin the drawing where it is imported: every point fixed, every radius and diameter dimensioned. The sketch stays fully constrained and nothing can be dragged; delete the constraints on what you want to change.">
+          <span class="text-base-content/70">Fix in place</span>
+          <input data-role="fix" type="checkbox" class="toggle toggle-sm toggle-primary" />
+        </label>
         <div class="flex flex-col gap-1.5">
           <span class="text-base-content/70">Position</span>
           <div class="flex gap-1.5">
@@ -134,6 +143,7 @@ export class DrawingImportPanel {
     this.layersBox = this.role('layers');
     this.layersList = this.role('layers-list');
     this.joinsToggle = this.role('joins');
+    this.fixToggle = this.role('fix');
     this.readout = this.role('readout');
     this.summary = this.role('summary');
     this.warnings = this.role('warnings');
@@ -157,6 +167,7 @@ export class DrawingImportPanel {
       }
     });
     this.joinsToggle.addEventListener('change', () => this.onJoins?.(this.joinsToggle.checked));
+    this.fixToggle.addEventListener('change', () => this.onFix?.(this.fixToggle.checked));
     this.role<HTMLButtonElement>('as-drawn').addEventListener('click', () => this.onAsDrawn?.());
     this.role<HTMLButtonElement>('center').addEventListener('click', () => this.onCenter?.());
     this.applyBtn.addEventListener('click', () => this.onApply?.());
@@ -248,7 +259,7 @@ export class DrawingImportPanel {
     const unit = sceneUnit.current;
     const fmt = (v: number) => formatLength(v, unit, { suffix: false });
     const turned = angle ? ` · ${Math.round(angle * 10) / 10}°` : '';
-    this.readout.textContent = `${fmt(size.width)} × ${fmt(size.height)} ${unit}, centre at ${fmt(at[0])}, ${fmt(at[1])}${turned}`;
+    this.readout.textContent = `${fmt(size.width)} × ${fmt(size.height)} ${unit} at ${fmt(at[0])}, ${fmt(at[1])}${turned}`;
   }
 
   /** What Apply would write, and anything the user should know about it. */
@@ -263,7 +274,8 @@ export class DrawingImportPanel {
     }
     const entities = `${summary.entities.toLocaleString('en-US')} sketch ${summary.entities === 1 ? 'entity' : 'entities'}`;
     const joins = summary.joins > 0 ? `, ${summary.joins.toLocaleString('en-US')} ${summary.joins === 1 ? 'join' : 'joins'}` : '';
-    this.summary.textContent = summary.blocked ?? `${entities}${joins}`;
+    const pins = summary.pins > 0 ? `, fixed by ${summary.pins.toLocaleString('en-US')} ${summary.pins === 1 ? 'constraint' : 'constraints'}` : '';
+    this.summary.textContent = summary.blocked ?? `${entities}${joins}${pins}`;
     this.summary.classList.toggle('text-error', summary.blocked !== null);
     this.summary.classList.toggle('text-base-content/80', summary.blocked === null);
     for (const note of summary.notes) {
@@ -290,6 +302,11 @@ export class DrawingImportPanel {
 
   get joins(): boolean {
     return this.joinsToggle.checked;
+  }
+
+  /** Whether the import pins the geometry where it lands. Off until asked for. */
+  get fix(): boolean {
+    return this.fixToggle.checked;
   }
 
   get unit(): DrawingUnitChoice {

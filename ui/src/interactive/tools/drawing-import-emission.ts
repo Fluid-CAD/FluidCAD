@@ -1,6 +1,7 @@
-import type { SketchImportPlan, SketchJoinEnd, SketchPrimitive } from '../../../../lib/io/drawing/sketch-import.js';
+import { SketchImport } from '../../../../lib/io/drawing/sketch-import.js';
+import type { SketchImportPlan, SketchJoinEnd, SketchPin, SketchPinPoint, SketchPrimitive } from '../../../../lib/io/drawing/sketch-import.js';
 import type { Vec2 } from '../../../../lib/io/drawing/drawing.js';
-import type { SolvedEmissionRequest, SolvedEmissionTargetParam, SolvedGeometryParam } from './solved-emission';
+import type { SolvedConstraintParam, SolvedEmissionRequest, SolvedEmissionTargetParam, SolvedGeometryParam } from './solved-emission';
 
 /**
  * An import plan as the one edit that writes it: a statement per primitive
@@ -48,26 +49,69 @@ export class DrawingImportEmission {
 
   /**
    * The whole plan as one emission. With `joins` off only the geometry is
-   * written: the outline looks the same and comes apart when dragged.
+   * written: the outline looks the same and comes apart when dragged. With
+   * `fix` the geometry is also pinned where it is — every point fixed once,
+   * every size dimensioned (see `SketchImport.pins`) — so nothing of it can
+   * be dragged until the constraint holding it is deleted. `decimals` are
+   * the plan's.
    */
-  static request(plan: SketchImportPlan, options: { joins: boolean }): SolvedEmissionRequest {
-    const target = (end: SketchJoinEnd): SolvedEmissionTargetParam => {
-      const primitive = plan.primitives[end.primitive];
+  static request(plan: SketchImportPlan, options: { joins: boolean; fix: boolean; decimals: number }): SolvedEmissionRequest {
+    const end = (ref: SketchJoinEnd): SolvedEmissionTargetParam => {
+      const primitive = plan.primitives[ref.primitive];
       if (primitive.kind === 'bezier') {
         // A bezier is no solver entity: its ends are its first and last points.
         return {
-          newIndex: end.primitive,
+          newIndex: ref.primitive,
           featureType: 'bezier',
-          pointIndex: end.end === 'start' ? 0 : primitive.points.length - 1,
+          pointIndex: ref.end === 'start' ? 0 : primitive.points.length - 1,
         };
       }
-      return { newIndex: end.primitive, role: end.end };
+      return { newIndex: ref.primitive, role: ref.end };
     };
+    const point = (ref: SketchPinPoint): SolvedEmissionTargetParam => {
+      if (typeof ref.point === 'number') {
+        return { newIndex: ref.primitive, featureType: 'bezier', pointIndex: ref.point };
+      }
+      return ref.point === 'center'
+        ? { newIndex: ref.primitive, role: 'center' }
+        : end({ primitive: ref.primitive, end: ref.point });
+    };
+    const n = DrawingImportEmission.number;
+    const pin = (p: SketchPin): SolvedConstraintParam => {
+      switch (p.kind) {
+        case 'fix':
+          return { kind: 'fix', targets: [point(p.point)] };
+        case 'radius':
+          return { kind: 'radius', targets: [{ newIndex: p.primitive }], valueExpr: n(p.value) };
+        case 'offset':
+          return {
+            kind: 'distance',
+            targets: [{ newIndex: p.primitive, role: 'start' }, { newIndex: p.primitive, role: 'center' }],
+            valueExpr: n(p.value),
+            axis: p.axis,
+          };
+        case 'aligned':
+          return {
+            kind: p.direction,
+            targets: [{ newIndex: p.primitive, role: 'start' }, { newIndex: p.primitive, role: 'center' }],
+          };
+        case 'diameter':
+          return { kind: 'diameter', targets: [{ newIndex: p.primitive }], valueExpr: n(p.value) };
+        case 'semi-radius':
+          return { kind: 'radius', targets: [{ newIndex: p.primitive }], valueExpr: n(p.value), axis: p.axis };
+        case 'level':
+          return { kind: p.direction, targets: [{ newIndex: p.primitive }] };
+      }
+    };
+    const joins: SolvedConstraintParam[] = options.joins
+      ? plan.joins.map((join) => ({ kind: 'coincident', targets: [end(join.a), end(join.b)] }))
+      : [];
+    const pins = options.fix
+      ? SketchImport.pins(plan, { joined: options.joins, decimals: options.decimals }).map(pin)
+      : [];
     return {
       geometry: plan.primitives.map(DrawingImportEmission.statement),
-      constraints: options.joins
-        ? plan.joins.map((join) => ({ kind: 'coincident', targets: [target(join.a), target(join.b)] }))
-        : [],
+      constraints: [...joins, ...pins],
     };
   }
 }

@@ -1,0 +1,123 @@
+---
+sidebar_position: 11
+title: "Import DXF"
+---
+
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+
+# Import DXF
+
+Bring a 2D drawing into a sketch: a laser profile, a supplier's outline, a logo, a legacy 2D part. The **DXF** tool reads the file, lets you place it by hand, and writes its curves as the sketch's own entities — `line`, `arc`, `circle`, `ellipse` and `bezier` statements you can drag, constrain, trim and extrude like anything you drew yourself.
+
+The file is read once. Nothing links the sketch to it afterwards: editing the DXF later does not change the model, and the file does not need to travel with the project.
+
+## In the viewport
+
+1. [Start or reopen a sketch](/docs/sketching/introduction#starting-a-sketch).
+2. Click **DXF** on the sketch toolbar (its tooltip is **Import DXF**; the shortcut is <kbd>dx</kbd>).
+3. In the **Import DXF** dialog, click **Choose DXF…** and select the file. The drawing appears on the sketch plane at once, inside a frame with handles.
+
+<UiFigure
+  src="/img/docs/ui/import-dxf-placing.png"
+  alt="A sketch with the Import DXF dialog open: a mounting plate outline with a slot and four holes drawn on the sketch plane inside a frame with corner handles and a rotate knob"
+  rings={[{x: 64.85, y: 5.61, w: 2.92, h: 5.56}]}
+  caption="The drawing is shown where it will land. Drag it, a corner or the knob to place it."
+/>
+
+4. Place the drawing with the handles, and set its unit, scale and layers in the dialog. Both are described below.
+5. Click **Import**. FluidCAD writes one statement per curve into the sketch body, and a `coincident` constraint wherever two ends meet.
+
+To try it, save the [sample mounting plate](/img/docs/sketching/mounting-plate.dxf) and import it into a sketch on the XY plane.
+
+## The dialog
+
+<UiFigure
+  src="/img/docs/ui/import-dxf-dialog.png"
+  alt="Import DXF dialog showing the chosen file, a File unit select, a Scale field, three layers with tick boxes, a Join ends that meet toggle, As drawn and Centre in view buttons with the drawing's size and centre, what Import would write, and a folded Warnings section"
+  markers={[
+    {n: 1, x: 4, y: 10.6, label: 'Choose DXF…', description: 'Read a file, or another one in place of the current one.'},
+    {n: 2, x: 4, y: 24.9, label: 'File unit', description: 'The unit the file\'s numbers are in. They are converted into the document\'s unit.'},
+    {n: 3, x: 4, y: 35.7, label: 'Scale', description: 'A factor on top of the unit conversion. Dragging a corner sets it too.'},
+    {n: 4, x: 4, y: 46.9, label: 'Layers', description: 'Only ticked layers are imported. Shown when the file has more than one.'},
+    {n: 5, x: 4, y: 57.3, label: 'Join ends that meet', description: 'Write a coincident constraint at every shared end point.'},
+    {n: 6, x: 4, y: 67.1, label: 'Position', description: 'As drawn puts the drawing back at the file\'s coordinates, Centre in view in the middle of the view. Under them, read-only: the placed drawing\'s size, centre and angle.'},
+    {n: 7, x: 4, y: 79.3, label: 'What Import writes', description: 'The number of sketch entities and joins.'},
+    {n: 8, x: 4, y: 85.6, label: 'Warnings', description: 'Folded, with a count: what the file holds that was left out or written approximately. Click to read them.'},
+  ]}
+  caption="Import writes the statements. Cancel leaves the sketch untouched."
+/>
+
+### Unit
+
+A DXF usually says which unit it is drawn in. The **File unit** select then reads **Same as file (mm)** (or in, cm, …) and the drawing is converted into the document's unit: a 2 in hole in an inch drawing becomes a 50.8 mm hole in a millimetre document.
+
+When the file does not say, the select reads **Document unit (mm)**: the numbers are taken as they are, in the document's unit. If the drawing comes out 25.4 times too small or too large, pick the unit it was really drawn in.
+
+### Layers
+
+Each layer of the file that has curves on it gets a tick box with its number of curves. Layers that are switched off or frozen in the file are marked **off** and start unticked — they are usually notes, borders and construction lines the drawing's author was not looking at either. Tick them to bring them in.
+
+### Joins
+
+A sketch does not treat two ends as connected because they share coordinates; a [coincident](/docs/sketching/constraints/introduction) constraint connects them. With **Join ends that meet** on, the import writes one wherever ends are within a thousandth of a millimetre of each other, so an imported outline stays in one piece when you drag part of it. It starts on when the sketch's **Infer while drawing** setting is on.
+
+Turn it off to get the geometry alone. The outline still forms closed profiles and extrudes; it just comes apart when dragged.
+
+## Move, scale and rotate
+
+| Action | Gesture |
+|---|---|
+| Move | Drag the drawing. |
+| Scale | Drag a corner handle. The opposite corner stays in place; the drawing always keeps its proportions. |
+| Rotate | Drag the knob above the drawing's top edge. |
+| Rotate in steps | Hold <kbd>Shift</kbd> while rotating to snap to 15° increments. |
+
+A drawing made near its file's origin lands **as drawn**: its coordinates become sketch coordinates, so a [view exported from FluidCAD](/docs/import-export/export#dxf-and-svg) comes back exactly where the model is. A drawing made far from its origin — a detail somewhere on a large sheet — starts in the middle of the view instead. **As drawn** and **Centre in view** switch between the two at any time. If the drawing is larger than what the view shows, the camera zooms out to it.
+
+<kbd>Esc</kbd> cancels a drag in progress first; otherwise it leaves the tool without importing.
+
+## What is imported
+
+| In the file | In the sketch |
+|---|---|
+| Line | `line` |
+| Circle | `circle` |
+| Arc | `arc` |
+| Polyline, with or without arc segments (bulges) | One `line` or `arc` per segment |
+| Ellipse | `ellipse` |
+| Elliptical arc | A few cubic `bezier` curves that follow it closely |
+| Spline | Its own Bézier pieces, as `bezier` statements: the same curve |
+| Block reference (insert) | The block's contents, in place: moved, turned, scaled, mirrored, arrayed |
+
+Text, dimensions, leaders, hatches, points and images are not curves and are left out: they annotate a drawing, and a sketch holds the geometry a feature is made from. The dialog's **Warnings** section lists how many of each it skipped. A curve drawn twice in the file is written once. Only model space is read.
+
+A sketch has no statement for an elliptical arc, a weighted (rational) spline or a spline above degree three. These are written as cubic beziers that stay within a ten-thousandth of a millimetre of the original, and **Warnings** says how many there were.
+
+<UiFigure
+  src="/img/docs/ui/import-dxf-result.png"
+  alt="The imported mounting plate as sketch geometry: lines and arcs with end points, circles with centre points, each listed as a row under the sketch in the History panel, and 42 degrees of freedom remaining"
+  caption="After Import the drawing is ordinary sketch geometry, with a row per entity."
+/>
+
+## After importing
+
+The imported entities sit at the positions the file gave them but are not yet dimensioned: the status at the bottom of the viewport reports the degrees of freedom that remain. They extrude as they are. To make the sketch driven by dimensions, [constrain](/docs/sketching/constraints/introduction) it the usual way — pin a point, add horizontal and vertical constraints, dimension the sizes that matter.
+
+In the code, the import is plain sketch statements, with coordinates written to more decimals than a clicked point so corners, tangencies and centres stay as exact as the file had them:
+
+```js
+sketch("xy", () => {
+  const l1 = line([-52, -35], [52, -35]);
+  const a1 = arc([52, -35], [60, -27], [52, -27]);
+  const l2 = line([60, -27], [60, 27]);
+  // …
+  const c1 = circle([-48, -23], 6);
+  coincident(l1.end(), a1.start());
+  coincident(a1.end(), l2.start());
+  // …
+});
+```
+
+One import writes up to 2,000 sketch entities. A larger drawing is refused with its count; untick layers to bring it in by parts, or simplify it in the program that made it. Binary DXF and DWG files are not read: save the drawing as an ASCII DXF first.
+
+To trace over a picture instead of importing curves, use a [Reference Image](/docs/sketching/tools/reference-image).

@@ -46,6 +46,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'text', label: 'Text', iconPng: 'text' },
     { id: 'image', label: 'Reference Image', caption: 'Image', iconPng: 'image' },
+    { id: 'dxf', label: 'Import DXF', caption: 'DXF', iconPng: 'dxf' },
   ]},
   { tools: [
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
@@ -82,6 +83,7 @@ export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   mirror: 'm',
   text: 'x',
   image: 'im',
+  dxf: 'dx',
   project: 'pj',
   intersect: 'ix',
 };

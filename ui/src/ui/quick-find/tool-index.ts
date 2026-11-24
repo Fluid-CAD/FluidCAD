@@ -89,6 +89,7 @@ export const TOOL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Object
   'sketch:slot': ['keyway', 'rounded slot'],
   'sketch:text': ['letters', 'font', 'engrave', 'label'],
   'sketch:image': ['picture', 'photo', 'scan', 'trace', 'reference'],
+  'sketch:dxf': ['import', 'drawing', 'insert dxf', 'autocad', 'vector', 'outline', 'laser'],
   'sketch:fillet': ['round', 'corner', 'radius'],
   'sketch:offset': ['parallel', 'inset', 'outset'],
   'sketch:split': ['break', 'divide'],

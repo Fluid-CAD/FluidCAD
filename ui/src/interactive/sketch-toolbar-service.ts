@@ -15,6 +15,7 @@ import { SplineTool } from './tools/spline-tool';
 import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
 import { ReferenceImageTool } from './tools/reference-image-tool';
+import { DrawingImportTool, DXF_IMPORT } from './tools/drawing-import-tool';
 import { ReferenceImageController } from '../scene/reference-image-controller';
 import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
 import { DimensionLabelDragHandler } from './drag-move-handler/dimension-label-drag-handler';
@@ -918,6 +919,14 @@ export class SketchToolbarService {
           onRequestExit: () => this.handleToolSelect(null),
         });
       }
+      case 'dxf':
+        // The drawing is read and placed in the page; Import writes its
+        // curves as the sketch's own statements through the solved rail,
+        // in one edit.
+        return applySolvedContext(new DrawingImportTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, {
+          source: DXF_IMPORT,
+          onRequestExit: () => this.handleToolSelect(null),
+        }));
       default:
         return null;
     }

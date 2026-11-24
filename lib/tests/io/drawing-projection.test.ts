@@ -32,7 +32,7 @@ import { runFluid } from "../helpers/run-fluid.js";
 import type { Extrude } from "../../features/extrude.js";
 import type { Solid } from "../../common/solid.js";
 import { DrawingModels as M } from "./drawing/models.js";
-import { DxfReader } from "./drawing/dxf-reader.js";
+import { DxfOracle } from "./drawing/dxf-oracle.js";
 import { SvgReader } from "./drawing/svg-reader.js";
 
 const SIX_VIEWS: StandardPlane[] = ['top', 'bottom', 'front', 'back', 'right', 'left'];
@@ -754,13 +754,13 @@ describe("drawing projection — the CSWP tutorial part", () => {
     expect(meets[0].degree).toBeGreaterThan(3);
 
     // …and the file has no spline above a cubic, the one for this curve on it.
-    const file = DxfReader.parse(DxfWriter.write(front));
-    const splines = DxfReader.section(file, 'ENTITIES').objects.filter((o) => o.type === 'SPLINE');
+    const file = DxfOracle.parse(DxfWriter.write(front));
+    const splines = DxfOracle.section(file, 'ENTITIES').objects.filter((o) => o.type === 'SPLINE');
     expect(splines).toHaveLength(curvesOf(front, 'bspline').length);
-    expect(splines.every((s) => DxfReader.number(s, 71) <= 3)).toBe(true);
+    expect(splines.every((s) => DxfOracle.number(s, 71) <= 3)).toBe(true);
     const index = front.entities.filter((e) => e.curve.kind === 'bspline').findIndex((e) => e.curve === meets[0]);
     const expected = BSplineCurve2D.sample(meets[0], 200);
-    const actual = DxfReader.sample(splines[index], 200);
+    const actual = DxfOracle.sample(splines[index], 200);
     expect(Math.max(...expected.map((p, i) => Math.hypot(p.x - actual[i].x, p.y - actual[i].y)))).toBeLessThan(2e-5);
   });
 
@@ -848,11 +848,11 @@ describe("drawing projection — the CSWP tutorial part", () => {
     for (const on of SIX_VIEWS) {
       const drawing = viewOf(solids, on, { hiddenLines: true, tangentEdges: true });
       const svg = SvgReader.parse(SvgWriter.write(drawing, { margin: 0 }));
-      const dxf = DxfReader.parse(DxfWriter.write(drawing));
+      const dxf = DxfOracle.parse(DxfWriter.write(drawing));
 
       // The page is the extents the DXF declares, in the same numbers.
-      const [minX, minY] = DxfReader.headerVariable(dxf, '$EXTMIN').map((p) => Number(p.value));
-      const [maxX, maxY] = DxfReader.headerVariable(dxf, '$EXTMAX').map((p) => Number(p.value));
+      const [minX, minY] = DxfOracle.headerVariable(dxf, '$EXTMIN').map((p) => Number(p.value));
+      const [maxX, maxY] = DxfOracle.headerVariable(dxf, '$EXTMAX').map((p) => Number(p.value));
       // (An SVG millimetre is written to seven decimals, a DXF real to nine.)
       expect(svg.viewBox.x, on).toBeCloseTo(minX, 6);
       expect(svg.viewBox.y, on).toBe(0);
@@ -1108,7 +1108,7 @@ describe("HiddenLineProjection", () => {
 describe("FileExport — DXF", () => {
   setupOC();
 
-  const entities = (text: string) => DxfReader.section(DxfReader.parse(text), 'ENTITIES').objects;
+  const entities = (text: string) => DxfOracle.section(DxfOracle.parse(text), 'ENTITIES').objects;
 
   it("writes the solids' view as a DXF named after the view", () => {
     const solids = exportable(box(10));
@@ -1125,10 +1125,10 @@ describe("FileExport — DXF", () => {
   it("keeps an inch document's numbers and declares inches", () => {
     const solids = exportable(box(2));
     const text = withUnit('in', () => FileExport.exportShapes(solids, { format: 'dxf', plane: 'front', unit: 'in' }).data as string);
-    const file = DxfReader.parse(text);
-    expect(DxfReader.headerVariable(file, '$INSUNITS')).toEqual([{ code: 70, value: '1' }]);
-    expect(DxfReader.headerVariable(file, '$MEASUREMENT')).toEqual([{ code: 70, value: '0' }]);
-    expect(DxfReader.headerVariable(file, '$EXTMAX').map((p) => Number(p.value))).toEqual([2, 2, 0]);
+    const file = DxfOracle.parse(text);
+    expect(DxfOracle.headerVariable(file, '$INSUNITS')).toEqual([{ code: 70, value: '1' }]);
+    expect(DxfOracle.headerVariable(file, '$MEASUREMENT')).toEqual([{ code: 70, value: '0' }]);
+    expect(DxfOracle.headerVariable(file, '$EXTMAX').map((p) => Number(p.value))).toEqual([2, 2, 0]);
   });
 
   it("still refuses an export with no solids, and leaves STEP and STL as they were", () => {
@@ -1144,8 +1144,8 @@ describe("FileExport — DXF", () => {
     const ids = sceneSolids().map((s) => s.id);
     const result = getSceneManager().exportShapes(scene, ids, { format: 'dxf', plane: 'right', hiddenLines: true });
     expect(result.fileName).toBe('export-right.dxf');
-    const file = DxfReader.parse(result.data as string);
-    expect(DxfReader.headerVariable(file, '$INSUNITS')).toEqual([{ code: 70, value: '4' }]);
+    const file = DxfOracle.parse(result.data as string);
+    expect(DxfOracle.headerVariable(file, '$INSUNITS')).toEqual([{ code: 70, value: '4' }]);
     expect(entities(result.data as string)).toHaveLength(4);
   });
 });

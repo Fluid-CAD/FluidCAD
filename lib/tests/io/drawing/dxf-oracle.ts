@@ -2,7 +2,8 @@
 // wrote, written from the format's definition rather than from the writer —
 // group codes in, geometry out — so a slip in the writer (degrees for
 // radians, a knot short, an arc the wrong way round) shows up as a curve
-// that is not where the drawing put it.
+// that is not where the drawing put it. It shares no code with the import's
+// `DxfReader` (io/drawing/dxf-reader.ts), which it is an oracle for too.
 
 export type DxfPair = { code: number; value: string };
 
@@ -15,7 +16,7 @@ export type DxfFile = { pairs: DxfPair[]; sections: DxfSection[] };
 
 type P2 = { x: number; y: number };
 
-export class DxfReader {
+export class DxfOracle {
   /** Splits the text into group-code pairs and sections; throws on anything malformed. */
   static parse(text: string): DxfFile {
     const lines = text.split('\r\n');
@@ -87,7 +88,7 @@ export class DxfReader {
 
   /** The value pairs of a header variable (`$INSUNITS` → its group 70). */
   static headerVariable(file: DxfFile, name: string): DxfPair[] {
-    const pairs = DxfReader.section(file, 'HEADER').objects.flatMap((o) => o.pairs);
+    const pairs = DxfOracle.section(file, 'HEADER').objects.flatMap((o) => o.pairs);
     const start = pairs.findIndex((p) => p.code === 9 && p.value === name);
     if (start < 0) {
       throw new Error(`No header variable ${name}`);
@@ -108,7 +109,7 @@ export class DxfReader {
   }
 
   static number(object: DxfObject, code: number): number {
-    const value = DxfReader.first(object, code);
+    const value = DxfOracle.first(object, code);
     if (value === undefined) {
       throw new Error(`${object.type} has no group ${code}`);
     }
@@ -119,10 +120,10 @@ export class DxfReader {
   static tables(file: DxfFile): Map<string, { header: DxfObject; entries: DxfObject[] }> {
     const tables = new Map<string, { header: DxfObject; entries: DxfObject[] }>();
     let current: { header: DxfObject; entries: DxfObject[] } | null = null;
-    for (const object of DxfReader.section(file, 'TABLES').objects) {
+    for (const object of DxfOracle.section(file, 'TABLES').objects) {
       if (object.type === 'TABLE') {
         current = { header: object, entries: [] };
-        tables.set(DxfReader.first(object, 2)!, current);
+        tables.set(DxfOracle.first(object, 2)!, current);
       } else if (object.type === 'ENDTAB') {
         current = null;
       } else if (current) {
@@ -139,7 +140,7 @@ export class DxfReader {
    * own parameter — by the DXF definition of each entity type.
    */
   static sample(entity: DxfObject, count: number): P2[] {
-    const n = (code: number) => DxfReader.number(entity, code);
+    const n = (code: number) => DxfOracle.number(entity, code);
     const points: P2[] = [];
     switch (entity.type) {
       case 'LINE':
@@ -188,10 +189,10 @@ export class DxfReader {
       }
       case 'SPLINE': {
         const degree = n(71);
-        const knots = DxfReader.all(entity, 40).map(Number);
-        const xs = DxfReader.all(entity, 10).map(Number);
-        const ys = DxfReader.all(entity, 20).map(Number);
-        const weights = DxfReader.all(entity, 41).map(Number);
+        const knots = DxfOracle.all(entity, 40).map(Number);
+        const xs = DxfOracle.all(entity, 10).map(Number);
+        const ys = DxfOracle.all(entity, 20).map(Number);
+        const weights = DxfOracle.all(entity, 41).map(Number);
         const t0 = knots[degree];
         const t1 = knots[xs.length];
         for (let i = 0; i <= count; i++) {
@@ -202,7 +203,7 @@ export class DxfReader {
           let y = 0;
           let w = 0;
           for (let k = 0; k < xs.length; k++) {
-            const b = DxfReader.basis(knots, k, degree, t) * (weights.length > 0 ? weights[k] : 1);
+            const b = DxfOracle.basis(knots, k, degree, t) * (weights.length > 0 ? weights[k] : 1);
             x += b * xs[k];
             y += b * ys[k];
             w += b;
@@ -212,8 +213,8 @@ export class DxfReader {
         return points;
       }
       case 'LWPOLYLINE': {
-        const xs = DxfReader.all(entity, 10).map(Number);
-        const ys = DxfReader.all(entity, 20).map(Number);
+        const xs = DxfOracle.all(entity, 10).map(Number);
+        const ys = DxfOracle.all(entity, 20).map(Number);
         const vertices = xs.map((x, i) => ({ x, y: ys[i] }));
         if ((n(70) & 1) === 1) {
           vertices.push(vertices[0]);
@@ -242,11 +243,11 @@ export class DxfReader {
     let value = 0;
     const left = knots[k + degree] - knots[k];
     if (left > 0) {
-      value += ((t - knots[k]) / left) * DxfReader.basis(knots, k, degree - 1, t);
+      value += ((t - knots[k]) / left) * DxfOracle.basis(knots, k, degree - 1, t);
     }
     const right = knots[k + degree + 1] - knots[k + 1];
     if (right > 0) {
-      value += ((knots[k + degree + 1] - t) / right) * DxfReader.basis(knots, k + 1, degree - 1, t);
+      value += ((knots[k + degree + 1] - t) / right) * DxfOracle.basis(knots, k + 1, degree - 1, t);
     }
     return value;
   }

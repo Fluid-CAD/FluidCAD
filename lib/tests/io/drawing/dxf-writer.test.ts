@@ -3,8 +3,8 @@ import { DxfWriter } from "../../../io/drawing/dxf-writer.js";
 import { Curves } from "../../../io/drawing/drawing.js";
 import type { Curve2D, Drawing2D, DrawingEntity } from "../../../io/drawing/drawing.js";
 import type { LengthUnit } from "../../../units/units.js";
-import { DxfReader } from "./dxf-reader.js";
-import type { DxfFile, DxfObject } from "./dxf-reader.js";
+import { DxfOracle } from "./dxf-oracle.js";
+import type { DxfFile, DxfObject } from "./dxf-oracle.js";
 
 function drawingOf(entities: DrawingEntity[], unit: LengthUnit = 'mm'): Drawing2D {
   return { unit, entities, bounds: Curves.boundsOf(entities), warnings: [] };
@@ -41,7 +41,7 @@ function everyKind(): DrawingEntity[] {
 }
 
 function entitiesOf(file: DxfFile): DxfObject[] {
-  return DxfReader.section(file, 'ENTITIES').objects;
+  return DxfOracle.section(file, 'ENTITIES').objects;
 }
 
 /** Every handle the file defines: group 5, and 105 for DIMSTYLE entries. */
@@ -52,7 +52,7 @@ function handlesOf(file: DxfFile): string[] {
       continue;
     }
     for (const object of section.objects) {
-      const handle = DxfReader.first(object, object.type === 'DIMSTYLE' ? 105 : 5);
+      const handle = DxfOracle.first(object, object.type === 'DIMSTYLE' ? 105 : 5);
       if (handle !== undefined) {
         handles.push(handle);
       }
@@ -63,10 +63,10 @@ function handlesOf(file: DxfFile): string[] {
 
 describe("DxfWriter structure", () => {
   const text = DxfWriter.write(drawingOf(everyKind()));
-  const file = DxfReader.parse(text);
+  const file = DxfOracle.parse(text);
 
   it("is well-formed ASCII group-code pairs ending in EOF", () => {
-    // DxfReader.parse above already threw on an odd line count, a bad group
+    // DxfOracle.parse above already threw on an odd line count, a bad group
     // code, an unclosed section or a missing EOF.
     expect(/^[\x20-\x7e\r\n]*$/.test(text)).toBe(true);
     expect(text.endsWith("0\r\nEOF\r\n")).toBe(true);
@@ -75,17 +75,17 @@ describe("DxfWriter structure", () => {
 
   it("writes the AC1015 sections in order", () => {
     expect(file.sections.map((s) => s.name)).toEqual(['HEADER', 'CLASSES', 'TABLES', 'BLOCKS', 'ENTITIES', 'OBJECTS']);
-    expect(DxfReader.headerVariable(file, '$ACADVER')).toEqual([{ code: 1, value: 'AC1015' }]);
+    expect(DxfOracle.headerVariable(file, '$ACADVER')).toEqual([{ code: 1, value: 'AC1015' }]);
   });
 
   it("writes every table a reader requires, with the entry count it declares", () => {
-    const tables = DxfReader.tables(file);
+    const tables = DxfOracle.tables(file);
     expect([...tables.keys()]).toEqual(['VPORT', 'LTYPE', 'LAYER', 'STYLE', 'VIEW', 'UCS', 'APPID', 'DIMSTYLE', 'BLOCK_RECORD']);
     for (const [, table] of tables) {
-      expect(DxfReader.number(table.header, 70)).toBe(table.entries.length);
-      expect(DxfReader.all(table.header, 100)).toContain('AcDbSymbolTable');
+      expect(DxfOracle.number(table.header, 70)).toBe(table.entries.length);
+      expect(DxfOracle.all(table.header, 100)).toContain('AcDbSymbolTable');
     }
-    const names = (table: string) => tables.get(table)!.entries.map((e) => DxfReader.first(e, 2));
+    const names = (table: string) => tables.get(table)!.entries.map((e) => DxfOracle.first(e, 2));
     expect(names('LTYPE')).toEqual(['ByBlock', 'ByLayer', 'Continuous', 'HIDDEN']);
     expect(names('LAYER')).toEqual(['0', 'VISIBLE', 'TANGENT', 'HIDDEN']);
     expect(names('STYLE')).toEqual(['Standard']);
@@ -95,14 +95,14 @@ describe("DxfWriter structure", () => {
   });
 
   it("writes both block definitions and the object dictionaries", () => {
-    const blocks = DxfReader.section(file, 'BLOCKS').objects;
+    const blocks = DxfOracle.section(file, 'BLOCKS').objects;
     expect(blocks.map((b) => b.type)).toEqual(['BLOCK', 'ENDBLK', 'BLOCK', 'ENDBLK']);
-    expect(blocks.filter((b) => b.type === 'BLOCK').map((b) => DxfReader.first(b, 2))).toEqual(['*Model_Space', '*Paper_Space']);
-    const objects = DxfReader.section(file, 'OBJECTS').objects;
+    expect(blocks.filter((b) => b.type === 'BLOCK').map((b) => DxfOracle.first(b, 2))).toEqual(['*Model_Space', '*Paper_Space']);
+    const objects = DxfOracle.section(file, 'OBJECTS').objects;
     expect(objects.map((o) => o.type)).toEqual(['DICTIONARY', 'DICTIONARY']);
     // The root dictionary names ACAD_GROUP and points at the second dictionary.
-    expect(DxfReader.first(objects[0], 3)).toBe('ACAD_GROUP');
-    expect(DxfReader.first(objects[0], 350)).toBe(DxfReader.first(objects[1], 5));
+    expect(DxfOracle.first(objects[0], 3)).toBe('ACAD_GROUP');
+    expect(DxfOracle.first(objects[0], 350)).toBe(DxfOracle.first(objects[1], 5));
   });
 
   it("gives every object a unique handle below $HANDSEED", () => {
@@ -111,7 +111,7 @@ describe("DxfWriter structure", () => {
     for (const handle of handles) {
       expect(/^[1-9A-F][0-9A-F]*$/.test(handle)).toBe(true);
     }
-    const seed = parseInt(DxfReader.headerVariable(file, '$HANDSEED')[0].value, 16);
+    const seed = parseInt(DxfOracle.headerVariable(file, '$HANDSEED')[0].value, 16);
     expect(Math.max(...handles.map((h) => parseInt(h, 16)))).toBeLessThan(seed);
   });
 
@@ -120,7 +120,7 @@ describe("DxfWriter structure", () => {
     let owned = 0;
     for (const section of file.sections) {
       for (const object of section.objects) {
-        const owner = DxfReader.first(object, 330);
+        const owner = DxfOracle.first(object, 330);
         if (owner !== undefined) {
           owned++;
           expect(owner === '0' || handles.has(owner)).toBe(true);
@@ -129,25 +129,25 @@ describe("DxfWriter structure", () => {
     }
     expect(owned).toBeGreaterThan(20);
     // Entities belong to model space.
-    const modelSpace = DxfReader.first(DxfReader.tables(file).get('BLOCK_RECORD')!.entries[0], 5);
+    const modelSpace = DxfOracle.first(DxfOracle.tables(file).get('BLOCK_RECORD')!.entries[0], 5);
     for (const entity of entitiesOf(file)) {
-      expect(DxfReader.first(entity, 330)).toBe(modelSpace);
+      expect(DxfOracle.first(entity, 330)).toBe(modelSpace);
     }
   });
 
   it("puts every entity on a layer of the table, with a linetype of the table", () => {
-    const tables = DxfReader.tables(file);
-    const layers = new Set(tables.get('LAYER')!.entries.map((e) => DxfReader.first(e, 2)));
-    const linetypes = new Set(tables.get('LTYPE')!.entries.map((e) => DxfReader.first(e, 2)));
+    const tables = DxfOracle.tables(file);
+    const layers = new Set(tables.get('LAYER')!.entries.map((e) => DxfOracle.first(e, 2)));
+    const linetypes = new Set(tables.get('LTYPE')!.entries.map((e) => DxfOracle.first(e, 2)));
     for (const entity of entitiesOf(file)) {
-      expect(DxfReader.all(entity, 100)[0]).toBe('AcDbEntity');
-      expect(layers.has(DxfReader.first(entity, 8))).toBe(true);
+      expect(DxfOracle.all(entity, 100)[0]).toBe('AcDbEntity');
+      expect(layers.has(DxfOracle.first(entity, 8))).toBe(true);
     }
     for (const layer of tables.get('LAYER')!.entries) {
-      expect(linetypes.has(DxfReader.first(layer, 6))).toBe(true);
+      expect(linetypes.has(DxfOracle.first(layer, 6))).toBe(true);
     }
-    const hidden = tables.get('LAYER')!.entries.find((e) => DxfReader.first(e, 2) === 'HIDDEN')!;
-    expect(DxfReader.first(hidden, 6)).toBe('HIDDEN');
+    const hidden = tables.get('LAYER')!.entries.find((e) => DxfOracle.first(e, 2) === 'HIDDEN')!;
+    expect(DxfOracle.first(hidden, 6)).toBe('HIDDEN');
   });
 
   it("writes each curve as its native entity", () => {
@@ -160,30 +160,30 @@ describe("DxfWriter structure", () => {
     const splines = entitiesOf(file).filter((e) => e.type === 'SPLINE');
     expect(splines).toHaveLength(2);
     for (const spline of splines) {
-      const knots = DxfReader.all(spline, 40).length;
-      const poles = DxfReader.all(spline, 10).length;
-      expect(DxfReader.number(spline, 72)).toBe(knots);
-      expect(DxfReader.number(spline, 73)).toBe(poles);
-      expect(DxfReader.number(spline, 74)).toBe(0);
-      expect(knots).toBe(poles + DxfReader.number(spline, 71) + 1);
-      const rational = (DxfReader.number(spline, 70) & 4) === 4;
-      expect(DxfReader.all(spline, 41).length).toBe(rational ? poles : 0);
+      const knots = DxfOracle.all(spline, 40).length;
+      const poles = DxfOracle.all(spline, 10).length;
+      expect(DxfOracle.number(spline, 72)).toBe(knots);
+      expect(DxfOracle.number(spline, 73)).toBe(poles);
+      expect(DxfOracle.number(spline, 74)).toBe(0);
+      expect(knots).toBe(poles + DxfOracle.number(spline, 71) + 1);
+      const rational = (DxfOracle.number(spline, 70) & 4) === 4;
+      expect(DxfOracle.all(spline, 41).length).toBe(rational ? poles : 0);
       // Planar, never closed or periodic.
-      expect(DxfReader.number(spline, 70) & 8).toBe(8);
-      expect(DxfReader.number(spline, 70) & 3).toBe(0);
+      expect(DxfOracle.number(spline, 70) & 8).toBe(8);
+      expect(DxfOracle.number(spline, 70) & 3).toBe(0);
     }
-    expect(splines.map((s) => DxfReader.number(s, 70) & 4)).toEqual([0, 4]);
+    expect(splines.map((s) => DxfOracle.number(s, 70) & 4)).toEqual([0, 4]);
   });
 
   it("writes only the layers and linetypes in use", () => {
-    const visibleOnly = DxfReader.parse(DxfWriter.write(drawingOf(everyKind().filter((e) => e.layer === 'visible'))));
-    const tables = DxfReader.tables(visibleOnly);
-    expect(tables.get('LAYER')!.entries.map((e) => DxfReader.first(e, 2))).toEqual(['0', 'VISIBLE']);
-    expect(tables.get('LTYPE')!.entries.map((e) => DxfReader.first(e, 2))).toEqual(['ByBlock', 'ByLayer', 'Continuous']);
+    const visibleOnly = DxfOracle.parse(DxfWriter.write(drawingOf(everyKind().filter((e) => e.layer === 'visible'))));
+    const tables = DxfOracle.tables(visibleOnly);
+    expect(tables.get('LAYER')!.entries.map((e) => DxfOracle.first(e, 2))).toEqual(['0', 'VISIBLE']);
+    expect(tables.get('LTYPE')!.entries.map((e) => DxfOracle.first(e, 2))).toEqual(['ByBlock', 'ByLayer', 'Continuous']);
   });
 
   it("writes a valid file for an empty drawing", () => {
-    const empty = DxfReader.parse(DxfWriter.write(drawingOf([])));
+    const empty = DxfOracle.parse(DxfWriter.write(drawingOf([])));
     expect(empty.sections.map((s) => s.name)).toEqual(['HEADER', 'CLASSES', 'TABLES', 'BLOCKS', 'ENTITIES', 'OBJECTS']);
     expect(entitiesOf(empty)).toHaveLength(0);
   });
@@ -197,7 +197,7 @@ describe("DxfWriter geometry round trip", () => {
   // Every written entity, read back by the format's own rules, lies on the
   // curve it was written from.
   const entities = everyKind();
-  const file = DxfReader.parse(DxfWriter.write(drawingOf(entities)));
+  const file = DxfOracle.parse(DxfWriter.write(drawingOf(entities)));
   const written = entitiesOf(file);
 
   it.each(entities.map((entity, index) => [index, entity.curve.kind, entity] as const))(
@@ -205,7 +205,7 @@ describe("DxfWriter geometry round trip", () => {
     (index, _kind, entity) => {
       const samples = 48;
       const expected = Curves.sample(entity.curve, samples);
-      const actual = DxfReader.sample(written[index], samples);
+      const actual = DxfOracle.sample(written[index], samples);
       expect(actual).toHaveLength(expected.length);
       const deviation = Math.max(...expected.map((p, i) => Math.hypot(p.x - actual[i].x, p.y - actual[i].y)));
       expect(deviation).toBeLessThan(1e-6);
@@ -214,20 +214,20 @@ describe("DxfWriter geometry round trip", () => {
 
   it("writes arc angles in degrees inside [0, 360)", () => {
     const arcs = written.filter((e) => e.type === 'ARC');
-    expect(DxfReader.number(arcs[0], 50)).toBeCloseTo((0.4 * 180) / Math.PI, 8);
-    expect(DxfReader.number(arcs[0], 51)).toBeCloseTo((2.9 * 180) / Math.PI, 8);
+    expect(DxfOracle.number(arcs[0], 50)).toBeCloseTo((0.4 * 180) / Math.PI, 8);
+    expect(DxfOracle.number(arcs[0], 51)).toBeCloseTo((2.9 * 180) / Math.PI, 8);
     // 7.0 rad is past a full turn: written as the same direction below 360°.
-    expect(DxfReader.number(arcs[1], 50)).toBeCloseTo((5.5 * 180) / Math.PI, 8);
-    expect(DxfReader.number(arcs[1], 51)).toBeCloseTo(((7.0 - 2 * Math.PI) * 180) / Math.PI, 8);
+    expect(DxfOracle.number(arcs[1], 50)).toBeCloseTo((5.5 * 180) / Math.PI, 8);
+    expect(DxfOracle.number(arcs[1], 51)).toBeCloseTo(((7.0 - 2 * Math.PI) * 180) / Math.PI, 8);
   });
 
   it("writes ellipse parameters in radians and the major axis relative to the centre", () => {
     const ellipse = written.filter((e) => e.type === 'ELLIPSE')[1];
-    expect(DxfReader.number(ellipse, 11)).toBe(-6);
-    expect(DxfReader.number(ellipse, 21)).toBe(2);
-    expect(DxfReader.number(ellipse, 40)).toBe(0.75);
-    expect(DxfReader.number(ellipse, 41)).toBe(4);
-    expect(DxfReader.number(ellipse, 42)).toBe(7.5);
+    expect(DxfOracle.number(ellipse, 11)).toBe(-6);
+    expect(DxfOracle.number(ellipse, 21)).toBe(2);
+    expect(DxfOracle.number(ellipse, 40)).toBe(0.75);
+    expect(DxfOracle.number(ellipse, 41)).toBe(4);
+    expect(DxfOracle.number(ellipse, 42)).toBe(7.5);
   });
 });
 
@@ -244,42 +244,42 @@ describe("DxfWriter splines above degree three", () => {
       { x: 15, y: -4 }, { x: 19, y: 1 }, { x: 22, y: 6 }, { x: 26, y: 3 },
     ],
   };
-  const written = (curve: Curve2D) => entitiesOf(DxfReader.parse(DxfWriter.write(drawingOf([{ layer: 'visible', curve }]))))[0];
+  const written = (curve: Curve2D) => entitiesOf(DxfOracle.parse(DxfWriter.write(drawingOf([{ layer: 'visible', curve }]))))[0];
 
   it("writes such a spline as a cubic that lies on it", () => {
     const spline = written(sextic);
     expect(spline.type).toBe('SPLINE');
-    expect(DxfReader.number(spline, 71)).toBe(3);
-    expect(DxfReader.number(spline, 70)).toBe(8);
-    const knots = DxfReader.all(spline, 40).length;
-    const poles = DxfReader.all(spline, 10).length;
-    expect(DxfReader.number(spline, 72)).toBe(knots);
-    expect(DxfReader.number(spline, 73)).toBe(poles);
+    expect(DxfOracle.number(spline, 71)).toBe(3);
+    expect(DxfOracle.number(spline, 70)).toBe(8);
+    const knots = DxfOracle.all(spline, 40).length;
+    const poles = DxfOracle.all(spline, 10).length;
+    expect(DxfOracle.number(spline, 72)).toBe(knots);
+    expect(DxfOracle.number(spline, 73)).toBe(poles);
     expect(knots).toBe(poles + 4);
 
     // The cubic keeps the curve's parameter, so equal samples compare like with like.
     const samples = 400;
     const expected = Curves.sample(sextic, samples);
-    const actual = DxfReader.sample(spline, samples);
+    const actual = DxfOracle.sample(spline, samples);
     const deviation = Math.max(...expected.map((p, i) => Math.hypot(p.x - actual[i].x, p.y - actual[i].y)));
     // 1e-5 mm asked of the fit, the rest is the file's nine decimals.
     expect(deviation).toBeLessThan(2e-5);
   });
 
   it("asks the same closeness in millimetres of an inch drawing", () => {
-    const inches = entitiesOf(DxfReader.parse(DxfWriter.write(drawingOf([{ layer: 'visible', curve: sextic }], 'in'))))[0];
+    const inches = entitiesOf(DxfOracle.parse(DxfWriter.write(drawingOf([{ layer: 'visible', curve: sextic }], 'in'))))[0];
     // The same numbers read as inches are 25.4 times larger: the fit is 25.4 times finer.
-    expect(DxfReader.all(inches, 10).length).toBeGreaterThan(DxfReader.all(written(sextic), 10).length);
+    expect(DxfOracle.all(inches, 10).length).toBeGreaterThan(DxfOracle.all(written(sextic), 10).length);
   });
 
   it("leaves cubics and lower degrees alone, rational ones included", () => {
     const cubic: Curve2D = { kind: 'bspline', degree: 3, knots: [0, 0, 0, 0, 1, 1, 1, 1], poles: [{ x: 0, y: 0 }, { x: 1, y: 2 }, { x: 3, y: 2 }, { x: 4, y: 0 }] };
     const conic: Curve2D = { kind: 'bspline', degree: 2, knots: [0, 0, 0, 1, 1, 1], poles: [{ x: 5, y: 0 }, { x: 5, y: 5 }, { x: 0, y: 5 }], weights: [1, Math.SQRT1_2, 1] };
-    expect(DxfReader.number(written(cubic), 71)).toBe(3);
-    expect(DxfReader.all(written(cubic), 10)).toHaveLength(4);
-    expect(DxfReader.number(written(conic), 71)).toBe(2);
-    expect(DxfReader.number(written(conic), 70)).toBe(12);
-    expect(DxfReader.all(written(conic), 41)).toHaveLength(3);
+    expect(DxfOracle.number(written(cubic), 71)).toBe(3);
+    expect(DxfOracle.all(written(cubic), 10)).toHaveLength(4);
+    expect(DxfOracle.number(written(conic), 71)).toBe(2);
+    expect(DxfOracle.number(written(conic), 70)).toBe(12);
+    expect(DxfOracle.all(written(conic), 41)).toHaveLength(3);
   });
 });
 
@@ -305,7 +305,7 @@ describe("DxfWriter numbers", () => {
     const tiny: DrawingEntity[] = [
       { layer: 'visible', curve: { kind: 'line', a: { x: 1e-12, y: -1e-12 }, b: { x: 1e9, y: 2.5e-8 } } },
     ];
-    const file = DxfReader.parse(DxfWriter.write(drawingOf(tiny)));
+    const file = DxfOracle.parse(DxfWriter.write(drawingOf(tiny)));
     for (const pair of file.pairs) {
       expect(/[0-9]e[-+]?[0-9]/i.test(pair.value) && pair.code >= 10 && pair.code < 60).toBe(false);
       expect(pair.value).not.toBe('-0.0');
@@ -338,21 +338,21 @@ describe("DxfWriter units", () => {
       { layer: 'visible', curve: { kind: 'line', a: { x: 0, y: 0 }, b: { x: 2, y: 1 } } },
       { layer: 'hidden', curve: { kind: 'line', a: { x: 0, y: 1 }, b: { x: 2, y: 2 } } },
     ];
-    const file = DxfReader.parse(DxfWriter.write(drawingOf(entities, unit)));
-    expect(DxfReader.headerVariable(file, '$INSUNITS')).toEqual([{ code: 70, value: String(insunits) }]);
-    expect(DxfReader.headerVariable(file, '$MEASUREMENT')).toEqual([{ code: 70, value: String(measurement) }]);
+    const file = DxfOracle.parse(DxfWriter.write(drawingOf(entities, unit)));
+    expect(DxfOracle.headerVariable(file, '$INSUNITS')).toEqual([{ code: 70, value: String(insunits) }]);
+    expect(DxfOracle.headerVariable(file, '$MEASUREMENT')).toEqual([{ code: 70, value: String(measurement) }]);
     const line = entitiesOf(file)[0];
-    expect([DxfReader.number(line, 11), DxfReader.number(line, 21)]).toEqual([2, 1]);
-    expect(DxfReader.headerVariable(file, '$EXTMAX').map((p) => Number(p.value))).toEqual([2, 2, 0]);
+    expect([DxfOracle.number(line, 11), DxfOracle.number(line, 21)]).toEqual([2, 1]);
+    expect(DxfOracle.headerVariable(file, '$EXTMAX').map((p) => Number(p.value))).toEqual([2, 2, 0]);
   });
 
   it("sizes the hidden linetype's dashes in the drawing's unit", () => {
     const entities: DrawingEntity[] = [{ layer: 'hidden', curve: { kind: 'line', a: { x: 0, y: 0 }, b: { x: 2, y: 1 } } }];
     const dash = (unit: LengthUnit) => {
-      const file = DxfReader.parse(DxfWriter.write(drawingOf(entities, unit)));
-      const hidden = DxfReader.tables(file).get('LTYPE')!.entries.find((e) => DxfReader.first(e, 2) === 'HIDDEN')!;
-      expect(DxfReader.number(hidden, 73)).toBe(2);
-      return DxfReader.all(hidden, 49).map(Number);
+      const file = DxfOracle.parse(DxfWriter.write(drawingOf(entities, unit)));
+      const hidden = DxfOracle.tables(file).get('LTYPE')!.entries.find((e) => DxfOracle.first(e, 2) === 'HIDDEN')!;
+      expect(DxfOracle.number(hidden, 73)).toBe(2);
+      return DxfOracle.all(hidden, 49).map(Number);
     };
     expect(dash('mm')).toEqual([6.35, -3.175]);
     expect(dash('in')).toEqual([0.25, -0.125]);

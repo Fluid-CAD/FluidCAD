@@ -6458,6 +6458,8 @@ export type CatalogInsertRequest = {
   params?: Record<string, CatalogParamValue | CatalogParamExpr>;
   /** A row of the definition's `configurations()` table — `insert(def, 'Name', …)`; absent for Default. */
   configuration?: string;
+  /** Where the instance goes, in the assembly's unit — written as `.translate(x, y, z)`; absent for the origin. */
+  position?: [number, number, number];
 };
 
 /**

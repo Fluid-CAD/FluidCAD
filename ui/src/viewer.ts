@@ -1360,6 +1360,14 @@ export class Viewer {
     }
   }
 
+  /**
+   * World-space bounds of the geometry on screen (the assembly's instances
+   * as posed, or the part), meta shapes excluded; null with nothing drawn.
+   */
+  getGeometryBounds(): Box3 | null {
+    return this.sceneGeometryBounds();
+  }
+
   private sceneBoundsForPlanes(): Box3 | null {
     return this.sceneGeometryBounds();
   }

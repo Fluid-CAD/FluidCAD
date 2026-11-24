@@ -374,6 +374,29 @@ describe('applyInsertPartEdit', () => {
     expect(result.newCode).toBe(code);
   });
 
+  it('writes a position as a trailing translate, and none for the origin', async () => {
+    const result = await applyInsertPartEdit(`import { insert } from 'fluidcad/core';\n`, {
+      inserts: [
+        { importFrom: './a.fluid.js', exportName: 'a', kind: 'value', position: [0, 0, 0] },
+        { importFrom: './a.fluid.js', exportName: 'a', kind: 'value', params: { Length: 40 }, position: [120, 0, 0] },
+        { importFrom: './a.fluid.js', exportName: 'a', kind: 'value', position: [180.1234567, -2.5, 0] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const a1 = insert(a).name('a1');`);
+    expect(result.newCode).toContain(`const a2 = insert(a, { Length: 40 }).name('a2').translate(120, 0, 0);`);
+    expect(result.newCode).toContain(`const a3 = insert(a).name('a3').translate(180.123457, -2.5, 0);`);
+  });
+
+  it('refuses a position that is not three numbers', async () => {
+    const code = `import { insert } from 'fluidcad/core';\n`;
+    const result = await applyInsertPartEdit(code, {
+      inserts: [{ importFrom: './a.fluid.js', exportName: 'a', kind: 'value', position: [1, Number.NaN, 0] }],
+    });
+    expect(result.error).toContain('position');
+    expect(result.newCode).toBe(code);
+  });
+
   it('refuses an empty batch', async () => {
     const result = await applyInsertPartEdit('', { inserts: [] });
     expect(result.error).toContain('No inserts');

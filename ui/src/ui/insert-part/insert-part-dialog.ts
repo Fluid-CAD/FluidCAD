@@ -15,9 +15,11 @@ import { ICON_CLOSE } from '../icons';
 import type { VariableInfo } from '../expression-core';
 import { collectNewVariablesChecked } from '../expression-field';
 import { ParamForm } from '../param-controls';
+import type { Box3 } from 'three';
 import { PartThumbnailRenderer } from './part-thumbnails';
+import { InsertPlacement } from './insert-placement';
 import { sceneUnit } from '../../units/scene-unit';
-import type { LengthUnit } from '../../units/units';
+import { MM_PER_UNIT, type LengthUnit } from '../../units/units';
 import { GeneratedDefinition } from '../../interactive/generated/generated-definition';
 
 type CatalogFilter = 'all' | 'parts' | 'assemblies';
@@ -47,6 +49,8 @@ type BasketEntry = {
   /** The row this instance inserts with — `Default` for the literals. */
   configuration: string;
   thumb: string | null;
+  /** The space its geometry takes around its own origin, in the assembly's unit; null when unmeasured. */
+  bounds: Box3 | null;
   /** Built when the params step first shows this entry; values survive paging. */
   form: ParamForm | null;
 };
@@ -105,6 +109,12 @@ type PageGroup = {
 export class InsertPartDialog {
   /** A generated tile was clicked with nothing queued: open the definition's dialog. */
   onGenerated?: (definition: GeneratedDefinition) => void;
+  /**
+   * What the open assembly shows, in world space (null for nothing): the
+   * basket is placed beside it ({@link InsertPlacement}) instead of on the
+   * origin, where the parts already there would hide it.
+   */
+  sceneBounds?: () => Box3 | null;
 
   private overlay: HTMLDivElement;
   private gridEl: HTMLDivElement;
@@ -568,6 +578,7 @@ export class InsertPartDialog {
       this.gridFor(file).appendChild(this.buildTile({
         kind: 'part',
         thumb: this.thumbs.render(part.objects, part.rootId),
+        bounds: this.measuredBounds(unit),
         title: part.partName,
         subtitle: part.kind === 'factory' ? `${part.exportName}()` : part.exportName,
         file,
@@ -595,6 +606,7 @@ export class InsertPartDialog {
       this.gridFor(file).appendChild(this.buildTile({
         kind: 'assembly',
         thumb: this.thumbs.renderAssembly(sub.objects, sub.instances, sub.mates, sub.connectors ?? []),
+        bounds: this.measuredBounds(unit),
         title: sub.assemblyName ?? sub.exportName,
         subtitle: `assembly · ${count} instance${count === 1 ? '' : 's'}`,
         file,
@@ -608,9 +620,26 @@ export class InsertPartDialog {
     }
   }
 
+  /**
+   * The bounds of the picture just rendered, in the assembly's unit: a part
+   * authored in another unit is scaled into the assembly's about its origin,
+   * and so is the space it takes.
+   */
+  private measuredBounds(unit: LengthUnit | undefined): Box3 | null {
+    const bounds = this.thumbs.lastBounds;
+    if (!bounds) {
+      return null;
+    }
+    const factor = unit !== undefined ? MM_PER_UNIT[unit] / MM_PER_UNIT[sceneUnit.current] : 1;
+    bounds.min.multiplyScalar(factor);
+    bounds.max.multiplyScalar(factor);
+    return bounds;
+  }
+
   private buildTile(opts: {
     kind: 'part' | 'assembly';
     thumb: string | null;
+    bounds: Box3 | null;
     title: string;
     subtitle: string;
     file: CatalogFileEntry;
@@ -710,6 +739,7 @@ export class InsertPartDialog {
         configurations: opts.configurations,
         configuration: DEFAULT_CONFIGURATION,
         thumb: opts.thumb,
+        bounds: opts.bounds,
         form: null,
       });
       state.queued++;
@@ -1024,6 +1054,15 @@ export class InsertPartDialog {
         ...(Object.keys(commit.set).length > 0 ? { params: commit.set } : {}),
         ...(entry.configuration !== DEFAULT_CONFIGURATION ? { configuration: entry.configuration } : {}),
       });
+    }
+    // Each instance beside what the assembly shows and the ones before it,
+    // instead of all of them on the origin.
+    const placement = new InsertPlacement(this.sceneBounds?.() ?? null);
+    for (const [index, entry] of this.basket.entries()) {
+      const position = placement.next(entry.bounds);
+      if (position) {
+        inserts[index].position = position;
+      }
     }
     const declarations = collectNewVariablesChecked(reads);
     if ('error' in declarations) {

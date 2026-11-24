@@ -1742,6 +1742,7 @@ generatedMenu.menu.onToolbarPackagesChange = (names) => {
 };
 // A generated tile of the Insert dialog opens the definition's dialog.
 insertPartDialog.onGenerated = (definition) => openGeneratedCreate(definition);
+insertPartDialog.sceneBounds = () => viewer.getGeometryBounds();
 
 /** Insert a generated definition into the assembly on screen through its dialog. */
 function openGeneratedCreate(definition: GeneratedDefinition): void {

@@ -4,6 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
+import { Extrude } from "../../features/extrude.js";
 import { ExtrudeTwoDistances } from "../../features/extrude-two-distances.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import cylinder from "../../core/cylinder.js";
@@ -420,7 +421,7 @@ describe("extrude two distances", () => {
       sketch("xy", () => {
           testRect(100, 50);
         });
-      const stock = extrude(20);
+      const stock = extrude(20) as Extrude;
 
       sketch("xy", () => {
           circle([50, 25], 10);

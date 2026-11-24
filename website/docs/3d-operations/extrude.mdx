@@ -42,7 +42,7 @@ Extrude pulls a closed sketch profile along the sketch plane's normal into a sol
   alt="The Extrude dialog on the Add tab with a sketch picked and a distance of 30"
   markers={[
     {n: 1, x: 5, y: 11, label: 'Add / Remove / New', description: 'What the new material does to the solids already in the scene. Add fuses, New keeps it separate, Remove cuts it away — see Add, New and Remove below.'},
-    {n: 2, x: 5, y: 21, label: 'Sketch', description: 'The profile being extruded, filled with the last sketch. Click another sketch in the timeline, or its wires in the viewport, to change it. The grey number is the line the sketch was made on; the arrow jumps there.'},
+    {n: 2, x: 5, y: 21, label: 'Sketch', description: 'The profile being extruded, filled with the last sketch. Click another sketch in the timeline, or its wires in the viewport, to change it — or click a flat face of a solid to extrude that face instead. The grey number is the line the sketch was made on; the arrow jumps there.'},
     {n: 3, x: 5, y: 32, label: 'Direction', description: 'One direction, Symmetric, Two distances, or Up to face — a picked face, the first face or the last face the extrusion meets.'},
     {n: 4, x: 5, y: 42, label: 'Distance', description: 'A number, an expression, or a parameter name. On the Remove tab this becomes Depth, with a Through all toggle beside it.'},
     {n: 5, x: 5, y: 52, label: 'Draft angle', description: 'Tilts the walls as the extrusion rises. Positive angles flare them outward, negative angles taper them inward.'},
@@ -129,6 +129,25 @@ The last-face column changes only the highlighted line, to `extrude('last-face')
 
 :::note
 Up to face, first face and last face currently work with **planar and cylindrical** target faces only.
+:::
+
+## Extruding a face
+
+The profile does not have to be a sketch. With the dialog open, click a flat face of a solid and it takes the sketch's place in the **Sketch** slot as **Picked face**: the extrusion sweeps that face exactly as it stands, along its own normal, with no sketch or projection in between. Click the face again, or the chip's **✕**, to go back to the sketch.
+
+```js
+const plate = extrude(20)
+
+// The plate's top face, pulled up another 10.
+extrude(10, plate.endFaces())
+```
+
+The face is written as a selector after the distance, so it follows the model when the plate changes. Every direction works — one direction, symmetric, two distances, and [up to face](#up-to-face) — and so do draft, end offset, scope and the three tabs. On the Remove tab the face sinks back into its own solid: `cut(5, plate.endFaces())`.
+
+While **Up to face** is the direction, face clicks go to its target slot; click the **Sketch** slot first to pick the profile face instead.
+
+:::note
+A face is extruded as it stands, so **Drill holes**, **Thin walls**, **Pick regions** and **Through all** do not apply to it and leave the dialog while a face is picked. Only planar faces can be extruded.
 :::
 
 ## Add, New and Remove

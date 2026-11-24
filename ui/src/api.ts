@@ -702,7 +702,7 @@ export type ExtrudeGhostRequest = {
   /** The drill flag, or an expression the preview evaluates to one. */
   drill: boolean | FeatureExprValue;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
-  profile: { filePath: string; line: number };
+  profile: GhostExtrudeProfileRef;
   /**
    * The dialog's region picks — the regions to build. Absent builds every
    * region; an empty list is the bare `.region()`, which builds nothing.
@@ -714,6 +714,16 @@ export type ExtrudeGhostRequest = {
    */
   toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * The profile an extrude ghost sweeps: a sketch by its producing statement,
+ * or a face picked on a solid by its viewport address on the rendered (edit
+ * mode: rolled-back) scene — swept as it stands, so it carries no regions
+ * and no thin offsets.
+ */
+export type GhostExtrudeProfileRef =
+  | { filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
 
 /**
  * Where an up-to-face extrude ends, as the ghost endpoint resolves it: the
@@ -2811,8 +2821,15 @@ async function postSketchCut<Result extends { success: boolean; reason?: string 
   }
 }
 
-/** The profile sketch an extrude consumes, addressed by its source location. */
-export type ExtrudeProfileRef = {
+/**
+ * The profile an extrude consumes: a sketch addressed by its source
+ * location, or a face picked on a solid — synthesized into a face selector
+ * server-side and swept as it stands (`extrude(25, e.endFaces())`).
+ */
+export type ExtrudeProfileRef = ExtrudeSketchProfileRef | { mode: 'face'; entity: ApplyFeatureEntity };
+
+/** A sketch profile, addressed by its source location. */
+export type ExtrudeSketchProfileRef = {
   /** `active` consumes the sketch implicitly; `bound` binds it to a variable. */
   mode: 'active' | 'bound';
   /**
@@ -2873,9 +2890,10 @@ export type ExtrudeApplyOptions = ExtrudeOptionValues & {
 
 /**
  * Ask the server to write (or, with `preview`, just render) an extrude/cut
- * statement consuming a sketch profile. Same endpoint and response shape as
- * {@link applyFeature}; the only pick involved is a picked up-to-face target,
- * synthesized into a face selector server-side.
+ * statement consuming a sketch profile or a picked face. Same endpoint and
+ * response shape as {@link applyFeature}; the picks involved — a face
+ * profile, a picked up-to-face target — are synthesized into face selectors
+ * server-side.
  */
 export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyFeatureResponse> {
   return postApplyFeature({
@@ -2916,7 +2934,7 @@ export type RibOptionValues = {
 };
 
 export type RibApplyOptions = RibOptionValues & {
-  spine: ExtrudeProfileRef;
+  spine: ExtrudeSketchProfileRef;
   /** The solid statements the rib's `.scope(…)` names; empty writes no chain. */
   scope: SketchSourceRef[];
   /** Render the statement preview without applying. */
@@ -3100,7 +3118,7 @@ export type RevolveAxisRef =
   | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
 
 export type RevolveApplyOptions = RevolveOptionValues & {
-  profile: ExtrudeProfileRef;
+  profile: ExtrudeSketchProfileRef;
   axis: RevolveAxisRef;
   /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
   scope?: SketchSourceRef[];
@@ -3205,7 +3223,7 @@ export type SweepApplyOptions = {
   extendEnd: ValueExpr | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
-  profile: ExtrudeProfileRef;
+  profile: ExtrudeSketchProfileRef;
   /** The path: another sketch, or picked edges to synthesize a selector from. */
   path:
     | ({ kind: 'sketch' } & SketchSourceRef)
@@ -4408,8 +4426,13 @@ export type ScopeTargetRef =
   | ({ kind: 'feature' } & SketchSourceRef);
 
 export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
-  /** Re-sourced profile (a sketch or a top-level offset); omitted keeps the statement's own. */
-  profile?: { mode: 'bound'; feature?: 'sketch' | 'offset' } & SketchSourceRef;
+  /**
+   * Re-sourced profile — a sketch or a top-level offset by call site, or a
+   * face picked on the pre-statement scene (`before` carries the boundary);
+   * omitted keeps the statement's own.
+   */
+  profile?: ({ mode: 'bound'; feature?: 'sketch' | 'offset' } & SketchSourceRef)
+    | { mode: 'face'; entity: ApplyFeatureEntity };
   /**
    * Up-to-face target: `keep` re-emits the statement's own target text,
    * `face` re-picks it, `first-face`/`last-face` swap it for that literal.

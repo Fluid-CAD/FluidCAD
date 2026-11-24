@@ -2375,3 +2375,174 @@ describe('a colour, from the dialog\'s picks to the painted model', () => {
     expect(selection.entities).toEqual([{ shapeId: expect.any(String), sub: { type: 'face', index: expect.any(Number) } }]);
   });
 });
+
+describe('a picked face as the extrude profile', () => {
+  setupOC();
+
+  const FILE = '/ws/model.fluid.js';
+  const CODE = [
+    `import { sketch, line, extrude } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
+    `extrude(30)`,
+    ``,
+  ].join('\n');
+
+  /** The plate of `CODE` built in-process, its extrude stamped with its line. */
+  function plate(): Scene {
+    sketch('xy', () => { drawRect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 0 });
+    return render();
+  }
+
+  /** The flat face of the solid lying at height `z`, as a viewport pick names it. */
+  function faceAt(scene: Scene, z: number): PickRef {
+    const solid = findSolid(scene) as Solid;
+    const index = solid.getFaces().findIndex(f => {
+      const box = ShapeOps.getBoundingBox(f);
+      return Math.abs(box.minZ - z) < 1e-6 && Math.abs(box.maxZ - z) < 1e-6;
+    });
+    expect(index).toBeGreaterThanOrEqual(0);
+    return { shapeId: solid.id, sub: { type: 'face', index } };
+  }
+
+  /** The create spec the extrude route composes around one synthesized face profile. */
+  function faceProfileSpec(
+    scene: Scene,
+    pick: PickRef,
+    options: Partial<NonNullable<ApplyFeatureEditSpec['extrude']>>,
+  ): ApplyFeatureEditSpec {
+    const synthesis = synthesizeApplyFeature(scene, [pick], 'extrude', undefined);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      throw new Error('synthesis refused the face');
+    }
+    expect(synthesis.spec.parts).toHaveLength(1);
+    return {
+      feature: 'extrude',
+      extrude: {
+        op: 'add', distance: 12, distance2: null, symmetric: false, draft: null, endOffset: null,
+        drill: true, thin: null, profile: 'face', profilePart: 0, ...options,
+      },
+      filePath: synthesis.spec.filePath,
+      producers: synthesis.spec.producers,
+      parts: synthesis.spec.parts,
+      imports: synthesis.spec.imports,
+    };
+  }
+
+  it('extrudes the picked top face through a synthesized selector, growing the solid', async () => {
+    const scene = plate();
+    const edited = await applyFeatureEdit(CODE, faceProfileSpec(scene, faceAt(scene, 30), {}));
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain('const e = extrude(30)');
+    expect(edited.newCode).toContain(`extrude(12, e.endFaces()).name('Extrude 1')`);
+
+    const rerun = runFluid(edited.newCode);
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const solid = findSolid(rerun);
+    const box = ShapeOps.getBoundingBox(solid);
+    expect(box.minZ).toBeCloseTo(0, 3);
+    expect(box.maxZ).toBeCloseTo(42, 3);
+    expect(ShapeProps.getProperties(solid.getShape()).volumeMm3).toBeCloseTo(100 * 50 * 42, 0);
+  });
+
+  it('cuts the picked face back into its solid as cut(<depth>, <face>)', async () => {
+    const scene = plate();
+    const edited = await applyFeatureEdit(CODE, faceProfileSpec(scene, faceAt(scene, 30), { op: 'remove', distance: 10 }));
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain('cut(10, e.endFaces())');
+    expect(edited.newCode).toMatch(/import \{[^}]*\bcut\b[^}]*\} from 'fluidcad\/core'/);
+
+    const rerun = runFluid(edited.newCode);
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const box = ShapeOps.getBoundingBox(findSolid(rerun));
+    expect(box.maxZ).toBeCloseTo(20, 3);
+  });
+
+  it('refuses the options a face cannot carry before touching the code', async () => {
+    const scene = plate();
+    const pick = faceAt(scene, 30);
+    const thin = await applyFeatureEdit(CODE, faceProfileSpec(scene, pick, { thin: [2] }));
+    expect(thin.error).toContain('thin');
+    expect(thin.newCode).toBe(CODE);
+    const through = await applyFeatureEdit(CODE, faceProfileSpec(scene, pick, { op: 'remove', distance: null }));
+    expect(through.error).toContain('through all');
+    const stray = await applyFeatureEdit(CODE, { ...faceProfileSpec(scene, pick, {}), parts: [] });
+    expect(stray.error).toContain('malformed extrude edit spec');
+  });
+
+  it('seeds the edit dialog of a face-sourced extrude with its profile face, and re-sources it', async () => {
+    const code = [
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
+      `const e = extrude(30)`,
+      `extrude(12, e.endFaces())`,
+      ``,
+    ].join('\n');
+    sketch('xy', () => { drawRect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 4, column: 10 });
+    const grown = extrude(12, (e as any).endFaces());
+    (grown as unknown as SceneObject).setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const scene = render();
+    const before = {
+      index: scene.getAllSceneObjects().indexOf(grown as unknown as SceneObject), type: 'extrude', line: 5, column: 0,
+    };
+
+    // The statement reads as a distance extrude whose profile is the selector text.
+    const parsed = await parseFeatureStatement(code, 5);
+    expect(parsed).toMatchObject({
+      ok: true, parsed: { feature: 'extrude', distance: 12, profileText: 'e.endFaces()', toFaceText: null },
+    });
+    // Its profile resolves to the one face it sweeps, on the pre-statement solid.
+    const sources = resolveFeatureSources(scene, before);
+    expect(sources).toMatchObject({ ok: true, feature: 'extrude' });
+    const profile = (sources as { profile: { kind: string; entities?: PickRef[] } }).profile;
+    expect(profile.kind).toBe('entities');
+    expect(profile.entities).toEqual([{ shapeId: expect.any(String), sub: { type: 'face', index: expect.any(Number) } }]);
+
+    // Re-pick the bottom face on the pre-statement scene and turn it into a cut.
+    const scoped = scopedSceneBefore(scene, before.index);
+    const bottom = (() => {
+      // The statement consumed the plate; its pre-statement solid is the one the profile pick names.
+      const solid = scoped.getAllSceneObjects().flatMap(o => o.getAddedShapes())
+        .find(s => s.id === profile.entities![0].shapeId) as Solid;
+      const index = solid.getFaces().findIndex(f => {
+        const box = ShapeOps.getBoundingBox(f);
+        return Math.abs(box.minZ) < 1e-6 && Math.abs(box.maxZ) < 1e-6;
+      });
+      return { shapeId: solid.id, sub: { type: 'face' as const, index } };
+    })();
+    const synthesis = synthesizeApplyFeature(scoped, [bottom], 'extrude', undefined);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    const edited = await applyFeatureEdit(code, {
+      feature: 'extrude',
+      filePath: FILE,
+      producers: synthesis.spec.producers,
+      parts: synthesis.spec.parts,
+      imports: synthesis.spec.imports,
+      edit: {
+        line: 5, column: 0, expectedStatement: 'extrude(12, e.endFaces())',
+        extrude: {
+          op: 'remove', distance: 5, distance2: null, symmetric: false, draft: null, endOffset: null,
+          drill: true, thin: null, profile: { kind: 'selector', part: 0 }, regionPicks: [],
+        },
+      },
+    });
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain('cut(5, e.startFaces())');
+    expect(edited.newCode).not.toContain('endFaces');
+
+    const rerun = runFluid(edited.newCode);
+    expect(rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean)).toEqual([]);
+    const box = ShapeOps.getBoundingBox(findSolid(rerun));
+    expect(box.minZ).toBeCloseTo(5, 3);
+    expect(box.maxZ).toBeCloseTo(30, 3);
+  });
+});

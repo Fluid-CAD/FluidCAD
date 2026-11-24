@@ -1859,8 +1859,11 @@ const resumeSketchForFeature = () => {
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
 // extruding the active sketch is the primary flow.
 const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
+  // The current selection seeds the dialog: one selected face opens as the
+  // profile. enterPartDialog captures it before its exits clear it.
   onEnter: () => {
-    enterPartDialog('extrude');
+    const { selection } = enterPartDialog('extrude');
+    return { seed: selection };
   },
   onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: suspendSketchForFeature,
@@ -3285,8 +3288,9 @@ viewer.setHoverMoveHandler((shapeId, sub, clientX, clientY) => {
 
 // A dialog only owns the viewport while it consumes picks (each dialog's
 // `isPicking`). Edit sessions own picking like create mode (their slots
-// re-pick against the rolled-back scene) — except extrude and sweep, whose
-// profiles come from dropdown/timeline/wire clicks only.
+// re-pick against the rolled-back scene) — extrude's included, whose profile
+// slot takes a face — except sweep, whose profile comes from
+// dropdown/timeline/wire clicks only.
 const createDialogPicking = () => featureDialogs.isPicking || projectionService.isPicking;
 
 viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {

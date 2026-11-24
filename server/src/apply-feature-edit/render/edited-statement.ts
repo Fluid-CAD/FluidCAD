@@ -13,7 +13,7 @@ import {
 } from '../features/connector.ts';
 import { renderEditedCopy } from '../features/copy.ts';
 import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
-import { renderExtrudeStatement, renderFaceTargetExpr, type ExtrudeTargetKind } from '../features/extrude.ts';
+import { faceProfileRefusal, renderExtrudeStatement, renderFaceTargetExpr, type ExtrudeTargetKind } from '../features/extrude.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { renderLoftConnections, renderLoftStatement, resolveLoftSources, validEditCondition } from '../features/loft.ts';
 import { renderEditedMirror } from '../features/mirror.ts';
@@ -144,6 +144,24 @@ export function renderEditedStatement(
       || typeof opts.symmetric !== 'boolean' || !ValueSlots.validBoolean(opts.drill, kept)) {
       return { error: 'malformed extrude edit spec' };
     }
+    // The re-picked faces — the target and a face profile — are one selector
+    // part each, addressed by index.
+    const partExpr = (index: number): string => {
+      const part = spec.parts[index];
+      return renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
+    };
+    const partAt = (index: unknown): index is number =>
+      Number.isInteger(index) && (index as number) >= 0 && (index as number) < spec.parts.length;
+    const faceProfilePart = opts.profile?.kind === 'selector' ? opts.profile.part : null;
+    const targetPart = opts.toFace?.kind === 'selector' ? opts.toFace.part ?? 0 : null;
+    if (spec.parts.length !== (faceProfilePart === null ? 0 : 1) + (targetPart === null ? 0 : 1)
+      || (faceProfilePart !== null && (!partAt(faceProfilePart) || faceProfilePart === targetPart))) {
+      return {
+        error: targetPart === null && faceProfilePart === null
+          ? 'malformed extrude edit spec: selector parts without a re-picked face'
+          : 'malformed extrude edit spec: a re-picked face is exactly one part',
+      };
+    }
     let faceExpr: string | null = null;
     let target: ExtrudeTargetKind | undefined;
     if (opts.toFace !== undefined) {
@@ -157,25 +175,18 @@ export function renderEditedStatement(
         faceExpr = parsed.toFaceText;
         target = parsed.toFaceKind ?? 'selector';
       } else if (opts.toFace.kind === 'selector') {
-        if (spec.parts.length !== 1) {
+        if (!partAt(targetPart)) {
           return { error: 'malformed extrude edit spec: a re-picked target is exactly one part' };
         }
-        const part = spec.parts[0];
-        faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
+        faceExpr = partExpr(targetPart);
         target = 'selector';
       } else if (opts.toFace.kind === 'first-face' || opts.toFace.kind === 'last-face') {
-        if (spec.parts.length > 0) {
-          return { error: 'malformed extrude edit spec: a first/last-face target takes no selector parts' };
-        }
         faceExpr = renderFaceTargetExpr(opts.toFace.kind);
         target = opts.toFace.kind;
       } else {
         return { error: 'malformed extrude edit spec: unknown to-face target' };
       }
     } else {
-      if (spec.parts.length > 0) {
-        return { error: 'malformed extrude edit spec: selector parts without a to-face target' };
-      }
       if (opts.distance === null) {
         if (opts.op !== 'remove') {
           return { error: 'distance may be null (through-all) only for a remove' };
@@ -191,7 +202,18 @@ export function renderEditedStatement(
       }
     }
     let profileText = parsed.profileText;
-    if (opts.profile !== undefined && opts.profile.kind !== 'keep') {
+    if (faceProfilePart !== null) {
+      // A face is swept as it stands: nothing to offset, no region to pick,
+      // and one argument alone would read as the up-to-face target.
+      const refusal = faceProfileRefusal({
+        distance: opts.distance, thin: opts.thin, toFace: opts.toFace,
+        regionCount: (opts.regions?.length ?? 0) + (opts.regionPicks?.length ?? 0),
+      });
+      if (refusal) {
+        return { error: refusal };
+      }
+      profileText = partExpr(faceProfilePart);
+    } else if (opts.profile !== undefined && opts.profile.kind === 'sketch') {
       const varName = editSourceVar(spec, opts.profile.producer, varFor, true);
       if (typeof varName !== 'string') {
         return varName;
@@ -207,7 +229,8 @@ export function renderEditedStatement(
       statement: renderExtrudeStatement(
         {
           ...rest, profile: profileText ? 'bound' : 'implicit', toFace: target,
-          regions: editedRegions(opts.regions, parsed.regions),
+          // A face profile carries no region chain — the statement's own goes with its sketch.
+          regions: faceProfilePart !== null ? undefined : editedRegions(opts.regions, parsed.regions),
         },
         profileText,
         faceExpr,

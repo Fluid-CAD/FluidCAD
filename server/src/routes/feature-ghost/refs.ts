@@ -395,3 +395,18 @@ export function parseExtrudeTarget(value: unknown): GhostExtrudeTargetRef | null
   }
   return null;
 }
+
+/**
+ * The extrude dialog's face profile — `extrude(d, <face>)` — by the picked
+ * face's viewport address. Null when the reference is not a face pick.
+ */
+export function parseFaceProfile(value: unknown): { kind: 'face'; shapeId: string; index: number } | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const profile = value as { kind?: unknown; shapeId?: unknown; index?: unknown };
+  return profile.kind === 'face' && typeof profile.shapeId === 'string' && profile.shapeId !== ''
+    && Number.isSafeInteger(profile.index) && (profile.index as number) >= 0
+    ? { kind: 'face', shapeId: profile.shapeId, index: profile.index as number }
+    : null;
+}

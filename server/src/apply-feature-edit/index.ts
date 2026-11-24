@@ -42,6 +42,7 @@ export {
 } from './features/connector.ts';
 export type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 export {
+  faceProfileRefusal,
   renderExtrudeStatement,
   renderFaceTargetExpr,
   type ExtrudeEditOptions,

@@ -1,6 +1,7 @@
 // extrude request validation.
 
 import {
+  faceProfileRefusal,
   validValueExpr,
   ValueSlots,
   type BooleanSlot,
@@ -28,13 +29,16 @@ type ExtrudeOptionSet = {
 
 /**
  * The extrude request's shape. The profile is a sketch — `active` consumes it
- * implicitly, `bound` binds it to a variable. `toFace` is the optional
+ * implicitly, `bound` binds it to a variable — or a `face` picked on a
+ * solid, which the statement sweeps as it stands. `toFace` is the optional
  * up-to-face target, which replaces the distance(s): a picked face to
  * synthesize a selector from, or the `'first-face'` / `'last-face'` literal
  * the kernel resolves itself.
  */
 type ExtrudeRequest = ExtrudeOptionSet & {
-  profile: { mode: 'active' | 'bound'; feature: 'sketch' | 'offset' } & SketchLoc;
+  profile:
+    | ({ mode: 'active' | 'bound'; feature: 'sketch' | 'offset' } & SketchLoc)
+    | { mode: 'face'; pick: Pick };
   toFace?: Pick | ExtrudeFaceTarget;
   /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
   scope: SketchLoc[];
@@ -121,13 +125,23 @@ export function validateExtrude(body: any): ExtrudeRequest | { error: string } {
     return options;
   }
   const mode = body?.profile?.mode;
-  const loc = validateSketchLoc(body?.profile);
-  const profileFeature = validateProfileFeature(body?.profile?.feature);
-  if ((mode !== 'active' && mode !== 'bound') || !loc || !profileFeature) {
-    return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch or offset' };
-  }
-  if (profileFeature === 'offset' && mode !== 'bound') {
-    return { error: 'an offset profile is always bound to a variable' };
+  let profile: ExtrudeRequest['profile'];
+  if (mode === 'face') {
+    const pick = validateFaceProfilePick(body.profile.entity);
+    if (!pick) {
+      return { error: FACE_PROFILE_SHAPE };
+    }
+    profile = { mode, pick };
+  } else {
+    const loc = validateSketchLoc(body?.profile);
+    const profileFeature = validateProfileFeature(body?.profile?.feature);
+    if ((mode !== 'active' && mode !== 'bound') || !loc || !profileFeature) {
+      return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch or offset, or {mode: "face", entity} of a picked face' };
+    }
+    if (profileFeature === 'offset' && mode !== 'bound') {
+      return { error: 'an offset profile is always bound to a variable' };
+    }
+    profile = { mode, feature: profileFeature, ...loc };
   }
   const scopeResult = validateScopeLocs(body, options.op);
   if ('error' in scopeResult) {
@@ -139,7 +153,14 @@ export function validateExtrude(body: any): ExtrudeRequest | { error: string } {
   }
   const scope = scopeResult.scope;
   const regions = regionResult.regions;
-  const profile = { mode, feature: profileFeature, ...loc };
+  if (profile.mode === 'face') {
+    const refusal = faceProfileRefusal({
+      distance: options.distance, thin: options.thin, toFace: target, regionCount: regions.length,
+    });
+    if (refusal) {
+      return { error: refusal };
+    }
+  }
   if (!hasToFace) {
     return { ...options, profile, scope, regions };
   }
@@ -151,4 +172,13 @@ export function validateExtrude(body: any): ExtrudeRequest | { error: string } {
     return { error: 'toFace must be "first-face", "last-face" or a {shapeId, sub:{type:"face", index}} pick' };
   }
   return { ...options, profile, toFace: pick, scope, regions };
+}
+
+/** The message for a face profile that is not a face pick. */
+export const FACE_PROFILE_SHAPE = 'a face profile must carry a {shapeId, sub:{type:"face", index}} pick';
+
+/** A face profile's pick: the face the statement sweeps, or null when it is not one. */
+export function validateFaceProfilePick(raw: unknown): Pick | null {
+  const pick = validatePick(raw as Parameters<typeof validatePick>[0]);
+  return pick && pick.sub.type === 'face' ? pick : null;
 }

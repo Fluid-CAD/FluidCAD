@@ -43,8 +43,11 @@ export type ExtrudeGhostRequest = {
   endOffset: number | null;
   drill: boolean;
   thin: [number] | [number, number] | null;
-  /** The producing statement of the profile to extrude. */
-  profile: { filePath: string; line: number };
+  /**
+   * The profile to extrude: a sketch by its producing statement, or a face
+   * picked on a scene solid, swept as it stands (`extrude(d, <face>)`).
+   */
+  profile: GhostExtrudeProfileRef;
   /**
    * The dialog's region picks — declared names and/or boundaries of the
    * regions to build. Absent builds every region; an empty list is the bare
@@ -57,6 +60,11 @@ export type ExtrudeGhostRequest = {
    */
   toFace?: GhostExtrudeTargetRef;
 };
+
+/** An extrude's profile: a sketch statement, or a picked face of a scene solid. */
+export type GhostExtrudeProfileRef =
+  | { filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
 
 /**
  * Where an up-to-face extrude ends: a picked face on a scene solid, or the

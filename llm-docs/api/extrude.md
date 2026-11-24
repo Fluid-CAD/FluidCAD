@@ -23,6 +23,12 @@ extrude("last-face", ...filters, target?)     // up to farthest intersecting fac
 Returns `Extrude` (extends `BooleanOperation`). Pulls the last sketch along
 its plane normal. With no `target`, auto-fuses with anything it touches.
 
+`target` is a sketch, or — after a distance or an up-to-face target — a
+planar face selection, swept as it stands with no sketch in between:
+`extrude(10, e.endFaces())`, `extrude(10, select(face().onPlane("xy", 30)))`.
+A face target takes no `.thin()` or `.region()`. A face selection
+passed alone is the up-to-face target, not the profile.
+
 ## Chain methods
 
 - `.symmetric()` — extrude equally in both directions; `extrude(30).symmetric()` gives total span 60.

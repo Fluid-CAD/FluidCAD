@@ -16,6 +16,7 @@ import { SelectHoist } from '../../select-hoist.ts';
 import { enclosingStatement, rowOfIndex } from '../ast/nodes.ts';
 import { validChamferOptions } from '../features/chamfer.ts';
 import { ColorValues } from '../features/color.ts';
+import { faceProfileRefusal } from '../features/extrude.ts';
 import { CONNECTOR_NAME, validConnectorAnchor, validConnectorOffset, validConnectorRotate } from '../features/connector.ts';
 import type { CopyAxisSpec } from '../features/copy.ts';
 import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
@@ -76,15 +77,33 @@ export async function applyCreateEdit(
     // the face, whose own producers follow the profile in the list; a distance
     // or first/last-face extrude carries none beyond its scope targets, which
     // are bound feature producers trailing the list.
-    const scope = spec.extrude?.scope ?? [];
-    const valid = spec.extrude !== undefined && spec.producers.length >= 1
-      && ValueSlots.validBoolean(spec.extrude.drill)
+    // A face profile has no sketch producer: it is one more selector part
+    // (`profilePart`), its producers riding the list like the target's.
+    const ext = spec.extrude;
+    const scope = ext?.scope ?? [];
+    const partAt = (index: number | undefined): boolean =>
+      Number.isInteger(index) && index! >= 0 && index! < spec.parts.length;
+    const selectorTarget = ext?.toFace === 'selector';
+    const faceProfile = ext?.profile === 'face';
+    const toFacePart = ext?.toFacePart ?? 0;
+    const valid = ext !== undefined && spec.producers.length >= 1
+      && ValueSlots.validBoolean(ext.drill)
       && scope.every(p => isScopeTargetProducer(spec, p))
-      && (spec.extrude.toFace === 'selector'
-        ? spec.parts.length === 1
-        : spec.producers.length === 1 + scope.length && spec.parts.length === 0);
+      && spec.parts.length === (selectorTarget ? 1 : 0) + (faceProfile ? 1 : 0)
+      && (!selectorTarget || partAt(toFacePart))
+      && (!faceProfile || (partAt(ext.profilePart) && !(selectorTarget && ext.profilePart === toFacePart)))
+      && (selectorTarget || faceProfile || spec.producers.length === 1 + scope.length);
     if (!valid) {
       return { newCode: code, error: 'malformed extrude edit spec' };
+    }
+    if (faceProfile) {
+      const refusal = faceProfileRefusal({
+        distance: ext.distance, thin: ext.thin, toFace: ext.toFace,
+        regionCount: (ext.regions?.length ?? 0) + (ext.regionPicks?.length ?? 0),
+      });
+      if (refusal) {
+        return { newCode: code, error: refusal };
+      }
     }
   } else if (spec.feature === 'rib') {
     // The spine sketch (implicit consumption or a bound variable) is always

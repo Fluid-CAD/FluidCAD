@@ -530,15 +530,19 @@ export type FeatureStatementEditTarget = {
     /** The drill flag, or an expression computing it (`drill(flag)`). */
     drill: BooleanSlot;
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
-    /** Re-sourced profile; absent keeps the statement's profile text. */
-    profile?: EditSketchSource;
+    /**
+     * Re-sourced profile: a bound sketch, or — `selector` — a re-picked face
+     * rendered from `parts[part]` and swept as it stands. Absent keeps the
+     * statement's profile text.
+     */
+    profile?: EditSketchSource | { kind: 'selector'; part: number };
     /**
      * Up-to-face target: `keep` re-emits the statement's own target text,
-     * `selector` renders the re-picked face from `parts`, `first-face` /
-     * `last-face` render that literal. Absent writes the distance form
-     * (dropping any target the statement had).
+     * `selector` renders the re-picked face from `parts[part]` (the first
+     * when absent), `first-face` / `last-face` render that literal. Absent
+     * writes the distance form (dropping any target the statement had).
      */
-    toFace?: { kind: 'keep' | ExtrudeTargetKind };
+    toFace?: { kind: 'keep' | ExtrudeTargetKind; part?: number };
     /**
      * Full replacement `.scope(…)` list — `verbatim` keeps by position in the
      * statement's own argument texts, re-picked solid statements by bound

@@ -24,10 +24,13 @@ export function renderFaceTargetExpr(target: ExtrudeFaceTarget): string {
 }
 
 /**
- * How an extrude statement is rendered and placed. The single producer is the
- * profile *sketch* call. `implicit` consumes the scope's last sketch
- * (`extrude(25)`); `bound` binds the sketch to a variable (`const s = …;
- * extrude(25, s)`). Either way the statement inserts at end of scope.
+ * How an extrude statement is rendered and placed. A sketch profile is the
+ * first producer, the profile *sketch* call: `implicit` consumes the scope's
+ * last sketch (`extrude(25)`); `bound` binds the sketch to a variable
+ * (`const s = …; extrude(25, s)`). A `face` profile is a picked face instead
+ * — the selector part at `profilePart`, rendered as the trailing argument
+ * (`extrude(25, e.endFaces())`), which the kernel sweeps as it stands. Every
+ * form inserts at end of scope.
  */
 export type ExtrudeEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -52,15 +55,22 @@ export type ExtrudeEditOptions = {
   drill: BooleanSlot;
   /** `.thin(a)` / `.thin(a, b)` offsets, or null for a plain extrude. */
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
-  profile: 'implicit' | 'bound';
+  profile: 'implicit' | 'bound' | 'face';
   /**
-   * Up-to-face mode: the target renders as the call's first argument — the
-   * single selector part (a picked face) for `selector`, the literal for
+   * The selector part a `face` profile renders from. A face is swept as it
+   * stands, so it excludes `thin`, `regions` and a through-all `distance`.
+   */
+  profilePart?: number;
+  /**
+   * Up-to-face mode: the target renders as the call's first argument — a
+   * selector part (a picked face) for `selector`, the literal for
    * `first-face` / `last-face` — as `extrude(<target>[, s])` /
    * `cut(<target>[, s])`, in place of the distance(s). Excludes
    * `distance`/`distance2`/`symmetric`.
    */
   toFace?: ExtrudeTargetKind;
+  /** The selector part a `selector` target renders from; absent reads as the first. */
+  toFacePart?: number;
   /**
    * Producer indices of the `.scope(…)` targets, in pick order — the
    * solid-bearing statements the boolean fuses with or cuts from (rib's
@@ -87,15 +97,16 @@ export type ExtrudeEditOptions = {
 /**
  * Render an extrude statement from its options: `extrude(25)` / `cut()`
  * (through-all) / `extrude(10, 20)` (two distances) / `extrude(25, s)` for a
- * bound profile / `extrude(<faceExpr>)` for an up-to-face extrude — a picked
- * face's selector or a `'first-face'` / `'last-face'` literal — plus
+ * bound profile (`profileExpr` its variable) or a face one (`profileExpr` the
+ * face's selector) / `extrude(<faceExpr>)` for an up-to-face extrude — a
+ * picked face's selector or a `'first-face'` / `'last-face'` literal — plus
  * `.symmetric()` / `.draft(…)` / `.endOffset(…)` / `.drill(false)` /
  * `.thin(…)` / `.new()` chains. Shared with the route's preview so the
  * previewed text is exactly what the transform writes.
  */
 export function renderExtrudeStatement(
   ext: ExtrudeEditOptions,
-  profileVar: string | null,
+  profileExpr: string | null,
   faceExpr: string | null = null,
   scopeExprs: string[] = [],
 ): string {
@@ -109,8 +120,8 @@ export function renderExtrudeStatement(
       callArgs.push(formatValue(ext.distance2));
     }
   }
-  if (ext.profile === 'bound') {
-    callArgs.push(profileVar ?? 's');
+  if (ext.profile === 'bound' || ext.profile === 'face') {
+    callArgs.push(profileExpr ?? 's');
   }
   let statement = `${callee}(${callArgs.join(', ')})` + renderRegionChain(ext.regions);
   if (ext.symmetric) {
@@ -133,4 +144,28 @@ export function renderExtrudeStatement(
     statement += '.new()';
   }
   return statement + renderScopeChain(scopeExprs);
+}
+
+/**
+ * What a face profile cannot carry, as the kernel refuses it: the face is
+ * swept as it stands, so there is nothing to offset into a thin wall, no
+ * region to pick out of it, and — with one argument reading as the
+ * up-to-face target — no through-all form. Null when the options fit.
+ */
+export function faceProfileRefusal(ext: {
+  distance: ValueExpr | null;
+  thin: unknown;
+  toFace?: unknown;
+  regionCount: number;
+}): string | null {
+  if (ext.thin) {
+    return 'a face profile cannot be extruded thin';
+  }
+  if (ext.regionCount > 0) {
+    return 'a face profile has no regions to pick';
+  }
+  if (ext.distance === null && (ext.toFace === undefined || ext.toFace === null)) {
+    return 'a face profile cannot cut through all — give it a depth';
+  }
+  return null;
 }

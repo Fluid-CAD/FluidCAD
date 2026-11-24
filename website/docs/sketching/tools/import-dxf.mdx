@@ -33,16 +33,17 @@ To try it, save the [sample mounting plate](/img/docs/sketching/mounting-plate.d
 
 <UiFigure
   src="/img/docs/ui/import-dxf-dialog.png"
-  alt="Import DXF dialog showing the chosen file, a File unit select, a Scale field, three layers with tick boxes, a Join ends that meet toggle, As drawn and Centre in view buttons with the drawing's size and centre, what Import would write, and a folded Warnings section"
+  alt="Import DXF dialog showing the chosen file, a File unit select, a Scale field, three layers with tick boxes, Join ends that meet and Fix in place toggles, As drawn and Centre in view buttons with the drawing's size and centre, what Import would write, and a folded Warnings section"
   markers={[
-    {n: 1, x: 4, y: 10.6, label: 'Choose DXF…', description: 'Read a file, or another one in place of the current one.'},
-    {n: 2, x: 4, y: 24.9, label: 'File unit', description: 'The unit the file\'s numbers are in. They are converted into the document\'s unit.'},
-    {n: 3, x: 4, y: 35.7, label: 'Scale', description: 'A factor on top of the unit conversion. Dragging a corner sets it too.'},
-    {n: 4, x: 4, y: 46.9, label: 'Layers', description: 'Only ticked layers are imported. Shown when the file has more than one.'},
-    {n: 5, x: 4, y: 57.3, label: 'Join ends that meet', description: 'Write a coincident constraint at every shared end point.'},
-    {n: 6, x: 4, y: 67.1, label: 'Position', description: 'As drawn puts the drawing back at the file\'s coordinates, Centre in view in the middle of the view. Under them, read-only: the placed drawing\'s size, centre and angle.'},
-    {n: 7, x: 4, y: 79.3, label: 'What Import writes', description: 'The number of sketch entities and joins.'},
-    {n: 8, x: 4, y: 85.6, label: 'Warnings', description: 'Folded, with a count: what the file holds that was left out or written approximately. Click to read them.'},
+    {n: 1, x: 4, y: 10.5, label: 'Choose DXF…', description: 'Read a file, or another one in place of the current one.'},
+    {n: 2, x: 4, y: 24.5, label: 'File unit', description: 'The unit the file\'s numbers are in. They are converted into the document\'s unit.'},
+    {n: 3, x: 4, y: 35.2, label: 'Scale', description: 'A factor on top of the unit conversion. Dragging a corner sets it too.'},
+    {n: 4, x: 4, y: 46.3, label: 'Layers', description: 'Only ticked layers are imported. Shown when the file has more than one.'},
+    {n: 5, x: 4, y: 56.4, label: 'Join ends that meet', description: 'Write a coincident constraint at every shared end point.'},
+    {n: 6, x: 4, y: 61.7, label: 'Fix in place', description: 'Also pin the drawing where it lands, so the sketch is fully constrained.'},
+    {n: 7, x: 4, y: 71.4, label: 'Position', description: 'As drawn puts the drawing back at the file\'s coordinates, Centre in view in the middle of the view. Under them, read-only: the placed drawing\'s size, centre and angle.'},
+    {n: 8, x: 4, y: 80.9, label: 'What Import writes', description: 'The number of sketch entities, joins and fixing constraints.'},
+    {n: 9, x: 4, y: 87, label: 'Warnings', description: 'Folded, with a count: what the file holds that was left out or written approximately. Click to read them.'},
   ]}
   caption="Import writes the statements. Cancel leaves the sketch untouched."
 />
@@ -62,6 +63,28 @@ Each layer of the file that has curves on it gets a tick box with its number of 
 A sketch does not treat two ends as connected because they share coordinates; a [coincident](/docs/sketching/constraints/introduction) constraint connects them. With **Join ends that meet** on, the import writes one wherever ends are within a thousandth of a millimetre of each other, so an imported outline stays in one piece when you drag part of it. It starts on when the sketch's **Infer while drawing** setting is on.
 
 Turn it off to get the geometry alone. The outline still forms closed profiles and extrudes; it just comes apart when dragged.
+
+### Fix in place
+
+By default an import is free geometry: it sits where the file drew it, and you can drag any part of it. Turn **Fix in place** on to pin it there instead, so the sketch is fully constrained the moment it is imported — useful for a profile that should be used as it is, or as a fixed outline to build other geometry against.
+
+The import then also writes:
+
+- a `fix` on every point — once per meeting point when ends are joined, so nothing is stated twice;
+- a `radius` on every arc and a `diameter` on every circle;
+- both semi-radii of every ellipse, and `horizontal` or `vertical` when it lies along a sketch axis;
+- a `fix` on every control point of a bezier.
+
+<UiFigure
+  src="/img/docs/ui/import-dxf-fixed.png"
+  alt="The mounting plate imported with Fix in place: green geometry with F glyphs at its points, R8 dimensions on its corners and diameter 6 dimensions on its holes, and the status Fully constrained"
+  caption="Imported with Fix in place: every point is fixed, every size dimensioned, and the sketch reports Fully constrained."
+/>
+
+To change part of a fixed import, delete the constraints that hold it (pick the glyph or the dimension and press <kbd>Delete</kbd>) and add your own. Two details:
+
+- An arc of about a half turn is not held by a radius: with both ends fixed, its radius barely changes as it bulges, so the constraint would hold nothing. Its centre is held level with its start instead (`vertical(a.start(), a.center())`), or at a distance from it along one axis.
+- An ellipse turned off the sketch axes keeps one degree of freedom, its angle: no constraint holds it.
 
 ## Move, scale and rotate
 
@@ -101,7 +124,7 @@ A sketch has no statement for an elliptical arc, a weighted (rational) spline or
 
 ## After importing
 
-The imported entities sit at the positions the file gave them but are not yet dimensioned: the status at the bottom of the viewport reports the degrees of freedom that remain. They extrude as they are. To make the sketch driven by dimensions, [constrain](/docs/sketching/constraints/introduction) it the usual way — pin a point, add horizontal and vertical constraints, dimension the sizes that matter.
+Unless you imported with [Fix in place](#fix-in-place), the entities sit at the positions the file gave them but are not yet dimensioned: the status at the bottom of the viewport reports the degrees of freedom that remain. They extrude as they are. To make the sketch driven by dimensions, [constrain](/docs/sketching/constraints/introduction) it the usual way — pin a point, add horizontal and vertical constraints, dimension the sizes that matter.
 
 In the code, the import is plain sketch statements, with coordinates written to more decimals than a clicked point so corners, tangencies and centres stay as exact as the file had them:
 

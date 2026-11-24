@@ -59,9 +59,6 @@ const SHAPES_FILE_BASE = 'export';
  */
 const DRAWING_FORMATS: ReadonlySet<string> = new Set<ExportFormat>(['dxf', 'svg']);
 
-/** What the whole assembly's dialog says in place of the drawing options. */
-const DRAWING_PARTS_ONLY = 'DXF/SVG exports are supported only on single parts';
-
 /** The SVG stroke width the dialog opens on, in millimetres — the server's own default. */
 const DEFAULT_STROKE_WIDTH_MM = 0.25;
 /** The thinnest stroke the dialog sends; anything under it (or not a number) is left to the server's default. */
@@ -106,7 +103,6 @@ export class ExportDialog {
   private titleEl: HTMLHeadingElement;
   private purposeEl: HTMLParagraphElement;
   private pillsContainer: HTMLDivElement;
-  private formatNoteEl: HTMLParagraphElement;
   /** An export of this opening is running: Export stays disabled until it ends. */
   private busy = false;
   private stepSection: HTMLDivElement;
@@ -170,7 +166,6 @@ export class ExportDialog {
     this.titleEl = this.overlay.querySelector('[data-ref="title"]')!;
     this.purposeEl = this.overlay.querySelector('[data-ref="purpose"]')!;
     this.pillsContainer = this.overlay.querySelector('[data-ref="format-pills"]')!;
-    this.formatNoteEl = this.overlay.querySelector('[data-ref="format-note"]')!;
     this.stepSection = this.overlay.querySelector('[data-ref="step-section"]')!;
     this.stlSection = this.overlay.querySelector('[data-ref="stl-section"]')!;
     this.pngSection = this.overlay.querySelector('[data-ref="png-section"]')!;
@@ -248,15 +243,16 @@ export class ExportDialog {
     const whole = target.kind === 'assembly';
     this.titleEl.textContent = whole ? 'Export assembly' : 'Export';
     this.purposeEl.textContent = whole
-      ? 'Every part where it sits, as one STEP assembly or one STL mesh. Pick a format, then press Export.'
+      ? 'Every part where it sits, as one STEP assembly, one STL mesh or one DXF or SVG drawing. Pick a format, then press Export.'
       : '';
     this.purposeEl.classList.toggle('hidden', !whole);
     this.statusEl.classList.add('hidden');
-    this.busy = false;
+    // An export still running belongs to the opening before: this one can press Export.
+    this.setBusy(false);
     this.session++;
     // Every opening starts on the row on screen.
     this.configurationPick = null;
-    this.syncFormatPills();
+    this.syncDrawingSection();
     // ...and a drawing on the side the model is being looked at from.
     this.drawingViewSelect.value = DrawingViews.facing(this.view?.eyeDirection() ?? null);
     this.syncConfigurationControls();
@@ -303,7 +299,6 @@ export class ExportDialog {
               <input class="join-item btn btn-sm flex-1 border-0 border-r border-base-content/10 checked:btn-primary" type="radio" name="export-format" aria-label="SVG" data-format="svg" />
               <input class="join-item btn btn-sm flex-1 border-0 checked:btn-primary" type="radio" name="export-format" aria-label="PNG" data-format="png" />
             </div>
-            <p data-ref="format-note" class="hidden mt-2 text-xs text-base-content/60">${DRAWING_PARTS_ONLY}</p>
           </div>
 
           <div data-ref="step-section">
@@ -418,59 +413,25 @@ export class ExportDialog {
     this.stlSection.classList.toggle('hidden', format !== 'stl');
     this.pngSection.classList.toggle('hidden', format !== 'png');
     this.strokeSection.classList.toggle('hidden', format !== 'svg');
-    this.syncDrawingAvailability();
+    this.syncDrawingSection();
     this.syncConfigurationControls();
     this.syncPreview();
   }
 
-  /**
-   * The drawing formats belong to solids: the whole assembly cannot be drawn
-   * yet. Its dialog still offers the pills, but a drawing format picked on it
-   * has nothing to export.
-   */
-  private drawingUnavailable(): boolean {
-    return this.target.kind === 'assembly' && DRAWING_FORMATS.has(this.selectedFormat);
-  }
-
-  /**
-   * Show the drawing options for a drawing format — or, on the whole
-   * assembly, the note saying drawings are for single parts, with Export
-   * disabled.
-   */
-  private syncDrawingAvailability(): void {
-    const unavailable = this.drawingUnavailable();
-    this.drawingSection.classList.toggle('hidden', unavailable || !DRAWING_FORMATS.has(this.selectedFormat));
-    this.formatNoteEl.classList.toggle('hidden', !unavailable);
-    this.syncExportButton();
-  }
-
-  /** Export is pressable unless an export is running or the format picked has nothing to export. */
-  private syncExportButton(): void {
-    this.exportBtn.disabled = this.busy || this.drawingUnavailable();
+  /** Show the drawing options for a drawing format. */
+  private syncDrawingSection(): void {
+    this.drawingSection.classList.toggle('hidden', !DRAWING_FORMATS.has(this.selectedFormat));
   }
 
   private setBusy(busy: boolean): void {
     this.busy = busy;
-    this.syncExportButton();
-  }
-
-  /**
-   * Every opening on the whole assembly starts on a format it can export: a
-   * drawing pill left selected by an earlier opening goes back to STEP.
-   */
-  private syncFormatPills(): void {
-    if (this.drawingUnavailable()) {
-      this.pillsContainer.querySelector<HTMLInputElement>('[data-format="step"]')!.checked = true;
-      this.setFormat('step');
-      return;
-    }
-    this.syncDrawingAvailability();
+    this.exportBtn.disabled = busy;
   }
 
   /**
    * Bring the preview in step with the dialog: the drawing the options on
-   * screen would export, while the dialog is open on solids with a drawing
-   * format picked; nothing is asked of the server otherwise. `force` asks
+   * screen would export, while the dialog is open with a drawing format
+   * picked; nothing is asked of the server otherwise. `force` asks
    * again for options already previewed — the scene behind them changed.
    *
    * The preview is always an SVG, for a DXF too: the two are the same
@@ -483,17 +444,28 @@ export class ExportDialog {
     if (this.overlay.classList.contains('hidden')) {
       return;
     }
-    if (this.target.kind !== 'shapes' || !DRAWING_FORMATS.has(this.selectedFormat)) {
+    if (!DRAWING_FORMATS.has(this.selectedFormat)) {
       this.preview.pause();
       return;
     }
     const configuration = this.configurationToExport();
-    const body: ExportRequestBody = {
-      format: 'svg',
-      shapeIds: this.target.shapeIds,
+    const options = {
       ...this.drawingOptions(),
       ...(configuration?.kind === 'one' ? { configuration: configuration.name } : {}),
     };
+    let body: ExportRequestBody;
+    if (this.target.kind === 'assembly') {
+      // The whole assembly is drawn where its parts sit on screen; one that
+      // cannot say where (no part inserted yet) has nothing to preview.
+      const poses = this.collectAssemblyPoses();
+      if ('reason' in poses) {
+        this.preview.pause();
+        return;
+      }
+      body = { format: 'svg', assembly: { poses: poses.poses }, ...options };
+    } else {
+      body = { format: 'svg', shapeIds: this.target.shapeIds, ...options };
+    }
     const everyRow = configuration?.kind === 'all';
     this.previewNote.textContent = everyRow ? 'The preview shows the configuration on screen.' : '';
     this.previewNote.classList.toggle('hidden', !everyRow);
@@ -671,10 +643,6 @@ export class ExportDialog {
 
     let body: ExportRequestBody;
     if (this.target.kind === 'assembly') {
-      if (DRAWING_FORMATS.has(format)) {
-        this.showError(DRAWING_PARTS_ONLY);
-        return;
-      }
       const poses = this.collectAssemblyPoses();
       if ('reason' in poses) {
         this.showError(poses.reason);

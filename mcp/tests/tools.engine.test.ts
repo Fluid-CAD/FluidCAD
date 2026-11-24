@@ -481,16 +481,15 @@ describe('export', () => {
       expect(unreadable.ok && 'warnings' in (unreadable.data as object)).toBe(false);
     });
 
-    it('leaves the whole assembly to the server, which has no drawing of it yet', async () => {
-      exportConfig.status = 422;
-      exportConfig.body = Buffer.from(JSON.stringify({ error: 'A DXF drawing of the whole assembly is not available yet. Export a part or its solids instead.' }));
-      exportConfig.contentType = 'application/json';
+    it('draws the whole assembly, and says where its parts were put', async () => {
+      exportConfig.body = Buffer.from('dxf-bytes');
+      exportConfig.contentType = 'image/vnd.dxf';
+      exportConfig.posesSource = 'solved';
       const result = await exportShapes({ format: 'dxf', assembly: true, plane: 'top' });
       expect(exportConfig.lastBody).toEqual({ format: 'dxf', assembly: {}, plane: 'top' });
-      expect(result.ok).toBe(false);
-      if (result.ok) { return; }
-      expect(result.code).toBe('http-error');
-      expect(result.message).toMatch(/whole assembly is not available yet/);
+      expect(result.ok).toBe(true);
+      if (!result.ok) { return; }
+      expect(result.data).toMatchObject({ format: 'dxf', posesSource: 'solved', bytes: 9 });
     });
   });
 
@@ -567,16 +566,15 @@ describe('export', () => {
       expect(exportConfig.lastBody).toEqual({ format: 'svg', shapeIds: ['sh-1'], plane: 'top', margin: 2, saveAsPath: out });
     });
 
-    it('leaves the whole assembly to the server, which has no drawing of it yet', async () => {
-      exportConfig.status = 422;
-      exportConfig.body = Buffer.from(JSON.stringify({ error: 'A SVG drawing of the whole assembly is not available yet. Export a part or its solids instead.' }));
-      exportConfig.contentType = 'application/json';
+    it('draws the whole assembly as text, and says where its parts were put', async () => {
+      exportConfig.body = Buffer.from('<svg/>');
+      exportConfig.contentType = 'image/svg+xml';
+      exportConfig.posesSource = 'solved';
       const result = await exportShapes({ format: 'svg', assembly: true, plane: 'top' });
       expect(exportConfig.lastBody).toEqual({ format: 'svg', assembly: {}, plane: 'top' });
-      expect(result.ok).toBe(false);
-      if (result.ok) { return; }
-      expect(result.code).toBe('http-error');
-      expect(result.message).toMatch(/whole assembly is not available yet/);
+      expect(result.ok).toBe(true);
+      if (!result.ok) { return; }
+      expect(result.data).toMatchObject({ format: 'svg', text: '<svg/>', posesSource: 'solved' });
     });
   });
 

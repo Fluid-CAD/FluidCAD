@@ -4,7 +4,7 @@ import { unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { standardPlaneView } from "../math/plane.js";
 import { DrawingExport, DxfWriter, SvgWriter } from "./drawing/index.js";
-import type { DrawingExportOptions } from "./drawing/index.js";
+import type { Drawing2D, DrawingExportOptions } from "./drawing/index.js";
 
 /** The options of a 3D export: the solids themselves, as B-rep (STEP) or mesh (STL). */
 export interface SolidExportOptions {
@@ -85,8 +85,17 @@ export class FileExport {
       tangentEdges: options.tangentEdges,
       unit: options.unit ?? 'mm',
     });
+    return FileExport.writeDrawing(drawing, options, 'export');
+  }
+
+  /**
+   * A drawing as the file its format asks for, named after the view it
+   * shows (`<base>-top.dxf`, `<base>-top.svg`): one model is usually drawn
+   * on several planes.
+   */
+  static writeDrawing(drawing: Drawing2D, options: Omit<DrawingExportOptions, 'unit'>, base: string): ExportResult {
     const view = standardPlaneView(options.plane);
-    const fileName = `export-${view}.${options.format}`;
+    const fileName = `${base}-${view}.${options.format}`;
     const data = options.format === 'svg'
       ? SvgWriter.write(drawing, { ...options.svg, title: `${view[0].toUpperCase()}${view.slice(1)} view` })
       : DxfWriter.write(drawing);

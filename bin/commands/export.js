@@ -75,11 +75,11 @@ export function registerExportCommand(program) {
     .action(runner(runStlExport));
 
   withCommonOptions(exportCommand.command('dxf'))
-    .description('Export a 2D drawing of the model\'s view on a standard plane as a DXF file')
+    .description('Export a 2D drawing of the model\'s view on a standard plane as a DXF file (an assembly is drawn whole, every part where it sits)')
     .option('--plane <name>', `the plane the model is drawn on (required): ${Object.keys(DRAWING_PLANES).join(', ')}`)
     .option('--hidden-lines', 'draw the edges behind the model too, dashed, on their own HIDDEN layer')
     .option('--tangent-edges', 'draw smooth edges such as a fillet\'s borders, on their own TANGENT layer')
-    .option('--shapes <ids...>', 'shapes to draw by position, feature name, or id (defaults to every solid)')
+    .option('--shapes <ids...>', 'shapes to draw by position, feature name, or id (defaults to every solid; on an assembly, to the whole assembly)')
     .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
     .option('--all-configurations', 'export every configurations() row: <model>-<view>.dxf for Default, <model>-<Row>-<view>.dxf per row')
     .addHelpText('after', drawingPlanesHelp('dxf'))
@@ -87,13 +87,13 @@ export function registerExportCommand(program) {
     .action(runner((opts) => runDrawingExport('dxf', opts)));
 
   withCommonOptions(exportCommand.command('svg'))
-    .description('Export a 2D drawing of the model\'s view on a standard plane as an SVG file')
+    .description('Export a 2D drawing of the model\'s view on a standard plane as an SVG file (an assembly is drawn whole, every part where it sits)')
     .option('--plane <name>', `the plane the model is drawn on (required): ${Object.keys(DRAWING_PLANES).join(', ')}`)
     .option('--hidden-lines', 'draw the edges behind the model too, dashed, in their own "hidden" layer')
     .option('--tangent-edges', 'draw smooth edges such as a fillet\'s borders, in their own "tangent" layer')
     .option('--stroke-width <mm>', 'stroke width of the visible edges, in millimetres on paper (default: 0.25)')
     .option('--margin <mm>', 'blank margin around the drawing, in millimetres on paper (default: 5)')
-    .option('--shapes <ids...>', 'shapes to draw by position, feature name, or id (defaults to every solid)')
+    .option('--shapes <ids...>', 'shapes to draw by position, feature name, or id (defaults to every solid; on an assembly, to the whole assembly)')
     .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
     .option('--all-configurations', 'export every configurations() row: <model>-<view>.svg for Default, <model>-<Row>-<view>.svg per row')
     .addHelpText('after', drawingPlanesHelp('svg'))

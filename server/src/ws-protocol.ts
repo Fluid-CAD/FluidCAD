@@ -82,7 +82,7 @@ export type ExportSceneMessage = {
    */
   assembly?: { poses?: ExportInstancePose[] };
   options: {
-    /** `dxf` and `svg` draw the solids' view on `plane` instead of writing them; they take no assembly. */
+    /** `dxf` and `svg` draw the solids' — or the whole assembly's — view on `plane` instead of writing them. */
     format: 'step' | 'stl' | 'dxf' | 'svg';
     includeColors?: boolean;
     resolution?: string;

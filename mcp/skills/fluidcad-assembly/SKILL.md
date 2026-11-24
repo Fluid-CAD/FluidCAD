@@ -209,7 +209,7 @@ Everything else follows the core skill: `render.state`, `objectErrors` (a failin
 
 ## 10. Export
 
-`export` with `assembly: true` (an open `*.assembly.js` file) writes the whole assembly: STEP keeps the tree (shared part prototypes, one component per instance, sub-assemblies nested, names carried); STL flattens every placed part into one mesh, scaled to mm by default. The result's `posesSource` is `"solved"`: every part sits where the mates put it, the rest configuration. `"statement"` means the mates could not be solved and parts sit where the source places them: tell the user. For a mechanism in a position the user dragged it to, point them at the viewer's Export. Pass `saveAsPath`; never round-trip the bytes through the conversation.
+`export` with `assembly: true` (an open `*.assembly.js` file) writes the whole assembly: STEP keeps the tree (shared part prototypes, one component per instance, sub-assemblies nested, names carried); STL flattens every placed part into one mesh, scaled to mm by default; DXF and SVG (with a `plane`) draw the whole assembly as seen from one side, hidden lines removed, a part in front hiding what is behind it. The result's `posesSource` is `"solved"`: every part sits where the mates put it, the rest configuration. `"statement"` means the mates could not be solved and parts sit where the source places them: tell the user. For a mechanism in a position the user dragged it to, point them at the viewer's Export. Pass `saveAsPath`; never round-trip the bytes through the conversation.
 
 ## Traps specific to assemblies
 

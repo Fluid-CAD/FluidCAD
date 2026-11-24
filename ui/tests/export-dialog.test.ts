@@ -663,66 +663,45 @@ describe('ExportDialog drawing (DXF, SVG)', () => {
     expect(await zip.file('plate-M8-front.dxf')!.async('string')).toBe('dxf M8');
   });
 
-  it('lets the whole assembly pick DXF or SVG, which shows a note in place of the options and disables Export', async () => {
+  it('draws the whole assembly as DXF or SVG: the drawing options, every part where it sits, a file named after the view', async () => {
     const { dialog, container, exportShapes, q, pickFormat } = mount(provider());
-    const noteShown = (): boolean => !q('format-note').classList.contains('hidden');
-    const exportBtn = q<HTMLButtonElement>('export-btn');
-
     dialog.show({ kind: 'assembly' });
-    // Every pill is on screen and can be picked; the note waits for a drawing format.
     expect([...container.querySelectorAll<HTMLInputElement>('[data-format]')]
       .filter((p) => !p.classList.contains('hidden') && !p.disabled).map((p) => p.dataset.format)).toEqual(['step', 'stl', 'dxf', 'svg', 'png']);
-    expect(noteShown()).toBe(false);
-    expect(exportBtn.disabled).toBe(false);
+    expect(q('purpose').textContent).toContain('one DXF or SVG drawing');
 
-    for (const format of ['dxf', 'svg']) {
-      pickFormat(format);
-      expect(noteShown()).toBe(true);
-      expect(q('format-note').textContent).toBe('DXF/SVG exports are supported only on single parts');
-      expect(q('drawing-section').classList.contains('hidden')).toBe(true);
-      expect(exportBtn.disabled).toBe(true);
-    }
-    exportBtn.click();
-    await Promise.resolve();
-    expect(exportShapes).not.toHaveBeenCalled();
-    expect(q('status').classList.contains('hidden')).toBe(true);
+    pickFormat('dxf');
+    expect(q('drawing-section').classList.contains('hidden')).toBe(false);
+    expect(q<HTMLButtonElement>('export-btn').disabled).toBe(false);
+    pickView(q, 'front');
+    toggle(q, 'hidden-lines');
 
-    // Another format takes the note away and gives Export back.
-    pickFormat('stl');
-    expect(noteShown()).toBe(false);
-    expect(q('stl-section').classList.contains('hidden')).toBe(false);
-    expect(exportBtn.disabled).toBe(false);
+    await clickExport(q);
+    expect(requestsOf(exportShapes, 'dxf')).toEqual([{
+      format: 'dxf',
+      assembly: { poses: [{ instanceId: 'inst-a', ...POSES['inst-a'] }, { instanceId: 'inst-b', ...POSES['inst-b'] }] },
+      plane: 'front', hiddenLines: true, tangentEdges: false,
+    }]);
+    expect(deliverFileMock.mock.calls[0][1]).toBe('robot-front.dxf');
   });
 
-  it('opens the whole assembly on STEP when a drawing format was left selected, and gives solids their options back', async () => {
-    const { dialog, container, exportShapes, q, pickFormat } = mount(provider());
+  it('keeps a drawing format picked from one opening to the next, on the assembly as on solids', async () => {
+    const { dialog, container, q, pickFormat } = mount(provider());
     const pill = (format: string): HTMLInputElement => container.querySelector<HTMLInputElement>(`[data-format="${format}"]`)!;
 
     dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
     pickFormat('svg');
-    expect(q('format-note').classList.contains('hidden')).toBe(true);
+    dialog.hide();
+
+    dialog.show({ kind: 'assembly' });
+    expect(pill('svg').checked).toBe(true);
     expect(q('drawing-section').classList.contains('hidden')).toBe(false);
+    expect(q('stroke-section').classList.contains('hidden')).toBe(false);
     dialog.hide();
 
-    dialog.show({ kind: 'assembly' });
-    expect(pill('step').checked).toBe(true);
-    expect(q('format-note').classList.contains('hidden')).toBe(true);
-    expect(q('drawing-section').classList.contains('hidden')).toBe(true);
-    expect(q('step-section').classList.contains('hidden')).toBe(false);
-
-    await clickExport(q);
-    expect((exportShapes.mock.calls[0][0] as any).format).toBe('step');
-    expect(deliverFileMock.mock.calls[0][1]).toBe('robot.step');
-
-    // A drawing format picked on the assembly is a drawing again on solids.
-    dialog.show({ kind: 'assembly' });
-    pickFormat('dxf');
-    dialog.hide();
     dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
-    expect(pill('dxf').checked).toBe(true);
-    expect(q('format-note').classList.contains('hidden')).toBe(true);
+    expect(pill('svg').checked).toBe(true);
     expect(q('drawing-section').classList.contains('hidden')).toBe(false);
-    expect(q<HTMLButtonElement>('export-btn').disabled).toBe(false);
   });
 
   it('SVG sends the drawing options and its stroke width, and downloads <base>-<view>.svg', async () => {
@@ -1031,12 +1010,24 @@ describe('ExportDialog drawing preview', () => {
     expect(exportShapes).toHaveBeenCalledTimes(1);
   });
 
-  it('asks nothing for the whole assembly', async () => {
+  it('previews the whole assembly where its parts sit', async () => {
     const whole = mount(provider());
-    whole.dialog.show({ kind: 'shapes', shapeIds: ['s-1'] });
-    whole.pickFormat('dxf');
-    whole.dialog.hide();
+    whole.exportShapes.mockImplementation(async () => new Blob([SVG], { type: 'image/svg+xml' }));
     whole.dialog.show({ kind: 'assembly' });
+    whole.pickFormat('dxf');
+    await rest();
+    expect(whole.exportShapes.mock.calls.map((call) => call[0])).toEqual([{
+      format: 'svg',
+      assembly: { poses: [{ instanceId: 'inst-a', ...POSES['inst-a'] }, { instanceId: 'inst-b', ...POSES['inst-b'] }] },
+      plane: 'top', hiddenLines: false, tangentEdges: false,
+    }]);
+    expect(whole.q<HTMLImageElement>('drawing-preview-image').getAttribute('src')).toBe('blob:preview-1');
+  });
+
+  it('asks nothing for an assembly that cannot say where its parts are', async () => {
+    const whole = mount(provider(() => null));
+    whole.dialog.show({ kind: 'assembly' });
+    whole.pickFormat('svg');
     await rest();
     expect(whole.exportShapes).not.toHaveBeenCalled();
   });

@@ -35,7 +35,7 @@ import type { StepFileUnits } from "./oc/step-units.js";
 /** What an import produced, for the "N solids, file unit INCH" report. */
 /** What an assembly export produced, or why it was refused (`'reason' in outcome`). */
 export type AssemblyExportOutcome =
-  | { ok: true; data: string | Uint8Array; fileName: string; posesSource: AssemblyExportPosesSource }
+  | { ok: true; data: string | Uint8Array; fileName: string; posesSource: AssemblyExportPosesSource; warnings?: string[] }
   | { ok: false; reason: string };
 
 /**
@@ -633,8 +633,8 @@ class SceneManager {
     if ('reason' in collected) {
       return { ok: false, reason: collected.reason };
     }
-    const { data, fileName } = exportAssemblyTree(collected.tree, options);
-    return { ok: true, data, fileName, posesSource: collected.tree.posesSource };
+    const { data, fileName, warnings } = exportAssemblyTree(collected.tree, options);
+    return { ok: true, data, fileName, posesSource: collected.tree.posesSource, ...(warnings ? { warnings } : {}) };
   }
 
   explainSelection(scene: Scene, refs: PickRef[], before?: SelectionBoundary): ExplainResult | BoundaryFailure {

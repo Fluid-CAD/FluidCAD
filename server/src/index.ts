@@ -902,8 +902,7 @@ async function handleExtensionMessage(msg: any) {
           // assembly; otherwise `shapeIds` picks solids, as the UI's route does.
           let result: { data: string | Uint8Array; fileName: string; warnings?: string[] } | null = null;
           let posesSource: ExportPosesSource | undefined;
-          // A drawing format needs its plane, and has no whole-assembly form
-          // yet — the same refusals the HTTP route gives.
+          // A drawing format needs its plane — the refusal the HTTP route gives.
           const drawing = msg.options?.format === 'dxf' || msg.options?.format === 'svg';
           const drawingName = String(msg.options?.format ?? '').toUpperCase();
           if (drawing && !isStandardPlane(msg.options.plane)) {
@@ -911,14 +910,6 @@ async function handleExtensionMessage(msg: any) {
               type: 'export-complete',
               success: false,
               error: `${drawingName} draws the model's view on a plane: plane must be one of ${STANDARD_PLANES.join(', ')}.`,
-            });
-            break;
-          }
-          if (drawing && msg.assembly !== undefined) {
-            sendToExtension({
-              type: 'export-complete',
-              success: false,
-              error: `A ${drawingName} drawing of the whole assembly is not available yet. Export a part or its solids instead.`,
             });
             break;
           }

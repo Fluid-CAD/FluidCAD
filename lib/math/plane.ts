@@ -7,6 +7,7 @@ import { rad } from "../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { IPlane } from "../core/interfaces.js";
 import { mmTol } from "../units/tolerance.js";
+import type { StandardPlane } from "./standard-plane.js";
 
 /**
  * Which axes a plane's rotations turn around: the plane's own X, Y and normal
@@ -343,19 +344,7 @@ export class Plane {
   }
 }
 
-export type StandardPlane =
-  | "xy"
-  | "xz"
-  | "yz"
-  | "-xy"
-  | "-xz"
-  | "-yz"
-  | "top"
-  | "bottom"
-  | "front"
-  | "back"
-  | "left"
-  | "right";
+export type { StandardPlane };
 
 /** Every standard plane name: six planes, each under its axis name and its view name. */
 export const STANDARD_PLANES: readonly StandardPlane[] = [

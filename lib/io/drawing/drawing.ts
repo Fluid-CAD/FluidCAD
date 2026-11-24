@@ -1,6 +1,6 @@
 import type { LengthUnit } from "../../units/units.js";
 import { MM_PER_UNIT } from "../../units/units.js";
-import type { StandardPlane } from "../../math/plane.js";
+import type { StandardPlane } from "../../math/standard-plane.js";
 import { BSplineCurve2D } from "./bspline.js";
 
 // The 2D drawing model the DXF and SVG writers share. Pure TypeScript: no

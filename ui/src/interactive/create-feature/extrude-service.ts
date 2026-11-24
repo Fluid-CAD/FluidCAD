@@ -2,7 +2,7 @@ import {
   applyExtrude, applyExtrudeEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, ExtrudeEditOptions,
   ExtrudeSketchProfileRef, FeatureEditTarget, GhostExtrudeProfileRef, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
-import { toggleEntity } from '../../helpers/entities';
+import { sameEntity, toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
@@ -727,9 +727,16 @@ export class ExtrudeFeatureService {
       return;
     }
     if (this.isProfileFacePicking) {
+      // "Up to first/last face" picks nothing itself, so a face click there
+      // is most often aimed at the target: it never takes the slot from a
+      // sketch. The chip's ✕ empties the slot for a face.
+      if (this.sketchHoldsProfile() && this.panel.faceTarget() !== null) {
+        this.panel.setMessage(SKETCH_KEPT_MESSAGE);
+        return;
+      }
       this.profileFace = toggleEntity(this.profileFace, { shapeId, sub });
       this.panel.setProfileFace(this.profileFace ? 'Picked face' : null);
-      this.panel.setMessage(null);
+      this.panel.setMessage(this.targetIsProfileFace() ? SAME_FACE_MESSAGE : null);
       // The profile choice drives the scope's part restriction.
       this.refreshScope();
       this.runner.schedulePreview();
@@ -740,7 +747,8 @@ export class ExtrudeFeatureService {
     }
     this.toFaceEntity = toggleEntity(this.toFaceEntity, { shapeId, sub });
     this.panel.setFaceChip(this.toFaceEntity ? 'Picked face' : null);
-    this.panel.setMessage(null);
+    // Said at the click, not only on Apply: the preview stays quiet about it.
+    this.panel.setMessage(this.targetIsProfileFace() ? SAME_FACE_MESSAGE : null);
     this.refreshHighlight();
     this.runner.schedulePreview();
   }
@@ -879,6 +887,22 @@ export class ExtrudeFeatureService {
     return { filePath: option.filePath, line: option.line };
   }
 
+  /**
+   * "Up to face" ends on the very face being extruded: a zero-length sweep
+   * the kernel refuses. Usually the face was meant as the target only and a
+   * click with the profile slot armed made it the profile as well.
+   */
+  private targetIsProfileFace(): boolean {
+    return this.panel.isToFace() && this.profileFace !== null && this.toFaceEntity !== null
+      && sameEntity(this.profileFace, this.toFaceEntity);
+  }
+
+  /** The profile slot holds a sketch — chosen, or the edited statement's own. */
+  private sketchHoldsProfile(): boolean {
+    const selection = this.panel.profileSelection();
+    return selection?.kind === 'sketch' || (selection?.kind === 'keep' && !this.panel.profileIsFace());
+  }
+
   /** The create request for the current form state, or the blocking message. */
   private buildRequest(): ExtrudeApplyRequest | { error: string } {
     const values = this.panel.values();
@@ -888,6 +912,9 @@ export class ExtrudeFeatureService {
     const option = this.panel.selectedOption();
     if (!option && !this.profileFace) {
       return { error: 'Pick a sketch or a face to extrude.' };
+    }
+    if (this.targetIsProfileFace()) {
+      return { error: SAME_FACE_MESSAGE };
     }
     return {
       ...values,
@@ -915,6 +942,9 @@ export class ExtrudeFeatureService {
     const values = this.panel.values();
     if ('error' in values) {
       return values;
+    }
+    if (this.targetIsProfileFace()) {
+      return { error: SAME_FACE_MESSAGE };
     }
     const selection = this.panel.profileSelection();
     const profile: ExtrudeEditOptions['profile'] = selection?.kind === 'sketch'
@@ -953,6 +983,10 @@ export class ExtrudeFeatureService {
     };
   }
 }
+
+const SKETCH_KEPT_MESSAGE = 'This direction finds its face itself — the sketch stays the profile. Remove the sketch to extrude a face instead.';
+
+const SAME_FACE_MESSAGE = 'The face to extrude is also the face to extrude up to — remove it from the profile to extrude the sketch, or pick another target.';
 
 /** The selection when it is exactly one face — the only one that names a profile. */
 function singleFace(selection: SelectedEntity[]): SelectedEntity | null {

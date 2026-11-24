@@ -3273,6 +3273,19 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
     }
   });
 
+  it('reads a first-face extrude of a face profile — what the dialog writes for a picked face', async () => {
+    const code = `${editBase}\nextrude('first-face', e.sideFaces(face().farthest('x')))\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'extrude', op: 'add', distance: null,
+        profileText: `e.sideFaces(face().farthest('x'))`,
+        toFaceText: `'first-face'`, toFaceKind: 'first-face',
+      },
+    });
+  });
+
   it('refuses a target string that is neither first-face nor last-face', async () => {
     const code = `${editBase}\nextrude('middle-face')\n`;
     const result = await parseFeatureStatement(code, 4);

@@ -361,13 +361,15 @@ export function parseFeatureChain(
     let profileText: string | null = null;
     if (rest[0]?.type === 'string') {
       // extrude/cut('first-face' | 'last-face'[, <profile>]). The target may
-      // carry face filters — call expressions the dialog cannot represent —
-      // so a filtered target stays in the source.
+      // carry face filters — `face()…` chains the dialog cannot represent —
+      // so a filtered target stays in the source. Any other call expression
+      // is a face profile (`e.sideFaces(…)`, `select(…)`), which the dialog
+      // itself writes.
       const literal = stringArgValue(rest[0]);
       if (literal !== 'first-face' && literal !== 'last-face') {
         return { error: `the ${chain.root.name}() target must be 'first-face' or 'last-face' — edit it in the source` };
       }
-      if (rest[1]?.type === 'call_expression') {
+      if (rest[1]?.type === 'call_expression' && decomposeChain(rest[1])?.root.name === 'face') {
         return { error: `a filtered '${literal}' ${chain.root.name}() target is not editable in the dialog — edit it in the source` };
       }
       toFaceText = rest[0].text;

@@ -213,6 +213,56 @@ describe('Extrude — a face as the profile', () => {
     service.exit();
   });
 
+  it('refuses the same face as the profile and the "Up to face" target', async () => {
+    const { service, setDirection, container } = mount();
+    service.enter();
+    service.handleClick('solid', face(3));
+    setDirection('to-face');
+    service.handleClick('solid', face(3));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(vi.mocked(api.applyExtrude)).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('also the face to extrude up to');
+
+    service.handleClick('solid', face(2));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastApply()).toMatchObject({
+      profile: { mode: 'face', entity: { shapeId: 'solid', sub: { type: 'face', index: 3 } } },
+      toFace: { shapeId: 'solid', sub: { type: 'face', index: 2 } },
+    });
+    service.exit();
+  });
+
+  it('keeps the sketch when a face is clicked on "Up to first face" or "Up to last face"', async () => {
+    for (const direction of ['first-face', 'last-face']) {
+      const { service, text, setDirection, container } = mount();
+      service.enter();
+      setDirection(direction);
+      service.handleClick('solid', face(3));
+      expect(text('profile-slot')).toContain('Sketch');
+      expect(text('profile-slot')).not.toContain('Picked face');
+      expect(container.textContent).toContain('the sketch stays the profile');
+      await vi.advanceTimersByTimeAsync(300);
+      expect(lastApply()).toMatchObject({ profile: { mode: 'active', line: 5 }, toFace: direction });
+      service.exit();
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('keeps a face picked before the direction changed to "Up to first face", and re-picks it', async () => {
+    const { service, text, setDirection } = mount();
+    service.enter();
+    service.handleClick('solid', face(3));
+    setDirection('first-face');
+    expect(text('profile-slot')).toContain('Picked face');
+    service.handleClick('solid', face(4));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastApply()).toMatchObject({
+      profile: { mode: 'face', entity: { shapeId: 'solid', sub: { type: 'face', index: 4 } } },
+      toFace: 'first-face',
+    });
+    service.exit();
+  });
+
   it('blocks the apply with nothing picked', async () => {
     const { service, container } = mount();
     service.update(plateScene().slice(0, 1));

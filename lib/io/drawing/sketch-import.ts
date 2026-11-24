@@ -25,6 +25,36 @@ export type SketchJoinEnd = { primitive: number; end: 'start' | 'end' };
 /** Two ends that meet: what a `coincident` between them states. */
 export type SketchJoin = { a: SketchJoinEnd; b: SketchJoinEnd };
 
+/**
+ * A point of a primitive a pin names: an end (of a line, an arc or a
+ * bezier), the centre (of an arc, a circle or an ellipse), or a bezier's
+ * control point by index.
+ */
+export type SketchPinPoint = { primitive: number; point: 'start' | 'end' | 'center' | number };
+
+/**
+ * One constraint that holds imported geometry where the file drew it:
+ *
+ * - `fix` — `fix(point)`: the point stays at the coordinates it is written with;
+ * - `radius` — `radius(arc, value)`;
+ * - `offset` — `distance(arc.start(), arc.center(), value, axis)`: how far
+ *   the centre is from the arc's start along one sketch axis;
+ * - `aligned` — `vertical(arc.start(), arc.center())` (the same x) or
+ *   `horizontal(…)` (the same y): that offset when it is zero, said as the
+ *   alignment it is instead of a dimension of nothing;
+ * - `diameter` — `diameter(circle, value)`;
+ * - `semi-radius` — `radius(ellipse, value, axis)`;
+ * - `level` — `horizontal(ellipse)` / `vertical(ellipse)`: its RX axis along X or Y.
+ */
+export type SketchPin =
+  | { kind: 'fix'; point: SketchPinPoint }
+  | { kind: 'radius'; primitive: number; value: number }
+  | { kind: 'offset'; primitive: number; axis: 'x' | 'y'; value: number }
+  | { kind: 'aligned'; primitive: number; direction: 'horizontal' | 'vertical' }
+  | { kind: 'diameter'; primitive: number; value: number }
+  | { kind: 'semi-radius'; primitive: number; axis: 'x' | 'y'; value: number }
+  | { kind: 'level'; primitive: number; direction: 'horizontal' | 'vertical' };
+
 export interface SketchImportPlan {
   /** The statements to write, in the order of the curves they come from. */
   primitives: SketchPrimitive[];
@@ -49,6 +79,13 @@ const TWO_PI = 2 * Math.PI;
 
 /** How far the best cubic strays from a circular arc of angle θ, in radii per θ⁶. */
 const CUBIC_ARC_ERROR = 1.8e-5;
+
+/**
+ * An arc's radius holds its bulge while its centre is at least this share of
+ * the radius away from its chord: a sweep under about 157°, or over about
+ * 203°. Nearer a half turn the radius changes too little with the bulge.
+ */
+const ARC_RADIUS_HOLDS = 0.2;
 
 /** An elliptical arc is never cut into more pieces than this, whatever the tolerance asks. */
 const MAX_ARC_PIECES = 64;
@@ -108,6 +145,98 @@ export class SketchImport {
     }
 
     return { primitives, joins: SketchImport.joins(primitives, joinTolerance), duplicates, approximated };
+  }
+
+  /**
+   * The constraints that fix a plan's geometry in place, leaving it no
+   * freedom — and none stated twice, which a solver reports as redundant.
+   *
+   * Every point is pinned once. With `joined` (the plan's joins are written
+   * as coincidents) the ends at one meeting point are one point: the first
+   * is fixed and the joins carry the others. Without, every end is fixed
+   * on its own.
+   *
+   * What two fixed ends leave free is pinned by a size: a circle its centre
+   * and diameter, an ellipse its centre and both semi-radii, a bezier its
+   * inner control points. An arc between fixed ends can still bulge. Its
+   * radius holds that — except for an arc near a half turn, whose centre
+   * sits on its chord: there the radius is at its smallest and holds
+   * nothing (the solver finds it both short of a degree of freedom and
+   * redundant), so the centre is held by its distance from the arc's start
+   * along the axis the chord runs across — or, when that distance is zero,
+   * by being level with the start.
+   *
+   * One thing stays free: an ellipse turned off the sketch axes has no
+   * constraint that holds its angle. `decimals` are the plan's.
+   */
+  static pins(plan: SketchImportPlan, options: { joined: boolean; decimals: number }): SketchPin[] {
+    const scale = 10 ** options.decimals;
+    const round = (value: number) => Math.round(value * scale) / scale;
+    // An end a join attaches to another is carried by that join.
+    const carried = new Set<string>();
+    if (options.joined) {
+      for (const join of plan.joins) {
+        carried.add(`${join.b.primitive}:${join.b.end}`);
+      }
+    }
+    const pins: SketchPin[] = [];
+    const fixEnd = (primitive: number, end: 'start' | 'end') => {
+      if (!carried.has(`${primitive}:${end}`)) {
+        pins.push({ kind: 'fix', point: { primitive, point: end } });
+      }
+    };
+    plan.primitives.forEach((primitive, index) => {
+      switch (primitive.kind) {
+        case 'line':
+          fixEnd(index, 'start');
+          fixEnd(index, 'end');
+          break;
+        case 'arc': {
+          fixEnd(index, 'start');
+          fixEnd(index, 'end');
+          const radius = Math.hypot(primitive.start.x - primitive.center.x, primitive.start.y - primitive.center.y);
+          const chord = { x: primitive.end.x - primitive.start.x, y: primitive.end.y - primitive.start.y };
+          const middle = { x: (primitive.start.x + primitive.end.x) / 2, y: (primitive.start.y + primitive.end.y) / 2 };
+          const rise = Math.hypot(primitive.center.x - middle.x, primitive.center.y - middle.y);
+          if (rise >= radius * ARC_RADIUS_HOLDS) {
+            pins.push({ kind: 'radius', primitive: index, value: round(radius) });
+          } else {
+            // The centre moves across the chord: measured along the axis nearest to that.
+            const axis = Math.abs(chord.x) >= Math.abs(chord.y) ? 'y' : 'x';
+            const value = round(Math.abs(primitive.center[axis] - primitive.start[axis]));
+            if (value === 0) {
+              // The same x is a vertical pair, the same y a horizontal one.
+              pins.push({ kind: 'aligned', primitive: index, direction: axis === 'x' ? 'vertical' : 'horizontal' });
+            } else {
+              pins.push({ kind: 'offset', primitive: index, axis, value });
+            }
+          }
+          break;
+        }
+        case 'circle':
+          pins.push({ kind: 'fix', point: { primitive: index, point: 'center' } });
+          pins.push({ kind: 'diameter', primitive: index, value: primitive.diameter });
+          break;
+        case 'ellipse':
+          pins.push({ kind: 'fix', point: { primitive: index, point: 'center' } });
+          pins.push({ kind: 'semi-radius', primitive: index, axis: 'x', value: primitive.rx });
+          pins.push({ kind: 'semi-radius', primitive: index, axis: 'y', value: primitive.ry });
+          if (primitive.rotation === 0) {
+            pins.push({ kind: 'level', primitive: index, direction: 'horizontal' });
+          } else if (Math.abs(primitive.rotation) === 90) {
+            pins.push({ kind: 'level', primitive: index, direction: 'vertical' });
+          }
+          break;
+        case 'bezier':
+          fixEnd(index, 'start');
+          for (let i = 1; i + 1 < primitive.points.length; i++) {
+            pins.push({ kind: 'fix', point: { primitive: index, point: i } });
+          }
+          fixEnd(index, 'end');
+          break;
+      }
+    });
+    return pins;
   }
 
   /** The points a preview draws a primitive through. */

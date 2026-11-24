@@ -3,12 +3,12 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { arc, bezier, circle, ellipse, line } from "../../core/2d/index.js";
-import { coincident } from "../../core/constraints/index.js";
+import { coincident, diameter, distance, fix, horizontal, radius, vertical } from "../../core/constraints/index.js";
 import { DxfReader } from "../../io/drawing/dxf-reader.js";
 import { DxfWriter } from "../../io/drawing/dxf-writer.js";
 import { Affine } from "../../io/drawing/affine.js";
 import { SketchImport } from "../../io/drawing/sketch-import.js";
-import type { SketchImportPlan, SketchJoinEnd } from "../../io/drawing/sketch-import.js";
+import type { SketchImportPlan, SketchJoinEnd, SketchPin, SketchPinPoint } from "../../io/drawing/sketch-import.js";
 import { Curves } from "../../io/drawing/drawing.js";
 import type { Curve2D, DrawingEntity } from "../../io/drawing/drawing.js";
 import { ShapeProps } from "../../oc/props.js";
@@ -22,8 +22,8 @@ import type { Solid } from "../../common/solid.js";
 
 const OPTIONS = { tolerance: 1e-5, joinTolerance: 1e-3, decimals: 6 };
 
-/** The statements of a plan, as the tool writes them. */
-function draw(plan: SketchImportPlan): void {
+/** The statements of a plan, as the tool writes them: the geometry, its joins when `joined`, and `pins`. */
+function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = true): void {
   const p = (v: { x: number; y: number }): [number, number] => [v.x, v.y];
   const made = plan.primitives.map((primitive) => {
     switch (primitive.kind) {
@@ -47,9 +47,50 @@ function draw(plan: SketchImportPlan): void {
     }
     return ref.end === 'start' ? statement.start() : statement.end();
   };
-  for (const join of plan.joins) {
+  for (const join of joined ? plan.joins : []) {
     coincident(end(join.a), end(join.b));
   }
+  const point = (ref: SketchPinPoint) => {
+    const statement = made[ref.primitive] as any;
+    if (typeof ref.point === 'number') {
+      return statement.point(ref.point);
+    }
+    return ref.point === 'center' ? statement.center() : end({ primitive: ref.primitive, end: ref.point });
+  };
+  for (const pin of pins) {
+    const statement = made[(pin as { primitive: number }).primitive] as any;
+    switch (pin.kind) {
+      case 'fix':
+        fix(point(pin.point));
+        break;
+      case 'radius':
+        radius(statement, pin.value);
+        break;
+      case 'offset':
+        distance(statement.start(), statement.center(), pin.value, pin.axis);
+        break;
+      case 'aligned':
+        (pin.direction === 'horizontal' ? horizontal : vertical)(statement.start(), statement.center());
+        break;
+      case 'diameter':
+        diameter(statement, pin.value);
+        break;
+      case 'semi-radius':
+        radius(statement, pin.value, pin.axis);
+        break;
+      case 'level':
+        (pin.direction === 'horizontal' ? horizontal : vertical)(statement);
+        break;
+    }
+  }
+}
+
+/** How the solver left a sketch of the plan with its pins. */
+function solved(plan: SketchImportPlan, joined: boolean): { outcome: string; dof: number; redundant: number; conflicting: number } {
+  const pins = SketchImport.pins(plan, { joined, decimals: OPTIONS.decimals });
+  const sk = sketch("xy", () => draw(plan, pins, joined)) as any;
+  const solver = render().getRenderedObjects().find((o) => o.id === sk.id)!.object.solver;
+  return { outcome: solver.outcome, dof: solver.dof, redundant: solver.redundant.length, conflicting: solver.conflicting.length };
 }
 
 function extrudedVolume(plan: SketchImportPlan, height: number): { volume: number; outcome: string } {
@@ -136,5 +177,77 @@ describe("a DXF imported into a sketch", () => {
     expect(plan.primitives).toEqual([{ kind: 'ellipse', center: { x: 50, y: 0 }, rx: 6, ry: 3, rotation: 30 }]);
     const { volume } = extrudedVolume(plan, 1);
     expect(volume).toBeCloseTo(Math.PI * 6 * 3, 2);
+  });
+
+  describe("fixed in place", () => {
+    const planOf = (text: string) => SketchImport.plan(DxfReader.read(text).entities.map((e) => e.curve), OPTIONS);
+    const file = (...entities: (string | number)[]) => [0, "SECTION", 2, "ENTITIES", ...entities, 0, "ENDSEC", 0, "EOF"].join("\n");
+    const FIXED = { outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 };
+    const b = Math.tan(Math.PI / 8);
+
+    // A plate with quarter-turn corners, a slot of two half turns, and a hole.
+    const PLATE = file(
+      0, "LWPOLYLINE", 8, "0", 90, 8, 70, 1,
+      10, -52, 20, -35, 10, 52, 20, -35, 42, b, 10, 60, 20, -27, 10, 60, 20, 27, 42, b,
+      10, 52, 20, 35, 10, -52, 20, 35, 42, b, 10, -60, 20, 27, 10, -60, 20, -27, 42, b,
+      0, "LWPOLYLINE", 8, "0", 90, 4, 70, 1, 10, -14, 20, -6, 10, 14, 20, -6, 42, 1, 10, 14, 20, 6, 10, -14, 20, 6, 42, 1,
+      0, "CIRCLE", 8, "0", 10, 48, 20, 23, 40, 3,
+    );
+
+    it("leaves a joined outline no freedom, and states nothing twice", () => {
+      const plan = planOf(PLATE);
+      const pins = SketchImport.pins(plan, { joined: true, decimals: 6 });
+      // A corner's radius holds it; a half turn's does not, so its centre is held across its chord.
+      expect(pins.filter((p) => p.kind === 'radius')).toHaveLength(4);
+      // Here each centre is straight above or below its arc's start: a vertical pair.
+      expect(pins.filter((p) => p.kind === 'aligned')).toEqual([
+        { kind: 'aligned', primitive: 9, direction: 'vertical' },
+        { kind: 'aligned', primitive: 11, direction: 'vertical' },
+      ]);
+      expect(pins.some((p) => p.kind === 'offset')).toBe(false);
+      // One fix per meeting point (twelve corners), and the hole's centre.
+      expect(pins.filter((p) => p.kind === 'fix')).toHaveLength(13);
+      expect(solved(plan, true)).toEqual(FIXED);
+    });
+
+    it("fixes every end on its own when the joins are not written", () => {
+      const plan = planOf(PLATE);
+      const pins = SketchImport.pins(plan, { joined: false, decimals: 6 });
+      expect(pins.filter((p) => p.kind === 'fix')).toHaveLength(12 * 2 + 1);
+      expect(solved(plan, false)).toEqual(FIXED);
+    });
+
+    it("fixes the same plate turned off the axes: half turns whose chords run askew", () => {
+      const m = Affine.placement(1.5, 0.4, { x: 30, y: -12 });
+      const placed = DxfReader.read(PLATE).entities.map((e) => Affine.curve(m, e.curve, 1e-9)!);
+      const plan = SketchImport.plan(placed, OPTIONS);
+      // Askew, the centre is a measured distance off its arc's start along the axis nearest the chord's normal.
+      const offsets = SketchImport.pins(plan, { joined: true, decimals: 6 }).filter((p) => p.kind === 'offset');
+      expect(offsets).toHaveLength(2);
+      expect(offsets.every((p) => p.kind === 'offset' && p.axis === 'x' && p.value > 0)).toBe(true);
+      expect(solved(plan, true)).toEqual(FIXED);
+    });
+
+    it("fixes beziers by every control point, and arcs of every sweep", () => {
+      const curves: Curve2D[] = [
+        { kind: 'bspline', degree: 3, knots: [0, 0, 0, 0, 0.5, 1, 1, 1, 1], poles: [{ x: 0, y: 0 }, { x: 4, y: 9 }, { x: 11, y: -3 }, { x: 16, y: 8 }, { x: 22, y: 1 }] },
+        { kind: 'ellipse', center: { x: 40, y: 0 }, major: { x: 12, y: 0 }, ratio: 0.5, start: 0, end: Math.PI },
+        ...[0.3, 1.2, 2.6, 3.0, Math.PI, 3.3, 4.5, 6.0].map((sweep, i): Curve2D => ({
+          kind: 'arc', center: { x: i * 30, y: 60 }, radius: 10, start: 0.7 * i, end: 0.7 * i + sweep,
+        })),
+      ];
+      expect(solved(SketchImport.plan(curves, OPTIONS), true)).toEqual(FIXED);
+    });
+
+    it("leaves a turned ellipse its angle, the one thing no constraint holds, and an upright one nothing", () => {
+      const ellipseAt = (degrees: number): Curve2D => ({
+        kind: 'ellipse', center: { x: 0, y: 0 },
+        major: { x: 10 * Math.cos(degrees * Math.PI / 180), y: 10 * Math.sin(degrees * Math.PI / 180) },
+        ratio: 0.4, start: 0, end: 2 * Math.PI,
+      });
+      expect(solved(SketchImport.plan([ellipseAt(0)], OPTIONS), true)).toEqual(FIXED);
+      expect(solved(SketchImport.plan([ellipseAt(90)], OPTIONS), true)).toEqual(FIXED);
+      expect(solved(SketchImport.plan([ellipseAt(30)], OPTIONS), true)).toEqual({ ...FIXED, dof: 1 });
+    });
   });
 });

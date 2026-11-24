@@ -20,7 +20,7 @@ export { DxfReader } from "./dxf-reader.js";
 export { ImportedDrawings } from "./import.js";
 export type { ImportedDrawing, ImportedEntity, ImportedLayer, ImportedUnit } from "./import.js";
 export { SketchImport } from "./sketch-import.js";
-export type { SketchImportOptions, SketchImportPlan, SketchJoin, SketchJoinEnd, SketchPrimitive } from "./sketch-import.js";
+export type { SketchImportOptions, SketchImportPlan, SketchJoin, SketchJoinEnd, SketchPin, SketchPinPoint, SketchPrimitive } from "./sketch-import.js";
 export { Affine } from "./affine.js";
 export type { Affine2 } from "./affine.js";
 export { SvgWriter, SVG_DEFAULT_MARGIN_MM, SVG_DEFAULT_STROKE_WIDTH_MM } from "./svg-writer.js";

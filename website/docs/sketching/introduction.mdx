@@ -123,6 +123,12 @@ Click **DXF** on the sketch toolbar to bring a 2D drawing into the sketch. Choos
 
 See [Import DXF](/docs/sketching/tools/import-dxf) for the dialog, what is imported and what to do next.
 
+## Importing an SVG
+
+Click **SVG** on the sketch toolbar to bring a vector drawing into the sketch the same way: a logo, an outline from Inkscape or Illustrator, an icon. The file's groups, transforms and repeated symbols are flattened into plain curves first, its size is read from its page, and paths that draw a circle come in as arcs and circles.
+
+See [Import SVG](/docs/sketching/tools/import-svg) for how units, layers and position are read, and what is left out.
+
 ## Keyboard shortcuts
 
 Every drawing tool and every constraint button has a letter shortcut, shown in its tooltip. Press the letters with nothing focused; a two-letter chord is typed one key after the other. A single letter that also starts a chord (<kbd>c</kbd> is Circle, <kbd>cc</kbd> Coincident) fires after a short pause or as soon as the next key rules the chord out. <kbd>s</kbd> alone opens [Quick Find](/docs/user-interface#finding-a-tool), which searches the sketch tools and the constraints by name.
@@ -134,12 +140,12 @@ Every drawing tool and every constraint button has a letter shortcut, shown in i
 | Three-point arc | <kbd>a</kbd> | Rectangle | <kbd>r</kbd> |
 | Polygon | <kbd>p</kbd> | Bezier | <kbd>b</kbd> |
 | Spline | <kbd>sl</kbd> | Import DXF | <kbd>dx</kbd> |
-| Text | <kbd>x</kbd> | Fillet | <kbd>f</kbd> |
-| Offset | <kbd>o</kbd> | Project | <kbd>pj</kbd> |
-| Intersect | <kbd>ix</kbd> | Copy | <kbd>cp</kbd> |
-| Mirror | <kbd>m</kbd> | Split | <kbd>sp</kbd> |
-| Trim | <kbd>tr</kbd> | Guide latch | <kbd>g</kbd> |
-| Look along the sketch normal | <kbd>n</kbd> | | |
+| Import SVG | <kbd>sv</kbd> | Text | <kbd>x</kbd> |
+| Fillet | <kbd>f</kbd> | Offset | <kbd>o</kbd> |
+| Project | <kbd>pj</kbd> | Intersect | <kbd>ix</kbd> |
+| Copy | <kbd>cp</kbd> | Mirror | <kbd>m</kbd> |
+| Split | <kbd>sp</kbd> | Trim | <kbd>tr</kbd> |
+| Guide latch | <kbd>g</kbd> | Look along the sketch normal | <kbd>n</kbd> |
 
 A constraint shortcut only works while its button would accept a click — pick the geometry first, exactly as for the button. With an illegal pick set the key does nothing.
 

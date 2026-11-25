@@ -931,6 +931,67 @@
   color: var(--color-warning);
 }
 
+/* Install as a split button (the Hub panel's): the chevron opens the places, the choice shows beside it. */
+[data-role='chat-panel'] .chat-install-split {
+  position: relative;
+}
+
+[data-role='chat-panel'] .chat-install-chevron {
+  padding-inline: 5px;
+  border-left: 1px solid color-mix(in oklab, var(--color-primary-content) 25%, transparent);
+}
+
+[data-role='chat-panel'] .chat-install-where {
+  font-size: 11px;
+  color: var(--chat-muted);
+}
+
+/* Opens upward: a waiting card sits at the foot of the conversation. */
+[data-role='chat-panel'] .chat-install-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+  width: 15rem;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  background: var(--color-base-100);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+[data-role='chat-panel'] .chat-install-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-align: left;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-install-option:hover,
+[data-role='chat-panel'] .chat-install-option[aria-checked='true'] {
+  background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+}
+
+[data-role='chat-panel'] .chat-install-option-check {
+  margin-top: 1px;
+  color: var(--color-primary);
+}
+
+[data-role='chat-panel'] .chat-install-option-text {
+  display: flex;
+  flex-direction: column;
+}
+
+[data-role='chat-panel'] .chat-install-option-hint {
+  font-size: 11px;
+  color: var(--chat-muted);
+}
+
 /* --- Question cards (ask_user) --------------------------------------------- */
 
 [data-role='chat-panel'] .chat-question {

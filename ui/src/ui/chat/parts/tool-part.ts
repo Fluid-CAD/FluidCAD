@@ -1,5 +1,5 @@
 import { ChatIcons } from '../chat-icons';
-import type { ApprovalDecision, ChatPart, InstallSummary, ToolPart } from '../chat-types';
+import type { ApprovalDecision, ChatPart, InstallSummary, InstallTarget, ToolPart } from '../chat-types';
 import { ChangePreviewView } from './change-preview';
 import type { PartContext, PartView } from './part-view';
 
@@ -142,10 +142,13 @@ const STATE_TEXT: Record<ToolPart['state'], string> = {
  * **Package installs.** An `install_package` call waiting shows a
  * confirmation card instead ({@link installSummaryView}): the package, its
  * version, publisher, license, installs and what it exports as the hub
- * describes them (filled in while the buttons already work), where it goes,
- * an upgrade or a deprecation; then Install, Always (when offered: installs
- * run without asking from then on, until Settings → Agent turns it off) and
- * Deny. An install that ran without asking because of Always says so.
+ * describes them (filled in while the buttons already work), an upgrade or a
+ * deprecation; then Install, Always (when offered: installs run without
+ * asking from then on, until Settings → Agent turns it off) and Deny. Where
+ * it goes is chosen as in the Hub panel: Install is a split button whose
+ * menu holds My library and This project, the choice shows beside it, and
+ * the answer carries it (a choice also becomes the Hub panel's for the
+ * project). An install that ran without asking because of Always says so.
  *
  * **Dirty buffer (§12.2).** A write refused because the file has unsaved
  * changes in the editor (`errorCode: 'dirty-buffer'`) shows as a card naming
@@ -171,6 +174,10 @@ export class ToolPartView implements PartView {
   private deciding: ApprovalDecision | null = null;
   /** The before and after of the change, when the call has one (§25). */
   private readonly preview: ChangePreviewView;
+  /** Where the user chose to install on this card before answering; null: where the card says it goes. */
+  private target: InstallTarget | null = null;
+  /** Whether the Install button's place menu is open. */
+  private menuOpen = false;
 
   constructor(part: ToolPart, private readonly ctx: PartContext) {
     this.part = part;
@@ -217,6 +224,7 @@ export class ToolPartView implements PartView {
   }
 
   dispose(): void {
+    this.closeMenu();
     this.preview.dispose();
   }
 
@@ -265,6 +273,8 @@ export class ToolPartView implements PartView {
     const waiting = part.state === 'awaiting-approval';
     if (!waiting) {
       this.deciding = null;
+      this.target = null;
+      this.closeMenu();
     }
     this.approval.replaceChildren();
     const allowed = approval?.decision === 'allow' || approval?.decision === 'allow-session' || approval?.decision === 'allow-always';
@@ -286,8 +296,12 @@ export class ToolPartView implements PartView {
       }
       return;
     }
-    if (part.name === 'install_package') {
-      this.approval.append(installSummaryView(part.install ?? installFromInput(part.input)));
+    const installing = part.name === 'install_package';
+    const target = this.chosenTarget();
+    if (installing) {
+      const install = part.install ?? installFromInput(part.input);
+      // With a choice, where it goes is the split button's: the card does not say it twice.
+      this.approval.append(installSummaryView(target ? { ...install, target } : install, { placeShown: target !== null }));
     }
     // The shape first, then the patch: what the change does to the model, when the engine can say.
     if (this.preview.shown) {
@@ -303,23 +317,167 @@ export class ToolPartView implements PartView {
     question.dataset.ref = 'approval-question';
     question.append(ChatIcons.span(ChatIcons.WAITING, '[&>svg]:size-3.5'), text(approvalQuestion(part)));
     row.append(question);
+    if (installing && approval && this.ctx.decideApproval) {
+      this.approval.append(row, this.installActions(approval, target));
+      return;
+    }
     if (approval && this.ctx.decideApproval) {
       const buttons = document.createElement('div');
       buttons.className = 'chat-approval-buttons';
-      const installing = part.name === 'install_package';
-      buttons.append(this.decisionButton('allow', installing ? 'Install' : 'Allow', 'btn-primary'));
+      buttons.append(this.decisionButton('allow', 'Allow', 'btn-primary'));
       if (approval.canAllowSession) {
         buttons.append(this.decisionButton('allow-session', 'Allow for this session', 'btn-ghost chat-approval-secondary'));
-      }
-      if (approval.canAllowAlways) {
-        const always = this.decisionButton('allow-always', 'Always', 'btn-ghost chat-approval-secondary');
-        always.title = 'Install this, and let the agent install packages without asking from now on. Settings → Agent turns it off.';
-        buttons.append(always);
       }
       buttons.append(this.decisionButton('deny', 'Deny', 'btn-ghost chat-approval-secondary'));
       row.append(buttons);
     }
     this.approval.append(row);
+  }
+
+  /**
+   * Where the install goes if the user answers now: their choice on this
+   * card, else the card's place. Null when the card offers no choice (an
+   * engine that cannot say where installs go).
+   */
+  private chosenTarget(): InstallTarget | null {
+    const part = this.part;
+    if (part.name !== 'install_package' || !part.approval?.canChooseTarget || !part.install?.target || !this.ctx.decideApproval) {
+      return null;
+    }
+    return this.target ?? part.install.target;
+  }
+
+  /** An install's answers: Install (split, with the place menu, when there is a choice) and where it goes, then Always and Deny. */
+  private installActions(approval: NonNullable<ToolPart['approval']>, target: InstallTarget | null): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'chat-approval-row chat-install-actions';
+    const install = this.decisionButton('allow', 'Install', 'btn-primary');
+    if (target) {
+      const split = document.createElement('div');
+      split.className = 'join chat-install-split';
+      install.classList.add('join-item');
+      const chevron = document.createElement('button');
+      chevron.type = 'button';
+      chevron.dataset.ref = 'target-menu';
+      chevron.className = 'btn btn-xs btn-primary join-item chat-install-chevron';
+      chevron.disabled = this.deciding !== null;
+      chevron.setAttribute('aria-label', 'Install into…');
+      chevron.setAttribute('aria-haspopup', 'true');
+      chevron.setAttribute('aria-expanded', String(this.menuOpen));
+      chevron.append(ChatIcons.span(ChatIcons.CHEVRON_DOWN, '[&>svg]:size-3'));
+      chevron.addEventListener('click', () => this.toggleMenu());
+      split.append(install, chevron);
+      if (this.menuOpen) {
+        split.append(this.targetMenu(target));
+      }
+      const where = document.createElement('span');
+      where.className = 'chat-install-where';
+      where.dataset.ref = 'install-target';
+      where.textContent = target === 'project' ? 'into this project' : 'into my library';
+      row.append(split, where);
+    } else {
+      row.append(install);
+    }
+    const buttons = document.createElement('div');
+    buttons.className = 'chat-approval-buttons';
+    if (approval.canAllowAlways) {
+      const always = this.decisionButton('allow-always', 'Always', 'btn-ghost chat-approval-secondary');
+      always.title = 'Install this, and let the agent install packages without asking from now on. Settings → Agent turns it off.';
+      buttons.append(always);
+    }
+    buttons.append(this.decisionButton('deny', 'Deny', 'btn-ghost chat-approval-secondary'));
+    row.append(buttons);
+    return row;
+  }
+
+  /** The Install button's places, as the Hub panel's: My library and This project. */
+  private targetMenu(current: InstallTarget): HTMLElement {
+    const menu = document.createElement('div');
+    menu.className = 'chat-install-menu';
+    menu.dataset.ref = 'install-targets';
+    menu.setAttribute('role', 'menu');
+    const option = (value: InstallTarget, title: string, hint: string) => {
+      const selected = value === current;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'chat-install-option';
+      button.dataset.target = value;
+      button.setAttribute('role', 'menuitemradio');
+      button.setAttribute('aria-checked', String(selected));
+      button.append(ChatIcons.span(ChatIcons.CHECK, `[&>svg]:size-3.5 chat-install-option-check${selected ? '' : ' invisible'}`));
+      const words = document.createElement('span');
+      words.className = 'chat-install-option-text';
+      const name = document.createElement('span');
+      name.textContent = title;
+      const sub = document.createElement('span');
+      sub.className = 'chat-install-option-hint';
+      sub.textContent = hint;
+      words.append(name, sub);
+      button.append(words);
+      button.addEventListener('click', () => this.chooseTarget(value));
+      return button;
+    };
+    menu.append(
+      option('library', 'My library', 'Every project can use it; this project uses it.'),
+      option('project', 'This project', 'A copy in its packages/ folder, committed with it.'),
+    );
+    return menu;
+  }
+
+  private chooseTarget(target: InstallTarget): void {
+    const changed = target !== this.chosenTarget();
+    this.target = target;
+    this.closeMenu();
+    this.paintApproval();
+    if (changed) {
+      this.ctx.onInstallTargetChosen?.(target);
+    }
+  }
+
+  private toggleMenu(): void {
+    if (this.menuOpen) {
+      this.closeMenu();
+    } else {
+      this.menuOpen = true;
+      document.addEventListener('pointerdown', this.onPointerDown, true);
+      document.addEventListener('keydown', this.onKeyDown, true);
+    }
+    this.paintApproval();
+  }
+
+  private closeMenu(): void {
+    if (!this.menuOpen) {
+      return;
+    }
+    this.menuOpen = false;
+    document.removeEventListener('pointerdown', this.onPointerDown, true);
+    document.removeEventListener('keydown', this.onKeyDown, true);
+  }
+
+  /**
+   * A press outside the split button closes the menu. The menu is taken out
+   * in place, not by a repaint: a press on Always or Deny must still land on
+   * the button it started on.
+   */
+  private readonly onPointerDown = (e: PointerEvent): void => {
+    const split = this.approval.querySelector('.chat-install-split');
+    if (split?.contains(e.target as Node)) {
+      return;
+    }
+    this.dropMenu();
+  };
+
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      this.dropMenu();
+    }
+  };
+
+  private dropMenu(): void {
+    this.closeMenu();
+    this.approval.querySelector('[data-ref="install-targets"]')?.remove();
+    this.approval.querySelector('[data-ref="target-menu"]')?.setAttribute('aria-expanded', 'false');
   }
 
   private decisionButton(decision: ApprovalDecision, label: string, variant: string): HTMLButtonElement {
@@ -343,9 +501,11 @@ export class ToolPartView implements PartView {
     if (!approval || this.deciding !== null || !this.ctx.decideApproval || this.part.state !== 'awaiting-approval') {
       return;
     }
+    const target = decision === 'deny' ? null : this.chosenTarget();
     this.deciding = decision;
+    this.closeMenu();
     this.paintApproval();
-    const ok = await this.ctx.decideApproval(approval.id, decision);
+    const ok = await (target ? this.ctx.decideApproval(approval.id, decision, target) : this.ctx.decideApproval(approval.id, decision));
     // Taken: the part's update settles the card. Refused while it still waits: answer again.
     if (!ok && this.part.state === 'awaiting-approval' && this.part.approval?.id === approval.id) {
       this.deciding = null;
@@ -685,9 +845,10 @@ function installTarget(target: InstallSummary['target']): string {
  * who publishes it, its license and installs, its description and what it
  * exports, where it goes, and a note for an upgrade, a copy already here, a
  * deprecation or a hub that could not say. The hub's text is the
- * publisher's: it is set as text only.
+ * publisher's: it is set as text only. `placeShown`: the card's buttons
+ * say where it goes (the place menu), so the facts leave it out.
  */
-export function installSummaryView(install: InstallSummary): HTMLElement {
+export function installSummaryView(install: InstallSummary, options: { placeShown?: boolean } = {}): HTMLElement {
   const card = document.createElement('div');
   card.className = 'chat-install';
   card.dataset.ref = 'install';
@@ -748,12 +909,16 @@ export function installSummaryView(install: InstallSummary): HTMLElement {
       facts.push(exports.join(', '));
     }
   }
-  facts.push(installTarget(install.target));
-  const factLine = document.createElement('div');
-  factLine.className = 'chat-install-facts';
-  factLine.dataset.ref = 'install-facts';
-  factLine.textContent = facts.join(' · ');
-  card.append(factLine);
+  if (!options.placeShown) {
+    facts.push(installTarget(install.target));
+  }
+  if (facts.length > 0) {
+    const factLine = document.createElement('div');
+    factLine.className = 'chat-install-facts';
+    factLine.dataset.ref = 'install-facts';
+    factLine.textContent = facts.join(' · ');
+    card.append(factLine);
+  }
 
   const note = (ref: string, icon: string, words: string, tone = '') => {
     const row = document.createElement('div');

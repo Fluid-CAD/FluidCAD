@@ -1453,6 +1453,8 @@ function loadAgentPanel(): Promise<ChatPanel> {
       openSettings: (section) => settingsModal.show('agent', section ?? 'api-keys'),
       // The engine saved "Always" for installs itself: Settings → Agent shows it from now on.
       onInstallsAlwaysAllowed: () => agentSettings.update({ ...agentSettings.current, alwaysAllowInstalls: true }),
+      // Where an install card puts a package is the project's choice, as the Hub panel's Install dropdown keeps it.
+      onInstallTargetChosen: (target) => hubPanel.setInstallTarget(target),
       // `@` in the composer names a project file: the `+` picker's listing.
       listFiles: async () => (await listWorkspaceFiles()).files,
       openSource: editorSurfaceEnabled

@@ -4,6 +4,7 @@ import type {
   AgentModel,
   ApiProviderStatus,
   ApprovalDecision,
+  InstallTarget,
   ChatEventEnvelope,
   LoginStatus,
   ParamsKept,
@@ -73,7 +74,8 @@ export interface ChatClient {
    * was already settled (another tab, a stop), 400 when "Allow for this
    * session" is not offered, 404 when there is no such approval.
    */
-  decideApproval(id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>>;
+  /** `target`: where the user chose to install (an install's card). */
+  decideApproval(id: string, approvalId: string, decision: ApprovalDecision, target?: InstallTarget): Promise<ChatAnswer<null>>;
   /**
    * Ask for the preview an approval card offers instead of building it
    * unasked (§25). Refused with 409 when it is not offered (building or
@@ -195,8 +197,8 @@ export class HttpChatClient implements ChatClient {
     return this.request('POST', `${this.session(id)}/continue`, mode ? { mode } : {});
   }
 
-  decideApproval(id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>> {
-    return this.request('POST', `${this.session(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision });
+  decideApproval(id: string, approvalId: string, decision: ApprovalDecision, target?: InstallTarget): Promise<ChatAnswer<null>> {
+    return this.request('POST', `${this.session(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision, ...(target ? { target } : {}) });
   }
 
   requestPreview(id: string, approvalId: string): Promise<ChatAnswer<null>> {

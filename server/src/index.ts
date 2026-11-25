@@ -56,7 +56,7 @@ import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost/index.ts';
 import { createFilesRouter } from './routes/files.ts';
 import { createEngineTypesRouter } from './routes/engine-types.ts';
-import { createWorkspaceStateRouter } from './routes/workspace-state.ts';
+import { createWorkspaceStateRouter, WorkspaceUiStateStore } from './routes/workspace-state.ts';
 import { createAgentRoutes } from './routes/agent.ts';
 import type { AgentRenderState } from './agent-host.ts';
 import { createUnitRouter } from './routes/unit.ts';
@@ -420,6 +420,11 @@ app.use('/api', createAgentRoutes({
   unit: projectUnitNow,
   loadPreferences,
   updateAgentPreferences,
+  // The Hub panel's choice for this project first, as its Install dropdown starts.
+  installTarget: async () => {
+    const target = WorkspaceUiStateStore.read(WORKSPACE_PATH).hubInstallTarget ?? (await loadPreferences()).packageInstallTarget;
+    return target === 'project' && WORKSPACE_PATH ? 'project' : 'library';
+  },
   modelParams: () => fluidCadServer.getParamDefinitions(),
 }));
 app.use('/api', MeshesRoute.router(core.meshes));

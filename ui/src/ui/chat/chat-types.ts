@@ -163,9 +163,11 @@ export type ToolPart = {
    * the workspace); `canAllowAlways` whether "Always" is (a package install,
    * on an engine that can remember it). `decision` is set once the user
    * answered. `standing`: nothing was asked, because the user chose "Always"
-   * before (`decision` is then `allow-always`).
+   * before (`decision` is then `allow-always`). `canChooseTarget`: the card
+   * lets the user choose where the install goes (`install.target`), sent with
+   * the answer.
    */
-  approval?: { id: string; canAllowSession: boolean; canAllowAlways?: boolean; decision?: ApprovalDecision; standing?: true };
+  approval?: { id: string; canAllowSession: boolean; canAllowAlways?: boolean; canChooseTarget?: true; decision?: ApprovalDecision; standing?: true };
   /**
    * The package an `install_package` call installs, for its confirmation
    * card: what the call asked for at once, what the hub says of it once read.
@@ -246,12 +248,20 @@ export type ApprovalDecision = 'allow' | 'allow-session' | 'allow-always' | 'den
  * the hub could not say (`problem`). Hub text (the description, the
  * deprecation) is the publisher's: shown as text, never as markup.
  */
+/** Where an install puts a package: the user's library, or a copy in the project's `packages/` folder. */
+export type InstallTarget = 'library' | 'project';
+
 export type InstallSummary = {
   state: 'loading' | 'ready' | 'unavailable';
   name: string;
   /** The version asked for; else, once read, the one the install gets. Null when neither is known. */
   version: string | null;
-  /** Where the call asked it to go; null: the "New packages go to" setting decides. */
+  /**
+   * Where it goes: the place the call named, else where the user's installs
+   * go (the Hub panel's choice for the project, else the setting); once the
+   * user answered, the place they chose. Null: the setting decides (an engine
+   * that cannot say).
+   */
   target: 'library' | 'project' | null;
   upgrade: boolean;
   publisher?: string | null;

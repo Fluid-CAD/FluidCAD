@@ -20,6 +20,7 @@ import {
   type AgentModel,
   type ApiProviderStatus,
   type ApprovalDecision,
+  type InstallTarget,
   type Effort,
   type ParamKeptValue,
   type PermissionMode,
@@ -108,6 +109,8 @@ export type ChatPanelDeps = {
   openSettings?(section?: string): void;
   /** The user chose "Always" on an install's card and the engine saved it: the page's agent settings follow. */
   onInstallsAlwaysAllowed?(): void;
+  /** The user chose where an install's card puts the package (My library, This project): the Hub panel starts there too. */
+  onInstallTargetChosen?(target: InstallTarget): void;
   /** Show a source location in the editor (a render error's line). */
   openSource?(filePath: string, line: number, column: number): void;
   /** Colours closed code blocks like the editor (Monaco's colorize), once the editor is loaded. */
@@ -330,14 +333,15 @@ export class ChatPanel {
       colorizer: () => deps.colorizer?.() ?? null,
       fileUrl: (name: string) => (this.state.session ? deps.client.fileUrl(this.state.session.id, name) : ''),
       ...(deps.openSource ? { openSource: deps.openSource } : {}),
-      decideApproval: async (approvalId: string, decision: ApprovalDecision) => {
-        const ok = await this.state.decideApproval(approvalId, decision);
+      decideApproval: async (approvalId: string, decision: ApprovalDecision, target?: InstallTarget) => {
+        const ok = await this.state.decideApproval(approvalId, decision, target);
         if (ok && decision === 'allow-always') {
           deps.onInstallsAlwaysAllowed?.();
         }
         return ok;
       },
       ...(deps.openSettings ? { openAgentSettings: () => deps.openSettings!('general') } : {}),
+      ...(deps.onInstallTargetChosen ? { onInstallTargetChosen: deps.onInstallTargetChosen } : {}),
       answerQuestion: (questionId: string, reply: QuestionReply) => this.state.answerQuestion(questionId, reply),
       chooseVariant: (variantsId: string, reply: VariantsReply) => this.state.chooseVariant(variantsId, reply),
       saveVariantPicture: (variantsId: string, label: string, dataUrl: string) => this.state.saveVariantPicture(variantsId, label, dataUrl),

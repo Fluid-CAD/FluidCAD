@@ -1,5 +1,5 @@
 import type { Colorizer } from '../code-block';
-import type { ApprovalDecision, ChatPart, ParamKeptValue, QuestionReply, VariantsReply } from '../chat-types';
+import type { ApprovalDecision, ChatPart, InstallTarget, ParamKeptValue, QuestionReply, VariantsReply } from '../chat-types';
 import type { ParamCardHost } from './params-part';
 import type { PickTaker } from '../answer-picks';
 import type { Pointer } from '../pointing';
@@ -19,9 +19,12 @@ export type PartContext = {
   /**
    * Answer a tool call waiting for approval; resolves true once the engine
    * took it (the card then changes through the part's next update). Absent:
-   * the card only says it waits.
+   * the card only says it waits. `target`: where the user chose to install
+   * (an install's card).
    */
-  decideApproval?(approvalId: string, decision: ApprovalDecision): Promise<boolean>;
+  decideApproval?(approvalId: string, decision: ApprovalDecision, target?: InstallTarget): Promise<boolean>;
+  /** The user chose where an install's card puts the package: the Hub panel's choice for the project follows. */
+  onInstallTargetChosen?(target: InstallTarget): void;
   /**
    * Answer (or skip) a question the agent asked; resolves true once the
    * engine took it (the card then changes through the part's next update).

@@ -38,6 +38,13 @@ export type AgentHostDeps = {
    */
   updateAgentPreferences?(patch: Partial<Preferences['agent']>): Promise<unknown>;
   /**
+   * Where an install goes when the agent names no place: the project's last
+   * choice in the Hub panel (its Install dropdown), else Settings → Packages'
+   * "New packages go to". An install card starts there. Absent: the card
+   * says the setting decides, and offers no choice.
+   */
+  installTarget?(): Promise<'library' | 'project'>;
+  /**
    * The parameters the model on screen declared in its last finished render,
    * each with the value it has now (a session override included): what a
    * chat's parameter card may offer. Absent on an engine that cannot say;

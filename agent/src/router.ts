@@ -273,10 +273,18 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
       res.status(400).json({ error: '`decision` must be "allow", "allow-session", "allow-always" or "deny".' });
       return;
     }
-    const result = session.decideApproval(String(req.params.approvalId), decision as ApprovalDecision);
+    const target = req.body?.target;
+    if (target !== undefined && target !== 'library' && target !== 'project') {
+      res.status(400).json({ error: '`target` must be "library" or "project".' });
+      return;
+    }
+    const result = session.decideApproval(String(req.params.approvalId), decision as ApprovalDecision, target);
     switch (result) {
       case 'ok':
         res.status(204).end();
+        return;
+      case 'no-target':
+        res.status(400).json({ error: 'This action has no place to choose: `target` is for package installs.' });
         return;
       case 'not-offered':
         res.status(400).json({ error: `${decision === 'allow-always' ? '"Always"' : '"Allow for this session"'} is not offered for this action.` });

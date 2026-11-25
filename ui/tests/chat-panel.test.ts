@@ -1432,6 +1432,69 @@ describe('approval on tool cards (§12.1)', () => {
     expect(h.openSettings).toHaveBeenCalledWith('general');
   });
 
+  it('where an install goes is chosen as in the Hub panel: a split Install button, its places menu, the choice beside it and sent with the answer', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart({
+      approval: { id: 'ap3', canAllowSession: false, canAllowAlways: true, canChooseTarget: true },
+      install: { state: 'ready', name: '@acme/kit', version: '0.2.0', target: 'library', upgrade: false, contents: { features: 2, parts: 0, assemblies: 0 } },
+    }));
+    const onInstallTargetChosen = vi.fn();
+    const h = mount(client, {}, { onInstallTargetChosen });
+    await opened(h);
+    // The place is the button's: the facts keep what the package exports.
+    expect(h.$('[data-ref="install-facts"]')!.textContent).toBe('2 features');
+    expect(h.$('[data-ref="install-target"]')!.textContent).toBe('into my library');
+    expect(h.$$('[data-ref="approval"] button').map((b) => b.dataset.ref)).toEqual(['allow', 'target-menu', 'allow-always', 'deny']);
+    expect(h.$('[data-ref="install-targets"]')).toBeNull();
+
+    const chevron = h.$<HTMLButtonElement>('[data-ref="target-menu"]')!;
+    chevron.click();
+    expect(h.$('[data-ref="target-menu"]')!.getAttribute('aria-expanded')).toBe('true');
+    const options = h.$$<HTMLButtonElement>('[data-ref="install-targets"] [role="menuitemradio"]');
+    expect(options.map((o) => [o.dataset.target, o.getAttribute('aria-checked'), o.textContent!.trim()])).toEqual([
+      ['library', 'true', 'My libraryEvery project can use it; this project uses it.'],
+      ['project', 'false', 'This projectA copy in its packages/ folder, committed with it.'],
+    ]);
+    options[1].click();
+    expect(h.$('[data-ref="install-targets"]')).toBeNull();
+    expect(h.$('[data-ref="install-target"]')!.textContent).toBe('into this project');
+    expect(onInstallTargetChosen).toHaveBeenCalledWith('project');
+
+    // The same place again is no new choice; Escape closes the menu.
+    h.$<HTMLButtonElement>('[data-ref="target-menu"]')!.click();
+    h.$$<HTMLButtonElement>('[data-ref="install-targets"] [data-target="project"]')[0].click();
+    expect(onInstallTargetChosen).toHaveBeenCalledTimes(1);
+    h.$<HTMLButtonElement>('[data-ref="target-menu"]')!.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(h.$('[data-ref="install-targets"]')).toBeNull();
+
+    h.$<HTMLButtonElement>('[data-ref="allow"]')!.click();
+    await settle();
+    expect(client.decideApproval).toHaveBeenLastCalledWith('s', 'ap3', 'allow', 'project');
+    // Answered: the details keep where it went.
+    h.$<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    expect(h.$('[data-ref="details"] [data-ref="install-facts"]')!.textContent).toBe('2 features · Copied into this project’s packages/ folder');
+  });
+
+  it('a press outside the places menu closes it and still lands; Deny sends no place', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart({
+      approval: { id: 'ap3', canAllowSession: false, canChooseTarget: true },
+      install: { state: 'loading', name: '@acme/kit', version: null, target: 'project', upgrade: false },
+    }));
+    const h = mount(client);
+    await opened(h);
+    expect(h.$('[data-ref="install-target"]')!.textContent).toBe('into this project');
+    h.$<HTMLButtonElement>('[data-ref="target-menu"]')!.click();
+    const deny = h.$<HTMLButtonElement>('[data-ref="deny"]')!;
+    deny.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(h.$('[data-ref="install-targets"]')).toBeNull();
+    expect(h.$('[data-ref="deny"]')).toBe(deny);
+    deny.click();
+    await settle();
+    expect(client.decideApproval).toHaveBeenLastCalledWith('s', 'ap3', 'deny');
+  });
+
   it('an install that ran without asking because of Always says so', async () => {
     const client = new FakeChatClient();
     waitingSession(client, installPart({ state: 'done', approval: { id: 'ap4', canAllowSession: false, decision: 'allow-always', standing: true } }));

@@ -7,6 +7,7 @@ import type {
   AgentModel,
   ApiProviderStatus,
   ApprovalDecision,
+  InstallTarget,
   ChatEvent,
   ChatPart,
   LoginStatus,
@@ -359,7 +360,7 @@ export class FakeChatClient implements ChatClient {
    * Answers like the runtime: the waiting card settles (`running` with the
    * decision, or `denied`), the status goes back to `running`.
    */
-  decideApproval = vi.fn(async (id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>> => {
+  decideApproval = vi.fn(async (id: string, approvalId: string, decision: ApprovalDecision, target?: InstallTarget): Promise<ChatAnswer<null>> => {
     if (this.decideAnswer) {
       return this.decideAnswer;
     }
@@ -371,11 +372,13 @@ export class FakeChatClient implements ChatClient {
             return { ok: false, status: 409, error: 'This approval was already settled.' };
           }
           const approval = { ...part.approval, decision };
+          // An install goes where the user chose on its card.
+          const install = target && decision !== 'deny' && part.install ? { install: { ...part.install, target } } : {};
           this.emit(id, {
             type: 'part-update',
             messageId: message.id,
             partId: part.id,
-            patch: decision === 'deny' ? { state: 'denied', approval, error: 'Declined.' } : { state: 'running', approval },
+            patch: decision === 'deny' ? { state: 'denied', approval, error: 'Declined.' } : { state: 'running', approval, ...install },
           });
           const status = snapshot.status as SessionStatus & { turnId?: string };
           this.emit(id, { type: 'status', status: { state: 'running', turnId: status.turnId ?? 'turn' } });

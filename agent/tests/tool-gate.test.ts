@@ -817,6 +817,78 @@ describe('ToolGate: installing a package from the hub', () => {
     await write;
   });
 
+  /** A host that says where installs go (the Hub panel's choice, else the setting), and can remember Always. */
+  class TargetHost extends AlwaysHost {
+    where: 'library' | 'project' = 'library';
+    async installTarget(): Promise<'library' | 'project'> {
+      return this.where;
+    }
+  }
+
+  it('the card starts where installs go; the answer may move it, and the install runs where the user chose', async () => {
+    hubInstall = installing(null);
+    kitOnHub();
+    const host = new TargetHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    const id = await host.waiting();
+    expect(host.tools()[0].approval).toEqual({ id, canAllowSession: false, canAllowAlways: true, canChooseTarget: true });
+    expect(host.tools()[0].install).toMatchObject({ name: KIT, target: 'library' });
+    expect(gate.decide(id, 'allow', 'project')).toBe('ok');
+    expect((await call).isError).not.toBe(true);
+    expect(hubInstalls).toEqual([{ name: KIT, target: 'project' }]);
+    // The hub's answer, whenever it lands, keeps the place chosen; the call's input stays the agent's.
+    expect((await installRead(host)).install).toMatchObject({ state: 'ready', version: '0.2.0', target: 'project' });
+    expect(host.tools()[0].input).toEqual({ name: KIT });
+
+    // A place the call names is where the card starts; installed there as is, the call goes through as it came.
+    const named = client.callTool({ name: 'install_package', arguments: { name: KIT, target: 'project' } });
+    const second = await host.waiting(1);
+    expect(host.tools()[1].install!.target).toBe('project');
+    expect(gate.decide(second, 'allow', 'project')).toBe('ok');
+    await named;
+    expect(hubInstalls[1]).toEqual({ name: KIT, target: 'project' });
+
+    // Always: later installs run, unasked, where installs go.
+    host.always = true;
+    host.where = 'project';
+    expect((await client.callTool({ name: 'install_package', arguments: { name: '@acme/other' } })).isError).not.toBe(true);
+    expect(hubInstalls[2]).toEqual({ name: '@acme/other', target: 'project' });
+    expect(host.tools()[2]).toMatchObject({ approval: { standing: true }, install: { target: 'project' } });
+  });
+
+  it('a place is only taken where the card offers one; a declined install ignores it', async () => {
+    const host = new TargetHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    const id = await host.waiting();
+    expect(gate.decide(id, 'deny', 'project')).toBe('ok');
+    expect(textOf(await call)).toBe(DECLINED_MESSAGE);
+    expect(host.tools()[0].install!.target).toBe('library');
+    expect(hubInstalls).toEqual([]);
+
+    // An engine that cannot say where installs go: the setting decides, and the card offers no choice.
+    const plain = new FakeHost();
+    const plainGate = new ToolGate(plain);
+    const plainClient = await connect(plainGate);
+    const install = plainClient.callTool({ name: 'install_package', arguments: { name: KIT } });
+    const installId = await plain.waiting();
+    expect(plain.tools()[0].approval).toEqual({ id: installId, canAllowSession: false });
+    expect(plain.tools()[0].install!.target).toBeNull();
+    expect(plainGate.decide(installId, 'allow', 'project')).toBe('no-target');
+    plainGate.decide(installId, 'deny');
+    await install;
+
+    // Nor for anything but an install.
+    const write = client.callTool({ name: 'write_file', arguments: { path: 'a.fluid.js', content: '// a\n' } });
+    const writeId = await host.waiting(1);
+    expect(gate.decide(writeId, 'allow', 'library')).toBe('no-target');
+    gate.decide(writeId, 'deny');
+    await write;
+  });
+
   it('searches and reads the hub without asking', async () => {
     const host = new FakeHost();
     const client = await connect(new ToolGate(host));

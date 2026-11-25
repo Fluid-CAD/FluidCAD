@@ -151,7 +151,16 @@ export type ToolGateHost = {
   alwaysAllowed?(name: string): Promise<boolean>;
   /** Remembers "Always" for `name`, beyond this session. Absent: the card offers no "Always". */
   allowAlways?(name: string): Promise<void>;
+  /**
+   * Where an install goes when the call names no place (the project's last
+   * Hub-panel choice, else the setting): its card starts there and the user
+   * may choose the other. Absent: the card says the setting decides.
+   */
+  installTarget?(): Promise<InstallTarget>;
 };
+
+/** Where an install puts a package: the user's library, or a copy in the project's `packages/` folder. */
+export type InstallTarget = NonNullable<InstallSummary['target']>;
 
 /** Timers, injectable for tests. */
 export type GateTimers = {
@@ -190,6 +199,8 @@ type PendingApproval = {
   name: string;
   canAllowSession: boolean;
   canAllowAlways: boolean;
+  /** Takes the place the user chose for an install with their answer; absent when the card offers no choice. */
+  chooseTarget?(target: InstallTarget): void;
   /** The preview of the change the call would make, when it is one to a model file (§25). */
   preview?: ChangePreviewJob;
   settle(outcome: ApprovalOutcome): void;
@@ -354,6 +365,18 @@ export class ToolGate implements McpToolGate {
         return { allow: false, message: STOPPED_MESSAGE };
       }
     }
+    // An install starts where the user's installs go, unless the call names a place.
+    let install = call.name === 'install_package' ? installAsked(call.input) : undefined;
+    if (install && install.target === null && this.host.installTarget) {
+      try {
+        install = { ...install, target: await this.host.installTarget() };
+      } catch (e) {
+        console.error('[agent] could not read where installs go:', e);
+      }
+      if (!this.isActive(turn.turnId)) {
+        return { allow: false, message: STOPPED_MESSAGE };
+      }
+    }
     const messageId = this.host.assistantMessageId();
     const rel = preview ? this.relative(preview.absPath) : null;
     const part: ToolPart = {
@@ -366,7 +389,7 @@ export class ToolGate implements McpToolGate {
       state: 'running',
       input: call.input ?? {},
       ...(preview && rel ? { diff: unifiedDiff(rel, preview) } : {}),
-      ...(call.name === 'install_package' ? { install: installAsked(call.input) } : {}),
+      ...(install ? { install } : {}),
     };
     this.host.emit({ type: 'part-start', messageId, part });
     const update = (patch: Partial<ToolPart>) => this.host.emit({ type: 'part-update', messageId, partId: part.id, patch });
@@ -392,11 +415,23 @@ export class ToolGate implements McpToolGate {
             this.autoPreviewMaxBuildMs,
           )
         : undefined;
-      if (part.install) {
+      if (install) {
         // What the hub says of the package fills in on the card while it waits, and never holds the wait.
-        void this.readInstall(part.install, messageId, part.id, update);
+        void this.readInstall(install, messageId, part.id, update);
       }
-      const outcome = await this.waitForApproval(turn.turnId, call.name, update, signal, changePreview);
+      // The card offers both places when it knows where the install starts; the answer may move it.
+      const chooseTarget = install?.target
+        ? (target: InstallTarget) => {
+            if (target === install!.target) {
+              return;
+            }
+            install = { ...install!, target };
+            const current = this.host.part(messageId, part.id);
+            const shown = current?.type === 'tool' ? current.install : undefined;
+            update({ install: { ...(shown ?? install), target } });
+          }
+        : undefined;
+      const outcome = await this.waitForApproval(turn.turnId, call.name, update, signal, changePreview, chooseTarget);
       if (!isAllowed(outcome)) {
         this.host.persist();
         return { allow: false, message: outcomeMessage(outcome) };
@@ -437,6 +472,11 @@ export class ToolGate implements McpToolGate {
     }
     this.calls.set(call, { messageId, partId: part.id, turnId: turn.turnId, file, checkpointed, ...(before ? { before } : {}) });
     this.host.persist();
+    // An install runs where its card said it goes: the place the user chose, or where their installs go.
+    const input = (call.input && typeof call.input === 'object' ? call.input : {}) as Record<string, unknown>;
+    if (install?.target && input.target !== install.target) {
+      return { allow: true, input: { ...input, target: install.target } };
+    }
     return { allow: true };
   }
 
@@ -508,14 +548,23 @@ export class ToolGate implements McpToolGate {
    * "Always" lets this call run at once and remembers the choice through the
    * host, beyond the session; a later call of the tool asks again only if
    * that could not be saved, or the user turned it off since.
+   *
+   * `target`: where the user chose to install (an install's card); the call
+   * runs there. `no-target`: this call has no place to choose.
    */
-  decide(approvalId: string, decision: ApprovalDecision): 'ok' | 'not-found' | 'not-offered' {
+  decide(approvalId: string, decision: ApprovalDecision, target?: InstallTarget): 'ok' | 'not-found' | 'not-offered' | 'no-target' {
     const pending = this.pending.get(approvalId);
     if (!pending) {
       return 'not-found';
     }
     if ((decision === 'allow-session' && !pending.canAllowSession) || (decision === 'allow-always' && !pending.canAllowAlways)) {
       return 'not-offered';
+    }
+    if (target !== undefined && !pending.chooseTarget) {
+      return 'no-target';
+    }
+    if (target !== undefined && decision !== 'deny') {
+      pending.chooseTarget!(target);
     }
     if (decision === 'allow-session') {
       this.allowedForSession.add(pending.name);
@@ -938,10 +987,12 @@ export class ToolGate implements McpToolGate {
       install = { ...asked, state: 'unavailable', problem: e instanceof Error ? e.message : String(e) };
     }
     // The card may be gone (a reverted turn), or answered: what the hub said is still worth keeping on it.
-    if (this.host.part(messageId, partId)?.type !== 'tool') {
+    const current = this.host.part(messageId, partId);
+    if (current?.type !== 'tool') {
       return;
     }
-    update({ install });
+    // Where it goes is the user's choice by now, maybe not the one asked.
+    update({ install: { ...install, target: current.install?.target ?? install.target } });
     this.host.persist();
   }
 
@@ -951,11 +1002,17 @@ export class ToolGate implements McpToolGate {
     update: (patch: Partial<ToolPart>) => void,
     signal: AbortSignal,
     preview?: ChangePreviewJob,
+    chooseTarget?: (target: InstallTarget) => void,
   ): Promise<ApprovalOutcome> {
     const id = randomUUID();
     const canAllowSession = canAllowForSession(name);
     const canAllowAlways = ALWAYS_TOOLS.has(name) && !!this.host.allowAlways;
-    const approval = { id, canAllowSession, ...(canAllowAlways ? { canAllowAlways } : {}) };
+    const approval = {
+      id,
+      canAllowSession,
+      ...(canAllowAlways ? { canAllowAlways } : {}),
+      ...(chooseTarget ? { canChooseTarget: true as const } : {}),
+    };
     update({ state: 'awaiting-approval', approval });
     return new Promise<ApprovalOutcome>((resolve) => {
       let settled = false;
@@ -975,7 +1032,7 @@ export class ToolGate implements McpToolGate {
         this.host.approvalsChanged(turnId, this.pendingApprovalIds(turnId));
         resolve(outcome);
       };
-      this.pending.set(id, { id, turnId, name, canAllowSession, canAllowAlways, ...(preview ? { preview } : {}), settle });
+      this.pending.set(id, { id, turnId, name, canAllowSession, canAllowAlways, ...(chooseTarget ? { chooseTarget } : {}), ...(preview ? { preview } : {}), settle });
       signal.addEventListener('abort', onAbort, { once: true });
       this.host.approvalsChanged(turnId, this.pendingApprovalIds(turnId));
       // Saved while waiting: an engine restart now finds the card and says so.
@@ -1065,7 +1122,7 @@ export function relativeTo(workspacePath: string, absPath: string): string {
   return rel === '' || rel.startsWith('..') || path.isAbsolute(rel) ? absPath : rel.split(path.sep).join('/');
 }
 
-function outcomePatch(outcome: ApprovalOutcome, approval: { id: string; canAllowSession: boolean; canAllowAlways?: boolean }): Partial<ToolPart> {
+function outcomePatch(outcome: ApprovalOutcome, approval: NonNullable<ToolPart['approval']>): Partial<ToolPart> {
   switch (outcome) {
     case 'allow':
     case 'allow-session':

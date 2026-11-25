@@ -8,6 +8,7 @@ import {
   type AgentModel,
   type ApiProviderStatus,
   type ApprovalDecision,
+  type InstallTarget,
   type ChatEvent,
   type ChatEventEnvelope,
   type ChatMessage,
@@ -501,12 +502,12 @@ export class ChatState {
    * already settled elsewhere (another tab, a stop) is not an error: its
    * event says how it ended.
    */
-  async decideApproval(approvalId: string, decision: ApprovalDecision): Promise<boolean> {
+  async decideApproval(approvalId: string, decision: ApprovalDecision, target?: InstallTarget): Promise<boolean> {
     const id = this.session?.id;
     if (!id) {
       return false;
     }
-    const answer = await this.client.decideApproval(id, approvalId, decision);
+    const answer = await (target ? this.client.decideApproval(id, approvalId, decision, target) : this.client.decideApproval(id, approvalId, decision));
     if (answer.ok === false) {
       if (answer.status !== 409) {
         this.error = answer.error;

@@ -406,6 +406,7 @@ export class AgentRuntime {
             },
           }
         : {}),
+      ...(this.deps.installTarget ? { installTarget: () => this.deps.installTarget!() } : {}),
       instructions: () => {
         let text = this.instructionsText.get(kind);
         if (text === undefined) {

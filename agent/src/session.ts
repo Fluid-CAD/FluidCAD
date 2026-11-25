@@ -17,7 +17,7 @@ import { buildCliText, CONTINUE_TEXT, interruptedTurnNote, type InterruptedToolC
 import { addParamChanges, mergeKept, readKept, withoutTold, type ParamCardModel } from './param-cards.ts';
 import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-endpoint.ts';
 import { SessionStore, type Checkpoint, type SessionRecord } from './session-store.ts';
-import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from './tool-gate.ts';
+import { relativeTo, ToolGate, type ApprovalSweep, type InstallTarget, type ToolGateOptions } from './tool-gate.ts';
 import { applyChatEvent, findMessage, findPart } from './transcript.ts';
 import { cancelUnbuilt, VARIANTS_RESTART_BUILDING_REASON, VARIANTS_RESTART_REASON } from './variants.ts';
 import { cancelUnfinishedPreview } from './change-preview.ts';
@@ -79,6 +79,8 @@ export type SessionDeps = {
   alwaysAllowed?(name: string): Promise<boolean>;
   /** Remembers "Always" for tool `name` in the preferences. Absent: no card offers it. */
   allowAlways?(name: string): Promise<void>;
+  /** Where an install goes when the call names no place; absent: the setting decides and the card offers no choice. */
+  installTarget?(): Promise<InstallTarget>;
   idleMs?: number;
   /** Approval timeout and timers (tests). */
   gate?: ToolGateOptions;
@@ -156,6 +158,7 @@ export class AgentSession {
         model: () => deps.model(),
         ...(deps.alwaysAllowed ? { alwaysAllowed: (name: string) => deps.alwaysAllowed!(name) } : {}),
         ...(deps.allowAlways ? { allowAlways: (name: string) => deps.allowAlways!(name) } : {}),
+        ...(deps.installTarget ? { installTarget: () => deps.installTarget!() } : {}),
       },
       deps.gate,
     );
@@ -413,9 +416,10 @@ export class AgentSession {
   /**
    * The user's answer to a tool call waiting for approval (§12.1).
    * `already-decided`: the call is in the transcript but no longer waits.
+   * `target`: where the user chose to install (an install's card).
    */
-  decideApproval(approvalId: string, decision: ApprovalDecision): 'ok' | 'not-found' | 'already-decided' | 'not-offered' {
-    const result = this.gate.decide(approvalId, decision);
+  decideApproval(approvalId: string, decision: ApprovalDecision, target?: InstallTarget): 'ok' | 'not-found' | 'already-decided' | 'not-offered' | 'no-target' {
+    const result = this.gate.decide(approvalId, decision, target);
     if (result !== 'not-found') {
       return result;
     }

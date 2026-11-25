@@ -20,8 +20,12 @@ import { app } from 'electron';
  * dmg for the updater to read. Releases before that were unsigned and ran a
  * notify-and-open-the-download-page path instead; they cannot upgrade in
  * place, their users download the first signed build by hand once. On Linux
- * only the AppImage self-updates; the deb is a package-manager affair and the
- * updater is simply inert there.
+ * all three packages self-update: the AppImage replaces its own file, and the
+ * deb and rpm carry a `resources/package-type` file that makes electron-updater
+ * pick its DebUpdater / RpmUpdater. Those download their package from the same
+ * `latest-linux.yml` (one Linux build lists all three) and install it as root
+ * through pkexec (or sudo) with dpkg, or dnf / zypper / yum, so the user sees
+ * a password prompt when the app quits with an update staged.
  */
 
 /** Chrome checks roughly every five hours; four keeps a day-long session current. */

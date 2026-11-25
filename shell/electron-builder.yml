@@ -4,9 +4,10 @@ copyright: Copyright © Marwan Aouida
 
 # One naming scheme for every platform: `FluidCAD-0.0.43-win-x64.exe`,
 # `FluidCAD-0.0.43-mac-arm64.dmg`, `FluidCAD-0.0.43-linux-x86_64.AppImage`,
-# `FluidCAD-0.0.43-linux-amd64.deb` (Linux targets spell `${arch}` their own
-# way). The defaults differ per target (`FluidCAD Setup 0.0.43.exe`, with
-# spaces, for NSIS; `fluidcad-desktop_0.0.43_amd64.deb` for the deb), which
+# `FluidCAD-0.0.43-linux-amd64.deb`, `FluidCAD-0.0.43-linux-x86_64.rpm`
+# (Linux targets spell `${arch}` their own way). The defaults differ per target
+# (`FluidCAD Setup 0.0.43.exe`, with spaces, for NSIS;
+# `fluidcad-desktop_0.0.43_amd64.deb` for the deb), which
 # made the download list hard to read and the installation page hard to
 # write. electron-updater reads the names from `latest*.yml`, so it follows
 # along. The installation page lists these names; keep the two in step.
@@ -106,6 +107,12 @@ linux:
     - target: AppImage
       arch: [x64]
     - target: deb
+      arch: [x64]
+    # Built by fpm, which shells out to `rpmbuild`: the Linux job of
+    # release-desktop.yml installs the `rpm` package for it, and a local
+    # `npm run dist` needs it too (`sudo apt install rpm` on Debian/Ubuntu;
+    # Fedora ships it).
+    - target: rpm
       arch: [x64]
   synopsis: Parametric CAD you write in JavaScript
   desktop:

@@ -136,7 +136,7 @@ Bring in existing STEP models with their colors, export STEP to other CAD tools,
 | Platform | Package | Installation |
 | --- | --- | --- |
 | Windows (x64) | `.exe` | Run the installer. If SmartScreen appears, choose **More info → Run anyway**; builds are not yet code-signed. |
-| Linux (x64) | `.AppImage` or `.deb` | Make the AppImage executable and run it, or use `sudo apt install ./FluidCAD-*.deb`. |
+| Linux (x64) | `.AppImage`, `.deb` or `.rpm` | Make the AppImage executable and run it, use `sudo apt install ./FluidCAD-*.deb`, or `sudo dnf install ./FluidCAD-*.rpm`. |
 | macOS (Apple Silicon) | `.dmg` or `.zip` | Drag FluidCAD into **Applications**. |
 
 ### Prefer the terminal?

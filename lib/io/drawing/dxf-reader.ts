@@ -5,11 +5,9 @@ import { BSplineCurve2D } from "./bspline.js";
 import { Conic } from "./conic.js";
 import type { ImportedConstructionLine, ImportedDrawing, ImportedEntity, ImportedLayer, ImportedPoint, ImportedUnit } from "./import.js";
 import { interpolateBSpline2d } from "../../math/bspline-interpolation.js";
-
-type Pair = { code: number; value: string };
-
-/** One object of the file: its type (the group-0 value) and the pairs up to the next group 0. */
-type DxfRecord = { type: string; pairs: Pair[] };
+import { DxfRecords, type DxfPair, type DxfRecord } from "./dxf-record.js";
+import { DxfText } from "./dxf-text.js";
+import type { ImportedText } from "./imported-text.js";
 
 type Block = { base: Vec2; records: DxfRecord[] };
 
@@ -84,8 +82,11 @@ const SILENT_TYPES = new Set(['SEQEND', 'VERTEX', 'ATTRIB', 'ATTDEF', 'VIEWPORT'
  * with its block expanded in place — moved, turned, scaled per axis,
  * mirrored, arrayed, nested. A `POINT` is read as a point, and an `XLINE`
  * or a `RAY` as a construction line, each apart from the curves. Model
- * space only; an entity made invisible is left out. Everything else —
- * text, dimensions, hatches, images — is counted in `skipped`.
+ * space only; an entity made invisible is left out. `TEXT`, `MTEXT` and
+ * the attribute values of a block reference are read as texts (see
+ * `DxfText`); an attribute's definition (`ATTDEF`) is a template, not
+ * something drawn, and is not. Everything else — dimensions, hatches,
+ * images — is counted in `skipped`.
  *
  * Coordinates are the file's own: nothing is recentred or scaled; `unit`
  * says what the file declares. A drawing is taken as its top view: an entity
@@ -136,6 +137,9 @@ export class DxfReader {
   private readonly entities: ImportedEntity[] = [];
   private readonly points: ImportedPoint[] = [];
   private readonly constructionLines: ImportedConstructionLine[] = [];
+  private readonly texts: ImportedText[] = [];
+  /** Reads text in the file's styles; set once the tables are read. */
+  private text = new DxfText([]);
   private readonly skipped: Record<string, number> = {};
   private unitCode = 0;
   private projected = 0;
@@ -149,7 +153,7 @@ export class DxfReader {
   // ─── File structure ─────────────────────────────────────────────────────
 
   /** The text as (group code, value) pairs; throws on what is not an ASCII DXF. */
-  private static pairs(text: string): Pair[] {
+  private static pairs(text: string): DxfPair[] {
     if (text.charCodeAt(0) === 0xfeff) {
       text = text.slice(1);
     }
@@ -160,7 +164,7 @@ export class DxfReader {
       throw new Error('This is a DWG file, not a DXF. Save the drawing as DXF and import that.');
     }
     const lines = text.split(/\r\n|\r|\n/);
-    const pairs: Pair[] = [];
+    const pairs: DxfPair[] = [];
     for (let i = 0; i < lines.length; i += 2) {
       const code = lines[i].trim();
       if (!/^-?\d+$/.test(code)) {
@@ -171,7 +175,9 @@ export class DxfReader {
         const found = code.length > 24 ? `${code.slice(0, 24)}…` : code;
         throw new Error(`This is not a DXF file: line ${i + 1} should be a group code, and is ${JSON.stringify(found)}.`);
       }
-      pairs.push({ code: Number(code), value: (lines[i + 1] ?? '').trim() });
+      // What a text says (groups 1 and 3) keeps its spaces: a long text is cut into pieces anywhere, also after a space.
+      const value = lines[i + 1] ?? '';
+      pairs.push({ code: Number(code), value: code === '1' || code === '3' ? value : value.trim() });
     }
     if (!pairs.some((pair) => pair.code === 0 && pair.value === 'SECTION')) {
       throw new Error('This is not a DXF file: it has no sections.');
@@ -179,8 +185,8 @@ export class DxfReader {
     return pairs;
   }
 
-  private load(pairs: Pair[]): void {
-    const sections = new Map<string, Pair[]>();
+  private load(pairs: DxfPair[]): void {
+    const sections = new Map<string, DxfPair[]>();
     for (let i = 0; i < pairs.length; i++) {
       if (pairs[i].code !== 0 || pairs[i].value !== 'SECTION' || pairs[i + 1]?.code !== 2) {
         continue;
@@ -199,7 +205,7 @@ export class DxfReader {
     this.emit(DxfReader.records(sections.get('ENTITIES') ?? []), Affine.IDENTITY, null, []);
   }
 
-  private static records(pairs: Pair[]): DxfRecord[] {
+  private static records(pairs: DxfPair[]): DxfRecord[] {
     const records: DxfRecord[] = [];
     let current: DxfRecord | null = null;
     for (const pair of pairs) {
@@ -213,7 +219,7 @@ export class DxfReader {
     return records;
   }
 
-  private header(pairs: Pair[]): void {
+  private header(pairs: DxfPair[]): void {
     const at = pairs.findIndex((pair) => pair.code === 9 && pair.value.toUpperCase() === '$INSUNITS');
     if (at >= 0 && pairs[at + 1]?.code === 70) {
       const code = Number(pairs[at + 1].value);
@@ -222,17 +228,18 @@ export class DxfReader {
   }
 
   private tables(records: DxfRecord[]): void {
+    this.text = new DxfText(records.filter((record) => record.type === 'STYLE'));
     for (const record of records) {
       if (record.type !== 'LAYER') {
         continue;
       }
-      const name = DxfReader.text(record, 2);
+      const name = DxfRecords.text(record, 2);
       if (name === undefined) {
         continue;
       }
       this.seeLayer(name);
       // Frozen (flag 1), or off: a layer that is off has its colour negated.
-      if ((DxfReader.int(record, 70, 0) & 1) !== 0 || DxfReader.int(record, 62, 7) < 0) {
+      if ((DxfRecords.int(record, 70, 0) & 1) !== 0 || DxfRecords.int(record, 62, 7) < 0) {
         this.hiddenLayers.add(name);
       }
     }
@@ -248,10 +255,10 @@ export class DxfReader {
       while (end < records.length && records[end].type !== 'ENDBLK' && records[end].type !== 'BLOCK') {
         end++;
       }
-      const name = DxfReader.text(head, 2) ?? DxfReader.text(head, 3);
+      const name = DxfRecords.text(head, 2) ?? DxfRecords.text(head, 3)?.trim();
       if (name !== undefined) {
         this.blocks.set(name.toUpperCase(), {
-          base: { x: DxfReader.num(head, 10, 0), y: DxfReader.num(head, 20, 0) },
+          base: { x: DxfRecords.num(head, 10, 0), y: DxfRecords.num(head, 20, 0) },
           records: records.slice(i + 1, end),
         });
       }
@@ -272,7 +279,7 @@ export class DxfReader {
       const record = records[i];
       // A polyline's vertices and a reference's attributes follow it, up to SEQEND.
       let children: DxfRecord[] = [];
-      if (record.type === 'POLYLINE' || (record.type === 'INSERT' && DxfReader.int(record, 66, 0) === 1)) {
+      if (record.type === 'POLYLINE' || (record.type === 'INSERT' && DxfRecords.int(record, 66, 0) === 1)) {
         let end = i + 1;
         while (end < records.length && (records[end].type === 'VERTEX' || records[end].type === 'ATTRIB')) {
           end++;
@@ -281,44 +288,44 @@ export class DxfReader {
         i = records[end]?.type === 'SEQEND' ? end : end - 1;
       }
       // Paper space (67) and entities made invisible (60) are not the drawing.
-      if (DxfReader.int(record, 67, 0) === 1 || DxfReader.int(record, 60, 0) === 1) {
+      if (DxfRecords.int(record, 67, 0) === 1 || DxfRecords.int(record, 60, 0) === 1) {
         continue;
       }
-      const own = DxfReader.text(record, 8) ?? '0';
+      const own = DxfRecords.text(record, 8) ?? '0';
       const layer = insertLayer !== null && own === '0' ? insertLayer : own;
 
       switch (record.type) {
         case 'LINE':
           this.add(layer, {
             kind: 'line',
-            a: { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) },
-            b: { x: DxfReader.num(record, 11, 0), y: DxfReader.num(record, 21, 0) },
+            a: { x: DxfRecords.num(record, 10, 0), y: DxfRecords.num(record, 20, 0) },
+            b: { x: DxfRecords.num(record, 11, 0), y: DxfRecords.num(record, 21, 0) },
           }, m);
           break;
         case 'CIRCLE': {
-          const radius = DxfReader.num(record, 40, 0);
+          const radius = DxfRecords.num(record, 40, 0);
           if (radius > 0) {
             this.add(layer, {
               kind: 'circle',
-              center: { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) },
+              center: { x: DxfRecords.num(record, 10, 0), y: DxfRecords.num(record, 20, 0) },
               radius,
-            }, Affine.compose(this.ocs(record, DxfReader.num(record, 30, 0)), m));
+            }, Affine.compose(this.ocs(record, DxfRecords.num(record, 30, 0)), m));
           }
           break;
         }
         case 'ARC': {
-          const radius = DxfReader.num(record, 40, 0);
+          const radius = DxfRecords.num(record, 40, 0);
           if (radius > 0) {
             // Degrees, counter-clockwise from 50 to 51; equal angles are a full turn.
-            const start = Curves.normalizeAngle(DxfReader.num(record, 50, 0) * DEG_TO_RAD);
-            const sweep = DxfReader.sweep(start, DxfReader.num(record, 51, 0) * DEG_TO_RAD);
+            const start = Curves.normalizeAngle(DxfRecords.num(record, 50, 0) * DEG_TO_RAD);
+            const sweep = DxfReader.sweep(start, DxfRecords.num(record, 51, 0) * DEG_TO_RAD);
             this.add(layer, {
               kind: 'arc',
-              center: { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) },
+              center: { x: DxfRecords.num(record, 10, 0), y: DxfRecords.num(record, 20, 0) },
               radius,
               start,
               end: start + sweep,
-            }, Affine.compose(this.ocs(record, DxfReader.num(record, 30, 0)), m));
+            }, Affine.compose(this.ocs(record, DxfRecords.num(record, 30, 0)), m));
           }
           break;
         }
@@ -337,8 +344,8 @@ export class DxfReader {
               last.bulge = Number(pair.value);
             }
           }
-          const placed = Affine.compose(this.ocs(record, DxfReader.num(record, 38, 0)), m);
-          for (const curve of DxfReader.polyline(vertices, (DxfReader.int(record, 70, 0) & 1) !== 0)) {
+          const placed = Affine.compose(this.ocs(record, DxfRecords.num(record, 38, 0)), m);
+          for (const curve of DxfReader.polyline(vertices, (DxfRecords.int(record, 70, 0) & 1) !== 0)) {
             this.add(layer, curve, placed);
           }
           break;
@@ -351,16 +358,29 @@ export class DxfReader {
           break;
         case 'INSERT':
           this.insert(record, layer, m, stack);
+          // The reference's attribute values: text of its own, already where it shows.
+          for (const child of children) {
+            if (child.type === 'ATTRIB' && (DxfRecords.int(child, 70, 0) & 1) === 0 && DxfRecords.int(child, 60, 0) !== 1) {
+              const childLayer = DxfRecords.text(child, 8) ?? '0';
+              this.addText(this.text.text(child, insertLayer !== null && childLayer === '0' ? insertLayer : childLayer, m));
+            }
+          }
+          break;
+        case 'TEXT':
+          this.addText(this.text.text(record, layer, m));
+          break;
+        case 'MTEXT':
+          this.addText(this.text.mtext(record, layer, m));
           break;
         case 'POINT':
-          this.addPoint(layer, { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) }, m);
+          this.addPoint(layer, { x: DxfRecords.num(record, 10, 0), y: DxfRecords.num(record, 20, 0) }, m);
           break;
         case 'XLINE':
         case 'RAY':
           this.addConstructionLine(
             layer,
-            { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) },
-            { x: DxfReader.num(record, 11, 0), y: DxfReader.num(record, 21, 0) },
+            { x: DxfRecords.num(record, 10, 0), y: DxfRecords.num(record, 20, 0) },
+            { x: DxfRecords.num(record, 11, 0), y: DxfRecords.num(record, 21, 0) },
             record.type === 'RAY',
             m,
           );
@@ -390,7 +410,7 @@ export class DxfReader {
 
   /** Throws when the file has grown past what an import can take. */
   private makeRoom(): void {
-    if (this.entities.length + this.points.length + this.constructionLines.length >= MAX_ENTITIES) {
+    if (this.entities.length + this.points.length + this.constructionLines.length + this.texts.length >= MAX_ENTITIES) {
       throw new Error(`The drawing has more than ${MAX_ENTITIES.toLocaleString('en-US')} curves and points once its blocks are expanded: too many to import.`);
     }
   }
@@ -404,6 +424,16 @@ export class DxfReader {
     this.makeRoom();
     this.seeLayer(layer);
     this.points.push({ layer, at: placed });
+  }
+
+  /** One text of the file, kept unless it draws nothing or lies nowhere. */
+  private addText(text: ImportedText | null): void {
+    if (!text || !Number.isFinite(text.at.x) || !Number.isFinite(text.at.y)) {
+      return;
+    }
+    this.makeRoom();
+    this.seeLayer(text.layer!);
+    this.texts.push(text);
   }
 
   /**
@@ -430,20 +460,20 @@ export class DxfReader {
    * conic door sorts that out, and a tilt too.
    */
   private ellipse(record: DxfRecord): Curve2D | null {
-    const major: Vec3 = { x: DxfReader.num(record, 11, 0), y: DxfReader.num(record, 21, 0), z: DxfReader.num(record, 31, 0) };
-    const ratio = DxfReader.num(record, 40, 1);
+    const major: Vec3 = { x: DxfRecords.num(record, 11, 0), y: DxfRecords.num(record, 21, 0), z: DxfRecords.num(record, 31, 0) };
+    const ratio = DxfRecords.num(record, 40, 1);
     const length = Math.hypot(major.x, major.y, major.z);
     if (!(length > 0) || !(ratio > 0)) {
       return null;
     }
-    const n = DxfReader.extrusion(record);
+    const n = DxfRecords.extrusion(record);
     if (Math.abs(n.z) < 1 - 1e-9 || Math.abs(major.z) > length * 1e-9) {
       this.projected++;
     }
-    const start = DxfReader.num(record, 41, 0);
-    const sweep = DxfReader.sweep(start, DxfReader.num(record, 42, TWO_PI));
+    const start = DxfRecords.num(record, 41, 0);
+    const sweep = DxfReader.sweep(start, DxfRecords.num(record, 42, TWO_PI));
     return Conic.fromConjugateDiameters(
-      { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) },
+      { x: DxfRecords.num(record, 10, 0), y: DxfRecords.num(record, 20, 0) },
       { x: major.x, y: major.y },
       { x: (n.y * major.z - n.z * major.y) * ratio, y: (n.z * major.x - n.x * major.z) * ratio },
       start, start + sweep, length * RELATIVE_TOLERANCE,
@@ -452,7 +482,7 @@ export class DxfReader {
 
   /** The old `POLYLINE` with its `VERTEX` entities: 2D with bulges, or a 3D polyline seen from above. Meshes are left out. */
   private oldPolyline(record: DxfRecord, children: DxfRecord[], layer: string, m: Affine2): void {
-    const flags = DxfReader.int(record, 70, 0);
+    const flags = DxfRecords.int(record, 70, 0);
     if ((flags & (16 | 64)) !== 0) {
       this.skipped['POLYLINE (mesh)'] = (this.skipped['POLYLINE (mesh)'] ?? 0) + 1;
       return;
@@ -465,17 +495,17 @@ export class DxfReader {
         continue;
       }
       // A spline-fit polyline keeps the frame it was fitted to as extra vertices (flag 16).
-      if (splineFit && (DxfReader.int(child, 70, 0) & 16) !== 0) {
+      if (splineFit && (DxfRecords.int(child, 70, 0) & 16) !== 0) {
         continue;
       }
       vertices.push({
-        x: DxfReader.num(child, 10, 0),
-        y: DxfReader.num(child, 20, 0),
-        bulge: is3d ? 0 : DxfReader.num(child, 42, 0),
+        x: DxfRecords.num(child, 10, 0),
+        y: DxfRecords.num(child, 20, 0),
+        bulge: is3d ? 0 : DxfRecords.num(child, 42, 0),
       });
     }
     // A 3D polyline's vertices are world points; a 2D one's are in its own plane.
-    const placed = is3d ? m : Affine.compose(this.ocs(record, DxfReader.num(record, 30, 0)), m);
+    const placed = is3d ? m : Affine.compose(this.ocs(record, DxfRecords.num(record, 30, 0)), m);
     for (const curve of DxfReader.polyline(vertices, (flags & 1) !== 0)) {
       this.add(layer, curve, placed);
     }
@@ -526,15 +556,15 @@ export class DxfReader {
    * coordinates. Null, and counted, when the file gives neither.
    */
   private spline(record: DxfRecord): Curve2D | null {
-    const degree = DxfReader.int(record, 71, 3);
-    const poles = DxfReader.points(record, 10, 20);
+    const degree = DxfRecords.int(record, 71, 3);
+    const poles = DxfRecords.points(record, 10, 20);
     if (degree >= 1 && poles.length >= degree + 1) {
-      let knots = DxfReader.all(record, 40).map(Number);
+      let knots = DxfRecords.all(record, 40).map(Number);
       if (knots.length !== poles.length + degree + 1) {
         knots = DxfReader.uniformClampedKnots(poles.length, degree);
         this.uniformKnotSplines++;
       }
-      const weights = DxfReader.all(record, 41).map(Number);
+      const weights = DxfRecords.all(record, 41).map(Number);
       const rational = weights.length === poles.length && weights.some((w) => Math.abs(w - 1) > 1e-12);
       const curve: Curve2D = { kind: 'bspline', degree, knots, poles, ...(rational ? { weights } : {}) };
       const [t0, t1] = BSplineCurve2D.domain(curve);
@@ -542,7 +572,7 @@ export class DxfReader {
         return BSplineCurve2D.clamped(curve);
       }
     }
-    const fit = DxfReader.points(record, 11, 21);
+    const fit = DxfRecords.points(record, 11, 21);
     if (fit.length >= 2) {
       try {
         const data = interpolateBSpline2d(fit);
@@ -581,7 +611,7 @@ export class DxfReader {
    * and columns when the reference is an array.
    */
   private insert(record: DxfRecord, layer: string, m: Affine2, stack: string[]): void {
-    const name = DxfReader.text(record, 2) ?? '';
+    const name = DxfRecords.text(record, 2) ?? '';
     const key = name.toUpperCase();
     const block = this.blocks.get(key);
     if (!block) {
@@ -592,17 +622,17 @@ export class DxfReader {
       this.nestedTooDeep = true;
       return;
     }
-    const sx = DxfReader.num(record, 41, 1);
-    const sy = DxfReader.num(record, 42, 1);
-    const angle = DxfReader.num(record, 50, 0) * DEG_TO_RAD;
+    const sx = DxfRecords.num(record, 41, 1);
+    const sy = DxfRecords.num(record, 42, 1);
+    const angle = DxfRecords.num(record, 50, 0) * DEG_TO_RAD;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
-    const columns = Math.max(1, DxfReader.int(record, 70, 1));
-    const rows = Math.max(1, DxfReader.int(record, 71, 1));
-    const columnStep = DxfReader.num(record, 44, 0);
-    const rowStep = DxfReader.num(record, 45, 0);
-    const at = { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) };
-    const outer = Affine.compose(this.ocs(record, DxfReader.num(record, 30, 0)), m);
+    const columns = Math.max(1, DxfRecords.int(record, 70, 1));
+    const rows = Math.max(1, DxfRecords.int(record, 71, 1));
+    const columnStep = DxfRecords.num(record, 44, 0);
+    const rowStep = DxfRecords.num(record, 45, 0);
+    const at = { x: DxfRecords.num(record, 10, 0), y: DxfRecords.num(record, 20, 0) };
+    const outer = Affine.compose(this.ocs(record, DxfRecords.num(record, 30, 0)), m);
     for (let row = 0; row < rows; row++) {
       for (let column = 0; column < columns; column++) {
         // p ↦ at + R · (S · (p − base) + (column step, row step))
@@ -623,12 +653,6 @@ export class DxfReader {
 
   // ─── Planes ─────────────────────────────────────────────────────────────
 
-  private static extrusion(record: DxfRecord): Vec3 {
-    const n = { x: DxfReader.num(record, 210, 0), y: DxfReader.num(record, 220, 0), z: DxfReader.num(record, 230, 1) };
-    const length = Math.hypot(n.x, n.y, n.z);
-    return length > 0 ? { x: n.x / length, y: n.y / length, z: n.z / length } : { x: 0, y: 0, z: 1 };
-  }
-
   /**
    * From an entity's own plane to the drawing: circles, arcs, polylines and
    * block references give their points in a frame built from their extrusion
@@ -638,7 +662,7 @@ export class DxfReader {
    * entity's height in that frame, which a tilt carries sideways).
    */
   private ocs(record: DxfRecord, elevation: number): Affine2 {
-    const n = DxfReader.extrusion(record);
+    const n = DxfRecords.extrusion(record);
     if (n.x === 0 && n.y === 0 && n.z > 0) {
       return Affine.IDENTITY;
     }
@@ -665,7 +689,7 @@ export class DxfReader {
 
   private result(): ImportedDrawing {
     const counts = new Map<string, number>();
-    for (const drawn of [...this.entities, ...this.points, ...this.constructionLines]) {
+    for (const drawn of [...this.entities, ...this.points, ...this.constructionLines, ...this.texts]) {
       // Everything a DXF draws is on a layer.
       counts.set(drawn.layer!, (counts.get(drawn.layer!) ?? 0) + 1);
     }
@@ -703,46 +727,13 @@ export class DxfReader {
       entities: this.entities,
       points: this.points,
       constructionLines: this.constructionLines,
+      texts: this.texts,
       skipped: this.skipped,
       warnings,
     };
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────
-
-  private static text(record: DxfRecord, code: number): string | undefined {
-    return record.pairs.find((pair) => pair.code === code)?.value;
-  }
-
-  private static all(record: DxfRecord, code: number): string[] {
-    return record.pairs.filter((pair) => pair.code === code).map((pair) => pair.value);
-  }
-
-  private static num(record: DxfRecord, code: number, fallback: number): number {
-    const value = DxfReader.text(record, code);
-    if (value === undefined || value === '') {
-      return fallback;
-    }
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-
-  private static int(record: DxfRecord, code: number, fallback: number): number {
-    return Math.trunc(DxfReader.num(record, code, fallback));
-  }
-
-  /** The points a record lists as repeated (`x`, `y`) groups, in order. */
-  private static points(record: DxfRecord, xCode: number, yCode: number): Vec2[] {
-    const points: Vec2[] = [];
-    for (const pair of record.pairs) {
-      if (pair.code === xCode) {
-        points.push({ x: Number(pair.value), y: 0 });
-      } else if (pair.code === yCode && points.length > 0) {
-        points[points.length - 1].y = Number(pair.value);
-      }
-    }
-    return points.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
-  }
 
   /** The counter-clockwise sweep from `start` to `end`, in (0, 2π]: equal angles are a full turn. */
   private static sweep(start: number, end: number): number {

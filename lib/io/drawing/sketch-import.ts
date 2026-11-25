@@ -3,6 +3,7 @@ import { Curves } from "./drawing.js";
 import { BSplineCurve2D } from "./bspline.js";
 import { DrawingCleanup } from "./cleanup.js";
 import type { CutLine } from "./construction-lines.js";
+import { ImportedTexts, type ResolvedText } from "./imported-text.js";
 
 type BSpline = Extract<Curve2D, { kind: 'bspline' }>;
 type Ellipse = Extract<Curve2D, { kind: 'ellipse' }>;
@@ -13,7 +14,8 @@ type Ellipse = Extract<Curve2D, { kind: 'ellipse' }>;
  * `arc(start, end, center)` (counter-clockwise), `circle(center, diameter)`,
  * `ellipse(center, rx, ry, rotation)` (degrees), `bezier(...points)` and,
  * for a point of the file, `point(at)`. A line marked `guide` is a
- * construction line: written `line(start, end).guide()`.
+ * construction line: written `line(start, end).guide()`. A text is the
+ * sketch's own `text(…)` (see {@link SketchTextPrimitive}).
  */
 export type SketchPrimitive =
   | { kind: 'line'; start: Vec2; end: Vec2; guide?: true }
@@ -21,7 +23,35 @@ export type SketchPrimitive =
   | { kind: 'circle'; center: Vec2; diameter: number }
   | { kind: 'ellipse'; center: Vec2; rx: number; ry: number; rotation: number }
   | { kind: 'bezier'; points: Vec2[] }
-  | { kind: 'point'; at: Vec2 };
+  | { kind: 'point'; at: Vec2 }
+  | SketchTextPrimitive;
+
+/**
+ * A text statement: `text(text).font(font).size(size)…`. A sketch text has
+ * no angle of its own. One that reads level is placed by its anchor —
+ * `.at(at)`, where its first baseline starts, is centred or ends, by
+ * `align`. One that is turned follows a line: `path` is the primitive it is
+ * written along — a guide line on its baseline, `text(text, line)` — which
+ * starts at the text's own start for `left`, is centred on its middle for
+ * `center`, and ends at its end for `right`.
+ */
+export type SketchTextPrimitive = {
+  kind: 'text';
+  text: string;
+  font: string;
+  bold: boolean;
+  italic: boolean;
+  /** The em size. */
+  size: number;
+  align: 'left' | 'center' | 'right';
+  /** A multiple of the font's own line height. */
+  lineSpacing: number;
+  letterSpacing: number;
+} & ({ at: Vec2; path?: undefined } | { path: number; at?: undefined });
+
+/** A primitive that is drawn geometry: every one but a text. */
+export type SketchDrawnPrimitive = Exclude<SketchPrimitive, { kind: 'text' }>;
+type DrawnPrimitive = SketchDrawnPrimitive;
 
 /** An end of a primitive that a join names: of a line or an arc, a bezier's first or last point, or a point primitive itself (`'point'`). */
 export type SketchJoinEnd = { primitive: number; end: 'start' | 'end' | 'point' };
@@ -32,9 +62,10 @@ export type SketchJoin = { a: SketchJoinEnd; b: SketchJoinEnd };
 /**
  * A point of a primitive a pin names: an end (of a line, an arc or a
  * bezier), the centre (of an arc, a circle or an ellipse), a bezier's
- * control point by index, or a point primitive itself (`'point'`).
+ * control point by index, a point primitive itself (`'point'`), or the
+ * anchor of a text placed by one (`'anchor'`).
  */
-export type SketchPinPoint = { primitive: number; point: 'start' | 'end' | 'center' | 'point' | number };
+export type SketchPinPoint = { primitive: number; point: 'start' | 'end' | 'center' | 'point' | 'anchor' | number };
 
 /**
  * One constraint that holds imported geometry where the file drew it:
@@ -60,7 +91,12 @@ export type SketchPin =
   | { kind: 'level'; primitive: number; direction: 'horizontal' | 'vertical' };
 
 export interface SketchImportPlan {
-  /** The statements to write: the curves' in the order of the curves they come from, then the points', then the guide lines'. */
+  /**
+   * The statements to write: the curves' in the order of the curves they
+   * come from, then the points', the guide lines', the baselines of the
+   * texts that are turned, and last the texts — so every primitive before
+   * the first text is geometry, and a text's `path` names one of them.
+   */
   primitives: SketchPrimitive[];
   /** The ends that meet — a point on an end is one of them — each meeting point as a star from its first end. */
   joins: SketchJoin[];
@@ -83,7 +119,12 @@ export interface SketchImportOptions {
 export interface SketchImportExtras {
   /** Construction lines, already cut to a length (see `ConstructionLines`): each becomes a guide line. */
   guides?: readonly CutLine[];
+  /** Texts, resolved against their fonts and placed (see `ImportedTexts`): each becomes a text statement. */
+  texts?: readonly ResolvedText[];
 }
+
+/** A baseline turned less than this from level, in radians, is level: the text is placed by its anchor. */
+const LEVEL = 1e-9;
 
 const TWO_PI = 2 * Math.PI;
 
@@ -116,6 +157,11 @@ const MAX_ARC_PIECES = 64;
  * fixed in place, each is fixed on its own — and it is told apart from the
  * curves: one lying on a line of the outline is not that line drawn twice.
  *
+ * A text is the sketch's `text()`. Level, it is placed by its anchor, and
+ * fixing it in place fixes that. Turned, it is written along a guide line
+ * drawn on its baseline, as long as the text is wide: the line carries it,
+ * and fixing the line's ends fixes the text.
+ *
  * The plan also lists where ends meet. A sketch does not join ends because
  * they share coordinates — a `coincident` does — so without the joins an
  * imported outline would come apart at the first drag.
@@ -136,7 +182,7 @@ export class SketchImport {
     };
     const point = (p: Vec2): Vec2 => ({ x: round(p.x), y: round(p.y) });
 
-    const raw: SketchPrimitive[] = [];
+    const raw: DrawnPrimitive[] = [];
     let approximated = 0;
     for (const source of curves) {
       const curve = DrawingCleanup.canonicalize(source, tolerance);
@@ -174,8 +220,59 @@ export class SketchImport {
       seen.add(key);
       primitives.push(rounded);
     }
+    const joins = SketchImport.joins(primitives, joinTolerance);
+    SketchImport.addTexts(extras.texts ?? [], primitives, point, round);
 
-    return { primitives, joins: SketchImport.joins(primitives, joinTolerance), duplicates, approximated };
+    return { primitives, joins, duplicates, approximated };
+  }
+
+  /**
+   * The statements of `texts`, appended to `primitives`: first the
+   * baselines of the turned ones, then every text. A text the file has
+   * twice in one place is written once.
+   */
+  private static addTexts(
+    texts: readonly ResolvedText[],
+    primitives: SketchPrimitive[],
+    point: (p: Vec2) => Vec2,
+    round: (value: number) => number,
+  ): void {
+    const seen = new Set<string>();
+    const written: SketchTextPrimitive[] = [];
+    for (const text of texts) {
+      const style = {
+        kind: 'text' as const,
+        text: text.text,
+        font: text.font,
+        bold: text.bold,
+        italic: text.italic,
+        size: round(text.size),
+        align: text.align,
+        lineSpacing: Math.round(text.lineSpacing * 1e6) / 1e6,
+        letterSpacing: round(text.letterSpacing),
+      };
+      if (!(style.size > 0)) {
+        continue;
+      }
+      const level = Math.abs(Math.sin(text.angle)) < LEVEL && Math.cos(text.angle) > 0;
+      // The baseline a turned text is written along: under its first line, never shorter than the text is tall.
+      const along = ImportedTexts.baseline({ ...text, widths: [Math.max(text.widths[0] ?? 0, text.size)] });
+      const baseline = { start: point(along.a), end: point(along.b) };
+      const at = point(text.at);
+      const place = level ? `${at.x},${at.y}` : `${baseline.start.x},${baseline.start.y}|${baseline.end.x},${baseline.end.y}`;
+      const key = JSON.stringify([style, place]);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      if (level) {
+        written.push({ ...style, at });
+      } else {
+        primitives.push({ kind: 'line', ...baseline, guide: true });
+        written.push({ ...style, path: primitives.length - 1 });
+      }
+    }
+    primitives.push(...written);
   }
 
   /**
@@ -268,6 +365,12 @@ export class SketchImport {
         case 'point':
           fixEnd(index, 'point');
           break;
+        case 'text':
+          // A text on a baseline is held by the baseline's ends.
+          if (primitive.at) {
+            pins.push({ kind: 'fix', point: { primitive: index, point: 'anchor' } });
+          }
+          break;
       }
     });
     return pins;
@@ -311,6 +414,8 @@ export class SketchImport {
       }
       case 'point':
         return [primitive.at];
+      case 'text':
+        return primitive.at ? [primitive.at] : [];
     }
   }
 
@@ -322,7 +427,7 @@ export class SketchImport {
   // ─── Conversion ─────────────────────────────────────────────────────────
 
   /** Appends the statements of one curve; true when they approximate it. */
-  private static convert(curve: Curve2D, tolerance: number, out: SketchPrimitive[]): boolean {
+  private static convert(curve: Curve2D, tolerance: number, out: DrawnPrimitive[]): boolean {
     switch (curve.kind) {
       case 'line':
         out.push({ kind: 'line', start: curve.a, end: curve.b });
@@ -373,7 +478,7 @@ export class SketchImport {
   }
 
   /** A non-rational spline as its Bézier pieces: a line for a straight piece, a bezier for the others. */
-  private static beziers(curve: BSpline, out: SketchPrimitive[]): void {
+  private static beziers(curve: BSpline, out: DrawnPrimitive[]): void {
     for (const points of BSplineCurve2D.bezierSegments(curve)) {
       if (points.length === 2) {
         out.push({ kind: 'line', start: points[0], end: points[1] });
@@ -434,7 +539,7 @@ export class SketchImport {
 
   // ─── Rounding, duplicates ───────────────────────────────────────────────
 
-  private static rounded(primitive: SketchPrimitive, point: (p: Vec2) => Vec2, round: (v: number) => number): SketchPrimitive {
+  private static rounded(primitive: DrawnPrimitive, point: (p: Vec2) => Vec2, round: (v: number) => number): DrawnPrimitive {
     switch (primitive.kind) {
       case 'line':
         return {
@@ -463,7 +568,7 @@ export class SketchImport {
   }
 
   /** How far the primitive reaches: under the join tolerance it is a speck, not a curve. */
-  private static extent(primitive: Exclude<SketchPrimitive, { kind: 'point' }>): number {
+  private static extent(primitive: Exclude<DrawnPrimitive, { kind: 'point' }>): number {
     const far = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
     switch (primitive.kind) {
       case 'line':
@@ -490,7 +595,7 @@ export class SketchImport {
   }
 
   /** The same key for the same curve, whichever way a line or a bezier is drawn. */
-  private static key(primitive: SketchPrimitive): string {
+  private static key(primitive: DrawnPrimitive): string {
     const p = (v: Vec2) => `${v.x},${v.y}`;
     const either = (forward: string, backward: string) => (forward < backward ? forward : backward);
     switch (primitive.kind) {

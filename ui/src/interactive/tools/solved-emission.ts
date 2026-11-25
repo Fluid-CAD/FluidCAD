@@ -12,11 +12,12 @@ import type {
   SolvedConstraintParam as WireConstraintParam,
   SolvedEmissionTargetParam,
   SolvedGeometryParam,
+  SolvedTextParam,
 } from '../../api';
 import type { SolvedVertexRef } from '../../snapping/types';
 import type { NewVariable, PickedPoint } from '../sketch-tool';
 
-export type { SolvedEmissionTargetParam, SolvedGeometryParam };
+export type { SolvedEmissionTargetParam, SolvedGeometryParam, SolvedTextParam };
 
 /**
  * A constraint as a tool emits it: the wire shape plus the INFERRED mark.
@@ -42,6 +43,8 @@ export type SolvedEmitResult = {
 export type SolvedEmissionRequest = {
   geometry: SolvedGeometryParam[];
   constraints: SolvedConstraintParam[];
+  /** `text()` statements, written after the constraints: a drawing import's text. */
+  texts?: SolvedTextParam[];
   newVariables?: NewVariable[];
   /** Constraint statements to DELETE in the same edit, by 1-indexed line —
    * the constraint bar swaps out a replaced orientation and deletes the

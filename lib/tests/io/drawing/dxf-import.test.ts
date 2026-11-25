@@ -586,7 +586,9 @@ describe("DxfReader: what the file says about itself", () => {
       ],
     }));
     expect(read.entities).toHaveLength(1);
-    expect(read.skipped).toEqual({ TEXT: 2, DIMENSION: 1, HATCH: 1 });
+    // Text is read as text, not counted among what is left out.
+    expect(read.texts).toHaveLength(2);
+    expect(read.skipped).toEqual({ DIMENSION: 1, HATCH: 1 });
   });
 
   it("reads a file's bytes in the code page its header names, and UTF-8 as UTF-8", () => {

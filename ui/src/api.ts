@@ -1,6 +1,7 @@
 import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
 import type { ContactEntity } from '../../lib/assembly-solver/types.js';
+import type { FontMeasure, FontMeasureRequest } from '../../lib/io/drawing/imported-text.js';
 import type { MeshLookup } from './scene/scene-meshes';
 import type {
   GlobalParamsSnapshot,
@@ -619,6 +620,16 @@ export async function getEngineVersion(): Promise<string | null> {
 export async function getFontFamilies(): Promise<string[]> {
   const data = await getJson<{ families: string[] }>('api/fonts');
   return data?.families ?? [];
+}
+
+/**
+ * How the fonts installed where the sketch is built measure, for the texts
+ * of a drawing being imported: one answer per request, in order. Null when
+ * the server does not answer.
+ */
+export async function measureFonts(texts: FontMeasureRequest[], signal?: AbortSignal): Promise<FontMeasure[] | null> {
+  const data = await postJson<{ measures: FontMeasure[] }>('api/font-measure', { texts }, signal);
+  return data?.measures ?? null;
 }
 
 /**
@@ -2593,6 +2604,22 @@ export type SolvedGeometryParam = {
   guide?: boolean;
 };
 
+/**
+ * A `text()` statement riding a solved emission — a drawing import's text.
+ * The server puts the call together: the string, the path when the text is
+ * written along a statement of the same emission, then the options.
+ */
+export type SolvedTextParam = {
+  /** The string, as its literal: `"Plate A"`. */
+  string: string;
+  /** The options chained after the call: `.font('Arial').size(5).at([10, 20])`. */
+  chain: string;
+  /** The index in `geometry` of the statement the text follows. */
+  path?: number;
+  /** Fix the text's anchor where it is written. */
+  fix?: boolean;
+};
+
 export type SolvedConstraintParam = {
   kind: string;
   targets: SolvedEmissionTargetParam[];
@@ -2612,6 +2639,8 @@ export async function insertSolvedGeometry(options: {
   filePath?: string;
   geometry: SolvedGeometryParam[];
   constraints: SolvedConstraintParam[];
+  /** Text statements, written after the constraints. */
+  texts?: SolvedTextParam[];
   newVariables?: { name: string; initializer: string }[];
   /** Constraint statements to DELETE in the same edit, by 1-indexed line —
    * the constraint bar swaps out a replaced orientation and deletes the

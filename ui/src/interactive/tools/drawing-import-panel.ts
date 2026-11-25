@@ -37,20 +37,26 @@ export type DrawingImportFormat = {
   hiddenLayer: string;
   /** The file's lines with no end, in its own words: the toggle that brings them in, and what to say when they are all that is ticked. */
   guides: { label: string; title: string; only: string };
+  /** The file's text: what its toggle says, whether it starts on, and what to say when text is all that is ticked. */
+  text: { title: string; byDefault: boolean; only: string };
 };
 
 /** What a file holds that comes in only when asked for: each has a toggle, shown when the file has any. */
 export type DrawingImportOptional = {
   /** Construction lines: lines with no end, imported as guide lines. */
   constructionLines: number;
+  /** Texts that can be written as sketch text. */
+  texts: number;
 };
 
 /** What Apply would write, for the dialog's summary line. */
 export type DrawingImportSummary = {
   /** Sketch statements, guide lines among them. */
   entities: number;
-  /** How many of them are guide lines, from the file's construction lines. */
+  /** How many of them are guide lines: the file's construction lines, and the baselines of its turned texts. */
   guides: number;
+  /** How many of them are texts. */
+  texts: number;
   /** `coincident` statements, when joins are on. */
   joins: number;
   /** Constraints that pin the geometry (`fix`, radii, diameters), when Fix in place is on. */
@@ -64,8 +70,8 @@ export type DrawingImportSummary = {
 /**
  * The dialog of a drawing import (DXF, SVG). It holds what the viewport
  * cannot: the file, the unit its numbers are in, a scale, which layers come
- * in, whether its construction lines do, whether ends that meet are joined,
- * and Apply / Cancel. Place and angle
+ * in, whether its construction lines and its text do, whether ends that
+ * meet are joined, and Apply / Cancel. Place and angle
  * are read-outs: they are set by dragging the drawing, its corner handles
  * and its rotate knob.
  */
@@ -76,6 +82,7 @@ export class DrawingImportPanel {
   /** The names of the layers left ticked. */
   onLayers?: (layers: Set<string>) => void;
   onGuides?: (guides: boolean) => void;
+  onTexts?: (texts: boolean) => void;
   onJoins?: (joins: boolean) => void;
   onFix?: (fix: boolean) => void;
   onAsDrawn?: () => void;
@@ -94,6 +101,8 @@ export class DrawingImportPanel {
   private layersList: HTMLDivElement;
   private guidesRow: HTMLLabelElement;
   private guidesToggle: HTMLInputElement;
+  private textsRow: HTMLLabelElement;
+  private textsToggle: HTMLInputElement;
   private joinsToggle: HTMLInputElement;
   private fixToggle: HTMLInputElement;
   private readout: HTMLDivElement;
@@ -136,6 +145,10 @@ export class DrawingImportPanel {
         <label data-role="guides-row" class="hidden flex items-center justify-between cursor-pointer">
           <span data-role="guides-label" class="text-base-content/70"></span>
           <input data-role="guides" type="checkbox" class="toggle toggle-sm toggle-primary" />
+        </label>
+        <label data-role="texts-row" class="hidden flex items-center justify-between cursor-pointer">
+          <span class="text-base-content/70">Text</span>
+          <input data-role="texts" type="checkbox" class="toggle toggle-sm toggle-primary" />
         </label>
         <label class="flex items-center justify-between cursor-pointer"
           title="Write a coincident constraint wherever two ends meet, so the outline stays in one piece when it is dragged">
@@ -184,6 +197,9 @@ export class DrawingImportPanel {
     this.guidesRow.title = format.guides.title;
     this.role('guides-label').textContent = format.guides.label;
     this.guidesToggle = this.role('guides');
+    this.textsRow = this.role('texts-row');
+    this.textsRow.title = format.text.title;
+    this.textsToggle = this.role('texts');
     this.joinsToggle = this.role('joins');
     this.fixToggle = this.role('fix');
     this.readout = this.role('readout');
@@ -209,6 +225,7 @@ export class DrawingImportPanel {
       }
     });
     this.guidesToggle.addEventListener('change', () => this.onGuides?.(this.guidesToggle.checked));
+    this.textsToggle.addEventListener('change', () => this.onTexts?.(this.textsToggle.checked));
     this.joinsToggle.addEventListener('change', () => this.onJoins?.(this.joinsToggle.checked));
     this.fixToggle.addEventListener('change', () => this.onFix?.(this.fixToggle.checked));
     this.role<HTMLButtonElement>('as-drawn').addEventListener('click', () => this.onAsDrawn?.());
@@ -237,20 +254,23 @@ export class DrawingImportPanel {
   /**
    * A file was read: its name, the unit it declares (null for none), its
    * layers with the ones to tick, and what it holds that comes in only
-   * when asked for. The unit select goes back to "what the file says", and
-   * the construction lines to off.
+   * when asked for. The unit select goes back to "what the file says", the
+   * construction lines to off, and the text to what this kind of file
+   * starts with.
    */
   setFile(
     name: string,
     declaredUnit: string | null,
     layers: readonly ImportedLayer[],
     ticked: ReadonlySet<string>,
-    optional: DrawingImportOptional = { constructionLines: 0 },
+    optional: DrawingImportOptional = { constructionLines: 0, texts: 0 },
   ): void {
     this.hasFile = true;
     // Behind a toggle, and off: a construction line is scaffolding, not the drawing.
     this.guidesRow.classList.toggle('hidden', optional.constructionLines === 0);
     this.guidesToggle.checked = false;
+    this.textsRow.classList.toggle('hidden', optional.texts === 0);
+    this.textsToggle.checked = optional.texts > 0 && this.format.text.byDefault;
     this.fileLabel.textContent = name;
     this.fileLabel.title = name;
     this.options.classList.remove('hidden');
@@ -328,8 +348,12 @@ export class DrawingImportPanel {
       this.syncButtons();
       return;
     }
-    const guides = summary.guides > 0 ? ` (${summary.guides.toLocaleString('en-US')} ${summary.guides === 1 ? 'guide line' : 'guide lines'})` : '';
-    const entities = `${summary.entities.toLocaleString('en-US')} sketch ${summary.entities === 1 ? 'entity' : 'entities'}${guides}`;
+    const among = [
+      summary.guides > 0 ? `${summary.guides.toLocaleString('en-US')} ${summary.guides === 1 ? 'guide line' : 'guide lines'}` : '',
+      summary.texts > 0 ? `${summary.texts.toLocaleString('en-US')} ${summary.texts === 1 ? 'text' : 'texts'}` : '',
+    ].filter((part) => part !== '');
+    const entities = `${summary.entities.toLocaleString('en-US')} sketch ${summary.entities === 1 ? 'entity' : 'entities'}`
+      + (among.length > 0 ? ` (${among.join(', ')})` : '');
     const joins = summary.joins > 0 ? `, ${summary.joins.toLocaleString('en-US')} ${summary.joins === 1 ? 'join' : 'joins'}` : '';
     const pins = summary.pins > 0 ? `, fixed by ${summary.pins.toLocaleString('en-US')} ${summary.pins === 1 ? 'constraint' : 'constraints'}` : '';
     this.summary.textContent = summary.blocked ?? `${entities}${joins}${pins}`;
@@ -359,6 +383,11 @@ export class DrawingImportPanel {
 
   get joins(): boolean {
     return this.joinsToggle.checked;
+  }
+
+  /** Whether the file's text comes in, as sketch text. */
+  get texts(): boolean {
+    return this.textsToggle.checked;
   }
 
   /** Whether the file's construction lines come in, as guide lines. Off until asked for. */

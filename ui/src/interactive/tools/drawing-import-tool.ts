@@ -14,6 +14,9 @@ import { SvgReader } from '../../../../lib/io/drawing/svg-reader.js';
 import { ImportedDrawings, type ImportedConstructionLine, type ImportedDrawing } from '../../../../lib/io/drawing/import.js';
 import { SketchImport, type SketchImportPlan } from '../../../../lib/io/drawing/sketch-import.js';
 import { ConstructionLines, type CutLine } from '../../../../lib/io/drawing/construction-lines.js';
+import { ImportedTexts, type ResolvedText } from '../../../../lib/io/drawing/imported-text.js';
+import { measureFonts } from '../../api';
+import { DrawingImportTexts, type FontMeasurer, type MeasuredText } from './drawing-import-text';
 import { DrawingImportPanel, type DrawingImportFormat, type DrawingUnitChoice } from './drawing-import-panel';
 import { DrawingImportPreview } from './drawing-import-preview';
 import { DrawingImportEmission } from './drawing-import-emission';
@@ -67,6 +70,12 @@ export const DXF_IMPORT: DrawingImportSource = {
     title: 'Bring in the file\'s construction lines as guide lines: drawn dashed, and left out of profiles. They have no ends in the file, so each one is cut a little past the drawing.',
     only: 'Only construction lines on the ticked layers. Turn on Construction lines to import them.',
   },
+  // Off until asked for: the text of a technical drawing is notes and labels, and sketch text is geometry.
+  text: {
+    title: 'Bring in the file\'s text as sketch text, where it stands in the file. Sketch text is outlines: it is extruded with the rest of the profile. Only text in a font that is installed can come in.',
+    byDefault: false,
+    only: 'Only text on the ticked layers. Turn on Text to import it.',
+  },
   maxBytes: 32 * 1024 * 1024,
   read: (bytes) => DxfReader.readBytes(bytes),
 };
@@ -87,6 +96,12 @@ export const SVG_IMPORT: DrawingImportSource = {
     label: 'Guides',
     title: 'Bring in the guides the file keeps beside its drawing as guide lines: drawn dashed, and left out of profiles. They have no ends in the file, so each one is cut a little past the drawing.',
     only: 'Only guides here. Turn on Guides to import them.',
+  },
+  // On: the text of an illustration is part of the artwork.
+  text: {
+    title: 'Bring in the file\'s text as sketch text, where it stands in the file. Sketch text is outlines: it is extruded with the rest of the profile. Only text in a font that is installed can come in.',
+    byDefault: true,
+    only: 'Only text on the ticked layers. Turn on Text to import it.',
   },
   units: [
     { key: 'px', label: 'Pixel, 96 to the inch', mm: 25.4 / 96 },
@@ -111,6 +126,8 @@ export type DrawingImportToolDeps = {
   source: DrawingImportSource;
   onRequestExit: () => void;
   readBytes?: (file: File) => Promise<Uint8Array>;
+  /** How the fonts measure where the sketch is built; the server's answer unless given. */
+  measureFonts?: FontMeasurer;
 };
 
 /**
@@ -132,6 +149,13 @@ export type DrawingImportToolDeps = {
  * toggle asks for them: as guide lines, cut a little past the rest of the
  * drawing. They do not size the frame the drawing is placed by, unless
  * they are all there is.
+ *
+ * A file's text comes in as the sketch's own `text()` when its toggle asks
+ * for it. The fonts are on the machine that builds the sketch, so the file's
+ * texts are measured there once it is read: what can be written lands
+ * where the file has it — a level text by its anchor, a turned one along a
+ * guide line on its baseline — and what cannot is left out, each kind with
+ * a warning that says why.
  */
 export class DrawingImportTool extends SketchTool {
   readonly id: ToolId;
@@ -146,6 +170,7 @@ export class DrawingImportTool extends SketchTool {
   private readonly handles: ReferenceImageHandles;
   private readonly onRequestExit: () => void;
   private readonly readBytes: (file: File) => Promise<Uint8Array>;
+  private readonly measureFonts: FontMeasurer;
 
   private drawing: ImportedDrawing | null = null;
   /** The names of the layers that come in. */
@@ -155,6 +180,12 @@ export class DrawingImportTool extends SketchTool {
   private points: Vec2[] = [];
   /** The construction lines of those layers, cut to a length; none unless they are asked for. */
   private guides: CutLine[] = [];
+  /** Every text of the file, measured: the sketch text it is, or why it is left out. */
+  private measured: MeasuredText[] = [];
+  /** The texts of those layers that can be written, in the file's coordinates; none unless text is asked for. */
+  private texts: ResolvedText[] = [];
+  /** Counts the files chosen: one still being measured when the next is chosen is dropped. */
+  private reading = 0;
   private bounds: DrawingBounds | null = null;
   private placement: DrawingPlacement | null = null;
   private unitChoice: DrawingUnitChoice = 'file';
@@ -184,12 +215,14 @@ export class DrawingImportTool extends SketchTool {
     this.label = deps.source.label;
     this.onRequestExit = deps.onRequestExit;
     this.readBytes = deps.readBytes ?? (async (file) => new Uint8Array(await file.arrayBuffer()));
+    this.measureFonts = deps.measureFonts ?? ((requests) => measureFonts(requests));
     this.panel = new DrawingImportPanel(container, deps.source);
     this.panel.onFile = (file) => void this.chooseFile(file);
     this.panel.onUnit = (unit) => this.setUnit(unit);
     this.panel.onScale = (scale) => this.setUserScale(scale);
     this.panel.onLayers = (layers) => this.setLayers(layers);
     this.panel.onGuides = () => this.retake();
+    this.panel.onTexts = () => this.retake();
     this.panel.onJoins = () => this.refreshSummary();
     this.panel.onFix = () => this.refreshSummary();
     this.panel.onAsDrawn = () => this.placeAsDrawn();
@@ -262,21 +295,31 @@ export class DrawingImportTool extends SketchTool {
       this.panel.setMessage(`The file is ${(file.size / (1024 * 1024)).toFixed(1)} MB; the limit is ${this.source.maxBytes / (1024 * 1024)} MB.`);
       return;
     }
+    const turn = ++this.reading;
     let drawing: ImportedDrawing;
+    let measured: MeasuredText[];
     try {
       drawing = this.source.read(await this.readBytes(file));
+      measured = await DrawingImportTexts.measure(drawing.texts, this.measureFonts);
     } catch (error) {
       this.panel.setMessage(error instanceof Error ? error.message : String(error));
       return;
     }
-    if (drawing.entities.length === 0 && drawing.points.length === 0 && drawing.constructionLines.length === 0) {
+    if (turn !== this.reading) {
+      return;
+    }
+    const importable = DrawingImportTexts.importable(measured).length;
+    if (drawing.entities.length === 0 && drawing.points.length === 0 && drawing.constructionLines.length === 0 && importable === 0) {
       const skipped = ImportedDrawings.describeSkipped(drawing.skipped);
-      this.panel.setMessage(skipped
+      const texts = DrawingImportTexts.notes(measured, false);
+      this.panel.setMessage((skipped
         ? `The file has no lines, curves or points to import (it holds ${skipped}).`
-        : 'The file has no lines, curves or points to import.');
+        : 'The file has no lines, curves or points to import.')
+        + (texts.length > 0 ? ` ${texts.join(' ')}` : ''));
       return;
     }
     this.drawing = drawing;
+    this.measured = measured;
     // What the file's author was looking at: every layer that is on — or all of them when none is.
     const shown = drawing.layers.filter((layer) => !layer.hidden);
     this.layers = new Set((shown.length > 0 ? shown : drawing.layers).map((layer) => layer.name));
@@ -284,6 +327,7 @@ export class DrawingImportTool extends SketchTool {
     this.userScale = 1;
     this.panel.setFile(file.name, drawing.unit?.name ?? null, drawing.layers, this.layers, {
       constructionLines: drawing.constructionLines.length,
+      texts: importable,
     });
     this.panel.setScale(1);
     this.takeLayers();
@@ -298,7 +342,8 @@ export class DrawingImportTool extends SketchTool {
    * construction lines when those are asked for, cut to the rest. The
    * bounds are the curves' and the points': what the drawing is placed and
    * measured by. Construction lines reach past them, and only stand in
-   * when nothing else is ticked.
+   * when nothing else is ticked. Text, when it is asked for, stands in
+   * before they do: a drawing of nothing but text is placed by its text.
    */
   private takeLayers(): void {
     this.curves = (this.drawing?.entities ?? [])
@@ -307,10 +352,16 @@ export class DrawingImportTool extends SketchTool {
     this.points = (this.drawing?.points ?? [])
       .filter((point) => this.layers.has(point.layer))
       .map((point) => point.at);
-    const content = ImportedDrawings.bounds(this.curves, this.points);
+    this.texts = this.panel.texts ? DrawingImportTexts.importable(this.tickedTexts()) : [];
+    const content = ImportedDrawings.bounds(this.curves, this.points) ?? ImportedTexts.bounds(this.texts);
     this.guides = this.panel.guides ? ConstructionLines.segments(this.tickedConstructionLines(), content) : [];
     this.bounds = content ?? ImportedDrawings.bounds([], this.guides.flatMap((guide) => [guide.a, guide.b]));
-    this.preview.setDrawing(this.curves, this.points, this.bounds, this.guides);
+    this.preview.setDrawing(this.curves, this.points, this.bounds, this.guides, this.texts);
+  }
+
+  /** The texts of the ticked layers, each with what became of it. */
+  private tickedTexts(): MeasuredText[] {
+    return this.measured.filter((text) => text.source.layer === null || this.layers.has(text.source.layer));
   }
 
   private tickedConstructionLines(): ImportedConstructionLine[] {
@@ -653,6 +704,7 @@ export class DrawingImportTool extends SketchTool {
       decimals: DrawingImportTool.decimals(),
     }, this.points.map((point) => Affine.point(m, point)), {
       guides: this.guides.map((guide) => ({ a: Affine.point(m, guide.a), b: Affine.point(m, guide.b) })),
+      texts: this.texts.map((text) => ImportedTexts.placed(text, m)),
     });
   }
 
@@ -674,6 +726,7 @@ export class DrawingImportTool extends SketchTool {
     if (skipped) {
       notes.push(`Not curves, left out: ${skipped}.`);
     }
+    notes.push(...DrawingImportTexts.notes(this.tickedTexts(), this.panel.texts));
     if (plan && plan.approximated > 0) {
       notes.push(`${plan.approximated} ${plan.approximated === 1 ? 'curve has' : 'curves have'} no sketch statement of ${plan.approximated === 1 ? 'its' : 'their'} own (an elliptical arc, a weighted or high-degree spline) and ${plan.approximated === 1 ? 'is' : 'are'} written as cubic beziers.`);
     }
@@ -685,6 +738,8 @@ export class DrawingImportTool extends SketchTool {
     if (entities === 0) {
       if (!this.panel.guides && this.tickedConstructionLines().length > 0) {
         blocked = this.source.guides.only;
+      } else if (!this.panel.texts && DrawingImportTexts.importable(this.tickedTexts()).length > 0) {
+        blocked = this.source.text.only;
       } else if (this.layers.size === 0) {
         blocked = 'Tick at least one layer.';
       } else {
@@ -699,7 +754,8 @@ export class DrawingImportTool extends SketchTool {
       ? SketchImport.pins(plan, { joined, decimals: DrawingImportTool.decimals() }).length
       : 0;
     const guides = plan?.primitives.filter((primitive) => SketchImport.isGuide(primitive)).length ?? 0;
-    this.panel.setSummary({ entities, guides, joins: joined ? plan?.joins.length ?? 0 : 0, pins, notes, blocked });
+    const texts = plan?.primitives.filter((primitive) => primitive.kind === 'text').length ?? 0;
+    this.panel.setSummary({ entities, guides, texts, joins: joined ? plan?.joins.length ?? 0 : 0, pins, notes, blocked });
   }
 
   // --------------------------------------------------------------- commit

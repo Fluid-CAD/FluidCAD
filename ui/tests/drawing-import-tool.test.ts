@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Scene } from 'three';
 import { DrawingImportTool, DXF_IMPORT, SVG_IMPORT, MAX_IMPORT_STATEMENTS, type DrawingImportSource } from '../src/interactive/tools/drawing-import-tool';
 import type { SolvedEmissionRequest } from '../src/interactive/tools/solved-emission';
+import type { FontMeasure, FontMeasureRequest } from '../../lib/io/drawing/imported-text.js';
 import type { PlaneData } from '../src/types';
 import { sceneUnit } from '../src/units/scene-unit';
 
@@ -53,7 +54,35 @@ const PLATE = dxf([
   0, 'CIRCLE', 8, 'HOLES', 10, 120, 20, 60, 40, 4,
 ]);
 
-function makeTool(opts: { emitResult?: { success: boolean; reason?: string }; autoConstraints?: boolean; source?: DrawingImportSource } = {}) {
+/**
+ * The fonts of the machine the tests pretend to build sketches on: Test
+ * Sans, and Liberation Sans standing in for Arial. Neither has an italic.
+ * A capital is 0.7 em tall and every letter half an em wide.
+ */
+const INSTALLED: Record<string, string> = { 'test sans': 'Test Sans', arial: 'Liberation Sans', 'sans-serif': 'Test Sans' };
+const measureInstalled = async (requests: FontMeasureRequest[]): Promise<FontMeasure[] | null> => requests.map((request) => {
+  const asked = request.families.find((family) => INSTALLED[family.toLowerCase()] !== undefined);
+  if (asked === undefined || request.italic) {
+    return { family: null, substituted: false, capital: 0, ascent: 0, descent: 0, lineGap: 0, advances: [] };
+  }
+  const family = INSTALLED[asked.toLowerCase()];
+  return {
+    family,
+    substituted: family !== request.families[0],
+    capital: 0.7,
+    ascent: 0.9,
+    descent: 0.2,
+    lineGap: 0.05,
+    advances: request.lines.map((line) => line.length * 0.5),
+  };
+});
+
+function makeTool(opts: {
+  emitResult?: { success: boolean; reason?: string };
+  autoConstraints?: boolean;
+  source?: DrawingImportSource;
+  measureFonts?: (requests: FontMeasureRequest[]) => Promise<FontMeasure[] | null>;
+} = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const scene = new Scene();
@@ -74,6 +103,7 @@ function makeTool(opts: { emitResult?: { success: boolean; reason?: string }; au
     source: opts.source ?? DXF_IMPORT,
     onRequestExit,
     readBytes: async (file) => new TextEncoder().encode(files.get(file) ?? ''),
+    measureFonts: opts.measureFonts ?? measureInstalled,
   });
   const emit = vi.fn(async (_request: SolvedEmissionRequest) => opts.emitResult ?? { success: true });
   tool.setSolvedContext({ emit, autoConstraints: () => opts.autoConstraints ?? true });
@@ -184,8 +214,8 @@ describe('DrawingImportTool: reading a file', () => {
 
   it('says so when a file holds nothing to draw', async () => {
     const { choose, message, role } = makeTool();
-    await choose(dxf([0, 'TEXT', 8, '0', 10, 0, 20, 0, 40, 2, 1, 'hello']));
-    expect(message().textContent).toBe('The file has no lines, curves or points to import (it holds 1 TEXT).');
+    await choose(dxf([0, 'HATCH', 8, '0', 2, 'SOLID']));
+    expect(message().textContent).toBe('The file has no lines, curves or points to import (it holds 1 HATCH).');
     expect(role<HTMLButtonElement>('apply').disabled).toBe(true);
   });
 
@@ -200,7 +230,7 @@ describe('DrawingImportTool: reading a file', () => {
   it('notes what was left out, and leaves layers the file has off unticked', async () => {
     const { role, choose, layerBox } = makeTool();
     await choose(dxf(
-      [...line('CUT', [0, 0], [10, 0]), ...line('NOTES', [0, 5], [10, 5]), 0, 'MTEXT', 8, 'NOTES', 10, 0, 20, 0, 1, 'x'],
+      [...line('CUT', [0, 0], [10, 0]), ...line('NOTES', [0, 5], [10, 5]), 0, 'HATCH', 8, 'NOTES', 2, 'SOLID'],
       [],
       [0, 'TABLE', 2, 'LAYER', 0, 'LAYER', 2, 'CUT', 70, 0, 62, 7, 0, 'LAYER', 2, 'NOTES', 70, 1, 62, 7, 0, 'ENDTAB'],
     ));
@@ -211,7 +241,7 @@ describe('DrawingImportTool: reading a file', () => {
     expect(role('warnings').classList.contains('hidden')).toBe(false);
     expect(role('warnings-title').textContent).toBe('Warnings (1)');
     expect(role<HTMLInputElement>('warnings-toggle').checked).toBe(false);
-    expect(role('notes').textContent).toBe('Not curves, left out: 1 MTEXT.');
+    expect(role('notes').textContent).toBe('Not curves, left out: 1 HATCH.');
   });
 
   it('shows no warnings section for a file that has none, and plain boxes for its layers', async () => {
@@ -583,6 +613,255 @@ describe('DrawingImportTool: construction lines', () => {
   });
 });
 
+describe('DrawingImportTool: text', () => {
+  /** A style table: NOTES is Test Sans, which is installed; OLD an AutoCAD pen font; ISO a font that is not installed. */
+  const STYLES: Groups = [
+    0, 'TABLE', 2, 'STYLE',
+    0, 'STYLE', 2, 'NOTES', 70, 0, 41, 1, 50, 0, 3, 'testsans.ttf', 1001, 'ACAD', 1000, 'Test Sans', 1071, 34,
+    0, 'STYLE', 2, 'OLD', 70, 0, 41, 1, 50, 0, 3, 'txt',
+    0, 'STYLE', 2, 'ISO', 70, 0, 41, 1, 50, 0, 3, 'isocpeur.ttf', 1001, 'ACAD', 1000, 'ISOCPEUR', 1071, 34,
+    0, 'STYLE', 2, 'ARIAL', 70, 0, 41, 1, 50, 0, 3, 'arial.ttf',
+    0, 'ENDTAB',
+  ];
+  const text = (style: string, at: [number, number], content: string, more: Groups = []): Groups =>
+    [0, 'TEXT', 8, 'NOTES', 7, style, 10, at[0], 20, at[1], 40, 3.5, 1, content, ...more];
+  const OUTLINE: Groups = [
+    ...line('OUTLINE', [100, 50], [140, 50]),
+    ...line('OUTLINE', [140, 50], [140, 70]),
+    ...line('OUTLINE', [140, 70], [100, 70]),
+    ...line('OUTLINE', [100, 70], [100, 50]),
+  ];
+  /** The plate with a title, a label up its right side, and two notes no sketch text can stand for. */
+  const NOTED = dxf([
+    ...OUTLINE,
+    ...text('NOTES', [105, 55], 'PLATE A'),
+    ...text('NOTES', [138, 52], 'SIDE', [50, 90]),
+    ...text('OLD', [105, 62], 'REV 2'),
+    ...text('NOTES', [105, 66], 'NARROW', [41, 0.8]),
+  ], [], STYLES);
+
+  const turnOn = (role: ReturnType<typeof makeTool>['role']) => {
+    const toggle = role<HTMLInputElement>('texts');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+  };
+
+  it('has no toggle for a file without text', async () => {
+    const { role, choose } = makeTool();
+    await choose(PLATE);
+    expect(role('texts-row').classList.contains('hidden')).toBe(true);
+  });
+
+  it('shows the toggle for a DXF with text that can come in, off: nothing of it drawn, counted or written', async () => {
+    const { role, choose, tool, apply, emit } = makeTool();
+    await choose(NOTED);
+    expect(role('texts-row').classList.contains('hidden')).toBe(false);
+    expect(role<HTMLInputElement>('texts').checked).toBe(false);
+    expect(tool.preview.textCount).toBe(0);
+    expect(role('summary').textContent).toBe('4 sketch entities, 4 joins');
+    await apply();
+    expect(emit.mock.calls[0][0].texts).toBeUndefined();
+  });
+
+  it('says, off or on, which texts cannot come in and why', async () => {
+    const { role, choose } = makeTool();
+    await choose(NOTED);
+    const notes = () => [...role('notes').querySelectorAll('li')].map((item) => item.textContent);
+    const expected = [
+      '1 text is left out: it is drawn in a pen font (SHX), which has no outlines to make sketch text from.',
+      '1 text is left out: its letters are stretched, slanted or mirrored, which sketch text cannot be.',
+    ];
+    expect(notes()).toEqual(expected);
+    turnOn(role);
+    expect(notes()).toEqual(expected);
+  });
+
+  it('boxes the texts where they will land once asked for, and counts them and the baseline of the turned one', async () => {
+    const { role, choose, tool } = makeTool();
+    await choose(NOTED);
+    turnOn(role);
+    expect(tool.preview.textCount).toBe(2);
+    expect(role('summary').textContent).toBe('7 sketch entities (1 guide line, 2 texts), 4 joins');
+    // The drawing is still placed and measured by its outline.
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 120.00, 60.00');
+  });
+
+  it('writes a level text by its anchor and a turned one along a guide line on its baseline, sized by the font\'s own capital', async () => {
+    const { role, choose, apply, emit, texts } = makeTool();
+    await choose(NOTED);
+    turnOn(role);
+    await apply();
+    const request = emit.mock.calls[0][0];
+    // 3.5 high in a font whose capitals are 0.7 of the em: an em of 5. SIDE is four letters of half an em: 10 long.
+    expect(texts().slice(4)).toEqual(['line([138, 52], [138, 62])']);
+    expect(request.geometry[4].guide).toBe(true);
+    expect(request.texts).toEqual([
+      { string: '"PLATE A"', chain: ".font('Test Sans').size(5).at([105, 55])" },
+      { string: '"SIDE"', chain: ".font('Test Sans').size(5)", path: 4 },
+    ]);
+    // The four corners: no text is tied to anything.
+    expect(request.constraints).toHaveLength(4);
+  });
+
+  it('fixes a level text by its anchor and a turned one by the ends of its baseline', async () => {
+    const { role, choose, apply, emit } = makeTool();
+    await choose(NOTED);
+    turnOn(role);
+    const fix = role<HTMLInputElement>('fix');
+    fix.checked = true;
+    fix.dispatchEvent(new Event('change'));
+    // Four corners, the baseline's two ends, the anchor.
+    expect(role('summary').textContent).toBe('7 sketch entities (1 guide line, 2 texts), 4 joins, fixed by 7 constraints');
+    await apply();
+    const request = emit.mock.calls[0][0];
+    expect(request.texts!.map((written) => written.fix === true)).toEqual([true, false]);
+    const fixes = request.constraints.filter((c) => c.kind === 'fix');
+    expect(fixes.slice(-2)).toEqual([
+      { kind: 'fix', targets: [{ newIndex: 4, role: 'start' }] },
+      { kind: 'fix', targets: [{ newIndex: 4, role: 'end' }] },
+    ]);
+    expect(fixes).toHaveLength(6);
+  });
+
+  it('writes what differs from a text\'s defaults: justification, bold, and a multi-line text\'s line spacing', async () => {
+    const { role, choose, apply, emit } = makeTool();
+    await choose(dxf([
+      ...OUTLINE,
+      ...text('NOTES', [0, 0], 'MID', [72, 1, 73, 2, 11, 120, 21, 60]),
+      0, 'MTEXT', 8, 'NOTES', 7, 'NOTES', 10, 105, 20, 68, 40, 1.4, 71, 3, 1, '{\\fTest Sans|b1|i0;ONE\\PTWO}',
+    ], [], STYLES));
+    turnOn(role);
+    await apply();
+    // Middle Centre: the anchor is half a capital (1.75) under the point. The multi-line text hangs from its
+    // point by a capital (1.4): its lines are 1.4 × 5/3 apart, where the font's own are 2 × 1.15.
+    expect(emit.mock.calls[0][0].texts).toEqual([
+      { string: '"MID"', chain: ".font('Test Sans').size(5).align('center').at([120, 58.25])" },
+      { string: '"ONE\\nTWO"', chain: ".font('Test Sans').size(2).bold().align('right').lineSpacing(1.014493).at([105, 66.6])" },
+    ]);
+  });
+
+  it('moves, turns and scales text with the drawing: a turned drawing writes every text along a baseline', async () => {
+    const { role, choose, apply, emit, texts, press, moveTo, release } = makeTool();
+    await choose(dxf([...line('0', [0, 0], [2, 0]), ...text('NOTES', [0, 1], 'AB')], [9, '$INSUNITS', 70, 1], STYLES));
+    turnOn(role);
+    await apply();
+    // Inches into millimetres: the point, the height and so the em all 25.4 times as large.
+    expect(emit.mock.calls[0][0].texts).toEqual([{ string: '"AB"', chain: ".font('Test Sans').size(127).at([0, 25.4])" }]);
+
+    // A quarter turn by the knob, with Shift to land on it exactly: the knob sits 28 above the
+    // frame's top edge, and the frame of this one line is a strip 50.8 long about (25.4, 0).
+    press([25.4, 2.032 + 28]);
+    moveTo([-200, 0], { shiftKey: true });
+    release([-200, 0]);
+    expect(role('readout').textContent).toMatch(/· 90°$/);
+    await apply();
+    const turned = emit.mock.calls[1][0];
+    // The text's point, 25.4 left of and above the middle, is now 25.4 left of and below it;
+    // its baseline runs up from there, as long as its two letters are wide.
+    expect(texts()).toEqual(['line([25.4, -25.4], [25.4, 25.4])', 'line([0, -25.4], [0, 101.6])']);
+    expect(turned.geometry[1].guide).toBe(true);
+    expect(turned.texts).toEqual([{ string: '"AB"', chain: ".font('Test Sans').size(127)", path: 1 }]);
+  });
+
+  it('leaves out a text whose font is not installed, naming the font, and says which font stands in for another', async () => {
+    const { role, choose, apply, emit } = makeTool();
+    await choose(dxf([...OUTLINE, ...text('ISO', [105, 55], 'ISO NOTE'), ...text('ARIAL', [105, 62], 'ARIAL NOTE')], [], STYLES));
+    const notes = () => [...role('notes').querySelectorAll('li')].map((item) => item.textContent);
+    expect(notes()).toEqual(['1 text is left out: its font is not installed (ISOCPEUR).']);
+    turnOn(role);
+    expect(notes()).toEqual([
+      '1 text is left out: its font is not installed (ISOCPEUR).',
+      '1 text is written in Liberation Sans: Arial, which the file asks for, is not installed.',
+    ]);
+    await apply();
+    expect(emit.mock.calls[0][0].texts).toEqual([{ string: '"ARIAL NOTE"', chain: ".font('Liberation Sans').size(5).at([105, 62])" }]);
+  });
+
+  it('has no toggle when none of the file\'s text can come in, and still says why', async () => {
+    const { role, choose } = makeTool();
+    await choose(dxf([...OUTLINE, ...text('OLD', [105, 55], 'REV 2')], [], STYLES));
+    expect(role('texts-row').classList.contains('hidden')).toBe(true);
+    expect(role('notes').textContent).toBe('1 text is left out: it is drawn in a pen font (SHX), which has no outlines to make sketch text from.');
+  });
+
+  it('says so when the fonts cannot be measured: no text comes in, the drawing still does', async () => {
+    const { role, choose, apply, emit } = makeTool({ measureFonts: async () => null });
+    await choose(NOTED);
+    expect(role('texts-row').classList.contains('hidden')).toBe(true);
+    expect(role('notes').querySelector('li')!.textContent).toBe('2 texts are left out: their fonts could not be measured, because the server did not answer.');
+    await apply();
+    expect(emit.mock.calls[0][0].geometry).toHaveLength(4);
+  });
+
+  it('opens a file of nothing but text, placed by its text, and says how to bring it in', async () => {
+    const { role, choose, apply, emit, tool, message } = makeTool();
+    await choose(dxf(text('NOTES', [10, 20], 'ABCD'), [], STYLES));
+    expect(message().textContent).toBe('');
+    expect(role('summary').textContent).toBe('Only text on the ticked layers. Turn on Text to import it.');
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(true);
+    turnOn(role);
+    expect(tool.preview.textCount).toBe(1);
+    expect(role('summary').textContent).toBe('1 sketch entity (1 text)');
+    // Four letters of half an em of 5, a capital of 3.5: the text's own box.
+    expect(role('readout').textContent).toBe('10.00 × 3.50 mm at 15.00, 21.75');
+    await apply();
+    expect(emit.mock.calls[0][0].geometry).toEqual([]);
+    expect(emit.mock.calls[0][0].texts).toEqual([{ string: '"ABCD"', chain: ".font('Test Sans').size(5).at([10, 20])" }]);
+  });
+
+  it('refuses a file that holds only text no sketch text can stand for, with the reason', async () => {
+    const { choose, message, role } = makeTool();
+    await choose(dxf([0, 'TEXT', 8, '0', 10, 0, 20, 0, 40, 2, 1, 'hello']));
+    expect(message().textContent).toBe('The file has no lines, curves or points to import. '
+      + '1 text is left out: it is drawn in a pen font (SHX), which has no outlines to make sketch text from.');
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(true);
+  });
+
+  it('brings in the text of the ticked layers only, and warns about those only', async () => {
+    const { role, choose, layerBox, tool } = makeTool();
+    await choose(NOTED);
+    turnOn(role);
+    const notes = layerBox('NOTES');
+    notes.checked = false;
+    notes.dispatchEvent(new Event('change'));
+    expect(tool.preview.textCount).toBe(0);
+    expect(role('summary').textContent).toBe('4 sketch entities, 4 joins');
+    expect(role('warnings').classList.contains('hidden')).toBe(true);
+  });
+
+  it('starts with text on for an SVG, where it is part of the artwork, and writes it Y up', async () => {
+    const { role, choose, apply, emit, tool } = makeTool({ source: SVG_IMPORT });
+    await choose(`<svg xmlns="http://www.w3.org/2000/svg" width="100mm" height="60mm" viewBox="0 0 100 60">
+      <rect x="20" y="10" width="40" height="20" fill="none" stroke="#000"/>
+      <text x="40" y="24" font-family="'Test Sans', sans-serif" font-size="6" text-anchor="middle" font-weight="bold">LOGO</text>
+      <text x="22" y="28" font-family="Gill Sans" font-size="3">fine print</text>
+      <text x="10 12 14" y="50" font-family="Test Sans">pdf</text></svg>`, 'logo.svg');
+    expect(role('texts-row').classList.contains('hidden')).toBe(false);
+    expect(role<HTMLInputElement>('texts').checked).toBe(true);
+    expect(tool.preview.textCount).toBe(1);
+    expect(role('summary').textContent).toBe('5 sketch entities (1 text), 4 joins');
+    expect([...role('notes').querySelectorAll('li')].map((item) => item.textContent)).toEqual([
+      '1 text is left out: its font is not installed (Gill Sans).',
+      '1 text is left out: the file places its letters one by one, as a drawing converted from a PDF does.',
+    ]);
+    await apply();
+    // The baseline is 24 down a page of 60: 36 up it.
+    expect(emit.mock.calls[0][0].texts).toEqual([{ string: '"LOGO"', chain: ".font('Test Sans').size(6).bold().align('center').at([40, 36])" }]);
+  });
+
+  it('counts texts and their baselines towards the most one import writes', async () => {
+    const many: Groups = [...OUTLINE];
+    for (let i = 0; i < MAX_IMPORT_STATEMENTS / 2; i++) {
+      many.push(...text('NOTES', [i, 0], 'T', [50, 90]));
+    }
+    const { role, choose } = makeTool();
+    await choose(dxf(many, [], STYLES));
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(false);
+    turnOn(role);
+    expect(role('summary').textContent).toMatch(/^This would write 2,004 sketch entities; one import takes up to 2,000\./);
+  });
+});
+
 describe('DrawingImportTool: units and scale', () => {
   it('converts the unit the file declares into the document\'s', async () => {
     const { choose, role, apply, texts } = makeTool();
@@ -649,7 +928,8 @@ describe('DrawingImportTool: an SVG', () => {
     // A layer the file hides starts unticked, and says why.
     expect(layerBox('Notes').checked).toBe(false);
     expect(layerBox('Notes').parentElement!.querySelector('span')!.title).toBe('Notes: hidden in the file');
-    expect(role('notes').textContent).toBe('Not curves, left out: 1 text.');
+    // The hidden layer's text is read as text: with its layer unticked there is nothing to say about it.
+    expect(role('notes').textContent).toBe('');
   });
 
   it('writes the flattened drawing as sketch statements, Y up', async () => {

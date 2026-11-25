@@ -24,6 +24,8 @@ export interface XmlElement {
   parent: XmlElement | null;
   /** The element's own character data (text and CDATA sections), in order, without its children's. */
   text: string;
+  /** Its character data and its child elements as they come, one after the other: what text mixed with elements needs. */
+  content: (string | XmlElement)[];
 }
 
 export interface XmlDocument {
@@ -97,7 +99,9 @@ export class XmlParser {
       const run = text.slice(this.at, open < 0 ? text.length : open);
       if (current) {
         if (run.length > 0) {
-          current.text += this.decode(run);
+          const decoded = this.decode(run);
+          current.text += decoded;
+          current.content.push(decoded);
         }
       } else if (!root && run.trim().length > 0) {
         throw this.error('it does not start with an XML element', this.at);
@@ -123,6 +127,7 @@ export class XmlParser {
         }
         if (current) {
           current.text += text.slice(open + 9, end);
+          current.content.push(text.slice(open + 9, end));
         }
         this.at = end + 3;
       } else if (text.startsWith('<?', open)) {
@@ -166,6 +171,7 @@ export class XmlParser {
         const element = XmlParser.element(tag.name, tag.attributes, scope, current);
         if (current) {
           current.children.push(element);
+          current.content.push(element);
         } else {
           root = element;
         }
@@ -306,6 +312,7 @@ export class XmlParser {
       children: [],
       parent,
       text: '',
+      content: [],
     };
     for (const attribute of attributes) {
       if (attribute.name === 'xmlns' || attribute.name.startsWith('xmlns:')) {

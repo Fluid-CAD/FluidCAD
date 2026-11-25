@@ -6,6 +6,8 @@ import { PathSegments, type PathSegment, type Subpath } from "./path-segments.js
 import { SvgPathData } from "./svg-path.js";
 import { SvgStyleSheet } from "./svg-style.js";
 import { SvgGuides } from "./svg-guides.js";
+import { SvgText } from "./svg-text.js";
+import type { ImportedText } from "./imported-text.js";
 import { SvgValues } from "./svg-values.js";
 import { XmlParser, type XmlDocument, type XmlElement } from "./xml.js";
 
@@ -54,8 +56,11 @@ const RELATIVE_TOLERANCE = 1e-9;
 /** The elements that draw, or hold what draws. */
 const DRAWN = new Set(['svg', 'g', 'a', 'switch', 'use', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon']);
 
-/** The elements that draw something that is not a curve, by the name they are counted under. */
-const NOT_CURVES: Record<string, string> = { text: 'text', image: 'image', foreignObject: 'embedded object' };
+/** The elements that draw something that is not a curve nor text, by the name they are counted under. */
+const NOT_CURVES: Record<string, string> = { image: 'image', foreignObject: 'embedded object' };
+
+/** One text read, with what decides whether it counts. */
+type EmittedText = { text: ImportedText; hidden: boolean; painted: boolean };
 
 /** Units a page size is physical in: a length in one of them says how large the drawing is. */
 const PHYSICAL_UNITS = new Set(['mm', 'cm', 'in', 'pt', 'pc', 'q']);
@@ -169,7 +174,10 @@ type Context = {
  * as construction lines (see `SvgGuides`); whoever imports decides whether
  * they come in.
  *
- * **Left out:** text, images and embedded objects, counted in `skipped`;
+ * **Text.** A `<text>` is read as text (see `SvgText`), apart from the
+ * curves; whoever imports decides whether it comes in.
+ *
+ * **Left out:** images and embedded objects, counted in `skipped`;
  * clip paths and masks, whose shapes come in whole, with a warning; fills,
  * strokes' widths, markers, patterns and filters, which are not curves.
  *
@@ -247,6 +255,7 @@ export class SvgReader {
   private units: Record<string, number> = SvgValues.unitFactors(CSS_PER_INCH);
   private unit: ImportedUnit | null = null;
   private guides: ImportedConstructionLine[] = [];
+  private readonly texts: EmittedText[] = [];
   private visits = 0;
 
   private constructor(document: XmlDocument, options: SvgReadOptions) {
@@ -441,7 +450,7 @@ export class SvgReader {
     }
     const local = element.local;
     const counted = NOT_CURVES[local];
-    if (!DRAWN.has(local) && counted === undefined) {
+    if (!DRAWN.has(local) && counted === undefined && local !== 'text') {
       // Definitions, paint servers, metadata, and elements this does not know: nothing drawn here.
       return;
     }
@@ -483,6 +492,20 @@ export class SvgReader {
     const transform = this.transformOf(element, declared, ctx);
 
     switch (local) {
+      case 'text':
+        // Not while an element is only being measured for its bounding box.
+        if (ctx.out === this.emitted) {
+          const read = SvgText.read(element, this.lineage(element, ctx), Affine.compose(transform, ctx.m), layer, {
+            declared: (of) => this.sheet.declared(of),
+            units: this.units,
+            namespace: this.namespace,
+          });
+          const painted = SvgReader.isPainted(inner, false);
+          for (const text of read) {
+            this.texts.push({ text, hidden, painted });
+          }
+        }
+        break;
       case 'g':
       case 'a':
         inner.m = Affine.compose(transform, ctx.m);
@@ -515,6 +538,32 @@ export class SvgReader {
         }
       }
     }
+  }
+
+  /**
+   * The elements `element` inherits its properties from, outermost first.
+   * What a `<use>` draws inherits from the reference, not from where it is
+   * defined: at the element a reference names, the way up goes on from the
+   * reference.
+   */
+  private lineage(element: XmlElement, ctx: Context): XmlElement[] {
+    const lineage: XmlElement[] = [];
+    let uses = ctx.uses.length;
+    let at: XmlElement | null = element;
+    while (at) {
+      const use: XmlElement | undefined = uses > 0 ? ctx.uses[uses - 1] : undefined;
+      const href = use ? (SvgReader.attribute(use, 'href') ?? SvgReader.attribute(use, 'href', XLINK_NAMESPACE))?.trim() : undefined;
+      if (use && href !== undefined && this.ids.get(href.slice(1)) === at) {
+        uses--;
+        at = use;
+      } else {
+        at = at.parent;
+      }
+      if (at) {
+        lineage.unshift(at);
+      }
+    }
+    return lineage;
   }
 
   /** The context for what an element holds: its parent's, with what the element declares for itself. */
@@ -960,6 +1009,22 @@ export class SvgReader {
       }
       return { layer, curve: emitted.curve };
     });
+    // Text its author could see, like the shapes — on the layers it is on.
+    const texts: ImportedText[] = [];
+    for (const emitted of this.texts) {
+      if (!emitted.painted && !this.unpainted) {
+        continue;
+      }
+      const layer = emitted.text.layer ?? NO_LAYER;
+      if (!counts.has(layer)) {
+        order.push(layer);
+      }
+      counts.set(layer, (counts.get(layer) ?? 0) + 1);
+      if (emitted.hidden) {
+        hidden.add(layer);
+      }
+      texts.push({ ...emitted.text, layer });
+    }
     const layers: ImportedLayer[] = order.map((name) => ({ name, count: counts.get(name)!, hidden: hidden.has(name) }));
 
     if (tally.clipped > 0) {
@@ -987,7 +1052,7 @@ export class SvgReader {
     if (tally.percentWithoutPage) {
       warnings.push('Some sizes are given as percentages of a page the file does not give a size for; they were read as zero.');
     }
-    return { unit: this.unit, layers, entities, points: [], constructionLines: this.guides, skipped: tally.skipped, warnings };
+    return { unit: this.unit, layers, entities, points: [], constructionLines: this.guides, texts, skipped: tally.skipped, warnings };
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────

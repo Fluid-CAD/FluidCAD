@@ -8,6 +8,7 @@ import { trackPixelsPerWorld } from '../../meshes/screen-scale';
 import type { Curve2D, DrawingBounds, Vec2 } from '../../../../lib/io/drawing/drawing.js';
 import { Curves } from '../../../../lib/io/drawing/drawing.js';
 import type { CutLine } from '../../../../lib/io/drawing/construction-lines.js';
+import { ImportedTexts, type ResolvedText } from '../../../../lib/io/drawing/imported-text.js';
 import type { PlaneData } from '../../types';
 import { themeColors } from '../../scene/theme-colors';
 import { DrawingPlacements, type DrawingPlacement } from './drawing-import-placement';
@@ -17,6 +18,9 @@ const RENDER_ORDER = 4;
 
 /** The preview's stroke, in pixels: as present as the sketch's own lines, whatever the display's density. */
 const LINE_WIDTH_PX = 1.5;
+
+/** The box that stands for a line of text is drawn this thin, in pixels. */
+const TEXT_BOX_WIDTH_PX = 1;
 
 /** A point of the file is a dot this many pixels across, whatever the zoom. */
 const POINT_SIZE_PX = 7;
@@ -34,12 +38,18 @@ const TURN_SEGMENTS = 96;
  *
  * Construction lines are drawn the way a sketch draws its guides — dash,
  * dot, dash — in the preview's own colour: what they will be once imported.
+ *
+ * A text is a box on each of its lines, from the baseline to the top of
+ * its capitals and as wide as the line is in its font: where the letters
+ * will land, without laying them out.
  */
 export class DrawingImportPreview {
   readonly group: Group;
   private lines: LineSegments2 | null = null;
   private dots: Points<BufferGeometry, PointsMaterial> | null = null;
   private guides: Line<BufferGeometry, ShaderMaterial>[] = [];
+  private textBoxes: LineSegments2 | null = null;
+  private texts = 0;
   private segments = 0;
   private plane: PlaneData;
   private placement: DrawingPlacement | null = null;
@@ -58,11 +68,17 @@ export class DrawingImportPreview {
   }
 
   /**
-   * Draw `curves`, `points` and `guides` (construction lines, cut to a
-   * length); `bounds` are what the drawing is placed by. Null or nothing to
-   * draw clears the preview.
+   * Draw `curves`, `points`, `guides` (construction lines, cut to a
+   * length) and `texts`; `bounds` are what the drawing is placed by. Null
+   * or nothing to draw clears the preview.
    */
-  setDrawing(curves: readonly Curve2D[], points: readonly Vec2[], bounds: DrawingBounds | null, guides: readonly CutLine[] = []): void {
+  setDrawing(
+    curves: readonly Curve2D[],
+    points: readonly Vec2[],
+    bounds: DrawingBounds | null,
+    guides: readonly CutLine[] = [],
+    texts: readonly ResolvedText[] = [],
+  ): void {
     this.clear();
     if (!bounds) {
       return;
@@ -77,6 +93,9 @@ export class DrawingImportPreview {
     for (const guide of guides) {
       this.drawGuide(guide, center);
     }
+    if (texts.length > 0) {
+      this.drawTexts(texts, center);
+    }
   }
 
   private drawCurves(curves: readonly Curve2D[], center: Vec2): void {
@@ -90,23 +109,45 @@ export class DrawingImportPreview {
         );
       }
     }
+    this.lines = this.strokes(positions, LINE_WIDTH_PX);
+    this.segments = positions.length / 6;
+  }
+
+  /** The box of every line of every text. */
+  private drawTexts(texts: readonly ResolvedText[], center: Vec2): void {
+    const positions: number[] = [];
+    for (const text of texts) {
+      for (const box of ImportedTexts.boxes(text)) {
+        box.forEach((corner, i) => {
+          const next = box[(i + 1) % box.length];
+          positions.push(corner.x - center.x, corner.y - center.y, 0, next.x - center.x, next.y - center.y, 0);
+        });
+      }
+    }
+    // Thinner than the curves: a box stands for letters, it is not one of the drawing's lines.
+    this.textBoxes = this.strokes(positions, TEXT_BOX_WIDTH_PX);
+    this.texts = texts.length;
+  }
+
+  /** Line segments in the preview's colour, added to the group. */
+  private strokes(positions: number[], width: number): LineSegments2 {
     const geometry = new LineSegmentsGeometry();
     geometry.setPositions(positions);
     // The feature dialogs' ghost blue: what an apply would add.
     const material = new LineMaterial({
       color: themeColors.ghostWireColor.getHex(),
-      linewidth: LINE_WIDTH_PX,
+      linewidth: width,
       transparent: true,
       opacity: 0.95,
       depthTest: false,
     });
     LineResolutionRegistry.register(material);
-    this.lines = new LineSegments2(geometry, material);
-    this.segments = positions.length / 6;
-    this.lines.renderOrder = RENDER_ORDER;
+    const lines = new LineSegments2(geometry, material);
+    lines.renderOrder = RENDER_ORDER;
     // The matrix moves the drawing anywhere: culling on the unplaced bounds would hide it.
-    this.lines.frustumCulled = false;
-    this.group.add(this.lines);
+    lines.frustumCulled = false;
+    this.group.add(lines);
+    return lines;
   }
 
   private drawPoints(points: readonly Vec2[], center: Vec2): void {
@@ -157,6 +198,11 @@ export class DrawingImportPreview {
     return this.lines ? this.segments : 0;
   }
 
+  /** How many texts are boxed on screen — what a test reads. */
+  get textCount(): number {
+    return this.textBoxes ? this.texts : 0;
+  }
+
   /** How many construction lines are on screen — what a test reads. */
   get guideCount(): number {
     return this.guides.length;
@@ -192,6 +238,13 @@ export class DrawingImportPreview {
       guide.material.dispose();
     }
     this.guides = [];
+    if (this.textBoxes) {
+      this.group.remove(this.textBoxes);
+      this.textBoxes.geometry.dispose();
+      this.textBoxes.material.dispose();
+      this.textBoxes = null;
+      this.texts = 0;
+    }
   }
 
   /** plane frame · move to `at` · turn · scale — the drawing's centre is the group's origin. */

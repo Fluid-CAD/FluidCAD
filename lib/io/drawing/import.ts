@@ -1,5 +1,6 @@
 import type { Curve2D, DrawingBounds, Vec2 } from "./drawing.js";
 import { Curves } from "./drawing.js";
+import type { ImportedText } from "./imported-text.js";
 
 // What a 2D file read for import comes back as: the curves of the file in
 // the drawing model the writers share, with what the file says about itself.
@@ -28,10 +29,10 @@ export type ImportedConstructionLine = {
   ray: boolean;
 };
 
-/** A layer of the file that has something on it: curves, points, construction lines. */
+/** A layer of the file that has something on it: curves, points, construction lines, text. */
 export type ImportedLayer = {
   name: string;
-  /** How many curves, points and construction lines the file has on it. */
+  /** How many curves, points, construction lines and texts the file has on it. */
   count: number;
   /** The file has the layer turned off or frozen: its author was not looking at it. */
   hidden: boolean;
@@ -51,6 +52,13 @@ export interface ImportedDrawing {
   points: ImportedPoint[];
   /** Every construction line read, in the file's order, in the same coordinates. Whoever imports decides whether they come in. */
   constructionLines: ImportedConstructionLine[];
+  /**
+   * Every text read, in the file's order, in the same coordinates — those a
+   * sketch text cannot stand for included, each marked with why. Whoever
+   * imports decides whether text comes in, and has its fonts measured
+   * first (see `ImportedTexts`).
+   */
+  texts: ImportedText[];
   /** What the file holds that is not a curve and was left out, by entity type: `{ TEXT: 3, HATCH: 1 }`. */
   skipped: Record<string, number>;
   /** What the person importing should know: curves projected, a block that is missing, … */

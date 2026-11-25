@@ -7,6 +7,8 @@ import { Mesh } from '../../../lib/dist/oc/mesh.js';
 import { Plane } from '../../../lib/dist/math/plane.js';
 import { Point, Point2D } from '../../../lib/dist/math/point.js';
 import { Vector3d } from '../../../lib/dist/math/vector3d.js';
+import { FontMeasures } from '../font-measure.ts';
+import type { FontMeasureRequest } from '../../../lib/dist/io/drawing/imported-text.js';
 
 type Vec3Body = { x: number; y: number; z: number };
 
@@ -43,6 +45,29 @@ export function createTextRouter(fluidCadServer: FluidCadServer): Router {
       res.json({ families: FontRegistry.families() });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? 'Could not list fonts' });
+    }
+  });
+
+  // How the fonts installed here measure, for the text of a drawing an
+  // import is about to write as text() statements (see FontMeasures).
+  router.post('/font-measure', async (req, res) => {
+    const texts = req.body?.texts;
+    const isRequest = (t: unknown): t is FontMeasureRequest => {
+      const r = t as FontMeasureRequest;
+      return typeof r === 'object' && r !== null
+        && Array.isArray(r.families) && r.families.every((family) => typeof family === 'string')
+        && typeof r.bold === 'boolean' && typeof r.italic === 'boolean'
+        && Array.isArray(r.lines) && r.lines.every((line) => typeof line === 'string');
+    };
+    if (!Array.isArray(texts) || !texts.every(isRequest)) {
+      res.status(400).json({ error: 'Invalid request body: texts must be [{ families, bold, italic, lines }]' });
+      return;
+    }
+    try {
+      await FontRegistry.init();
+      res.json({ measures: FontMeasures.measure(texts) });
+    } catch (err: any) {
+      res.status(422).json({ error: err?.message ?? 'Could not measure the fonts' });
     }
   });
 

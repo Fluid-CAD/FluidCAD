@@ -599,7 +599,9 @@ describe("SvgReader: what a style says is drawn", () => {
       <text display="none">unseen</text><circle r="5"/>`;
     const read = SvgReader.read(page(body));
     expect(read.entities).toHaveLength(1);
-    expect(read.skipped).toEqual({ text: 2, image: 1, 'embedded object': 1 });
+    // Text is read as text, not counted among what is left out.
+    expect(read.texts).toHaveLength(2);
+    expect(read.skipped).toEqual({ image: 1, 'embedded object': 1 });
   });
 });
 

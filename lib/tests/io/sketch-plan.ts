@@ -1,10 +1,10 @@
 import { render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { arc, bezier, circle, ellipse, line, point as sketchPoint } from "../../core/2d/index.js";
+import { arc, bezier, circle, ellipse, line, point as sketchPoint, text } from "../../core/2d/index.js";
 import { coincident, diameter, distance, fix, horizontal, radius, vertical } from "../../core/constraints/index.js";
 import { SketchImport } from "../../io/drawing/sketch-import.js";
-import type { SketchImportPlan, SketchJoinEnd, SketchPin, SketchPinPoint } from "../../io/drawing/sketch-import.js";
+import type { SketchImportPlan, SketchJoinEnd, SketchPin, SketchPinPoint, SketchPrimitive } from "../../io/drawing/sketch-import.js";
 import { ShapeProps } from "../../oc/props.js";
 import type { Solid } from "../../common/solid.js";
 
@@ -18,7 +18,8 @@ export const OPTIONS = { tolerance: 1e-5, joinTolerance: 1e-3, decimals: 6 };
 /** The statements of a plan, as the tool writes them: the geometry, its joins when `joined`, and `pins`. */
 export function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = true): void {
   const p = (v: { x: number; y: number }): [number, number] => [v.x, v.y];
-  const made = plan.primitives.map((primitive) => {
+  /** One primitive as its statement; `before` are the statements of the primitives ahead of it. */
+  const write = (primitive: SketchPrimitive, before: readonly any[]): any => {
     switch (primitive.kind) {
       case 'line': {
         const drawn = line(p(primitive.start), p(primitive.end));
@@ -34,8 +35,33 @@ export function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = tr
         return bezier(...primitive.points.map(p));
       case 'point':
         return sketchPoint(p(primitive.at));
+      case 'text': {
+        // The statement the tool writes: only what differs from a text's defaults, the anchor last.
+        let drawn = primitive.path !== undefined ? text(primitive.text, before[primitive.path]) : text(primitive.text);
+        drawn = drawn.font(primitive.font).size(primitive.size);
+        if (primitive.bold) {
+          drawn = drawn.bold();
+        }
+        if (primitive.italic) {
+          drawn = drawn.italic();
+        }
+        if (primitive.align !== 'left') {
+          drawn = drawn.align(primitive.align);
+        }
+        if (primitive.lineSpacing !== 1) {
+          drawn = drawn.lineSpacing(primitive.lineSpacing);
+        }
+        if (primitive.letterSpacing !== 0) {
+          drawn = drawn.letterSpacing(primitive.letterSpacing);
+        }
+        return primitive.at ? drawn.at(p(primitive.at)) : drawn;
+      }
     }
-  });
+  };
+  const made: any[] = [];
+  for (const primitive of plan.primitives) {
+    made.push(write(primitive, made));
+  }
   const end = (ref: SketchJoinEnd) => {
     const primitive = plan.primitives[ref.primitive];
     const statement = made[ref.primitive] as any;
@@ -54,6 +80,9 @@ export function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = tr
     const statement = made[ref.primitive] as any;
     if (typeof ref.point === 'number') {
       return statement.point(ref.point);
+    }
+    if (ref.point === 'anchor') {
+      return statement.anchor();
     }
     return ref.point === 'center' ? statement.center() : end({ primitive: ref.primitive, end: ref.point });
   };

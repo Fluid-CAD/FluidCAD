@@ -73,6 +73,33 @@ When construction lines are all the ticked layers hold, they are sized by the po
 
 The frame with the handles stays around the drawing itself; the guide lines reach past it. A guide line's ends are where it was cut, not points of the drawing, so **Join ends that meet** ties them to nothing, and [Fix in place](#fix-in-place) fixes each end on its own. A construction line the file has twice is written once.
 
+### Text
+
+When the file has text that can come in, the dialog shows a **Text** toggle. It starts off: the text of a technical drawing is notes and labels, and sketch [text](/docs/sketching/compound/text) is geometry, whose letters are outlines that extrude with the rest of the profile. Turn it on to bring the text in as `text()` statements, each where the file has it. While you place the drawing, a box on each line of text shows where its letters will land.
+
+The fonts are those of the machine that builds the sketch, so the text is checked against them when the file is read:
+
+- **Position.** A text stands on the point the file places it by. Left, Centre and Right with Baseline, Middle or Top are followed; so is multi-line text attached by its top.
+- **Size.** A DXF gives the height of a capital letter, and a sketch text the size of the font's em. The size is worked out from the font itself, so the capitals come out as tall as the file says.
+- **Angle.** A sketch text has no angle of its own. A text that reads level is placed by its anchor, `.at([x, y])`. A turned one is written along a guide line drawn on its baseline, `text("SIDE", l5)`: move or turn the line and the text follows.
+- **Font.** The style's font has to be installed. A font made to the same letter widths stands in for one that is missing (Liberation Sans for Arial, Liberation Serif for Times New Roman), and **Warnings** says so.
+- **Blocks.** Text in a block is moved, turned and scaled with its reference. The attribute values of a reference come in as text; attribute definitions do not.
+
+[Fix in place](#fix-in-place) fixes a level text by its anchor and a turned one by the two ends of its baseline.
+
+Text that a sketch text cannot stand for is left out, and **Warnings** says how many and why:
+
+| Left out | Why |
+|---|---|
+| Text in a pen font (`.shx`, such as `txt` or `romans`) | A pen font is strokes, not outlines, and no installed font has its letters. |
+| Text in a font that is not installed | Its letters would have other widths. Install the font, then import again. |
+| A width factor, a slant, backwards or upside-down letters, letters stacked top to bottom | Sketch text is not stretched, slanted or mirrored. This includes text in a block that is mirrored or scaled unevenly. |
+| Aligned, Fit, Middle (on its own) and Bottom justification; multi-line text attached by its middle or bottom | Where these put a text depends on the letters of the font it was drawn with: how wide they are, how far they reach below the line. |
+| Multi-line text that changes font, height or spacing part-way, has stacked fractions, tabs or columns | A sketch text is written one way from start to end. |
+| Multi-line text wider than the box it wraps in | Where its lines break depends on the font it was drawn with. |
+
+Underlines, overlines and colours are dropped: they change no letter. To bring in text that was left out, convert it to curves in the program that made the file (*TXTEXP* in AutoCAD's Express Tools), and it imports as lines and arcs.
+
 ### Joins
 
 A sketch does not treat two ends as connected because they share coordinates; a [coincident](/docs/sketching/constraints/introduction) constraint connects them. With **Join ends that meet** on, the import writes one wherever ends are within a thousandth of a millimetre of each other, so an imported outline stays in one piece when you drag part of it. It starts on when the sketch's **Infer while drawing** setting is on.
@@ -127,11 +154,12 @@ A drawing made near its file's origin lands **as drawn**: its coordinates become
 | Spline | Its own Bézier pieces, as `bezier` statements: the same curve |
 | Point | [`point`](/docs/sketching/primitives/point) |
 | Construction line (`XLINE`), ray (`RAY`) | A `line` marked `.guide()`, when [Construction lines](#construction-lines) is on |
+| Text, multi-line text, attribute values | [`text`](/docs/sketching/compound/text), when [Text](#text) is on |
 | Block reference (insert) | The block's contents, in place: moved, turned, scaled, mirrored, arrayed |
 
 A point of the file — a drill centre, a datum mark — is a `point` in the sketch: something to snap, constrain or dimension to, and to place a [hole](/docs/3d-operations/hole) on. It is shown as a dot while you place the drawing, sits on its layer like a curve, and is tied to a line or arc end it lies on when **Join ends that meet** is ticked.
 
-Text, dimensions, leaders, hatches and images are neither curves nor points and are left out: they annotate a drawing, and a sketch holds the geometry a feature is made from. The dialog's **Warnings** section lists how many of each it skipped. A curve drawn twice in the file is written once. Only model space is read.
+Dimensions, leaders, hatches and images are neither curves, points nor text and are left out: they annotate a drawing, and a sketch holds the geometry a feature is made from. The dialog's **Warnings** section lists how many of each it skipped. A curve drawn twice in the file is written once. Only model space is read.
 
 A sketch has no statement for an elliptical arc, a weighted (rational) spline or a spline above degree three. These are written as cubic beziers that stay within a ten-thousandth of a millimetre of the original, and **Warnings** says how many there were.
 

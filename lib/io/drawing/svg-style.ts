@@ -19,8 +19,8 @@ type Candidate = { value: string; weight: number[] };
 /**
  * The attributes that set a property, for the properties the import looks
  * at: what is drawn at all (`display`, `visibility`, the paint), where
- * (`transform` and its origin), and the geometry SVG 2 lets a style sheet
- * set.
+ * (`transform` and its origin), the geometry SVG 2 lets a style sheet
+ * set, and how text is written.
  */
 const PRESENTATION_ATTRIBUTES = new Set([
   'display', 'visibility', 'opacity',
@@ -28,6 +28,9 @@ const PRESENTATION_ATTRIBUTES = new Set([
   'clip-path', 'mask',
   'transform', 'transform-origin', 'transform-box',
   'x', 'y', 'width', 'height', 'cx', 'cy', 'r', 'rx', 'ry', 'd',
+  'font', 'font-family', 'font-size', 'font-weight', 'font-style', 'font-variant', 'font-stretch',
+  'text-anchor', 'letter-spacing', 'word-spacing', 'writing-mode', 'direction',
+  'dominant-baseline', 'alignment-baseline', 'baseline-shift',
 ]);
 
 /**

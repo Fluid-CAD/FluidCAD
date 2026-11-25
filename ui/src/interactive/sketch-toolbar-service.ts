@@ -1066,6 +1066,7 @@ export class SketchToolbarService {
       filePath: info.sourceLocation.filePath,
       geometry,
       constraints,
+      ...(request.texts && request.texts.length > 0 ? { texts: request.texts } : {}),
       ...(request.newVariables && request.newVariables.length > 0
         ? { newVariables: request.newVariables } : {}),
       ...(request.removals && request.removals.length > 0

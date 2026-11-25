@@ -91,6 +91,31 @@ Inkscape keeps guides beside a drawing: lines with no end that shapes were snapp
 
 Guides are read from files made with Inkscape 0.92 or later, on a page that is neither turned nor stretched. Older versions placed guides another way; those, and guides on a turned or stretched page, are left out and counted under **Warnings**.
 
+## Text
+
+When the file has text that can come in, the dialog shows a **Text** toggle. For an SVG it starts on: the text of an illustration is part of the artwork. It comes in as the sketch's own [text](/docs/sketching/compound/text), whose letters are outlines that extrude with the rest. Turn the toggle off to leave it out. While you place the drawing, a box on each line of text shows where its letters will land.
+
+An SVG places a line of text by the start of its baseline, which is what a sketch text's anchor is, so a line placed by one point comes in as it stands:
+
+- `x` and `y` are the anchor, and `text-anchor` says whether it is the start, the middle or the end of the line.
+- `font-size` is the size, through every transform above the text.
+- `font-family` is searched, in order, for a font that is installed where the sketch is built. A generic name (`sans-serif`, `serif`, `monospace`) takes a font of that kind. A font made to the same letter widths stands in for one that is missing, and **Warnings** says so.
+- `font-weight` and `font-style` say bold and italic; `letter-spacing` is the same thing in a sketch.
+- A `<tspan>` with an `x` of its own starts again from another point, the way a drawing program writes each line of a paragraph: every such line is a text of its own.
+
+A text that is turned by a `transform` is written along a guide line drawn on its baseline, as under [Import DXF](/docs/sketching/tools/import-dxf#text).
+
+Text that a sketch text cannot stand for is left out, and **Warnings** says how many and why:
+
+- **Letters placed one by one**: a list of numbers in `x`, `y`, `dx` or `dy`, or a `rotate`. This is how a file converted from a PDF holds its text.
+- **Text on a path** (`<textPath>`).
+- **A line that changes font, size or weight part-way**, or shifts from where its letters ended (a `dx`, or a `dy` in the middle of a line, as for a subscript).
+- **Stretched, skewed or mirrored** text: a transform that is more than a move, a turn and one scale.
+- `textLength`, word spacing, small capitals, a baseline other than the letters' own (`dominant-baseline`, `baseline-shift`), text set top to bottom or right to left.
+- Text in a **font that is not installed**, when the file names no other.
+
+To bring those in, convert the text to paths in the program that made the file (*Object to Path* in Inkscape, *Create Outlines* in Illustrator): its outlines import like any other path.
+
 ## What is imported
 
 | In the file | In the sketch |
@@ -105,6 +130,7 @@ Guides are read from files made with Inkscape 0.92 or later, on a page that is n
 | `<path>`: cubic and quadratic curves | `bezier`: the same curve |
 | `<g>`, `<a>`, `<switch>`, `<svg>`, `<use>`, `<symbol>` | What they hold or refer to, [flattened](#flattening) |
 | An Inkscape guide | A `line` marked `.guide()`, when [Guides](#guides) is on |
+| `<text>` | [`text`](/docs/sketching/compound/text), when [Text](#text) is on |
 
 ### Circles and arcs drawn as curves
 
@@ -127,7 +153,6 @@ How a shape is drawn is not geometry, and is not imported: fills, stroke widths,
 
 ### What is left out
 
-- **Text.** A sketch's [Text](/docs/sketching/compound/text) tool makes text; an SVG's text needs its font to become curves. Convert it to paths in the program that made the file (*Object to Path* in Inkscape, *Create Outlines* in Illustrator) and its outlines import like any other path.
 - **Images** embedded in the file. To trace over a picture, use a [Reference Image](/docs/sketching/tools/reference-image).
 - **Clipping and masks.** A clipped shape is imported whole, and **Warnings** says how many there were. Trim what you do not want with the [Trim](/docs/sketching/tools/trim) tool.
 - Markers, patterns, gradients, filters and animations.

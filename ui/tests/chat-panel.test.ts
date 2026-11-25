@@ -406,7 +406,7 @@ describe('a chat', () => {
     expect(h.openSource).toHaveBeenCalledWith('/w/plate.part.js', 7, 3);
   });
 
-  it('Stop and Escape cancel the turn; typing goes on while it runs, and Enter waits', async () => {
+  it('Stop and Escape cancel the turn; typing goes on while it runs', async () => {
     const h = mount();
     await opened(h);
     h.type('first');
@@ -415,27 +415,140 @@ describe('a chat', () => {
     const id = [...h.client.snapshots.keys()][0];
     const a = h.client.startAssistant(id);
     h.client.part(id, a, { type: 'text', id: 'x', text: 'Partial' });
+    // Nothing to send: the button stops the turn. With a message written it sends (after the turn).
+    expect(h.sendButton().dataset.action).toBe('stop');
     h.type('next question');
     expect(h.input().disabled).toBe(false);
-    h.key('Enter');
-    await settle();
-    expect(h.client.sent).toHaveLength(1);
-    expect(h.input().value).toBe('next question');
+    expect(h.sendButton().dataset.action).toBe('send');
+    expect(h.sendButton().title).toBe('Send when the agent is done (Enter)');
+    // Escape stops the turn whatever is written, and the text stays.
     const escape = h.key('Escape');
     expect(escape.defaultPrevented).toBe(true);
     await settle();
     expect(h.client.cancel).toHaveBeenCalledWith(id);
+    expect(h.client.sent).toHaveLength(1);
+    expect(h.input().value).toBe('next question');
     expect(h.$('[data-part="notice"]')!.textContent!.trim()).toBe('Stopped.');
     expect(h.sendButton().dataset.action).toBe('send');
+    expect(h.sendButton().title).toBe('Send (Enter)');
     // The partial answer stays.
     expect(h.$$('[data-part="text"]').map((e) => e.textContent)).toContain('Partial');
     // The Stop button does the same as Escape.
     h.key('Enter');
     await settle();
     expect(h.client.sent.map((s) => s.message.text)).toEqual(['first', 'next question']);
+    expect(h.sendButton().dataset.action).toBe('stop');
     h.sendButton().click();
     await settle();
     expect(h.client.cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('a message sent while a turn runs waits above the composer, and goes when the turn is done', async () => {
+    const h = mount();
+    await opened(h);
+    const queue = () => h.$('[data-ref="queue"]')!;
+    const waiting = () => h.$$('[data-ref="queued-text"]').map((e) => e.textContent);
+    expect(queue().classList.contains('hidden')).toBe(true);
+    h.type('first');
+    h.key('Enter');
+    await settle();
+    const id = [...h.client.snapshots.keys()][0];
+    const a = h.client.startAssistant(id);
+    h.client.part(id, a, { type: 'text', id: 'x', text: 'Working on it' });
+
+    // Enter while the turn runs: the engine keeps the message, the box empties, the turn goes on.
+    h.type('second');
+    h.key('Enter');
+    await settle();
+    expect(h.client.send).toHaveBeenCalledTimes(2);
+    expect(h.client.sent).toHaveLength(1);
+    expect(h.input().value).toBe('');
+    expect(h.panel.el.dataset.status).toBe('running');
+    expect(h.sendButton().dataset.action).toBe('stop');
+    expect(queue().classList.contains('hidden')).toBe(false);
+    expect(queue().dataset.held).toBe('false');
+    expect(waiting()).toEqual(['second']);
+    expect(h.$('[data-ref="queue-label"]')!.textContent).toBe('Sent once the agent is done');
+    expect(h.$('[data-ref="queue-send"]')).toBeNull();
+    // Not in the transcript until its turn.
+    expect(h.$$('[data-role="user"] .chat-user-text').map((e) => e.textContent)).toEqual(['first']);
+
+    // The Send button does the same.
+    h.type('third');
+    h.sendButton().click();
+    await settle();
+    expect(waiting()).toEqual(['second', 'third']);
+    expect(h.$('[data-ref="queue-label"]')!.textContent).toBe('Sent one after the other, once the agent is done');
+
+    // One is taken back.
+    h.$<HTMLButtonElement>('[data-ref="queued"] [data-ref="queued-remove"]')!.click();
+    await settle();
+    expect(h.client.removeQueued).toHaveBeenCalledWith(id, 'queued-1');
+    expect(waiting()).toEqual(['third']);
+
+    // The turn ends: the waiting message has its turn, with what it was sent with.
+    h.client.finish(id, a);
+    await settle();
+    expect(h.client.sent.map((s) => s.message)).toEqual([
+      { text: 'first', model: 'default', mode: 'ask' },
+      { text: 'third', model: 'default', mode: 'ask' },
+    ]);
+    expect(queue().classList.contains('hidden')).toBe(true);
+    expect(h.$$('[data-role="user"] .chat-user-text').map((e) => e.textContent)).toEqual(['first', 'third']);
+    expect(h.panel.el.dataset.status).toBe('running');
+  });
+
+  it('after a turn that was stopped the waiting messages stay until Send now', async () => {
+    const h = mount();
+    await opened(h);
+    h.type('first');
+    h.key('Enter');
+    await settle();
+    const id = [...h.client.snapshots.keys()][0];
+    h.client.startAssistant(id);
+    h.type('second');
+    h.key('Enter');
+    await settle();
+    h.key('Escape');
+    await settle();
+    expect(h.client.cancel).toHaveBeenCalledWith(id);
+    expect(h.client.sent).toHaveLength(1);
+    expect(h.panel.el.dataset.status).toBe('idle');
+    expect(h.$('[data-ref="queue"]')!.dataset.held).toBe('true');
+    expect(h.$('[data-ref="queue-label"]')!.textContent).toBe('Not sent yet: the agent stopped before it was done.');
+    expect(h.$$('[data-ref="queued-text"]').map((e) => e.textContent)).toEqual(['second']);
+
+    h.$<HTMLButtonElement>('[data-ref="queue-send"]')!.click();
+    await settle();
+    expect(h.client.resumeQueue).toHaveBeenCalledWith(id);
+    expect(h.client.sent.map((s) => s.message.text)).toEqual(['first', 'second']);
+    expect(h.$('[data-ref="queue"]')!.classList.contains('hidden')).toBe(true);
+    expect(h.panel.el.dataset.status).toBe('running');
+  });
+
+  it('a chat opened with messages waiting shows them, and what each carries besides its words', async () => {
+    const client = new FakeChatClient();
+    client.addSession({
+      id: 's',
+      title: 'Bracket',
+      queued: [
+        { id: 'q1', createdAt: '2026-11-17T10:00:06.000Z', text: 'Make the holes 6 mm\nand countersunk', images: 1, references: 2 },
+        { id: 'q2', createdAt: '2026-11-17T10:00:07.000Z', text: '', images: 2, references: 0 },
+      ],
+    });
+    const h = mount(client);
+    await opened(h);
+    const rows = h.$$('[data-ref="queued"]');
+    expect(rows.map((r) => r.dataset.queuedId)).toEqual(['q1', 'q2']);
+    expect(rows[0].querySelector('[data-ref="queued-text"]')!.textContent).toBe('Make the holes 6 mm\nand countersunk');
+    expect(rows[0].querySelector('.chat-queue-extras')!.textContent).toBe('1 image, 2 references');
+    // Images only: they are what the row says.
+    expect(rows[1].querySelector('[data-ref="queued-text"]')!.textContent).toBe('2 images');
+    expect(rows[1].querySelector('.chat-queue-extras')).toBeNull();
+    expect(h.$('[data-ref="queue-send"]')).not.toBeNull();
+    // Another tab took one back: the list follows the stream.
+    client.emit('s', { type: 'queue', queued: [] });
+    expect(h.$('[data-ref="queue"]')!.classList.contains('hidden')).toBe(true);
   });
 
   it('a send the engine refuses keeps the text and says why', async () => {

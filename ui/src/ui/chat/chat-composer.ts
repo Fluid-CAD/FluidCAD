@@ -3,7 +3,10 @@ import { ATTACHMENT_MEDIA_TYPES } from './chat-types';
 import { FileMentions, type MentionFile } from './file-mentions';
 
 export type ChatComposerDeps = {
-  /** Send `text`; resolves true once the engine took it (the box then empties). */
+  /**
+   * Send `text`; resolves true once the engine took it (the box then
+   * empties). While a turn runs the engine keeps it until that turn is done.
+   */
   onSubmit(text: string): Promise<boolean>;
   /** Stop the running turn (the Stop button, Escape). */
   onStop(): void;
@@ -30,10 +33,11 @@ const MAX_HEIGHT_PX = 200;
 /**
  * Where the user writes (§10.3): an autosizing textarea, two lines to start,
  * and under it a row with the chat's settings chips ({@link controls}: the
- * model, the effort, the edit mode) and the Send button, which becomes Stop
- * while a turn runs. Enter sends, Shift+Enter
- * adds a line, Escape stops the turn. Typing goes on while a turn runs, for
- * the next message; Enter waits until it ends.
+ * model, the effort, the edit mode) and the Send button. Enter sends,
+ * Shift+Enter adds a line, Escape stops the turn. While a turn runs the
+ * button is Stop as long as there is nothing to send; with a message
+ * written it is Send again, and the message goes once the turn is done
+ * (§29). Escape stops the turn either way.
  *
  * Typing `@` lists the project's files above the box; picking one writes
  * its path in the text as `@path` ({@link FileMentions}). While that list
@@ -110,7 +114,7 @@ export class ChatComposer {
     this.button.type = 'button';
     this.button.dataset.ref = 'send';
     this.button.addEventListener('click', () => {
-      if (this.busy) {
+      if (this.stops()) {
         this.deps.onStop();
       } else {
         void this.submit();
@@ -192,7 +196,7 @@ export class ChatComposer {
     this.paint();
   }
 
-  /** A turn is running: the button stops it, Enter waits. */
+  /** A turn is running: the button stops it while there is nothing to send, and a message sent waits for the turn to end. */
   setBusy(busy: boolean): void {
     if (this.busy !== busy) {
       this.busy = busy;
@@ -262,7 +266,7 @@ export class ChatComposer {
   /** Send what is typed; the box empties once the engine took it. */
   async submit(): Promise<boolean> {
     const text = this.textarea.value;
-    if (this.busy || !this.enabled || this.submitting || !this.hasMessage()) {
+    if (!this.enabled || this.submitting || !this.hasMessage()) {
       return false;
     }
     this.submitting = true;
@@ -314,6 +318,11 @@ export class ChatComposer {
     this.deps.onAttach(images);
   }
 
+  /** Whether the button stops the turn: one runs, and there is no message to send after it. */
+  private stops(): boolean {
+    return this.busy && !this.hasMessage();
+  }
+
   /** Whether there is anything to send: words, or an image without them. */
   private hasMessage(): boolean {
     return this.textarea.value.trim() !== '' || this.sendsWithoutText;
@@ -329,13 +338,14 @@ export class ChatComposer {
   }
 
   private paint(): void {
-    const stop = this.busy;
+    const stop = this.stops();
+    const queues = this.busy && !stop;
     this.button.className = stop
       ? 'btn btn-sm btn-square btn-neutral chat-composer-button [&>svg]:size-4'
       : 'btn btn-sm btn-square btn-primary chat-composer-button [&>svg]:size-4';
     this.button.innerHTML = stop ? ChatIcons.STOP : ChatIcons.SEND;
-    this.button.title = stop ? 'Stop (Esc)' : 'Send (Enter)';
-    this.button.setAttribute('aria-label', stop ? 'Stop the agent' : 'Send');
+    this.button.title = stop ? 'Stop (Esc)' : queues ? 'Send when the agent is done (Enter)' : 'Send (Enter)';
+    this.button.setAttribute('aria-label', stop ? 'Stop the agent' : queues ? 'Send when the agent is done' : 'Send');
     this.button.dataset.action = stop ? 'stop' : 'send';
     this.button.disabled = !stop && (!this.enabled || this.submitting || !this.hasMessage());
     if (this.attachButton) {

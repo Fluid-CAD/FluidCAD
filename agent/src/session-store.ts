@@ -12,7 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AgentKind, ChatMessage, ParamChange, TurnRecord } from './types.ts';
+import type { AgentKind, AttachmentMediaType, ChatMessage, ParamChange, PermissionMode, SceneReference, TurnRecord } from './types.ts';
 
 export const SESSION_SCHEMA_VERSION = 1;
 
@@ -52,6 +52,26 @@ export type SessionRecord = {
    * has the old defaults.
    */
   paramChanges?: ParamChange[];
+  /** The messages waiting for their turn, oldest first (§29). Absent when none waits. */
+  queued?: QueuedTurn[];
+};
+
+/**
+ * A message waiting for its turn (§29), as the session keeps it: what
+ * `SendMessage` carried, with its images already under `files/`.
+ */
+export type QueuedTurn = {
+  id: string;
+  createdAt: string;
+  text: string;
+  /** The user's images, in the order they attached them. */
+  attachments?: { file: string; mediaType: AttachmentMediaType; name: string }[];
+  references?: SceneReference[];
+  /** The references capture (a PNG under `files/`). */
+  capture?: string;
+  model?: string;
+  effort?: string;
+  mode?: PermissionMode;
 };
 
 /** A file as it was before a turn's first change to it (§12.2). */
@@ -161,6 +181,14 @@ export class SessionStore {
     return file;
   }
 
+  /** Removes `name` from the session's `files/`; a file that is not there is not an error. */
+  deleteFile(id: string, name: string): void {
+    const file = this.filePath(id, name);
+    if (file) {
+      fs.rmSync(file, { force: true });
+    }
+  }
+
   checkpointDir(id: string, turnId: string): string {
     if (!SessionStore.isSessionId(turnId)) {
       throw new Error(`Invalid turn id: ${turnId}`);
@@ -253,5 +281,19 @@ function parseRecord(raw: any, id: string): SessionRecord | null {
     ...(Array.isArray(raw.paramChanges) && raw.paramChanges.every((c: any) => c && typeof c.file === 'string' && typeof c.label === 'string')
       ? { paramChanges: raw.paramChanges }
       : {}),
+    ...(Array.isArray(raw.queued) && raw.queued.length > 0 && raw.queued.every(isQueuedTurn) ? { queued: raw.queued } : {}),
   };
+}
+
+function isQueuedTurn(raw: any): raw is QueuedTurn {
+  return (
+    !!raw &&
+    typeof raw.id === 'string' &&
+    typeof raw.createdAt === 'string' &&
+    typeof raw.text === 'string' &&
+    (raw.attachments === undefined ||
+      (Array.isArray(raw.attachments) && raw.attachments.every((a: any) => a && SessionStore.isFileName(a.file) && typeof a.mediaType === 'string' && typeof a.name === 'string'))) &&
+    (raw.references === undefined || Array.isArray(raw.references)) &&
+    (raw.capture === undefined || SessionStore.isFileName(raw.capture))
+  );
 }

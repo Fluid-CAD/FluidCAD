@@ -132,6 +132,60 @@
   color: var(--color-error);
 }
 
+/* The messages waiting for their turn (§29): a quiet list over the composer. */
+[data-role='chat-panel'] .chat-queue {
+  flex-shrink: 0;
+  padding: 0 12px;
+}
+
+[data-role='chat-panel'] .chat-queue-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 148px;
+  margin-top: 6px;
+  padding: 4px 4px 4px 8px;
+  overflow-y: auto;
+  border: 1px solid var(--chat-line);
+  border-radius: var(--radius-field);
+  background: var(--chat-surface);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+[data-role='chat-panel'] .chat-queue-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding-right: 4px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+[data-role='chat-panel'] .chat-queue-icon {
+  flex-shrink: 0;
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-queue-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-queue-extras {
+  flex-shrink: 0;
+  color: var(--chat-faint);
+}
+
 [data-role='chat-panel'] .chat-composer {
   flex-shrink: 0;
   padding: 8px 12px 12px;

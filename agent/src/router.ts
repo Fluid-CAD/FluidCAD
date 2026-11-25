@@ -227,6 +227,40 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
     }
   });
 
+  // The messages waiting for their turn (§29).
+  router.delete('/sessions/:id/queue/:queuedId', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    if (!session.removeQueued(String(req.params.queuedId))) {
+      res.status(404).json({ error: 'No such message is waiting; it may have started.' });
+      return;
+    }
+    res.status(204).end();
+  });
+
+  router.post('/sessions/:id/queue/resume', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    try {
+      const started = session.resumeQueue();
+      if (!started) {
+        res.status(409).json({ error: 'No message is waiting.' });
+        return;
+      }
+      res.status(202).json(started);
+    } catch (e) {
+      if (e instanceof SessionBusyError) {
+        res.status(409).json({ error: e.message });
+        return;
+      }
+      throw e;
+    }
+  });
+
   router.post('/sessions/:id/cancel', async (req, res) => {
     const session = findSession(runtime, req, res);
     if (!session) {

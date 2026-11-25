@@ -129,6 +129,25 @@ export type SendMessage = {
   mode?: PermissionMode;
 };
 
+/**
+ * A message sent while a turn was running, waiting for its own turn (§29).
+ * The session keeps what the turn needs (the images on disk, the
+ * references, the model, the mode); this is what the page shows of it.
+ */
+export type QueuedMessage = {
+  id: string;
+  createdAt: string;
+  /** May be empty when images go with it. */
+  text: string;
+  /** How many images the user attached (the references capture is not one of them). */
+  images: number;
+  /** How many scene references go with it. */
+  references: number;
+};
+
+/** How many messages may wait in a session; one more is refused. */
+export const MAX_QUEUED_MESSAGES = 10;
+
 export type SessionStatus =
   | { state: 'idle' }
   /** Spawning the CLI. */
@@ -590,6 +609,12 @@ export type SessionSnapshot = {
   /** Completed messages plus the one in flight. */
   messages: ChatMessage[];
   turns: TurnRecord[];
+  /**
+   * The messages waiting for their turn, oldest first (§29). They start one
+   * after the other as each turn ends `done`; a turn that was stopped or
+   * failed leaves them waiting until `POST …/queue/resume`.
+   */
+  queued: QueuedMessage[];
   /** The model the session last ran with; null for the CLI's default. */
   model: string | null;
   /** The effort the session last ran with; null for the CLI's default. */
@@ -626,6 +651,8 @@ export type ChatEvent =
   | { type: 'checkpoint'; turnId: string; files: string[] }
   /** The turn's changes were reverted (`POST …/revert`): `files` are back as they were before it. */
   | { type: 'reverted'; turnId: string; files: string[] }
+  /** The messages waiting for their turn changed: `queued` is all of them, oldest first (§29). */
+  | { type: 'queue'; queued: QueuedMessage[] }
   /** Title changed (first message, or a rename). */
   | { type: 'title'; title: string }
   /** The stream cannot continue from where the client is: refetch the snapshot. */

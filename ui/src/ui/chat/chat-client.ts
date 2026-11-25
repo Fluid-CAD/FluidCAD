@@ -37,6 +37,9 @@ export interface ChatStream {
   close(): void;
 }
 
+/** What `POST …/messages` answers: the turn that started, or the message that waits for one. */
+export type SendAnswer = { turnId: string } | { queuedId: string };
+
 /**
  * The agent API as the panel uses it (docs/agent-chat-plan.md §7.1). The
  * page's only way to the runtime; tests use `FakeChatClient`.
@@ -65,7 +68,20 @@ export interface ChatClient {
   sessions(): Promise<ChatAnswer<SessionSummary[]>>;
   createSession(agent: AgentKind): Promise<ChatAnswer<{ id: string }>>;
   snapshot(id: string): Promise<ChatAnswer<SessionSnapshot>>;
-  send(id: string, message: SendMessage): Promise<ChatAnswer<{ turnId: string }>>;
+  /**
+   * Send a message. With no turn running its turn starts (`turnId`); while
+   * one runs the message waits for its own (`queuedId`, §29). Refused with
+   * 409 while a revert runs, and when too many messages already wait.
+   */
+  send(id: string, message: SendMessage): Promise<ChatAnswer<SendAnswer>>;
+  /** Take a waiting message back (§29). 404 when it no longer waits (it started, or was removed). */
+  removeQueued(id: string, queuedId: string): Promise<ChatAnswer<null>>;
+  /**
+   * Send the waiting messages now, the oldest first (§29), after a turn that
+   * was stopped or failed left them waiting. 409 while a turn runs, and when
+   * none waits.
+   */
+  resumeQueue(id: string): Promise<ChatAnswer<{ turnId: string }>>;
   cancel(id: string): Promise<ChatAnswer<null>>;
   /** Resume a turn an engine restart cut off, in permission `mode` (absent: ask). */
   continueTurn(id: string, mode?: PermissionMode): Promise<ChatAnswer<{ turnId: string }>>;
@@ -185,8 +201,16 @@ export class HttpChatClient implements ChatClient {
     return this.request('GET', this.session(id));
   }
 
-  send(id: string, message: SendMessage): Promise<ChatAnswer<{ turnId: string }>> {
+  send(id: string, message: SendMessage): Promise<ChatAnswer<SendAnswer>> {
     return this.request('POST', `${this.session(id)}/messages`, message);
+  }
+
+  removeQueued(id: string, queuedId: string): Promise<ChatAnswer<null>> {
+    return this.request('DELETE', `${this.session(id)}/queue/${encodeURIComponent(queuedId)}`);
+  }
+
+  resumeQueue(id: string): Promise<ChatAnswer<{ turnId: string }>> {
+    return this.request('POST', `${this.session(id)}/queue/resume`, {});
   }
 
   cancel(id: string): Promise<ChatAnswer<null>> {

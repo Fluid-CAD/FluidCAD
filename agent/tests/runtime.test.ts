@@ -16,7 +16,7 @@ import { RESTART_REASON } from '../src/session.ts';
 import { SessionStore, type SessionRecord } from '../src/session-store.ts';
 import { NO_TURN_MESSAGE, STOPPED_MESSAGE } from '../src/tool-gate.ts';
 import type { ModelParam } from '../src/param-cards.ts';
-import type { ChatEventEnvelope, ParamsPart, QuestionPart, SessionSnapshot, ShowPart, ToolPart, VariantsPart } from '../src/types.ts';
+import { MAX_QUEUED_MESSAGES, type ChatEventEnvelope, type ParamsPart, type QuestionPart, type SessionSnapshot, type ShowPart, type ToolPart, type VariantsPart } from '../src/types.ts';
 
 // The runtime end to end, with a fake backend in place of a CLI: the fake run
 // connects to the session's MCP endpoint over HTTP the way Claude Code does,
@@ -35,6 +35,7 @@ class FakeRun implements AgentRun {
   closed = false;
   client: Client | null = null;
   private interrupted: (() => void) | null = null;
+  private held: ((reason: 'done' | 'interrupted') => void) | null = null;
   private scripted: { stopped: boolean } | null = null;
 
   constructor(private readonly opts: OpenOptions) {
@@ -84,6 +85,13 @@ class FakeRun implements AgentRun {
       this.queue.push({ type: 'turn-end', reason: 'interrupted' });
       return;
     }
+    if (text.startsWith('hold')) {
+      // Runs until the test lets it end (`release`), or stops it.
+      this.queue.push({ type: 'text-delta', id: 'b0', delta: 'holding…' });
+      const reason = await new Promise<'done' | 'interrupted'>((resolve) => (this.held = resolve));
+      this.queue.push({ type: 'turn-end', reason });
+      return;
+    }
     if (text.startsWith('fail')) {
       this.queue.push({ type: 'turn-end', reason: 'error', error: { kind: 'rate-limit', message: 'Limit reached.', resetsAt: '2026-11-18T00:00:00.000Z' } });
       return;
@@ -100,9 +108,17 @@ class FakeRun implements AgentRun {
     this.queue.push({ type: 'turn-end', reason: 'done' });
   }
 
+  /** Lets a `hold` turn end done. */
+  release(): void {
+    this.held?.('done');
+    this.held = null;
+  }
+
   async interrupt(): Promise<void> {
     this.interrupted?.();
     this.interrupted = null;
+    this.held?.('interrupted');
+    this.held = null;
     if (this.scripted) {
       this.scripted.stopped = true;
       this.scripted = null;
@@ -404,11 +420,10 @@ describe('agent sessions API', () => {
     expect(backend.runs).toHaveLength(1);
   });
 
-  it('refuses a second message while a turn runs, and cancel keeps the partial answer', async () => {
+  it('cancel keeps the partial answer', async () => {
     const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
     expect((await json('POST', `${base}/sessions/${id}/messages`, { text: 'slow one' })).status).toBe(202);
     await until(() => snapshot(id), (s) => s.status.state === 'running' && s.messages.length === 2);
-    expect((await json('POST', `${base}/sessions/${id}/messages`, { text: 'another' })).status).toBe(409);
 
     expect((await json('POST', `${base}/sessions/${id}/cancel`)).status).toBe(204);
     const after = await snapshot(id);
@@ -416,6 +431,143 @@ describe('agent sessions API', () => {
     expect(after.turns[0].endReason).toBe('interrupted');
     expect(after.messages[1].parts.map((p) => p.type)).toEqual(['text', 'notice']);
     expect(after.messages[1].parts[0]).toMatchObject({ text: 'working…' });
+  });
+
+  it('keeps a message sent while a turn runs, and starts it when the turn is done', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const messages = `${base}/sessions/${id}/messages`;
+    const first = await json('POST', messages, { text: 'hold one' });
+    expect(first.status).toBe(202);
+    expect(first.body).toEqual({ turnId: expect.any(String) });
+    await until(() => snapshot(id), (s) => s.status.state === 'running' && s.messages.length === 2);
+
+    // Sent while the turn runs: it waits, with its image kept, and is no part of the transcript yet.
+    const png = { mediaType: 'image/png', base64: PNG_BYTES.toString('base64'), name: 'bracket.png' };
+    const second = await json('POST', messages, { text: 'second', attachments: [png], mode: 'auto-edits' });
+    expect(second.status).toBe(202);
+    expect(second.body).toEqual({ queuedId: expect.any(String) });
+    const third = await json('POST', messages, { text: 'third' });
+    expect(third.body).toEqual({ queuedId: expect.any(String) });
+    const waiting = await snapshot(id);
+    expect(waiting.queued).toEqual([
+      { id: second.body.queuedId, createdAt: expect.any(String), text: 'second', images: 1, references: 0 },
+      { id: third.body.queuedId, createdAt: expect.any(String), text: 'third', images: 0, references: 0 },
+    ]);
+    expect(waiting.status.state).toBe('running');
+    expect(waiting.messages).toHaveLength(2);
+    expect(waiting.turns).toHaveLength(1);
+    // Every stream is told, and the session's file has them (an engine restart keeps them).
+    const told = await readSse(`${base}/sessions/${id}/events?after=0`, (s) => s.events.filter((e) => e.event.type === 'queue').length >= 2);
+    expect(told.events.filter((e) => e.event.type === 'queue').map((e) => (e.event as any).queued.length)).toEqual([1, 2]);
+    expect(SessionStore.forWorkspace(workspace).read(id)!.queued!.map((q) => q.text)).toEqual(['second', 'third']);
+
+    // The turn ends done: the two have their turns, one after the other, in the order they were sent.
+    backend.runs[0].release();
+    const after = await until(() => snapshot(id), (s) => s.turns.length === 3 && s.turns[2].endReason === 'done');
+    expect(after.queued).toEqual([]);
+    expect(after.status).toEqual({ state: 'idle' });
+    expect(after.turns.map((t) => t.endReason)).toEqual(['done', 'done', 'done']);
+    expect(after.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'user', 'assistant']);
+    expect(after.messages[2].parts.map((p) => p.type)).toEqual(['text', 'image']);
+    expect(after.messages[2].parts[1]).toMatchObject({ name: 'bracket.png' });
+    expect(after.messages[4].parts[0]).toMatchObject({ text: 'third' });
+    // One CLI for the three, each message with what it was sent with.
+    expect(backend.runs).toHaveLength(1);
+    expect(backend.runs[0].sent.map((t) => t.split('\n')[0])).toEqual(['hold one', 'second', 'third']);
+    expect(backend.runs[0].images.map((i) => i.length)).toEqual([0, 1, 0]);
+    expect(fs.readFileSync(backend.runs[0].images[1][0].path).equals(PNG_BYTES)).toBe(true);
+    expect(SessionStore.forWorkspace(workspace).read(id)!.queued).toBeUndefined();
+  });
+
+  it('a turn that was stopped leaves the waiting messages until they are sent or taken back', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const messages = `${base}/sessions/${id}/messages`;
+    const queue = `${base}/sessions/${id}/queue`;
+    // Nothing waits: nothing to send, nothing to take back.
+    expect((await json('POST', `${queue}/resume`)).status).toBe(409);
+    expect((await json('DELETE', `${queue}/nope`)).status).toBe(404);
+
+    await json('POST', messages, { text: 'slow one' });
+    await until(() => snapshot(id), (s) => s.status.state === 'running' && s.messages.length === 2);
+    const png = { mediaType: 'image/png', base64: PNG_BYTES.toString('base64') };
+    const two = (await json('POST', messages, { text: 'two', attachments: [png] })).body.queuedId;
+    const three = (await json('POST', messages, { text: 'three' })).body.queuedId;
+    // While the turn runs, sending them now is refused.
+    expect((await json('POST', `${queue}/resume`)).status).toBe(409);
+
+    // Stopped: the two still wait, and none starts by itself.
+    expect((await json('POST', `${base}/sessions/${id}/cancel`)).status).toBe(204);
+    const stopped = await snapshot(id);
+    expect(stopped.status).toEqual({ state: 'idle' });
+    expect(stopped.queued.map((q) => q.id)).toEqual([two, three]);
+    expect(stopped.turns).toHaveLength(1);
+    expect(backend.runs[0].sent).toHaveLength(1);
+
+    // One is taken back: its image goes with it.
+    const files = () => fs.readdirSync(SessionStore.forWorkspace(workspace).filesDir(id));
+    expect(files()).toHaveLength(1);
+    expect((await json('DELETE', `${queue}/${two}`)).status).toBe(204);
+    expect(files()).toHaveLength(0);
+    expect((await json('DELETE', `${queue}/${two}`)).status).toBe(404);
+    expect((await snapshot(id)).queued.map((q) => q.id)).toEqual([three]);
+
+    // The other is sent now.
+    const resumed = await json('POST', `${queue}/resume`);
+    expect(resumed.status).toBe(202);
+    const after = await until(() => snapshot(id), (s) => s.turns.length === 2 && s.turns[1].endReason === 'done');
+    expect(after.turns[1].id).toBe(resumed.body.turnId);
+    expect(after.queued).toEqual([]);
+    expect(backend.runs[0].sent[1].split('\n')[0]).toBe('three');
+    expect((await json('POST', `${queue}/resume`)).status).toBe(409);
+  });
+
+  it('a message sent after a stop goes first, and the waiting ones follow it', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const messages = `${base}/sessions/${id}/messages`;
+    await json('POST', messages, { text: 'slow one' });
+    await until(() => snapshot(id), (s) => s.status.state === 'running' && s.messages.length === 2);
+    await json('POST', messages, { text: 'waited' });
+    await json('POST', `${base}/sessions/${id}/cancel`);
+
+    expect((await json('POST', messages, { text: 'instead' })).body).toEqual({ turnId: expect.any(String) });
+    const after = await until(() => snapshot(id), (s) => s.turns.length === 3 && s.turns[2].endReason === 'done');
+    expect(backend.runs[0].sent.map((t) => t.split('\n')[0])).toEqual(['slow one', 'instead', 'waited']);
+    expect(after.queued).toEqual([]);
+  });
+
+  it('a turn that failed leaves the waiting messages, and an engine restart keeps them', async () => {
+    const id = (await json('POST', `${base}/sessions`, { agent: 'claude' })).body.id;
+    const messages = `${base}/sessions/${id}/messages`;
+    await json('POST', messages, { text: 'hold one' });
+    await until(() => snapshot(id), (s) => s.status.state === 'running' && s.messages.length === 2);
+    // At most MAX_QUEUED_MESSAGES wait.
+    for (let i = 0; i < MAX_QUEUED_MESSAGES; i++) {
+      expect((await json('POST', messages, { text: i === 0 ? 'fail next' : `later ${i}` })).status).toBe(202);
+    }
+    const refused = await json('POST', messages, { text: 'one too many' });
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toContain('already waiting');
+    for (const waiting of (await snapshot(id)).queued.slice(2)) {
+      expect((await json('DELETE', `${base}/sessions/${id}/queue/${waiting.id}`)).status).toBe(204);
+    }
+
+    // The first waiting message fails (a plan limit): the one after it stays.
+    backend.runs[0].release();
+    const failed = await until(() => snapshot(id), (s) => s.status.state === 'error');
+    expect(failed.turns.map((t) => t.endReason)).toEqual(['done', 'error']);
+    expect(failed.queued.map((q) => q.text)).toEqual(['later 1']);
+
+    await runtime.shutdown();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await start();
+    const reloaded = await snapshot(id);
+    expect(reloaded.status).toEqual({ state: 'idle' });
+    expect(reloaded.queued.map((q) => q.text)).toEqual(['later 1']);
+    expect((await json('POST', `${base}/sessions/${id}/queue/resume`)).status).toBe(202);
+    const after = await until(() => snapshot(id), (s) => s.turns.length === 3 && s.turns[2].endReason === 'done');
+    expect(after.queued).toEqual([]);
+    expect(backend.runs[0].sent[0].split('\n')[0]).toBe('later 1');
   });
 
   it('sets the error status with the reset time when a turn fails', async () => {

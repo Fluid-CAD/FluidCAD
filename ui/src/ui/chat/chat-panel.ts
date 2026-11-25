@@ -25,6 +25,7 @@ import {
   type ParamKeptValue,
   type PermissionMode,
   type QuestionReply,
+  type QueuedMessage,
   type SessionStatus,
   type TurnRecord,
   type VariantsReply,
@@ -203,7 +204,9 @@ const UNAVAILABLE_AGENT: Record<'not-found' | 'too-old' | 'signed-out', { suffix
  * attached image's thumbnail does the same for that image.
  * The session's status drives what shows: Stop while
  * a turn runs, the approval cards while it waits, Continue after the engine
- * restarted mid-turn, the errors. Under each user message, Revert this turn
+ * restarted mid-turn, the errors. A message sent while a turn runs waits
+ * above the composer until that turn is done (§29); each can be taken back,
+ * and after a turn that did not finish they wait for Send now. Under each user message, Revert this turn
  * while the turn has changes to put back (§12.2). Until the agent can run,
  * the panel says what is missing instead (§9.1, {@link renderAgentSetup}).
  */
@@ -233,6 +236,8 @@ export class ChatPanel {
   private readonly modeButton: HTMLButtonElement;
   private readonly center: HTMLDivElement;
   private readonly statusBar: HTMLDivElement;
+  /** The messages waiting for their turn (§29). */
+  private readonly queueBar: HTMLDivElement;
   private readonly footerSetup: HTMLDivElement;
   private readonly sessionsMenu: ChatSessionsMenu;
   private readonly leaveSlot: () => void;
@@ -365,6 +370,9 @@ export class ChatPanel {
     this.statusBar = document.createElement('div');
     this.statusBar.dataset.ref = 'status';
     this.statusBar.className = 'chat-status hidden';
+    this.queueBar = document.createElement('div');
+    this.queueBar.dataset.ref = 'queue';
+    this.queueBar.className = 'chat-queue hidden';
     this.footerSetup = document.createElement('div');
     this.footerSetup.className = 'shrink-0 border-t border-base-content/10 hidden';
     this.composer = new ChatComposer({
@@ -384,7 +392,7 @@ export class ChatPanel {
     });
     this.composer.setAttachments(this.images.el, ...(this.references ? [this.references.el] : []));
 
-    this.el.append(header, body, this.statusBar, this.footerSetup, this.composer.el, deps.slot.resizeHandle());
+    this.el.append(header, body, this.statusBar, this.queueBar, this.footerSetup, this.composer.el, deps.slot.resizeHandle());
     // A file dragged over the panel is an image for the message, wherever it is let go.
     this.el.addEventListener('dragover', this.onDragOver);
     this.el.addEventListener('dragleave', this.onDragLeave);
@@ -789,8 +797,11 @@ export class ChatPanel {
             this.transcript.settleAll();
           }
           this.paintStatus();
+          this.paintQueue();
           this.paintBody();
           this.paintTurns();
+        } else if (change.event.type === 'queue') {
+          this.paintQueue();
         } else if (change.event.type === 'title') {
           this.paintTitle();
         } else if (change.event.type === 'message-start') {
@@ -859,6 +870,7 @@ export class ChatPanel {
     this.paintToolbar();
     this.paintBody();
     this.paintStatus();
+    this.paintQueue();
     this.paintTurns();
   }
 
@@ -1435,6 +1447,72 @@ export class ChatPanel {
     this.el.dataset.busy = String(busy);
   }
 
+  /**
+   * The messages waiting for their turn, above the composer (§29). While a
+   * turn runs they go by themselves once it is done; after one that was
+   * stopped or failed they wait for Send now.
+   */
+  private paintQueue(): void {
+    const queued = this.state.queued;
+    this.queueBar.replaceChildren();
+    this.queueBar.classList.toggle('hidden', queued.length === 0);
+    if (queued.length === 0) {
+      return;
+    }
+    const held = !isBusy(this.state.status);
+    this.queueBar.dataset.held = String(held);
+    const list = document.createElement('div');
+    list.className = 'chat-queue-list';
+    const head = document.createElement('div');
+    head.className = 'chat-queue-head';
+    const label = document.createElement('span');
+    label.dataset.ref = 'queue-label';
+    label.className = 'min-w-0 flex-1';
+    label.textContent = held
+      ? 'Not sent yet: the agent stopped before it was done.'
+      : queued.length === 1
+        ? 'Sent once the agent is done'
+        : 'Sent one after the other, once the agent is done';
+    head.append(label);
+    if (held) {
+      const resume = document.createElement('button');
+      resume.type = 'button';
+      resume.dataset.ref = 'queue-send';
+      resume.className = 'btn btn-xs btn-primary gap-1 shrink-0';
+      resume.append(ChatIcons.span(ChatIcons.SEND, '[&>svg]:size-3'), document.createTextNode('Send now'));
+      resume.addEventListener('click', () => void this.state.resumeQueue());
+      head.append(resume);
+    }
+    list.append(head);
+    for (const message of queued) {
+      const row = document.createElement('div');
+      row.className = 'chat-queue-row';
+      row.dataset.ref = 'queued';
+      row.dataset.queuedId = message.id;
+      const extras = queuedExtras(message);
+      const words = message.text.trim();
+      const text = document.createElement('span');
+      text.className = 'chat-queue-text';
+      text.dataset.ref = 'queued-text';
+      text.textContent = words !== '' ? words : extras;
+      if (words !== '') {
+        text.title = words;
+      }
+      row.append(ChatIcons.span(ChatIcons.WAITING, 'chat-queue-icon [&>svg]:size-3.5'), text);
+      if (words !== '' && extras !== '') {
+        const more = document.createElement('span');
+        more.className = 'chat-queue-extras';
+        more.textContent = extras;
+        row.append(more);
+      }
+      const remove = iconButton(ChatIcons.CLOSE, 'Do not send this message', 'queued-remove');
+      remove.addEventListener('click', () => void this.state.removeQueued(message.id));
+      row.append(remove);
+      list.append(row);
+    }
+    this.queueBar.append(list);
+  }
+
   private activityText(status: SessionStatus): string | null {
     if (this.state.sending && !isBusy(status)) {
       return 'Sending…';
@@ -1541,6 +1619,18 @@ export class ChatPanel {
       this.deps.slot.layout();
     }
   };
+}
+
+/** What a waiting message carries besides its words: "2 images, 1 reference"; empty when nothing. */
+function queuedExtras(message: QueuedMessage): string {
+  const parts: string[] = [];
+  if (message.images > 0) {
+    parts.push(message.images === 1 ? '1 image' : `${message.images} images`);
+  }
+  if (message.references > 0) {
+    parts.push(message.references === 1 ? '1 reference' : `${message.references} references`);
+  }
+  return parts.join(', ');
 }
 
 function iconButton(svg: string, label: string, ref: string): HTMLButtonElement {

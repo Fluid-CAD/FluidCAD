@@ -18,6 +18,7 @@ import {
   LiveSolvedSystem,
   SolvedSketchModel,
   buildPositionWriteBack,
+  isArcLike,
   solvedHitTest,
   updateDragTargets,
 } from '../../sketch-solver-client';
@@ -190,7 +191,7 @@ export class SolvedDragHandler {
       // delta; the solve keeps whatever the constraints pin.
       const roles: ('start' | 'end' | 'center')[] =
         view.kind === 'line' ? ['start', 'end']
-          : view.kind === 'arc' ? ['start', 'end', 'center']
+          : isArcLike(view.kind) ? ['start', 'end', 'center']
             : ['center'];
       if (view.kind === 'point') {
         const at = view.point ?? pending.point2d;

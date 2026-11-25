@@ -68,6 +68,7 @@ export function validateInstanceRole(kind: EntityKind, role: PointRole, what: st
   if ((kind === 'circle' || kind === 'ellipse') && role !== 'center') {
     throw new Error(`${what}: ${kind === 'circle' ? 'a circle' : 'an ellipse'} instance only has a center() point`);
   }
+  // Arcs and elliptical arcs answer all three accessors.
 }
 
 /** Apply a tie matrix to one 2D point. */
@@ -114,25 +115,44 @@ export function registerDuplicateEntity(
       return ctx.addArc(owner, c.x, c.y, s.x, s.y, e.x, e.y);
     }
     case 'ellipse': {
-      // Center mapped; the RX axis direction mapped through the linear part
-      // (the tie's axis row holds exactly this); radii ride along scaled by
-      // the similarity factor (1 for the rigid copy/mirror transforms).
-      const c = applyAffine(affine, params[0], params[1]);
-      const scale = Math.hypot(affine[0], affine[2]);
-      const ux = Math.cos(params[4]);
-      const uy = Math.sin(params[4]);
-      const theta = Math.atan2(affine[2] * ux + affine[3] * uy, affine[0] * ux + affine[1] * uy);
-      return ctx.addEllipse(owner, c.x, c.y, params[2] * scale, params[3] * scale, theta);
+      const e = mapEllipse(affine, params);
+      return ctx.addEllipse(owner, e.cx, e.cy, e.rx, e.ry, e.theta);
+    }
+    case 'eArc': {
+      // The ellipse maps like a full one; the ends are points and map
+      // pointwise, so they land on the mapped ellipse exactly.
+      const ellipse = mapEllipse(affine, params);
+      const s = applyAffine(affine, params[5], params[6]);
+      const e = applyAffine(affine, params[7], params[8]);
+      return ctx.addEllipticalArc(owner, ellipse, s, e);
     }
   }
 }
 
 /**
+ * An ellipse [cx, cy, rx, ry, θ] through a tie matrix: the center mapped,
+ * the RX axis direction mapped through the linear part (the tie's axis row
+ * holds exactly this), the radii scaled by the similarity factor (1 for
+ * the rigid copy and mirror transforms).
+ */
+function mapEllipse(
+  affine: TieMatrix,
+  params: number[],
+): { cx: number; cy: number; rx: number; ry: number; theta: number } {
+  const c = applyAffine(affine, params[0], params[1]);
+  const scale = Math.hypot(affine[0], affine[2]);
+  const ux = Math.cos(params[4]);
+  const uy = Math.sin(params[4]);
+  const theta = Math.atan2(affine[2] * ux + affine[3] * uy, affine[0] * ux + affine[1] * uy);
+  return { cx: c.x, cy: c.y, rx: params[2] * scale, ry: params[3] * scale, theta };
+}
+
+/**
  * A named point of an entity, read from its current solver params.
  * Param layouts: point [x,y], line [sx,sy,ex,ey], circle [cx,cy,r],
- * arc [cx,cy,r,sx,sy,ex,ey], ellipse [cx,cy,rx,ry,θ]. Role validity is
- * the caller's problem (validated in the instance resolution before any
- * read).
+ * arc [cx,cy,r,sx,sy,ex,ey], ellipse [cx,cy,rx,ry,θ], elliptical arc
+ * [cx,cy,rx,ry,θ,sx,sy,ex,ey]. Role validity is the caller's problem
+ * (validated in the instance resolution before any read).
  */
 export function entityPointFromParams(kind: EntityKind, params: number[], role: PointRole): Point2D {
   if (kind === 'point') {
@@ -148,6 +168,11 @@ export function entityPointFromParams(kind: EntityKind, params: number[], role: 
   }
   if (role === 'center') {
     return new Point2D(params[0], params[1]);
+  }
+  if (kind === 'eArc') {
+    return role === 'start'
+      ? new Point2D(params[5], params[6])
+      : new Point2D(params[7], params[8]);
   }
   return role === 'start'
     ? new Point2D(params[3], params[4])

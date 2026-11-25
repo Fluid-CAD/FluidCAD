@@ -17,6 +17,7 @@
 // offset-intersection candidates and pick the one nearest the corner.
 
 import type { SketchFilletCornerParam, SketchFilletEndParam } from '../../api';
+import { entityKindLabel } from '../../sketch-solver-client/model';
 import type { SolvedEntityView, SolvedSketchModel } from '../../sketch-solver-client/model';
 import type { SolvedPick } from '../sketch-hover-select-handler';
 
@@ -329,7 +330,7 @@ export function buildFilletPlan(opts: {
       return fail(`a ${pick.anchor.owner} has no corner to fillet — pick lines or arcs`);
     }
     if (pick.kind !== 'line' && pick.kind !== 'arc') {
-      return fail(`a ${pick.kind} has no corner to fillet — pick lines or arcs`);
+      return fail(`${entityKindLabel(pick.kind)} has no corner to fillet — pick lines or arcs`);
     }
     if (pick.sourceLocation?.occurrence !== undefined) {
       return fail('loop instances cannot be filleted yet — fillet applies to single statements');

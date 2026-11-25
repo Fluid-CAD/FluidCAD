@@ -1,6 +1,6 @@
 export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
-  IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText,
+  IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IEllipticalArc, IText,
   IConnector, IPart, ILoadFile, LoadOptions, FontOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
   IRepeat, IRepeatInstance, RepeatAccessorsOf, RepeatTargetOf, IRegionTarget, IRegionSide, ISection, ISplit,

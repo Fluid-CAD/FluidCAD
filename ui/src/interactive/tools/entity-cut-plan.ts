@@ -54,6 +54,9 @@ export function cutRefusalFor(pick: SolvedPick, words: CutWords): string | null 
   if (pick.kind === 'ellipse') {
     return `Ellipses can't be ${words.past} yet`;
   }
+  if (pick.kind === 'eArc') {
+    return `Elliptical arcs can't be ${words.past} yet`;
+  }
   if (pick.kind === 'point') {
     return `A point can't be ${words.past}`;
   }

@@ -35,6 +35,7 @@ export const PARAM_COUNT: Record<EntityKind, number> = {
   circle: 3,
   arc: 7,
   ellipse: 5,
+  eArc: 9,
 };
 
 /**
@@ -49,6 +50,7 @@ export const FREE_PARAMS: Record<EntityKind, readonly boolean[]> = {
   circle: [true, true, true],
   arc: [true, true, true, true, true, true, true],
   ellipse: [true, true, true, true, true],
+  eArc: [true, true, true, true, true, true, true, true, true],
 };
 
 export type EntityOptions = {
@@ -151,6 +153,33 @@ export class SketchSystem {
   }
 
   /**
+   * Elliptical arc: an open piece of the ellipse [cx, cy, rx, ry, θ] (the
+   * ellipse entity's own five params, in the same slots) between the start
+   * and end points. Like the circular arc it carries its ends as points,
+   * held on the ellipse by two internal consistency rows, so they are
+   * first-class targets for coincidence and tangency; the sweep side is
+   * the statement's choice, not a param. Seven degrees of freedom: the
+   * ellipse's five plus each end's place along it. A fixed one gets no
+   * consistency rows, like a fixed arc.
+   */
+  eArc(
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    theta: number,
+    sx: number,
+    sy: number,
+    ex: number,
+    ey: number,
+    opts: EntityOptions = {},
+  ): number {
+    const id = this.addEntity('eArc', [cx, cy, rx, ry, theta, sx, sy, ex, ey], opts);
+    this.addArcConsistency(id, opts);
+    return id;
+  }
+
+  /**
    * Arc through start/end around a center. The radius guess is
    * derived from the endpoint distances (literals are guesses — the
    * internal consistency rows reconcile any disagreement). A fixed
@@ -169,14 +198,20 @@ export class SketchSystem {
   ): number {
     const r = (Math.hypot(sx - cx, sy - cy) + Math.hypot(ex - cx, ey - cy)) / 2;
     const id = this.addEntity('arc', [cx, cy, r, sx, sy, ex, ey], opts);
-    if (opts.fixed !== true) {
-      this.constraintList.push({
-        id: this.nextInternalId--,
-        internal: true,
-        spec: { kind: 'arc-consistency', entity: id },
-      });
-    }
+    this.addArcConsistency(id, opts);
     return id;
+  }
+
+  /** The internal ends-on-the-curve record of an arc or elliptical arc. */
+  private addArcConsistency(id: number, opts: EntityOptions): void {
+    if (opts.fixed === true) {
+      return;
+    }
+    this.constraintList.push({
+      id: this.nextInternalId--,
+      internal: true,
+      spec: { kind: 'arc-consistency', entity: id },
+    });
   }
 
   /**
@@ -386,7 +421,8 @@ export class SketchSystem {
     };
     this.validate(record);
     this.beforeStructuralChange();
-    if (this.entity(target).kind === 'arc') {
+    const targetKind = this.entity(target).kind;
+    if (targetKind === 'arc' || targetKind === 'eArc') {
       const idx = this.constraintList.findIndex(
         (c) => c.internal && c.spec.kind === 'arc-consistency' && c.spec.entity === target,
       );
@@ -606,6 +642,11 @@ export class SketchSystem {
         case 'ellipse':
           slots.push({ entity: e.id, role: 'center', ix: o, iy: o + 1 });
           break;
+        case 'eArc':
+          slots.push({ entity: e.id, role: 'center', ix: o, iy: o + 1 });
+          slots.push({ entity: e.id, role: 'start', ix: o + 5, iy: o + 6 });
+          slots.push({ entity: e.id, role: 'end', ix: o + 7, iy: o + 8 });
+          break;
       }
     }
     return slots;
@@ -682,7 +723,7 @@ export class SketchSystem {
         const kind = this.entity(ref.entity).kind;
         return ref.point === undefined && (kind === 'circle' || kind === 'arc');
       },
-      isEllipse: (ref) => ref.point === undefined && this.entity(ref.entity).kind === 'ellipse',
+      isEllipse: (ref) => ref.point === undefined && isEllipseKind(this.entity(ref.entity).kind),
       aux: (init) => {
         const indices: number[] = [];
         const first = sink.slots.filter((s) => s.constraint === current.id).length;
@@ -735,6 +776,17 @@ export class SketchSystem {
           return { ix: o, iy: o + 1 };
         }
         break;
+      case 'eArc':
+        if (role === 'center') {
+          return { ix: o, iy: o + 1 };
+        }
+        if (role === 'start') {
+          return { ix: o + 5, iy: o + 6 };
+        }
+        if (role === 'end') {
+          return { ix: o + 7, iy: o + 8 };
+        }
+        break;
     }
     throw new Error(
       `${what}: ${entityLabel(e.kind, e.id)} does not resolve to a point` +
@@ -753,9 +805,9 @@ export class SketchSystem {
 
   private resolveCircle(ref: SolverRef, what: string): ResolvedCircle {
     const e = this.entity(ref.entity);
-    if (e.kind === 'ellipse' && ref.point === undefined) {
+    if (isEllipseKind(e.kind) && ref.point === undefined) {
       throw new Error(
-        `${what}: an ellipse has two semi-radii — dimension one with radius(el, value, 'x' | 'y')`,
+        `${what}: ${e.kind === 'eArc' ? 'an elliptical arc' : 'an ellipse'} has two semi-radii: dimension one with radius(el, value, 'x' | 'y')`,
       );
     }
     if ((e.kind !== 'circle' && e.kind !== 'arc') || ref.point !== undefined) {
@@ -769,12 +821,24 @@ export class SketchSystem {
 
   private resolveEllipse(ref: SolverRef, what: string): ResolvedEllipse {
     const e = this.entity(ref.entity);
-    if (e.kind !== 'ellipse' || ref.point !== undefined) {
-      throw new Error(`${what}: expected an ellipse entity ref, got ${describeRef(e.kind, ref)}`);
+    if (!isEllipseKind(e.kind) || ref.point !== undefined) {
+      throw new Error(
+        `${what}: expected an ellipse or elliptical arc entity ref, got ${describeRef(e.kind, ref)}`,
+      );
     }
     const o = e.paramOffset;
     return { cx: o, cy: o + 1, rx: o + 2, ry: o + 3, th: o + 4 };
   }
+}
+
+/**
+ * The kinds that lie on an ellipse and lead their params with its five
+ * [cx, cy, rx, ry, θ]: the full ellipse and the elliptical arc. Every
+ * ellipse row (on-curve, tangency, orientation, semi-radius) reads them
+ * through the same resolution.
+ */
+export function isEllipseKind(kind: EntityKind): boolean {
+  return kind === 'ellipse' || kind === 'eArc';
 }
 
 function auxKey(constraint: number, slot: number): string {

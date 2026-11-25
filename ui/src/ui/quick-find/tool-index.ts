@@ -86,6 +86,7 @@ export const TOOL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Object
   'sketch:rect': ['rectangle', 'square', 'box', 'rounded rectangle'],
   'sketch:arc3': ['three point arc', 'arc'],
   'sketch:arc2': ['center arc', 'arc', 'centre'],
+  'sketch:earc': ['ellipse arc', 'partial ellipse', 'arc', 'oval'],
   'sketch:slot': ['keyway', 'rounded slot'],
   'sketch:text': ['letters', 'font', 'engrave', 'label'],
   'sketch:image': ['picture', 'photo', 'scan', 'trace', 'reference'],

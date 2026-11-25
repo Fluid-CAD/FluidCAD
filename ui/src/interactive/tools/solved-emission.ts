@@ -117,6 +117,26 @@ export function ellipseText(
   return `ellipse(${solvedPointText(center)}, ${rx}, ${ry}${rotation})`;
 }
 
+/** `eArc(start, end, center, rx, ry[, rotation])[.cw()]` — an elliptical
+ * arc: the three points lead like an arc's, the semi-radii and the
+ * rotation (DEGREES of the RX axis from the sketch x direction) follow
+ * like an ellipse's. Every one is a guess the solver moves. */
+export function eArcText(
+  start: [number, number] | PickedPoint,
+  end: [number, number] | PickedPoint,
+  center: [number, number] | PickedPoint,
+  rxExpr: string | number,
+  ryExpr: string | number,
+  rotationDeg?: number,
+  cw = false,
+): string {
+  const rx = typeof rxExpr === 'number' ? fmt(rxExpr) : rxExpr;
+  const ry = typeof ryExpr === 'number' ? fmt(ryExpr) : ryExpr;
+  const rotation = rotationDeg !== undefined ? `, ${fmt(rotationDeg)}` : '';
+  const points = `${solvedPointText(start)}, ${solvedPointText(end)}, ${solvedPointText(center)}`;
+  return `eArc(${points}, ${rx}, ${ry}${rotation})${cw ? '.cw()' : ''}`;
+}
+
 export function pointText(p: [number, number] | PickedPoint): string {
   return `point(${solvedPointText(p)})`;
 }

@@ -7,6 +7,8 @@ import type { PointRole, SolverRef } from '../../../lib/sketch-solver/types.js';
 import type { SolvedEntityView, SolvedSketchModel } from './model';
 import { Vec2, sub, norm } from './resolve';
 import { angleWithinSweep, arcSweep } from './tessellate';
+import { ellipseArcContainsParam, ellipseParamOf } from '../../../lib/sketch-solver/earc-geometry.js';
+import { ellipticalArcSpanOf } from './elliptical-arc';
 
 export type SolvedVertexHit = {
   type: 'vertex';
@@ -94,6 +96,7 @@ function vertexSlots(e: SolvedEntityView): VertexSlot[] {
     case 'circle':
       return [{ role: 'center', at: e.center }];
     case 'arc':
+    case 'eArc':
       return [
         { role: 'start', at: e.start },
         { role: 'end', at: e.end },
@@ -157,6 +160,19 @@ function edgeDistSq(e: SolvedEntityView, p: Vec2): number | null {
       }
       const d = ellipseOutlineDistance(p, e.center, e.radii, e.theta ?? 0);
       return d * d;
+    }
+    case 'eArc': {
+      const span = ellipticalArcSpanOf(e);
+      if (!span || !e.start || !e.end) {
+        return null;
+      }
+      // On the drawn piece: the distance to the outline. Off it: the
+      // nearest end, like a circular arc.
+      if (ellipseArcContainsParam(span, ellipseParamOf(span, p[0], p[1]))) {
+        const d = ellipseOutlineDistance(p, e.center!, e.radii!, span.theta);
+        return d * d;
+      }
+      return Math.min(norm(sub(p, e.start)) ** 2, norm(sub(p, e.end)) ** 2);
     }
   }
 }

@@ -3,6 +3,7 @@ export { default as point } from './point.js';
 export { default as circle } from './circle.js';
 export { default as ellipse } from './ellipse.js';
 export { default as arc } from './arc.js';
+export { default as eArc } from './earc.js';
 export { default as offset } from './offset.js';
 export { default as project } from './project.js';
 export { default as intersect } from './intersect.js';

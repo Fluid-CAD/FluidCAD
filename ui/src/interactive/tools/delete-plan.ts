@@ -20,6 +20,7 @@ const TYPE_LABELS: Record<string, string> = {
   arc: 'arc',
   circle: 'circle',
   ellipse: 'ellipse',
+  eArc: 'elliptical arc',
   bezier: 'bezier',
   spline: 'spline',
   text: 'text',

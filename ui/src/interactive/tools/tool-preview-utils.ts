@@ -15,6 +15,7 @@ import { SnapType } from '../../snapping/types';
 import { trackPixelsPerWorld } from '../../meshes/screen-scale';
 import { createPointMarker } from '../../meshes/point-marker';
 import { tessellateSpline } from '../../sketch-solver-client/tessellate';
+import { sampleEllipseArc, type EllipseArcSpan } from '../../../../lib/sketch-solver/earc-geometry.js';
 
 export const START_POINT_COLOR = 0x22cc66;
 export const GUIDE_COLOR = 0xb0b0b0;
@@ -175,6 +176,28 @@ export function addDashedEllipse(
     verts[i * 3 + 1] = w.y;
     verts[i * 3 + 2] = w.z;
   }
+
+  addDashedPolyline(previewGroup, verts, renderOrder);
+}
+
+/** An open piece of an ellipse: the span's own start, sweep and side. The
+ * step count follows the sweep so a short piece is not over-sampled and a
+ * long one stays smooth. */
+export function addDashedEllipseArc(
+  previewGroup: Group,
+  span: EllipseArcSpan,
+  plane: PlaneData,
+  renderOrder = 3,
+): void {
+  const steps = Math.max(Math.round((Math.abs(span.sweep) / (Math.PI * 2)) * CIRCLE_SEGMENTS), 2);
+  const points = sampleEllipseArc(span, steps);
+  const verts = new Float32Array(points.length * 3);
+  points.forEach((pt, i) => {
+    const w = localToWorld(pt, plane);
+    verts[i * 3] = w.x;
+    verts[i * 3 + 1] = w.y;
+    verts[i * 3 + 2] = w.z;
+  });
 
   addDashedPolyline(previewGroup, verts, renderOrder);
 }

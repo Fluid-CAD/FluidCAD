@@ -1,4 +1,3 @@
-import { Geometry } from "../../oc/geometry.js";
 import { Vertex } from "../../common/vertex.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
@@ -8,6 +7,7 @@ import { Point2D } from "../../math/point.js";
 import { Extrudable } from "../../helpers/types.js";
 import { IEllipse } from "../../core/interfaces.js";
 import { GeometrySceneObject } from "./geometry.js";
+import { buildEllipseEdge } from "./ellipse-edge.js";
 import { SketchSolverContext } from "./solved/solver-context.js";
 import { SolvedGeometryBase, SolvedPointRole } from "./solved/solved-base.js";
 import { SolvedPointRef } from "./solved/refs.js";
@@ -80,28 +80,12 @@ export class Ellipse extends SolvedGeometryBase implements Extrudable, IEllipse 
       throw new Error(`Ellipse radii solved to a non-positive size (rx=${rx}, ry=${ry}) — check the dimensions on it`);
     }
     const plane = this.sketch.getPlane();
-    const center = new Point2D(cx, cy);
-    const worldCenter = plane.localToWorld(center);
 
-    // The ellipse's own axes in world space: u carries RX, v carries RY.
-    const c = Math.cos(theta);
-    const s = Math.sin(theta);
-    const u = plane.xDirection.multiply(c).add(plane.yDirection.multiply(s));
-    const v = plane.xDirection.multiply(-s).add(plane.yDirection.multiply(c));
-
-    // OCC requires majorRadius >= minorRadius: pick which axis carries the major.
-    const rxIsMajor = rx >= ry;
-    const edge = Geometry.makeEllipseEdge(
-      worldCenter,
-      rxIsMajor ? rx : ry,
-      rxIsMajor ? ry : rx,
-      plane.normal,
-      rxIsMajor ? u : v,
-    );
+    const edge = buildEllipseEdge(plane, { cx, cy, rx, ry, theta });
     edge.setRole('perimeter');
     this.addShape(edge);
 
-    const centerVertex = Vertex.fromPoint(worldCenter);
+    const centerVertex = Vertex.fromPoint(plane.localToWorld(new Point2D(cx, cy)));
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
 

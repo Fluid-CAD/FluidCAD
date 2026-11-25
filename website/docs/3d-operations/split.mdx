@@ -18,7 +18,7 @@ Split divides a solid along a plane, or along the surface a sketch edge sweeps o
 ## In the viewport
 
 1. Finish any open sketch, then click **Split** on the toolbar.
-2. Choose the cut in the **Cut** slot. You can pick an origin plane, a plane feature in the viewport or timeline, a planar face, or a sketch edge: a straight line cuts along the plane it defines, and an arc, circle, ellipse or spline cuts along the curved surface it sweeps. The **Cut** slot is active when the dialog opens.
+2. Choose the cut in the **Cut** slot. You can pick an origin plane, a plane feature in the viewport or timeline, a planar face, or a sketch edge: a straight line cuts along the plane it defines, and an arc, circle, ellipse, elliptical arc or spline cuts along the curved surface it sweeps. The **Cut** slot is active when the dialog opens.
 3. To limit the operation, click the **Solids** slot, then click a face or edge of a target solid, or its feature row in the timeline. Leave **Solids** empty to use all solids in the current scope. Inside a part, that means the solids in that part.
 4. In the **Keep** dropdown, choose **Both sides**, **Front side**, or **Back side** to set which pieces to keep. The cut is at the selected plane itself; to cut somewhere else, create an offset plane with the **Plane** tool first and pick that.
 5. Check the preview, then click **Apply**. FluidCAD adds a Split feature to the timeline and writes the statement to your file.
@@ -70,7 +70,7 @@ Use a sketch edge when the cut is easier to draw than to define with a datum pla
 2. Finish the sketch, open **Split**, and pick the edge in the **Cut** slot.
 3. Choose the target solids and which side to keep, then click **Apply**.
 
-A straight line defines an infinite plane perpendicular to its sketch; the cut extends beyond the line's endpoints and through the full solid. An arc, circle, ellipse or spline defines a curved surface perpendicular to its sketch instead, as if the curve were extruded out of the sketch both ways. That surface ends where the curve ends, so draw a curve all the way across the solid: a curve that stops inside a solid leaves it unchanged.
+A straight line defines an infinite plane perpendicular to its sketch; the cut extends beyond the line's endpoints and through the full solid. An arc, circle, ellipse, elliptical arc or spline defines a curved surface perpendicular to its sketch instead, as if the curve were extruded out of the sketch both ways. That surface ends where the curve ends, so draw a curve all the way across the solid: a curve that stops inside a solid leaves it unchanged.
 
 This example cuts a 60 × 40 × 15 block diagonally and keeps **Front**:
 
@@ -99,7 +99,7 @@ split(s.geometries.ring, { keep: 'front' }); // Outside a counter-clockwise circ
 
 | Argument | Accepted values |
 | --- | --- |
-| Cut | `'xy'`, `'xz'`, `'yz'`, a `plane()` feature, a planar face selection, or a sketch edge (line, arc, circle, ellipse, spline) |
+| Cut | `'xy'`, `'xz'`, `'yz'`, a `plane()` feature, a planar face selection, or a sketch edge (line, arc, circle, ellipse, elliptical arc, spline) |
 | Options | `keep`: `'both'` (default), `'front'`, or `'back'` |
 | Targets | One or more solid-producing features; omit to use all solids in scope |
 

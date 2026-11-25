@@ -14,7 +14,7 @@ import {
 import type { SceneObjectRender } from '../../types';
 import { constraintTargetFor } from '../solved-constraint-toolbar/constraint-targets';
 import {
-  arcText, circleText, curveText, ellipseText, lineText, newTarget, pointText,
+  arcText, circleText, curveText, eArcText, ellipseText, lineText, newTarget, pointText,
   type SolvedConstraintParam, type SolvedEmissionRequest, type SolvedEmissionTargetParam,
   type SolvedGeometryParam,
 } from './solved-emission';
@@ -218,7 +218,7 @@ export function buildMirrorEmission(opts: {
       return fail('the mirror line cannot be mirrored across itself — remove it from Geometry');
     }
     if (pick.anchor !== undefined) {
-      return fail(`the Mirror tool mirrors lines, arcs, circles, ellipses, beziers, splines and points — a ${pick.anchor.owner} needs mirror() in code`);
+      return fail(`the Mirror tool mirrors lines, arcs, circles, ellipses, elliptical arcs, beziers, splines and points — a ${pick.anchor.owner} needs mirror() in code`);
     }
     const view = model.entities.get(pick.entityId);
     if (!view) {
@@ -268,17 +268,32 @@ export function buildMirrorEmission(opts: {
         text = ellipseText(reflect(view.center), view.radii[0], view.radii[1], reflectAngleDeg(view.theta, axisA, axisB));
         break;
       }
+      case 'eArc': {
+        if (!view.start || !view.end || !view.center || !view.radii || view.theta === undefined) {
+          return fail('a picked elliptical arc has no solved geometry');
+        }
+        // Its ellipse reflects like a full one, its ends like an arc's, and
+        // like an arc's its sweep flips: the image runs the other way round.
+        text = eArcText(
+          reflect(view.start), reflect(view.end), reflect(view.center),
+          view.radii[0], view.radii[1],
+          reflectAngleDeg(view.theta, axisA, axisB),
+          !(view.cw ?? false),
+        );
+        break;
+      }
     }
     geometry.push({ kind: view.kind, text, ...(guide ? { guide: true } : {}) });
     preview.push(`${text}${guide ? '.guide()' : ''}`);
     // One entity-level symmetric per image: lines mirror both endpoints,
     // circles their centers + equal radii, arcs centers/starts/end rays,
-    // ellipses centers + equal semi-radii + reflected RX axes — exact rows,
-    // so a mirrored entity never shows up redundant.
+    // ellipses centers + equal semi-radii + reflected RX axes, elliptical
+    // arcs that plus one reflected ray per end — exact rows, so a mirrored
+    // entity never shows up redundant.
     constraints.push({ kind: 'symmetric', targets: [source, newTarget(k), axisTarget] });
   }
   if (geometry.length === 0) {
-    return fail('pick sketch edges to mirror — lines, arcs, circles, ellipses, beziers, splines or points');
+    return fail('pick sketch edges to mirror — lines, arcs, circles, ellipses, elliptical arcs, beziers, splines or points');
   }
   return {
     ok: true,

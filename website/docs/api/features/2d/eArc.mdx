@@ -1,0 +1,50 @@
+---
+sidebar_position: 4.5
+title: "eArc"
+description: "Draws an elliptical arc: an open piece of an ellipse, from a start point to an end point. The first three arguments read like `arc()`, the last three like `ellipse()`. It is a solver entity, so every literal is a guess the constraints drive: the ellipse's center, its two semi-radii (`radius(ea, v, 'x')` for RX, `radius(ea, v, 'y')` for RY) and the rotation of its RX axis (`horizontal`/`vertical`, `tangent`), and where along the ellipse each end sits. An end literal that is not exactly on the ellipse names the point of the ellipse in its direction. The arc runs counter-clockwise from start to end; chain `.cw()` to take the other side."
+---
+
+# eArc()
+
+Draws an elliptical arc: an open piece of an ellipse, from a start
+point to an end point. The first three arguments read like `arc()`,
+the last three like `ellipse()`. It is a solver entity, so every
+literal is a guess the constraints drive: the ellipse's center, its
+two semi-radii (`radius(ea, v, 'x')` for RX, `radius(ea, v, 'y')` for
+RY) and the rotation of its RX axis (`horizontal`/`vertical`,
+`tangent`), and where along the ellipse each end sits. An end literal
+that is not exactly on the ellipse names the point of the ellipse in
+its direction. The arc runs counter-clockwise from start to end; chain
+`.cw()` to take the other side.
+
+**Returns**: [**`EllipticalArc`**](/docs/api/types/elliptical-arc)
+
+:::tip
+See the [guide](/docs/sketching/primitives/elliptical-arc) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+eArc(startPoint: Point2DLike, endPoint: Point2DLike, centerPoint: Point2DLike, rx: NumberParam, ry: NumberParam, rotation?: NumberParam): EllipticalArc
+```
+
+Draws an elliptical arc: an open piece of an ellipse, from a start
+point to an end point. The first three arguments read like `arc()`,
+the last three like `ellipse()`. It is a solver entity, so every
+literal is a guess the constraints drive: the ellipse's center, its
+two semi-radii (`radius(ea, v, 'x')` for RX, `radius(ea, v, 'y')` for
+RY) and the rotation of its RX axis (`horizontal`/`vertical`,
+`tangent`), and where along the ellipse each end sits. An end literal
+that is not exactly on the ellipse names the point of the ellipse in
+its direction. The arc runs counter-clockwise from start to end; chain
+`.cw()` to take the other side.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point (a guess, like every literal) |
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point |
+| `centerPoint` | [Point2DLike](/docs/api/types/point2dlike) | The center of the ellipse the arc lies on |
+| `rx` | NumberParam | Semi-radius guess along the ellipse's RX axis |
+| `ry` | NumberParam | Semi-radius guess along the ellipse's RY axis |
+| `rotation` | NumberParam | Guess for the RX axis's angle from the plane's X direction, degrees (default 0) *(optional)* |

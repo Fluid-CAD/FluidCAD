@@ -79,7 +79,7 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
     }
   }
 
-  // Not an endpoint: a centre mark (circle, arc, ellipse) or a point()
+  // Not an endpoint: a centre mark (circle, arc, ellipse, elliptical arc) or a point()
   // entity — the solver points that have no edge of their own.
   for (const owner of sketch.getChildren()) {
     if (!objects.has(owner) || !(owner instanceof SolvedGeometryBase)) {
@@ -112,15 +112,15 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
 
 /**
  * The one named point a solver entity owns besides its endpoints: the centre
- * of a circle/arc/ellipse (`.center()`), or a point entity itself (rendered
+ * of a circle/arc/ellipse/elliptical arc (`.center()`), or a point entity itself (rendered
  * bare — `s.geometries.p1`).
  */
-function namedPoint(owner: SolvedGeometryBase): { ref: LazyVertex; featureType: 'circle' | 'arc' | 'ellipse' | 'point'; role?: 'center' } | null {
+function namedPoint(owner: SolvedGeometryBase): { ref: LazyVertex; featureType: 'circle' | 'arc' | 'ellipse' | 'eArc' | 'point'; role?: 'center' } | null {
   const kind = owner.solverKind;
   if (kind === 'point') {
     return { ref: owner.start(), featureType: 'point' };
   }
-  if (kind === 'circle' || kind === 'arc' || kind === 'ellipse') {
+  if (kind === 'circle' || kind === 'arc' || kind === 'ellipse' || kind === 'eArc') {
     const withCenter = owner as SolvedGeometryBase & { center?: () => LazyVertex };
     if (typeof withCenter.center === 'function') {
       return { ref: withCenter.center(), featureType: kind, role: 'center' };
@@ -170,7 +170,8 @@ function entityAddress(owner: SceneObject, edge: Edge, sketch: Sketch, seen = ne
   }
   const entities = new Map([[location.line, owner]]);
   const target = { line: location.line };
-  if (owner instanceof SolvedGeometryBase && (owner.solverKind === 'line' || owner.solverKind === 'arc')) {
+  if (owner instanceof SolvedGeometryBase
+    && (owner.solverKind === 'line' || owner.solverKind === 'arc' || owner.solverKind === 'eArc')) {
     return { target: { ...target, featureType: owner.solverKind }, entities, entity: owner,
       point: role => new SolvedPointRef(owner, role, `vertex-${role}`) };
   }

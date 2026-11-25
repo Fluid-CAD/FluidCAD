@@ -18,6 +18,7 @@ import {
   refPoint,
   sub,
 } from '../../sketch-solver-client/resolve';
+import { isEllipseLike } from '../../sketch-solver-client/model';
 import { AngleSector, angleSectorAt, angleSectorFor, angleSectorSpec } from './angle-sector';
 
 export type ConstraintButtonId =
@@ -106,11 +107,13 @@ function isRound(p: SolvedPick): boolean {
   return isEntityPick(p, 'circle', 'arc');
 }
 
-/** An ellipse entity pick: a curve with a center and a rotation, but no
- * single radius — so never `isRound` (the radius/diameter/distance forms
- * and equal have nothing to size on it). */
+/** An ellipse or elliptical arc entity pick: a curve with a center and a
+ * rotation, but no single radius — so never `isRound` (the radius/
+ * diameter/distance forms and equal have nothing to size on it). An
+ * elliptical arc takes every form its whole ellipse takes; its ends and
+ * center are point picks like an arc's. */
 function isEllipse(p: SolvedPick): boolean {
-  return isEntityPick(p, 'ellipse');
+  return isEntityPick(p, 'ellipse', 'eArc');
 }
 
 /** Any curve a point can sit on or a tangent can touch. */
@@ -301,7 +304,7 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
         return picks.filter(isLine).length === 1;
       }
       // Entity form: two drawn entities of one kind (lines, arcs, circles,
-      // ellipses), then the mirror line — the LAST pick, since three lines
+      // ellipses, elliptical arcs), then the mirror line — the LAST pick, since three lines
       // would otherwise be ambiguous.
       if (points.length !== 0) {
         return false;
@@ -310,7 +313,7 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
       return isLine(line)
         && first.role === undefined && second.role === undefined
         && first.kind === second.kind
-        && (first.kind === 'line' || first.kind === 'arc' || first.kind === 'circle' || first.kind === 'ellipse')
+        && SYMMETRIC_ENTITY_KINDS.has(first.kind)
         && !isAxisPick(first) && !isAxisPick(second)
         && first.entityId !== second.entityId
         && first.entityId !== line.entityId && second.entityId !== line.entityId;
@@ -322,6 +325,9 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
   }
 }
 
+/** The entity kinds the symmetric entity form mirrors, two of one kind. */
+const SYMMETRIC_ENTITY_KINDS: ReadonlySet<SolvedPick['kind']> = new Set(['line', 'arc', 'circle', 'ellipse', 'eArc']);
+
 /**
  * Which semi-radius a lone ellipse pick dimensions: the axis its touch lies
  * closer to in the ellipse's own frame (|x'|/rx vs |y'|/ry) — a click near
@@ -330,7 +336,7 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
  */
 export function ellipseRadiusAxis(model: SolvedSketchModel, pick: SolvedPick): 'x' | 'y' {
   const e = entityFor(model, pickRef(pick));
-  if (!pick.at || !e || e.kind !== 'ellipse' || !e.center || !e.radii) {
+  if (!pick.at || !e || !isEllipseLike(e.kind) || !e.center || !e.radii) {
     return 'x';
   }
   const c = Math.cos(e.theta ?? 0);
@@ -510,7 +516,7 @@ export function measureDimension(
 
   if (form.kind === 'radius' || form.kind === 'diameter') {
     const e = entityFor(model, pickRef(picks[0]));
-    if (e?.kind === 'ellipse' && e.radii) {
+    if (e && isEllipseLike(e.kind) && e.radii) {
       return round2(axis === 'y' ? e.radii[1] : e.radii[0]);
     }
     if (!e || e.radius === undefined) {

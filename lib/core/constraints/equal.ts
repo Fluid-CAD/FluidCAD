@@ -5,9 +5,10 @@ import { ConstraintTarget, emitConstraint, toRef } from "./common.js";
 import type { ConstraintSpec } from "../../sketch-solver/index.js";
 
 /**
- * Constrains two or more entities to be equal (1 dim per pair): equal line
- * lengths or equal circle/arc radii. Every entity after the first is
- * equated to the first.
+ * Constrains two or more entities to be equal: equal line lengths or equal
+ * circle/arc radii (1 dim per pair), or the same shape for ellipses and
+ * elliptical arcs (2 dims per pair: both semi-radii). Every entity after
+ * the first is equated to the first.
  * @param a - The reference entity
  * @param b - The second entity
  * @param rest - Further entities to equate to the first

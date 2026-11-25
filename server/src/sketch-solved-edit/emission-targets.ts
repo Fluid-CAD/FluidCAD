@@ -20,7 +20,7 @@ const WIRE_DATUMS = new Set(['origin', 'x-axis', 'y-axis']);
 // instanceIndex/source reaches the transform's honest refusal instead of a
 // 400. The anchor-point statements (P8) ride it too — the transform derives
 // their accessor (`.anchor()`/`.point(i)`) from the type.
-const WIRE_TYPES = new Set(['line', 'arc', 'circle', 'point', 'copy', 'mirror', 'ellipse', 'text', 'bezier', 'spline']);
+const WIRE_TYPES = new Set(['line', 'arc', 'circle', 'point', 'copy', 'mirror', 'ellipse', 'eArc', 'text', 'bezier', 'spline']);
 
 const WIRE_REFERENCE_TYPES = new Set(['project', 'intersect']);
 

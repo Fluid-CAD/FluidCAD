@@ -50,7 +50,7 @@ type SplitTargetChoice =
  * exports through the sketch callback's return value. A line seeds a plane;
  * any curve seeds the sheet it sweeps out of the sketch.
  */
-const SPLIT_SEED_TYPES = new Set(['line', 'arc', 'circle', 'ellipse', 'spline', 'bezier']);
+const SPLIT_SEED_TYPES = new Set(['line', 'arc', 'circle', 'ellipse', 'eArc', 'spline', 'bezier']);
 
 /** A sketched edge picked as the cut's seed: its statement and its sketch's, by call site. */
 type SeedEdgePick = {
@@ -549,7 +549,7 @@ export class SplitFeatureService {
       return true;
     }
     if (!SPLIT_SEED_TYPES.has(owner.type as string) || !owner.sourceLocation || !sketch.sourceLocation) {
-      this.panel.setMessage('Only a sketched line, arc, circle, ellipse or spline seeds a split — pick one of the sketch.');
+      this.panel.setMessage('Only a sketched line, arc, circle, ellipse, elliptical arc or spline seeds a split — pick one of the sketch.');
       return true;
     }
     if (owner.sourceLocation.filePath !== sketch.sourceLocation.filePath) {

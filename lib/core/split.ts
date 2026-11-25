@@ -44,7 +44,7 @@ interface SplitFunction {
    * Splits solids along a sketched edge, as if the edge were extruded out
    * of its sketch both ways. A straight line seeds the infinite plane that
    * contains it and stands normal to its sketch; any other edge — an arc,
-   * a circle, an ellipse, a spline — sweeps a curved sheet that cuts the
+   * a circle, an ellipse, an elliptical arc, a spline — sweeps a curved sheet that cuts the
    * solids it passes through (a curve that stops inside a body does not
    * split it). The sketch is consumed for display like an extrude's
    * profile (the timeline eye shows it again); the edge stays readable, so
@@ -57,7 +57,7 @@ interface SplitFunction {
    *     sketch('xy', () => { seed = arc([-50, 0], [50, 0], [0, 30]).guide(); … });
    *     split(seed, { keep: 'back' });                 // along the arc's curved sheet
    *
-   * @param edge - A `line()`, `arc()`, `circle()`, `ellipse()` or spline of a sketch.
+   * @param edge - A `line()`, `arc()`, `circle()`, `ellipse()`, `eArc()` or spline of a sketch.
    * @param targets - The solids to split; none for every solid in scope.
    */
   (edge: IGeometry, ...targets: ISceneObject[]): ISplit;
@@ -66,7 +66,7 @@ interface SplitFunction {
    * to the right of the edge when travelling it from the sketch's front
    * (edge tangent × sketch normal) — for a circle drawn counter-clockwise,
    * the outside.
-   * @param edge - A `line()`, `arc()`, `circle()`, `ellipse()` or spline of a sketch.
+   * @param edge - A `line()`, `arc()`, `circle()`, `ellipse()`, `eArc()` or spline of a sketch.
    * @param options - `keep` (`'both'`, `'front'`, `'back'`).
    * @param targets - The solids to split; none for every solid in scope.
    */

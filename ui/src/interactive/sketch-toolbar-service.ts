@@ -4,6 +4,7 @@ import type { ProjectionOp } from '../api';
 import { LineTool } from './tools/line-tool';
 import { CircleTool } from './tools/circle-tool';
 import { EllipseTool } from './tools/ellipse-tool';
+import { EllipticalArcTool } from './tools/elliptical-arc-tool';
 import { CenterArcTool } from './tools/center-arc-tool';
 import { ThreePointArcTool } from './tools/three-point-arc-tool';
 import { RectTool } from './tools/rect-tool';
@@ -866,6 +867,11 @@ export class SketchToolbarService {
         return applySolvedContext(new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.polygonModeChecked));
       case 'arc2':
         return applySolvedContext(new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
+      case 'earc': {
+        const tool = applySolvedContext(new EllipticalArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
       case 'arc3': {
         const tool = applySolvedContext(new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
         tool.onSceneUpdate(sceneObjects, sketchId);

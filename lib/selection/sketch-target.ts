@@ -6,7 +6,7 @@ export type SketchExportRequest = {
   target: SolvedEmissionTarget;
   /**
    * Which statements a plain `line` target may name: the solver entities
-   * (`line`, `arc`, `circle`, `point`, `ellipse` — the default, what a
+   * (`line`, `arc`, `circle`, `point`, `ellipse`, `eArc` — the default, what a
    * point accessor rides), or every geometry statement, the beziers and
    * splines included — a consumer that takes the whole curve, like a split
    * seed.
@@ -37,7 +37,7 @@ export type SolvedEmissionTarget = {
    * copy-instance targets name theirs: 'copy'; anchor-point targets (P8)
    * name theirs: 'text' | 'bezier' | 'spline' — rendered as the anchor
    * accessor (`t.anchor()`, `bz.point(i)`, `sp.point(i)`). */
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'project' | 'intersect' | 'copy' | 'mirror'
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'eArc' | 'project' | 'intersect' | 'copy' | 'mirror'
     | 'text' | 'bezier' | 'spline' | 'offset';
   /**
    * Offset edge targets: the index of the picked edge on the 2D offset()
@@ -113,5 +113,5 @@ export function renderSolvedTarget(
 
 export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
   line: 'l', arc: 'a', circle: 'c', point: 'p', project: 'prj', intersect: 'sec',
-  copy: 'cp', mirror: 'm', ellipse: 'el', text: 't', bezier: 'bz', spline: 'sp', offset: 'o',
+  copy: 'cp', mirror: 'm', ellipse: 'el', eArc: 'ea', text: 't', bezier: 'bz', spline: 'sp', offset: 'o',
 };

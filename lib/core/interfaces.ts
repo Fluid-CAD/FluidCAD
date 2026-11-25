@@ -330,9 +330,9 @@ export interface IGeometry extends ISceneObject {
   /**
    * Uniform edge accessor. `edge('body')` selects this feature's edges by
    * role (optionally disambiguated by role index); `edge(1)` selects by
-   * build-order index over the feature's real edges. Roles: solver lines and
-   * arcs stamp `body`; circles and ellipses `perimeter`; derived-op outputs
-   * carry provenance-specific roles (e.g. fillet arcs).
+   * build-order index over the feature's real edges. Roles: solver lines,
+   * arcs and elliptical arcs stamp `body`; circles and ellipses `perimeter`;
+   * derived-op outputs carry provenance-specific roles (e.g. fillet arcs).
    * @param roleOrIndex - A role name, or a build-order edge index.
    * @param roleIndex - Disambiguates roles that repeat.
    */
@@ -468,6 +468,30 @@ export interface IRect extends ISceneObject {
 export interface IEllipse extends IExtrudableGeometry {
   /** Returns a lazy-evaluated vertex at the ellipse's center — a
    * constraint target like a circle's `.center()`. */
+  center(): LazyVertex;
+}
+
+/**
+ * An elliptical arc statement: an open piece of an ellipse. It is a solver
+ * entity that is an ellipse and an arc at once. The statement itself takes
+ * what an ellipse takes: `radius(ea, v, 'x' | 'y')` dimensions a
+ * semi-radius, `horizontal(ea)`/`vertical(ea)` orient its RX axis,
+ * `concentric(ea, c)` shares its center, `tangent(ea, l)` touches a line,
+ * circle, arc, ellipse or another elliptical arc, `coincident(p, ea)` puts
+ * a point on its ellipse, `equal(ea, e)` matches shapes. Its `start()`,
+ * `end()` and `center()` are points like an arc's.
+ */
+export interface IEllipticalArc extends IGeometry {
+  /**
+   * Sweeps the arc clockwise from start to end (display and topology only:
+   * the solver has no sweep parameter).
+   */
+  cw(): this;
+
+  /** Sweeps the arc counter-clockwise from start to end (the default). */
+  ccw(): this;
+
+  /** Returns a lazy-evaluated vertex at the center of the arc's ellipse. */
   center(): LazyVertex;
 }
 

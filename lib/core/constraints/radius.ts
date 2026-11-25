@@ -7,11 +7,12 @@ import type { ConstraintSpec } from "../../sketch-solver/index.js";
 
 /**
  * Dimensions the radius of a circle or arc, or one semi-radius of an
- * ellipse: `radius(el, 20, 'x')` sizes the RX axis, `'y'` the RY axis
- * (the axis is required for an ellipse and refused elsewhere).
- * @param c - The circle, arc or ellipse
+ * ellipse or an elliptical arc: `radius(el, 20, 'x')` sizes the RX axis,
+ * `'y'` the RY axis (the axis is required there and refused elsewhere).
+ * @param c - The circle, arc, ellipse or elliptical arc
  * @param value - The radius value
- * @param axis - Ellipses only: which semi-radius, `'x'` (RX) or `'y'` (RY)
+ * @param axis - Ellipses and elliptical arcs only: which semi-radius,
+ *   `'x'` (RX) or `'y'` (RY)
  */
 function build(context: SceneParserContext) {
   return function radius(c: ConstraintTarget, value: NumberParam, axis?: 'x' | 'y'): IDimension {

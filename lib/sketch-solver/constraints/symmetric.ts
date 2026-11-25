@@ -1,5 +1,5 @@
 // symmetric — two points, or two entities of one kind (lines, circles,
-// arcs, ellipses), mirror across line l.
+// arcs, ellipses, elliptical arcs), mirror across line l.
 //
 //   points   → 2 rows: their midpoint lies on the line and a−b is
 //              perpendicular to it.
@@ -16,6 +16,10 @@
 //              pairs plus equal radii would go singular on a semicircle.
 //              The direction row's sign branch (the reflected ray or its
 //              opposite) is picked by the guess, like every other branch.
+//   elliptical arcs → 7 rows: the ellipse's five, then one reflected-ray
+//              row per end — each end already sits on its ellipse (the
+//              arc's own consistency rows), so a full point pair would be
+//              a row too many, exactly as on a circular arc.
 //
 // The entity forms are what the sketch Mirror tool writes — one statement
 // per mirrored entity — and what a user writes to keep two halves of a
@@ -40,7 +44,7 @@ export function compileSymmetric(spec: Spec, ctx: CompileCtx): CompiledRow[] {
     );
   }
   if (aPoint || bPoint) {
-    throw new Error('symmetric needs two points, or two lines / two circles / two arcs');
+    throw new Error('symmetric needs two points, or two lines / two circles / two arcs / two ellipses / two elliptical arcs');
   }
   const kindA = ctx.kindOf(spec.a.entity);
   const kindB = ctx.kindOf(spec.b.entity);
@@ -78,20 +82,37 @@ export function compileSymmetric(spec: Spec, ctx: CompileCtx): CompiledRow[] {
           ctx.point(end(spec.b.entity), 'symmetric second arc end'),
         ),
       ];
-    case 'ellipse': {
-      const ea = ctx.ellipse(spec.a, 'symmetric first ellipse');
-      const eb = ctx.ellipse(spec.b, 'symmetric second ellipse');
+    case 'ellipse':
+      return ellipseRows(spec, ctx, l);
+    case 'eArc': {
+      const ca = ctx.point(center(spec.a.entity), 'symmetric first elliptical arc center');
+      const cb = ctx.point(center(spec.b.entity), 'symmetric second elliptical arc center');
       return [
-        ...pointPairRows(l, ctx.point(center(spec.a.entity), 'symmetric first ellipse center'),
-          ctx.point(center(spec.b.entity), 'symmetric second ellipse center')),
-        equalRadiusRow(ea.rx, eb.rx),
-        equalRadiusRow(ea.ry, eb.ry),
-        reflectedAxisRow(ctx, l, ea, eb),
+        ...ellipseRows(spec, ctx, l),
+        reflectedRayRow(l, ca, ctx.point(start(spec.a.entity), 'symmetric first elliptical arc start'),
+          cb, ctx.point(start(spec.b.entity), 'symmetric second elliptical arc start')),
+        reflectedRayRow(l, ca, ctx.point(end(spec.a.entity), 'symmetric first elliptical arc end'),
+          cb, ctx.point(end(spec.b.entity), 'symmetric second elliptical arc end')),
       ];
     }
     default:
       throw new Error(`symmetric does not apply to ${kindA} entities`);
   }
+}
+
+/** The five rows mirroring one ellipse onto another — a full ellipse, or
+ * the ellipse an elliptical arc lies on: the centers mirror, both
+ * semi-radii match, and b's RX axis is the reflection of a's. */
+function ellipseRows(spec: Spec, ctx: CompileCtx, l: ResolvedLine): CompiledRow[] {
+  const ea = ctx.ellipse(spec.a, 'symmetric first ellipse');
+  const eb = ctx.ellipse(spec.b, 'symmetric second ellipse');
+  return [
+    ...pointPairRows(l, ctx.point(center(spec.a.entity), 'symmetric first ellipse center'),
+      ctx.point(center(spec.b.entity), 'symmetric second ellipse center')),
+    equalRadiusRow(ea.rx, eb.rx),
+    equalRadiusRow(ea.ry, eb.ry),
+    reflectedAxisRow(ctx, l, ea, eb),
+  ];
 }
 
 /**

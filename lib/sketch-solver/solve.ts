@@ -17,7 +17,7 @@
 import { runLMSparse } from '../solver-core/index.js';
 import { buildPlan } from './decompose.js';
 import type { SizePin, SolvePlan } from './decompose.js';
-import { PARAM_COUNT } from './system.js';
+import { PARAM_COUNT, isEllipseKind } from './system.js';
 import type { SketchSystem } from './system.js';
 import type { ComponentSolveResult, SolveOptions, SolveResult } from './types.js';
 
@@ -141,7 +141,7 @@ function collapsedEntities(sys: SketchSystem, pinned: SizePin[], lengthScale: nu
       continue;
     }
     const o = e.paramOffset;
-    if (e.kind === 'ellipse') {
+    if (isEllipseKind(e.kind)) {
       for (const ir of [o + 2, o + 3]) {
         const guessR = Math.abs(guesses[ir]);
         if (!done.has(ir) && guessR >= HEALTHY_GUESS_SIZE && values[ir] < COLLAPSED_SIZE) {

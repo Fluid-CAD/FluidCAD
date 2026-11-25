@@ -446,10 +446,11 @@ export type UpdateSketchPositionsMessage = {
     }[];
     /** Scalar dimension of the base call (circle diameter). */
     scalar?: { value: number; expected?: number };
-    /** An ellipse's semi-radii: its 2nd / 3rd arguments. */
+    /** An ellipse's semi-radii: its 2nd / 3rd arguments. An elliptical
+     * arc's: the two scalars after its three points. */
     radii?: { rx?: { value: number; expected?: number }; ry?: { value: number; expected?: number } };
-    /** An ellipse's rotation (degrees): its trailing 4th argument,
-     * rewritten when present, appended when absent. */
+    /** An ellipse's or an elliptical arc's rotation (degrees): its
+     * trailing argument, rewritten when present, appended when absent. */
     rotation?: { value: number; expected?: number };
   }[];
 };

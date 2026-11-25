@@ -26,6 +26,7 @@ import {
   SolvedSketchModel,
   curveControlPoints,
   buildSolvedSketchModel,
+  isArcLike,
   layoutConstraintGlyphs,
   tessellateCurve,
   tessellateSolvedEntity,
@@ -686,14 +687,15 @@ export class SketchMesh extends Group {
     return positions;
   }
 
-  /** Whether the object's solver entity has start/end point roles (a line
-   * or an arc) — the roles a closed curve's seam vertex can stand for. */
+  /** Whether the object's solver entity has start/end point roles (a line,
+   * an arc or an elliptical arc) — the roles a closed curve's seam vertex
+   * can stand for. */
   private hasEndpointRoles(obj: SceneObjectRender): boolean {
     if (!this.isSolvedEntity(obj)) {
       return false;
     }
     const kind = this.solvedModel!.entities.get(obj.object!.entityId as number)?.kind;
-    return kind === 'line' || kind === 'arc';
+    return kind !== undefined && (kind === 'line' || isArcLike(kind));
   }
 
   /** Solved-entity child of this solved sketch (they report 'selectable'

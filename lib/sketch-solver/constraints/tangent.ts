@@ -33,6 +33,14 @@
 //    basin the contact guess starts in: the boundary point of the ellipse
 //    toward or away from the other center, whichever better satisfies the
 //    other curve at compile time.
+//
+// An elliptical arc is its ellipse in every form above. Its two ends add
+// junctions of their own, each one row and no aux params: an end joined
+// (point–point coincident) to a line end or an arc end, an end declared on
+// a circle or arc, and an end shared with or declared on another ellipse
+// or elliptical arc. The polyline-chain reasoning applies unchanged: the
+// contact point is already pinned, so the row only has to line the
+// tangents up there.
 
 import type { ConstraintSpec, SolverRef } from '../types.js';
 import type {
@@ -64,6 +72,7 @@ import {
   unitCross,
   unitDot,
 } from './ellipse-geom.js';
+import { ellipseNormalsParallelRow, pointOnEllipseRow } from './ellipse-rows.js';
 
 type Spec = Extract<ConstraintSpec, { kind: 'tangent' }>;
 
@@ -288,11 +297,13 @@ function compileEllipseTangent(spec: Spec, ctx: CompileCtx): CompiledRow[] {
     if (spec.a.entity === spec.b.entity) {
       throw new Error('tangent needs two different entities');
     }
-    return ellipseEllipseContactRows(
-      ctx,
-      ctx.ellipse(spec.a, 'tangent first ellipse'),
-      ctx.ellipse(spec.b, 'tangent second ellipse'),
-    );
+    const ea = ctx.ellipse(spec.a, 'tangent first ellipse');
+    const eb = ctx.ellipse(spec.b, 'tangent second ellipse');
+    const shared = ellipsePairJunction(ctx, spec.a, spec.b);
+    if (shared) {
+      return [ellipseNormalsParallelRow(ea, eb, shared)];
+    }
+    return ellipseEllipseContactRows(ctx, ea, eb);
   }
   const eRef: SolverRef = ctx.isEllipse(spec.a) ? spec.a : spec.b;
   const oRef: SolverRef = ctx.isEllipse(spec.a) ? spec.b : spec.a;
@@ -303,6 +314,10 @@ function compileEllipseTangent(spec: Spec, ctx: CompileCtx): CompiledRow[] {
       { ix: l.sx, iy: l.sy },
       { ix: l.ex, iy: l.ey },
     ];
+    const joined = linkedEnd(ctx, ellipticalArcEnds(ctx, eRef), lineEnds);
+    if (joined) {
+      return [lineEllipseJunctionRow(l, e, joined)];
+    }
     for (const le of lineEnds) {
       if (ctx.isPointOnEntity(le, eRef.entity)) {
         return [lineEllipseJunctionRow(l, e, le)];
@@ -312,14 +327,70 @@ function compileEllipseTangent(spec: Spec, ctx: CompileCtx): CompiledRow[] {
   }
   if (ctx.isCircle(oRef)) {
     const c = ctx.circle(oRef, 'tangent circle/arc');
+    const ownEnds = ellipticalArcEnds(ctx, eRef);
+    const joined = linkedEnd(ctx, ownEnds, arcEnds(ctx, oRef));
+    if (joined) {
+      return [arcEllipseJunctionRow(c, e, joined)];
+    }
     for (const ae of arcEnds(ctx, oRef)) {
       if (ctx.isPointOnEntity(ae, eRef.entity)) {
         return [arcEllipseJunctionRow(c, e, ae)];
       }
     }
+    for (const own of ownEnds) {
+      if (ctx.isPointOnEntity(own, oRef.entity)) {
+        return [arcEllipseJunctionRow(c, e, own)];
+      }
+    }
     return ellipseCircleContactRows(ctx, e, c);
   }
   throw new Error('tangent with an ellipse needs a line, circle, arc or ellipse on the other side');
+}
+
+/** The endpoints of an elliptical arc ref; empty for a full ellipse. */
+function ellipticalArcEnds(ctx: CompileCtx, ref: SolverRef): ResolvedPoint[] {
+  return ctx.kindOf(ref.entity) === 'eArc'
+    ? [ctx.point(start(ref.entity), 'elliptical arc'), ctx.point(end(ref.entity), 'elliptical arc')]
+    : [];
+}
+
+/** The first of `own` a user coincident joins to one of `others` — the
+ * elliptical arc's end a junction row is written at. Scan order is
+ * deterministic. */
+function linkedEnd(ctx: CompileCtx, own: ResolvedPoint[], others: ResolvedPoint[]): ResolvedPoint | null {
+  for (const o of own) {
+    for (const other of others) {
+      if (ctx.arePointsLinked(o, other)) {
+        return o;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * The point two ellipse-likes share by statement: an end of one joined to
+ * an end of the other, or an end of either declared on the other. Null
+ * for two full ellipses, which have no ends and always take the aux form.
+ */
+function ellipsePairJunction(ctx: CompileCtx, aRef: SolverRef, bRef: SolverRef): ResolvedPoint | null {
+  const aEnds = ellipticalArcEnds(ctx, aRef);
+  const bEnds = ellipticalArcEnds(ctx, bRef);
+  const joined = linkedEnd(ctx, aEnds, bEnds);
+  if (joined) {
+    return joined;
+  }
+  for (const ae of aEnds) {
+    if (ctx.isPointOnEntity(ae, bRef.entity)) {
+      return ae;
+    }
+  }
+  for (const be of bEnds) {
+    if (ctx.isPointOnEntity(be, aRef.entity)) {
+      return be;
+    }
+  }
+  return null;
 }
 
 /**
@@ -469,28 +540,6 @@ function contactGuess(
   return Math.abs(misfit(toward[0], toward[1])) <= Math.abs(misfit(away[0], away[1])) ? toward : away;
 }
 
-/** P on the ellipse: one row over the contact params and the pose. */
-function contactOnEllipseRow(e: ResolvedEllipse, px: number, py: number): CompiledRow {
-  const d = makeEllipsePointDeriv();
-  return {
-    params: [px, py, e.cx, e.cy, e.th, e.rx, e.ry],
-    eval: (p) => {
-      ellipsePointResidual(p, e, p[px], p[py], d);
-      return d.r;
-    },
-    jac: (p, out) => {
-      ellipsePointResidual(p, e, p[px], p[py], d);
-      out[0] = d.dPx;
-      out[1] = d.dPy;
-      out[2] = -d.dPx;
-      out[3] = -d.dPy;
-      out[4] = d.dTh;
-      out[5] = d.dRx;
-      out[6] = d.dRy;
-    },
-  };
-}
-
 /**
  * Ellipse–circle/arc contact: aux P on the ellipse, on the circle, with
  * the ellipse normal at P parallel to the circle's radius vector P − C.
@@ -548,7 +597,7 @@ function ellipseCircleContactRows(ctx: CompileCtx, e: ResolvedEllipse, c: Resolv
       out[8] = uc.d1x * n.dNxRy + uc.d1y * n.dNyRy;
     },
   };
-  return [contactOnEllipseRow(e, px, py), onCircle, normals];
+  return [pointOnEllipseRow(e, { ix: px, iy: py }), onCircle, normals];
 }
 
 /**
@@ -564,39 +613,10 @@ function ellipseEllipseContactRows(ctx: CompileCtx, a: ResolvedEllipse, b: Resol
     return probe.r;
   });
   const [px, py] = ctx.aux([gx, gy]);
-  const na = makeEllipseNormalDeriv();
-  const nb = makeEllipseNormalDeriv();
-  const uc = makeUnitCrossDeriv();
-  const evaluate = (p: Float64Array): void => {
-    ellipseNormal(p, a, p[px], p[py], na);
-    ellipseNormal(p, b, p[px], p[py], nb);
-    unitCross(na.nx, na.ny, nb.nx, nb.ny, uc);
-  };
-  const normals: CompiledRow = {
-    params: [px, py, a.cx, a.cy, a.th, b.cx, b.cy, b.th, a.rx, a.ry, b.rx, b.ry],
-    eval: (p) => {
-      evaluate(p);
-      return uc.h;
-    },
-    jac: (p, out) => {
-      evaluate(p);
-      const ax = uc.d1x * na.a + uc.d1y * na.b;
-      const ay = uc.d1x * na.b + uc.d1y * na.d;
-      const bx = uc.d2x * nb.a + uc.d2y * nb.b;
-      const by = uc.d2x * nb.b + uc.d2y * nb.d;
-      out[0] = ax + bx;
-      out[1] = ay + by;
-      out[2] = -ax;
-      out[3] = -ay;
-      out[4] = uc.d1x * na.dNxTh + uc.d1y * na.dNyTh;
-      out[5] = -bx;
-      out[6] = -by;
-      out[7] = uc.d2x * nb.dNxTh + uc.d2y * nb.dNyTh;
-      out[8] = uc.d1x * na.dNxRx + uc.d1y * na.dNyRx;
-      out[9] = uc.d1x * na.dNxRy + uc.d1y * na.dNyRy;
-      out[10] = uc.d2x * nb.dNxRx + uc.d2y * nb.dNyRx;
-      out[11] = uc.d2x * nb.dNxRy + uc.d2y * nb.dNyRy;
-    },
-  };
-  return [contactOnEllipseRow(a, px, py), contactOnEllipseRow(b, px, py), normals];
+  const contact: ResolvedPoint = { ix: px, iy: py };
+  return [
+    pointOnEllipseRow(a, contact),
+    pointOnEllipseRow(b, contact),
+    ellipseNormalsParallelRow(a, b, contact),
+  ];
 }

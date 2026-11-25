@@ -17,6 +17,7 @@ const CALLEE_BY_TYPE: Record<string, string> = {
   circle: 'circle',
   point: 'point',
   ellipse: 'ellipse',
+  eArc: 'eArc',
   bezier: 'bezier',
   spline: 'spline',
   rect: 'rect',

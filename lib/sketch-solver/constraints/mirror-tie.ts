@@ -22,6 +22,8 @@
 //                                   equal + the RX axis direction reflected
 //                                   (cross(u_t, reflect(u_s)) = 0,
 //                                   π-periodic like the ellipse)
+//   eArc   [cx,cy,rx,ry,θ,sx,sy,ex,ey] → 9 rows: the ellipse's five, then
+//                                   start→start and end→end reflected
 
 import type { ConstraintSpec } from '../types.js';
 import type { CompiledRow, CompileCtx, ResolvedEllipse, ResolvedLine, ResolvedPoint } from './types.js';
@@ -56,10 +58,11 @@ export function compileMirrorTie(spec: Spec, ctx: CompileCtx): CompiledRow[] {
         ctx.point({ entity: spec.source }, 'mirror-tie source'),
         ctx.point({ entity: spec.target }, 'mirror-tie target'),
       );
-    case 'ellipse': {
+    case 'ellipse':
+    case 'eArc': {
       const es = ctx.ellipse({ entity: spec.source }, 'mirror-tie source');
       const et = ctx.ellipse({ entity: spec.target }, 'mirror-tie target');
-      return [
+      const rows = [
         ...pointRows(
           ctx.point(center(spec.source), 'mirror-tie source center'),
           ctx.point(center(spec.target), 'mirror-tie target center'),
@@ -68,6 +71,19 @@ export function compileMirrorTie(spec: Spec, ctx: CompileCtx): CompiledRow[] {
         equalRow(et.ry, es.ry),
         ellipseAxisRow(es, et, Array.isArray(spec.axis) ? spec.axis : ctx.line(spec.axis, 'mirror-tie axis')),
       ];
+      if (kind === 'eArc') {
+        rows.push(
+          ...pointRows(
+            ctx.point(start(spec.source), 'mirror-tie source start'),
+            ctx.point(start(spec.target), 'mirror-tie target start'),
+          ),
+          ...pointRows(
+            ctx.point(end(spec.source), 'mirror-tie source end'),
+            ctx.point(end(spec.target), 'mirror-tie target end'),
+          ),
+        );
+      }
+      return rows;
     }
     case 'line':
       return [

@@ -25,7 +25,7 @@
 // bookkeeping, a typed expression in the geometry text, a `.mid()` target —
 // leaves the constraint in place.
 
-import { DATUM_ENTITY_IDS, PARAM_COUNT } from '../../../../lib/sketch-solver/index.js';
+import { DATUM_ENTITY_IDS, PARAM_COUNT, projectOntoEllipse } from '../../../../lib/sketch-solver/index.js';
 import type {
   ConstraintSpec,
   EntityKind,
@@ -80,15 +80,17 @@ function isPair(v: unknown): v is [number, number] {
 /**
  * The solver-layout params of an emitted statement, read back from its
  * rendered text — `line([0, 0], [40, 0])`, `arc(s, e, c).cw()`,
- * `circle([1, 2], 30)`, `point([3, 4])`, `ellipse([1, 2], 30, 20[, rot])`
- * (rotation in degrees, radians in the layout). Null when any argument is
+ * `circle([1, 2], 30)`, `point([3, 4])`, `ellipse([1, 2], 30, 20[, rot])`,
+ * `eArc(s, e, c, 30, 20[, rot])` (rotation in degrees, radians in the
+ * layout; the arc's ends where the kernel registers them, on the ellipse
+ * they name a point of). Null when any argument is
  * not a plain numeric literal (a typed expression such as `[w / 2, 10]`),
  * and for a bezier (no single solver entity — see solverEntityKind): the
  * trial has no value for it, so the entity stays out and every constraint
  * on it is kept unverified.
  */
 export function parseEmittedGeometry(kind: SolvedGeometryParam['kind'], text: string): number[] | null {
-  const m = /^([a-z]+)\((.*?)\)((?:\.[A-Za-z]+\(\))*)$/s.exec(text.trim());
+  const m = /^([A-Za-z]+)\((.*?)\)((?:\.[A-Za-z]+\(\))*)$/s.exec(text.trim());
   if (!m || m[1] !== kind) {
     return null;
   }
@@ -133,6 +135,20 @@ export function parseEmittedGeometry(kind: SolvedGeometryParam['kind'], text: st
       }
       const theta = args.length === 4 ? ((rotation as number) * Math.PI) / 180 : 0;
       return [c[0], c[1], rx, ry, theta];
+    }
+    case 'eArc': {
+      const [s, e, c, rx, ry, rotation] = args;
+      const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+      if ((args.length !== 5 && args.length !== 6) || !isPair(s) || !isPair(e) || !isPair(c)
+        || !finite(rx) || rx <= 0 || !finite(ry) || ry <= 0
+        || (args.length === 6 && !finite(rotation))) {
+        return null;
+      }
+      const theta = args.length === 6 ? ((rotation as number) * Math.PI) / 180 : 0;
+      const frame = { cx: c[0], cy: c[1], rx, ry, theta };
+      const start = projectOntoEllipse(frame, s[0], s[1]);
+      const end = projectOntoEllipse(frame, e[0], e[1]);
+      return [c[0], c[1], rx, ry, theta, start[0], start[1], end[0], end[1]];
     }
     case 'bezier':
     case 'spline':

@@ -8,6 +8,8 @@ import type { Vec2 } from './resolve';
 import {
   evaluateBSpline, interpolateBSpline2d, type BSpline2dData, type BSplineCurveData,
 } from '../../../lib/math/bspline-interpolation.js';
+import { sampleEllipseArc } from '../../../lib/sketch-solver/earc-geometry.js';
+import { ellipticalArcSpanOf } from './elliptical-arc';
 
 const CIRCLE_SEGMENTS = 64;
 const ARC_SEGMENTS = 48;
@@ -73,7 +75,8 @@ export function angleWithinSweep(a0: number, sweep: number, angle: number, tol =
  * Polyline through the entity's current geometry, in sketch-plane 2D.
  * Null for point entities (they render as dots, not edges) and for
  * incomplete views. An ellipse redraws from its live pose — center and
- * RX-axis rotation — around its locked semi-radii.
+ * RX-axis rotation — around its semi-radii; an elliptical arc the same,
+ * between its two ends.
  *
  * `segments` pins the polyline's segment count — the in-place mesh update
  * must feed `LineSegmentsGeometry.setPositions` exactly as many segments as
@@ -88,6 +91,18 @@ export function tessellateSolvedEntity(e: SolvedEntityView, segments?: number): 
       return e.center && e.radii
         ? tessellateEllipse(e.center, e.radii, e.theta ?? 0, segments ?? CIRCLE_SEGMENTS)
         : null;
+    case 'eArc': {
+      const span = ellipticalArcSpanOf(e);
+      if (!span) {
+        return null;
+      }
+      const points = sampleEllipseArc(span, segments ?? ARC_SEGMENTS);
+      // Land exactly on the solved endpoints, like a circular arc: the
+      // span is parameter-derived but start/end are authoritative params.
+      points[0] = e.start!;
+      points[points.length - 1] = e.end!;
+      return points;
+    }
     case 'line': {
       if (!e.start || !e.end) {
         return null;

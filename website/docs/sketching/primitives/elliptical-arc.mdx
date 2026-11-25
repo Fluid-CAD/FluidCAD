@@ -1,0 +1,110 @@
+---
+sidebar_position: 3.5
+title: "Elliptical Arc"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitiveEllipticalArc from '!!raw-loader!../_examples/primitive-elliptical-arc.js';
+
+# Elliptical Arc
+
+An open piece of an ellipse: the crown of an arch, a flattened fillet, a cam flank that has to run into a straight edge. It is an [ellipse](/docs/sketching/primitives/ellipse) and an [arc](/docs/sketching/primitives/arc) at once. The ellipse it lies on has a centre, a rotation and two semi-radii, and the arc has a start and an end that sit on that ellipse.
+
+## In the viewport
+
+1. Click **Elliptical Arc** on the sketch toolbar (shortcut `ea`).
+2. Click the centre. The **X / Y** pill places it exactly.
+3. Move the cursor out: its horizontal offset from the centre is **RX**, its vertical offset **RY**. Click or press Enter to take the RX pill, then again for RY, or type either value (a number, a variable, or an expression). The whole ellipse is now shown dashed.
+4. Click where the arc starts. The click is read onto the ellipse, so it does not have to be exact.
+5. Move the cursor round the ellipse and click where the arc ends. The arc follows the cursor, so going round the long way draws the long piece. It stops just short of a full turn; for the whole outline use **Ellipse**.
+
+<kbd>Esc</kbd> steps back one click at a time.
+
+A centre, start or end that snaps onto a vertex or the origin gets a coincident written for it. Nothing else is inferred. The drawn arc keeps its rotation free, like a drawn ellipse: pick it and click **Horizontal** or **Vertical** to orient its RX axis, or let a `tangent` turn it. A value typed into the RX or RY pill writes that dimension straight away; a cursor-sized one stays a free guess.
+
+## By hand
+
+```js
+eArc(start, end, center, rx, ry)
+eArc(start, end, center, rx, ry, rotation)
+```
+
+The first three arguments read like [`arc()`](/docs/sketching/primitives/arc), the last three like [`ellipse()`](/docs/sketching/primitives/ellipse). `rx` and `ry` are the **semi-radii** along the ellipse's own RX and RY axes, and `rotation` (degrees) is the angle of the RX axis from the sketch's X axis, `0` when omitted.
+
+All of them are guesses. A start or end that is not exactly on the ellipse names the point of the ellipse in its direction from the centre, so rounded coordinates are fine. The solver resizes and turns the ellipse and slides the ends along it as the constraints require, and a drag writes the solved values back into the statement.
+
+<ExplainedCode code={primitiveEllipticalArc} fileName="plate.part.js" />
+
+## Sweep direction
+
+The arc runs **counter-clockwise** from start to end by default. Chain `.cw()` to take the other piece of the ellipse between the same two points:
+
+```js
+eArc([40, 0], [0, 20], [0, 0], 40, 20)        // the quarter in the first quadrant
+eArc([40, 0], [0, 20], [0, 0], 40, 20).cw()   // the other three quarters
+```
+
+The side is a display and topology choice only. The solver treats both the same.
+
+## From a centre and two angles
+
+A drawing file usually gives an elliptical arc as a centre, two semi-axes, a rotation and two parameter angles. The parameter angle `t` names the point
+
+```
+x = cx + rx * cos(t) * cos(rotation) - ry * sin(t) * sin(rotation)
+y = cy + rx * cos(t) * sin(rotation) + ry * sin(t) * cos(rotation)
+```
+
+Compute that point for the start angle and for the end angle and pass them as `start` and `end`. Add `.cw()` when the end angle is smaller than the start angle. The parameter angle is not the angle you would measure from the centre with a protractor unless `rx` equals `ry`.
+
+## Accessors
+
+| Accessor | Meaning |
+|---|---|
+| `ea.start()` | The start point |
+| `ea.end()` | The end point |
+| `ea.center()` | The centre of the ellipse the arc lies on |
+
+All three take every point constraint: `coincident`, `distance`, `midpoint`, `symmetric`, `fix`, and a `horizontal` or `vertical` pair with another point.
+
+## Constraints
+
+The statement itself is a constraint target. It takes what an ellipse takes:
+
+| Statement | Meaning |
+|---|---|
+| `radius(ea, v, 'x')` | Dimensions the RX semi-radius (1 DOF); `'y'` dimensions RY |
+| `horizontal(ea)` | The RX axis runs along the sketch's X axis (1 DOF) |
+| `vertical(ea)` | The RX axis runs along the sketch's Y axis (1 DOF) |
+| `concentric(ea, c)` | Shares its centre with a circle, arc, ellipse or another elliptical arc (2 DOF) |
+| `tangent(ea, l)` | Touches a line, circle, arc, ellipse or another elliptical arc (1 DOF) |
+| `coincident(p, ea)` | Puts a point on the ellipse the arc lies on (1 DOF) |
+| `equal(ea, e)` | Shares both semi-radii with an ellipse or another elliptical arc (2 DOF) |
+| `symmetric(ea1, ea2, l)` | Mirrors one elliptical arc onto another across a line (7 DOF) |
+
+To make the arc run smoothly into its neighbour, join the two ends with `coincident` and add `tangent`, exactly as for a line and a circular arc: `coincident(l.end(), ea.start())`, then `tangent(l, ea)`.
+
+A point placed on the arc with `coincident(p, ea)` sits on the whole ellipse, not only on the drawn piece, the same way a point on a circular arc sits on its whole circle.
+
+An elliptical arc has seven degrees of freedom: the five of its ellipse, plus where each end sits along it. It is fully constrained with its centre pinned, its RX axis oriented, both semi-radii dimensioned and each end placed, for example `coincident(ea.center(), origin())`, `horizontal(ea)`, `radius(ea, 40, 'x')`, `radius(ea, 20, 'y')`, `coincident(ea.start(), xAxis())`, `coincident(ea.end(), yAxis())`.
+
+Some constraints do not apply and say so when you write them:
+
+- `diameter(ea, v)` and `radius(ea, v)` without an axis. An ellipse has two semi-radii, so name one with `'x'` or `'y'`.
+- `distance(p, ea, v)`. Dimension to one of the arc's points instead.
+- `equal` with a circle or a circular arc, and `offsetFrom`.
+
+## Tools
+
+- **Mirror** and **Copy** take elliptical arcs like any other entity. A mirrored arc runs the other way round.
+- **Delete** removes the statement and the constraints on it.
+- **Offset** writes a selection that holds an elliptical arc as an `offset()` statement.
+- **Split**, **Trim** and **Fillet** do not cut or round elliptical arcs. They still count as crossings when you trim another edge against one.
+- A closed profile that includes an elliptical arc extrudes like any other, and an elliptical arc can seed a [Split](/docs/3d-operations/split) of a solid.
+
+## Modifiers
+
+```js
+eArc([40, 0], [0, 20], [0, 0], 40, 20).guide()
+eArc([40, 0], [0, 20], [0, 0], 40, 20).name('crown')
+```

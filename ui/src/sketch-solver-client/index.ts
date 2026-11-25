@@ -9,6 +9,8 @@ export {
   curveKindOf,
   curveViewForShape,
   entityPickAddress,
+  isArcLike,
+  isEllipseLike,
   isSolvedSketch,
   pickForEntity,
   specEntityIds,
@@ -49,4 +51,5 @@ export type { SolvedHit, SolvedVertexHit, SolvedEdgeHit, SolvedDatumHit, SketchD
 export { tessellateSolvedEntity, tessellateBezier, tessellateSpline, tessellateCurve, arcSweep } from './tessellate';
 export { buildPositionWriteBack, buildSettleWriteBack } from './write-back';
 export { updateDragTargets } from './drag-targets';
+export { ellipseFrameOf, ellipticalArcSpanOf } from './elliptical-arc';
 export type { SolvedDragMode, SolvedDragTarget } from './drag-targets';

@@ -2429,7 +2429,7 @@ export type SketchConstraintTargetParam = {
   occurrence?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
   featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'ellipse' | 'text' | 'bezier' | 'spline';
+    | 'ellipse' | 'eArc' | 'text' | 'bezier' | 'spline';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /**
    * Mirror-image targets: the mirrored statement whose image on the 2D
@@ -2562,7 +2562,7 @@ export type SolvedEmissionTargetParam = {
   occurrence?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'text' | 'bezier' | 'spline'
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'eArc' | 'text' | 'bezier' | 'spline'
     | 'project' | 'intersect';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /** Mirror-image targets: the mirrored statement (a nested line-addressed
@@ -2587,7 +2587,7 @@ export type SolvedGeometryParam = {
    * `center` role is its one point accessor — or a bezier/spline,
    * addressed only through its literal points (`featureType: 'bezier' |
    * 'spline'` + `pointIndex` on a `newIndex` target). */
-  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'bezier' | 'spline';
+  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'eArc' | 'bezier' | 'spline';
   /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
   text: string;
   guide?: boolean;

@@ -31,6 +31,7 @@ import {
   tessellateSolvedEntity,
 } from '../../sketch-solver-client';
 import { LineResolutionRegistry } from '../../meshes/shape-meshes/line-resolution';
+import { isEllipseLike } from '../../sketch-solver-client/model';
 import type { Vec2 } from '../../sketch-solver-client/resolve';
 import { refPoint } from '../../sketch-solver-client/resolve';
 import { CONSTRAINT_SHORTCUTS, SolvedConstraintToolbar } from './solved-constraint-toolbar';
@@ -500,7 +501,7 @@ export class SolvedConstraintToolbarService {
     const rawPicks = id === 'dimension' ? expandDimensionPicks(picks) : [...picks];
     // A lone ellipse dimensions ONE semi-radius: the axis its touch is
     // nearer to (RX at the ends of the RX axis, RY at the ends of RY).
-    const ellipse = form.kind === 'radius' && rawPicks.length === 1 && rawPicks[0].kind === 'ellipse';
+    const ellipse = form.kind === 'radius' && rawPicks.length === 1 && isEllipseLike(rawPicks[0].kind);
     this.placement = {
       id,
       source: picks,
@@ -818,7 +819,7 @@ export class SolvedConstraintToolbarService {
     const picks = id === 'dimension' ? expandDimensionPicks(dimPicks) : [...dimPicks];
     // A lone ellipse dimensions ONE semi-radius: the axis its touch is
     // nearer to (RX at the ends of the RX axis, RY at the ends of RY).
-    if (form.kind === 'radius' && picks.length === 1 && picks[0].kind === 'ellipse' && axis === undefined) {
+    if (form.kind === 'radius' && picks.length === 1 && isEllipseLike(picks[0].kind) && axis === undefined) {
       axis = ellipseRadiusAxis(model, picks[0]);
     }
     // An angle dimensions a SECTOR — the placement-locked one, or the
@@ -845,7 +846,7 @@ export class SolvedConstraintToolbarService {
     const { clientX, clientY } = this.inputPosition(model, candidate, label);
     this.valueInput.show({
       label: form.kind === 'angle' ? '∠'
-        : form.kind === 'radius' ? (picks[0]?.kind === 'ellipse' ? (axis === 'y' ? 'RY' : 'RX') : 'R')
+        : form.kind === 'radius' ? (picks[0] && isEllipseLike(picks[0].kind) ? (axis === 'y' ? 'RY' : 'RX') : 'R')
           : form.kind === 'diameter' ? '⌀'
             : axis === 'x' ? 'H' : axis === 'y' ? 'V' : 'D',
       value: String(candidate.value),

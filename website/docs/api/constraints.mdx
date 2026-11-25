@@ -41,8 +41,9 @@ coincident(a: ConstraintTarget, b: ConstraintTarget): SceneObject
 ```
 
 Makes two points coincide (2 dims), or puts a point on an entity (1 dim:
-point-on-infinite-line, point-on-circle/arc). `coincident(p, l.mid())`
-lowers to the midpoint constraint.
+point-on-infinite-line, point-on-circle/arc, point-on-ellipse, where an
+arc counts as its whole circle and an elliptical arc as its whole
+ellipse). `coincident(p, l.mid())` lowers to the midpoint constraint.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -57,13 +58,14 @@ lowers to the midpoint constraint.
 horizontal(a: ConstraintTarget, b?: ConstraintTarget, ...rest: ConstraintTarget[]): SceneObject
 ```
 
-Constrains a line to be horizontal, an ellipse's RX axis to run along
-the sketch X direction, or two or more points to share a y value.
-Every point after the first is aligned to the first.
+Constrains a line to be horizontal, the RX axis of an ellipse or an
+elliptical arc to run along the sketch X direction, or two or more
+points to share a y value. Every point after the first is aligned to
+the first.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `a` | [ConstraintTarget](#constraint-targets) | A line, an ellipse, or the first point |
+| `a` | [ConstraintTarget](#constraint-targets) | A line, an ellipse, an elliptical arc, or the first point |
 | `b` | [ConstraintTarget](#constraint-targets) | The second point (point form) *(optional)* |
 | `...rest` | ConstraintTarget[] | Further points to align to the first |
 
@@ -75,13 +77,14 @@ Every point after the first is aligned to the first.
 vertical(a: ConstraintTarget, b?: ConstraintTarget, ...rest: ConstraintTarget[]): SceneObject
 ```
 
-Constrains a line to be vertical, an ellipse's RX axis to run along
-the sketch Y direction, or two or more points to share an x value.
-Every point after the first is aligned to the first.
+Constrains a line to be vertical, the RX axis of an ellipse or an
+elliptical arc to run along the sketch Y direction, or two or more
+points to share an x value. Every point after the first is aligned to
+the first.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `a` | [ConstraintTarget](#constraint-targets) | A line, an ellipse, or the first point |
+| `a` | [ConstraintTarget](#constraint-targets) | A line, an ellipse, an elliptical arc, or the first point |
 | `b` | [ConstraintTarget](#constraint-targets) | The second point (point form) *(optional)* |
 | `...rest` | ConstraintTarget[] | Further points to align to the first |
 
@@ -125,7 +128,7 @@ Constrains two lines to be perpendicular (1 dim).
 tangent(a: ConstraintTarget, b: ConstraintTarget): SceneObject
 ```
 
-Constrains two curves to be tangent (1 dim): a line and a circle/arc/ellipse, or any two of circle/arc/ellipse. The tangency side (internal vs external) is locked from the guess positions. Also accepts a fixed reference: `tangent(bore, l)` with a single-edge `project()` result.
+Constrains two curves to be tangent (1 dim): a line and a circle/arc/ellipse/elliptical arc, or any two of circle/arc/ellipse/elliptical arc. The tangency side (internal vs external) is locked from the guess positions. Also accepts a fixed reference: `tangent(bore, l)` with a single-edge `project()` result.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -140,9 +143,10 @@ Constrains two curves to be tangent (1 dim): a line and a circle/arc/ellipse, or
 equal(a: ConstraintTarget, b: ConstraintTarget, ...rest: ConstraintTarget[]): SceneObject
 ```
 
-Constrains two or more entities to be equal (1 dim per pair): equal line
-lengths or equal circle/arc radii. Every entity after the first is
-equated to the first.
+Constrains two or more entities to be equal: equal line lengths or equal
+circle/arc radii (1 dim per pair), or the same shape for ellipses and
+elliptical arcs (2 dims per pair: both semi-radii). Every entity after
+the first is equated to the first.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -158,7 +162,7 @@ equated to the first.
 concentric(a: ConstraintTarget, b: ConstraintTarget): SceneObject
 ```
 
-Constrains two circles/arcs/ellipses to share a center (2 dims).
+Constrains two circles/arcs/ellipses/elliptical arcs to share a center (2 dims).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -208,7 +212,8 @@ symmetric(a: ConstraintTarget, b: ConstraintTarget, l: ConstraintTarget): SceneO
 Constrains a and b to mirror across line l: two points (2 dims), or two
 entities of one kind — two lines (4), two circles (3: centers mirror,
 equal radii), two arcs (5: centers and starts mirror, the ends reflect),
-two ellipses (5: centers mirror, equal semi-radii, the RX axes reflect).
+two ellipses (5: centers mirror, equal semi-radii, the RX axes reflect),
+two elliptical arcs (7: the ellipse's five, and both ends reflect).
 The entity forms are what the sketch Mirror tool writes, one statement
 per mirrored entity.
 
@@ -291,16 +296,16 @@ radius(c: ConstraintTarget, value: NumberParam, axis?: 'x' | 'y'): Dimension
 ```
 
 Dimensions the radius of a circle or arc, or one semi-radius of an
-ellipse: `radius(el, 20, 'x')` sizes the RX axis, `'y'` the RY axis
-(the axis is required for an ellipse and refused elsewhere).
+ellipse or an elliptical arc: `radius(el, 20, 'x')` sizes the RX axis,
+`'y'` the RY axis (the axis is required there and refused elsewhere).
 
 **Returns**: [`Dimension`](/docs/api/types/dimension)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `c` | [ConstraintTarget](#constraint-targets) | The circle, arc or ellipse |
+| `c` | [ConstraintTarget](#constraint-targets) | The circle, arc, ellipse or elliptical arc |
 | `value` | NumberParam | The radius value |
-| `axis` | 'x' \| 'y' | Ellipses only: which semi-radius, `'x'` (RX) or `'y'` (RY) *(optional)* |
+| `axis` | 'x' \| 'y' | Ellipses and elliptical arcs only: which semi-radius, `'x'` (RX) or `'y'` (RY) *(optional)* |
 
 ---
 

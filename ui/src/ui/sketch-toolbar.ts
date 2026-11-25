@@ -39,6 +39,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'arc3', label: '3-Point Arc', caption: '3-Pt Arc', iconPng: 'arc' },
     { id: 'arc2', label: 'Center Arc', iconPng: 'carc' },
+    { id: 'earc', label: 'Elliptical Arc', caption: 'Ell. Arc', iconPng: 'earc' },
   ]},
   { tools: [
     { id: 'slot', label: 'Slot', iconPng: 'slot' },
@@ -74,6 +75,7 @@ export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   polyline: 'll',
   arc3: 'a',
   arc2: 'ca',
+  earc: 'ea',
   bezier: 'b',
   spline: 'sl',
   fillet: 'f',

@@ -90,6 +90,24 @@ export class SketchSolverContext {
     return id;
   }
 
+  /** Elliptical arc [cx, cy, rx, ry, θ, sx, sy, ex, ey]: its ellipse (θ in
+   * radians) and its two ends, every one a guess. */
+  addEllipticalArc(
+    owner: SceneObject,
+    ellipse: { cx: number; cy: number; rx: number; ry: number; theta: number },
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    opts?: EntityOptions,
+  ): number {
+    const id = this.system.eArc(
+      ellipse.cx, ellipse.cy, ellipse.rx, ellipse.ry, ellipse.theta,
+      start.x, start.y, end.x, end.y,
+      opts,
+    );
+    this.entityStatements.set(id, owner);
+    return id;
+  }
+
   /**
    * INTERNAL affine tie for derived duplicates (2D copy instances): no
    * statement mapping — the record is internal (negative id) and diagnose

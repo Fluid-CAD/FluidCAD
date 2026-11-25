@@ -249,6 +249,58 @@ export class Geometry {
     throw new Error('Failed to create ellipse edge: ' + status);
   }
 
+  /**
+   * An open piece of an ellipse, from parameter `fromParam` to `toParam`
+   * (radians, `fromParam < toParam`), running counter-clockwise about
+   * `normal`. The parameter is OCCT's own: P(u) = center + major·cos u·X +
+   * minor·sin u·Y with X the major axis direction and Y = normal × X. The
+   * edge starts at `fromParam` and ends at `toParam`; a span of a whole
+   * turn is the closed ellipse with its seam vertex at `fromParam`.
+   */
+  static makeEllipseArcEdge(
+    center: Point,
+    majorRadius: number,
+    minorRadius: number,
+    normal: Vector3d,
+    majorAxisDir: Vector3d,
+    fromParam: number,
+    toParam: number,
+  ): Edge {
+    if (minorRadius < DEGENERATE_TOL || majorRadius < minorRadius) {
+      throw new Error(
+        `Cannot create an elliptical arc with radii ${majorRadius} and ${minorRadius} — both must be positive, the major one the larger`,
+      );
+    }
+    if (!(toParam - fromParam > DEGENERATE_TOL)) {
+      throw new Error('Cannot create a zero-length elliptical arc — its start and end coincide');
+    }
+    const oc = getOC();
+    const [gpCenter, disposeCenter] = Convert.toGpPnt(center);
+    const [gpNormal, disposeNormal] = Convert.toGpDir(normal);
+    const [gpAxisDir, disposeAxisDir] = Convert.toGpDir(majorAxisDir);
+    const ax2 = new oc.gp_Ax2(gpCenter, gpNormal, gpAxisDir);
+    const gpEllipse = new oc.gp_Elips(ax2, majorRadius, minorRadius);
+    const edgeMaker = new oc.BRepBuilderAPI_MakeEdge(gpEllipse, fromParam, toParam);
+    const dispose = () => {
+      edgeMaker.delete();
+      gpEllipse.delete();
+      ax2.delete();
+      disposeAxisDir();
+      disposeNormal();
+      disposeCenter();
+    };
+
+    if (edgeMaker.IsDone()) {
+      const edge = edgeMaker.Edge();
+      dispose();
+      return Edge.fromTopoDSEdge(edge);
+    }
+
+    const status = edgeMaker.Error();
+    dispose();
+    throw new Error('Failed to create elliptical arc edge: ' + status);
+  }
+
   static makeBezierCurve(poles: Point[]): Geom_BezierCurve {
     const oc = getOC();
     const polesArray = new oc.TColgp_Array1OfPnt(1, poles.length);

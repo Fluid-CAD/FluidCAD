@@ -5,10 +5,21 @@
 // (P4). Nothing outside this directory may depend on LM internals —
 // the engine-shaped interface here is the swap seam.
 
-export { SketchSystem, PARAM_COUNT, FREE_PARAMS } from './system.js';
+export { SketchSystem, PARAM_COUNT, FREE_PARAMS, isEllipseKind } from './system.js';
 export type { CompiledSystem, EntityOptions } from './system.js';
 export { solve } from './solve.js';
 export { diagnose } from './diagnose.js';
+export {
+  ellipseArcContainsParam,
+  ellipseArcPointAt,
+  ellipseArcSpan,
+  ellipseParamOf,
+  ellipsePointAt,
+  ellipseSweep,
+  projectOntoEllipse,
+  sampleEllipseArc,
+} from './earc-geometry.js';
+export type { EllipseArcSpan, EllipseFrame } from './earc-geometry.js';
 export {
   center, end, entityRef, start,
   DATUM_ENTITY_IDS, ORIGIN_ENTITY, X_AXIS_ENTITY, Y_AXIS_ENTITY, datumNameOf,

@@ -1450,7 +1450,9 @@ function loadAgentPanel(): Promise<ChatPanel> {
       slot: leftSlot,
       settings: () => agentSettings.current,
       openExternal: (url) => void ExternalLinks.open(url),
-      openSettings: () => settingsModal.show('agent', 'api-keys'),
+      openSettings: (section) => settingsModal.show('agent', section ?? 'api-keys'),
+      // The engine saved "Always" for installs itself: Settings → Agent shows it from now on.
+      onInstallsAlwaysAllowed: () => agentSettings.update({ ...agentSettings.current, alwaysAllowInstalls: true }),
       // `@` in the composer names a project file: the `+` picker's listing.
       listFiles: async () => (await listWorkspaceFiles()).files,
       openSource: editorSurfaceEnabled

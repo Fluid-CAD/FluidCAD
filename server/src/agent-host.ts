@@ -32,6 +32,12 @@ export type AgentHostDeps = {
   unit(): string;
   loadPreferences(): Promise<Preferences>;
   /**
+   * Merges `patch` over the stored `agent` preferences and saves them ("Always"
+   * on an install's card). Absent on an engine that cannot: the card then
+   * offers no "Always".
+   */
+  updateAgentPreferences?(patch: Partial<Preferences['agent']>): Promise<unknown>;
+  /**
    * The parameters the model on screen declared in its last finished render,
    * each with the value it has now (a session override included): what a
    * chat's parameter card may offer. Absent on an engine that cannot say;

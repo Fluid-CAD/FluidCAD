@@ -9,6 +9,7 @@ import {
   TEXT_INPUT,
   TOGGLE,
   field,
+  toggleRow,
   type PersistPreference,
   type SettingsContext,
   type SettingsTab,
@@ -72,6 +73,7 @@ export class AgentTab implements SettingsTab {
   private ctx!: SettingsContext;
   private defaultAgent!: HTMLSelectElement;
   private permission!: HTMLSelectElement;
+  private alwaysInstall!: HTMLInputElement;
   private readonly sections = new Map<string, Section>();
   /** A section asked for before detection showed it: unfolded and scrolled to once it does. */
   private revealAfterDetect: string | null = null;
@@ -125,6 +127,19 @@ export class AgentTab implements SettingsTab {
       ),
     );
 
+    const install = toggleRow('Install hub packages without asking', (checked) => {
+      this.draft.alwaysAllowInstalls = checked;
+      changed();
+    });
+    install.input.dataset.ref = 'always-allow-installs';
+    install.row.classList.add('!mb-1');
+    const installHint = document.createElement('p');
+    installHint.className = `${FIELD_HINT} mb-4`;
+    installHint.textContent =
+      'Turned on by Always on an install’s card. A package’s code runs in FluidCAD with your permissions: off, the agent asks before every install.';
+    this.alwaysInstall = install.input;
+    general.body.append(install.row, installHint);
+
     // The `api` agent's keys and servers: shown once detection says the engine has it.
     this.keysSection.classList.add('hidden');
     const keysHint = document.createElement('p');
@@ -175,6 +190,7 @@ export class AgentTab implements SettingsTab {
     this.draft = { ...agentSettings.current, providers: cloneProviders(agentSettings.current.providers) };
     this.defaultAgent.value = this.draft.defaultAgent ?? '';
     this.permission.value = this.draft.permissionMode;
+    this.alwaysInstall.checked = this.draft.alwaysAllowInstalls === true;
     // Typed keys go with the fields: every open (and Cancel) starts them empty.
     this.paintKeys();
     this.paintServers();
@@ -254,6 +270,11 @@ export class AgentTab implements SettingsTab {
       defaultAgent: this.draft.defaultAgent,
       permissionMode: this.draft.permissionMode,
     };
+    if (this.draft.alwaysAllowInstalls === true) {
+      next.alwaysAllowInstalls = true;
+    } else {
+      delete next.alwaysAllowInstalls;
+    }
     if (sendProviders) {
       next.providers = cloneProviders(providers);
       if (next.providers.length === 0) {
@@ -266,6 +287,8 @@ export class AgentTab implements SettingsTab {
     const payload = {
       defaultAgent: next.defaultAgent,
       permissionMode: next.permissionMode,
+      // Only when changed here: a page that has not heard of an Always chosen elsewhere must not clear it.
+      ...((next.alwaysAllowInstalls === true) !== (previous.alwaysAllowInstalls === true) ? { alwaysAllowInstalls: next.alwaysAllowInstalls === true } : {}),
       ...(sendProviders ? { providers: cloneProviders(providers) } : {}),
     } as unknown as AgentPreferences;
     // Keys typed for servers the engine does not know yet: stored once the servers are saved.
@@ -874,6 +897,7 @@ function sameSettings(a: AgentPreferences, b: AgentPreferences): boolean {
   return (
     (a.defaultAgent ?? null) === (b.defaultAgent ?? null) &&
     a.permissionMode === b.permissionMode &&
+    (a.alwaysAllowInstalls === true) === (b.alwaysAllowInstalls === true) &&
     sameProviders(a.providers ?? [], b.providers ?? [])
   );
 }

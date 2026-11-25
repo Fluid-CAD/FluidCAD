@@ -1,5 +1,5 @@
 import { ChatIcons } from '../chat-icons';
-import type { ApprovalDecision, ChatPart, ToolPart } from '../chat-types';
+import type { ApprovalDecision, ChatPart, InstallSummary, ToolPart } from '../chat-types';
 import { ChangePreviewView } from './change-preview';
 import type { PartContext, PartView } from './part-view';
 
@@ -139,6 +139,14 @@ const STATE_TEXT: Record<ToolPart['state'], string> = {
  * the diff: it fills in while the buttons already work. Once answered it is
  * kept with the card's details.
  *
+ * **Package installs.** An `install_package` call waiting shows a
+ * confirmation card instead ({@link installSummaryView}): the package, its
+ * version, publisher, license, installs and what it exports as the hub
+ * describes them (filled in while the buttons already work), where it goes,
+ * an upgrade or a deprecation; then Install, Always (when offered: installs
+ * run without asking from then on, until Settings → Agent turns it off) and
+ * Deny. An install that ran without asking because of Always says so.
+ *
  * **Dirty buffer (§12.2).** A write refused because the file has unsaved
  * changes in the editor (`errorCode: 'dirty-buffer'`) shows as a card naming
  * the file, with Show in editor when the page has one.
@@ -259,17 +267,27 @@ export class ToolPartView implements PartView {
       this.deciding = null;
     }
     this.approval.replaceChildren();
-    const allowed = approval?.decision === 'allow' || approval?.decision === 'allow-session';
+    const allowed = approval?.decision === 'allow' || approval?.decision === 'allow-session' || approval?.decision === 'allow-always';
     this.approval.classList.toggle('hidden', !waiting && !allowed);
     this.approval.dataset.mode = waiting ? 'waiting' : 'answered';
     if (!waiting) {
       if (allowed) {
-        this.approval.append(
-          ChatIcons.span(ChatIcons.CHECK, '[&>svg]:size-3.5'),
-          text(approval!.decision === 'allow-session' ? 'You allowed this for the session' : 'You allowed this'),
-        );
+        this.approval.append(ChatIcons.span(ChatIcons.CHECK, '[&>svg]:size-3.5'), text(allowedLine(approval!)));
+        if (approval!.decision === 'allow-always' && this.ctx.openAgentSettings) {
+          const change = document.createElement('button');
+          change.type = 'button';
+          change.dataset.ref = 'always-settings';
+          change.className = 'link link-hover chat-approval-link';
+          change.textContent = 'Change';
+          change.title = 'Settings → Agent: ask before installing packages again';
+          change.addEventListener('click', () => this.ctx.openAgentSettings?.());
+          this.approval.append(change);
+        }
       }
       return;
+    }
+    if (part.name === 'install_package') {
+      this.approval.append(installSummaryView(part.install ?? installFromInput(part.input)));
     }
     // The shape first, then the patch: what the change does to the model, when the engine can say.
     if (this.preview.shown) {
@@ -288,9 +306,15 @@ export class ToolPartView implements PartView {
     if (approval && this.ctx.decideApproval) {
       const buttons = document.createElement('div');
       buttons.className = 'chat-approval-buttons';
-      buttons.append(this.decisionButton('allow', 'Allow', 'btn-primary'));
+      const installing = part.name === 'install_package';
+      buttons.append(this.decisionButton('allow', installing ? 'Install' : 'Allow', 'btn-primary'));
       if (approval.canAllowSession) {
         buttons.append(this.decisionButton('allow-session', 'Allow for this session', 'btn-ghost chat-approval-secondary'));
+      }
+      if (approval.canAllowAlways) {
+        const always = this.decisionButton('allow-always', 'Always', 'btn-ghost chat-approval-secondary');
+        always.title = 'Install this, and let the agent install packages without asking from now on. Settings → Agent turns it off.';
+        buttons.append(always);
       }
       buttons.append(this.decisionButton('deny', 'Deny', 'btn-ghost chat-approval-secondary'));
       row.append(buttons);
@@ -450,6 +474,10 @@ export class ToolPartView implements PartView {
     if (this.preview.shown && part.state !== 'awaiting-approval') {
       this.details.append(previewSection(this.preview.el));
     }
+    // The package an install was about, as its card showed it.
+    if (part.install && part.state !== 'awaiting-approval') {
+      this.details.append(labelled('Package', installSummaryView(part.install)));
+    }
     this.details.append(section('Input', formatInput(part.input)));
     if (part.diff && part.state !== 'awaiting-approval') {
       this.details.append(diffSection(part.diff));
@@ -560,6 +588,18 @@ function section(label: string, body: string): HTMLElement {
   return wrap;
 }
 
+/** The quiet line of an allowed call. */
+function allowedLine(approval: NonNullable<ToolPart['approval']>): string {
+  switch (approval.decision) {
+    case 'allow-session':
+      return 'You allowed this for the session';
+    case 'allow-always':
+      return approval.standing ? 'Installed without asking: you chose Always for package installs' : 'You allowed package installs always';
+    default:
+      return 'You allowed this';
+  }
+}
+
 /** What the approval asks, by what the call does. */
 function approvalQuestion(part: ToolPart): string {
   if (part.name === 'install_package') {
@@ -610,6 +650,150 @@ export function dirtyAbsPath(part: ToolPart): string | null {
   }
   const input = part.input as { path?: unknown } | null;
   return typeof input?.path === 'string' && /^([A-Za-z]:)?[\\/]/.test(input.path) ? input.path : null;
+}
+
+/** An install's summary from the call's own input: what a card from an older engine (no `install`) still knows. */
+function installFromInput(input: unknown): InstallSummary {
+  const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  return {
+    state: 'unavailable',
+    name: typeof i.name === 'string' ? i.name : '',
+    version: typeof i.version === 'string' && i.version !== '' ? i.version : null,
+    target: i.target === 'library' || i.target === 'project' ? i.target : null,
+    upgrade: i.upgrade === true,
+  };
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
+}
+
+/** Where the install puts the package, in the user's words. */
+function installTarget(target: InstallSummary['target']): string {
+  switch (target) {
+    case 'project':
+      return 'Copied into this project’s packages/ folder';
+    case 'library':
+      return 'Goes to your package library';
+    default:
+      return 'Goes where Settings → Packages puts new packages';
+  }
+}
+
+/**
+ * The package an install waits on (§ install cards): its name and version,
+ * who publishes it, its license and installs, its description and what it
+ * exports, where it goes, and a note for an upgrade, a copy already here, a
+ * deprecation or a hub that could not say. The hub's text is the
+ * publisher's: it is set as text only.
+ */
+export function installSummaryView(install: InstallSummary): HTMLElement {
+  const card = document.createElement('div');
+  card.className = 'chat-install';
+  card.dataset.ref = 'install';
+  card.dataset.state = install.state;
+
+  const head = document.createElement('div');
+  head.className = 'chat-install-head';
+  head.append(ChatIcons.span(ChatIcons.PACKAGE, '[&>svg]:size-4 chat-install-icon'));
+  const titles = document.createElement('div');
+  titles.className = 'min-w-0 flex-1';
+  const nameRow = document.createElement('div');
+  nameRow.className = 'chat-install-name-row';
+  const name = document.createElement('span');
+  name.className = 'chat-install-name';
+  name.dataset.ref = 'install-name';
+  name.textContent = install.name || 'A package';
+  const version = document.createElement('span');
+  version.className = 'chat-install-version';
+  version.dataset.ref = 'install-version';
+  version.textContent = install.version ?? (install.state === 'loading' ? '' : 'latest');
+  nameRow.append(name);
+  if (version.textContent) {
+    nameRow.append(version);
+  }
+  titles.append(nameRow);
+  const meta = [
+    install.publisher ? `by ${install.publisher}` : null,
+    install.license ?? null,
+    typeof install.installs === 'number' ? plural(install.installs, 'install', 'installs') : null,
+  ].filter((piece): piece is string => !!piece);
+  if (meta.length > 0) {
+    const metaLine = document.createElement('div');
+    metaLine.className = 'chat-install-meta';
+    metaLine.dataset.ref = 'install-meta';
+    metaLine.textContent = meta.join(' · ');
+    titles.append(metaLine);
+  }
+  head.append(titles);
+  card.append(head);
+
+  if (install.description) {
+    const description = document.createElement('p');
+    description.className = 'chat-install-description';
+    description.dataset.ref = 'install-description';
+    description.textContent = install.description;
+    card.append(description);
+  }
+
+  const facts: string[] = [];
+  if (install.contents) {
+    const { features, parts, assemblies } = install.contents;
+    const exports = [
+      features > 0 ? plural(features, 'feature', 'features') : null,
+      parts > 0 ? plural(parts, 'part', 'parts') : null,
+      assemblies > 0 ? plural(assemblies, 'assembly', 'assemblies') : null,
+    ].filter((piece): piece is string => !!piece);
+    if (exports.length > 0) {
+      facts.push(exports.join(', '));
+    }
+  }
+  facts.push(installTarget(install.target));
+  const factLine = document.createElement('div');
+  factLine.className = 'chat-install-facts';
+  factLine.dataset.ref = 'install-facts';
+  factLine.textContent = facts.join(' · ');
+  card.append(factLine);
+
+  const note = (ref: string, icon: string, words: string, tone = '') => {
+    const row = document.createElement('div');
+    row.className = `chat-install-note ${tone}`.trim();
+    row.dataset.ref = ref;
+    row.append(ChatIcons.span(icon, '[&>svg]:size-3.5 mt-px'), text(words));
+    card.append(row);
+  };
+  if (install.upgrade) {
+    note('install-upgrade', ChatIcons.INFO, install.pinned ? `Moves this project up from ${install.pinned}` : 'Moves this project to a newer version');
+  }
+  if (install.version && install.installed?.includes(install.version)) {
+    note('install-local', ChatIcons.INFO, 'Already on this machine: nothing to download');
+  }
+  if (install.deprecated) {
+    note('install-deprecated', ChatIcons.WARNING, `Deprecated: ${install.deprecated}`, 'chat-install-warning');
+  }
+  if (install.state === 'loading') {
+    const loading = document.createElement('div');
+    loading.className = 'chat-install-loading';
+    loading.dataset.ref = 'install-loading';
+    const spinner = document.createElement('span');
+    spinner.className = 'loading loading-spinner loading-xs';
+    loading.append(spinner, text('Reading the package on the hub…'));
+    card.append(loading);
+  } else if (install.state === 'unavailable' && install.problem) {
+    note('install-problem', ChatIcons.INFO, `The hub could not describe it: ${firstLine(readableError(install.problem))}`);
+  }
+  return card;
+}
+
+/** A labelled section of the details holding an element. */
+function labelled(label: string, body: HTMLElement): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-tool-section';
+  const heading = document.createElement('div');
+  heading.className = 'chat-tool-section-label';
+  heading.textContent = label;
+  wrap.append(heading, body);
+  return wrap;
 }
 
 /** What the change did to the model, in the details, under its label. */

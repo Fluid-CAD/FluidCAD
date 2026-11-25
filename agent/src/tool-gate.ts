@@ -33,11 +33,13 @@ import {
   TOOL_CLASSES,
   isReadOnlyClass,
   buildCandidate,
+  getHubPackage,
   previewSourceEdit,
   resolveCandidate,
   writeFile,
   type AskUserInput,
   type Candidate,
+  type GetHubPackageOutput,
   type McpToolCall,
   type McpToolClass,
   type McpToolGate,
@@ -65,7 +67,7 @@ import {
   variantsResult,
   type VariantsOutcome,
 } from './variants.ts';
-import type { ApprovalDecision, ChangePreview, ChatEvent, ChatPart, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart, ParamsPart, ShowPart } from './types.ts';
+import type { ApprovalDecision, ChangePreview, ChatEvent, ChatPart, InstallSummary, PermissionMode, QuestionItem, QuestionPart, ToolPart, VariantTile, VariantsPart, ParamsPart, ShowPart } from './types.ts';
 
 /** Longest tool output text kept in the transcript. */
 const MAX_OUTPUT_CHARS = 20_000;
@@ -103,6 +105,13 @@ const FILE_EDIT_TOOLS = new Set(['write_file', 'edit_range']);
  * the turn puts the pins back. What they installed stays in the library.
  */
 const PIN_TOOLS = new Set(['install_package']);
+/**
+ * The tools whose card offers "Always": the user may let the agent call them
+ * without asking from then on, in every session, until Settings → Agent
+ * turns it off. Only installs: everything else outside the workspace asks
+ * every time.
+ */
+const ALWAYS_TOOLS = new Set(['install_package']);
 /** The project's configuration file, where the pins are. */
 const PROJECT_CONFIG_FILE = 'fluidcad.json';
 
@@ -135,6 +144,13 @@ export type ToolGateHost = {
   dropCheckpoint(turnId: string, filePath: string): void;
   /** The model on screen and the parameters its last render declared: what a parameter card is made from (§26). */
   model(): ParamCardModel;
+  /**
+   * Whether the user chose "Always" for `name` (an install): it then runs
+   * without asking. Absent: never.
+   */
+  alwaysAllowed?(name: string): Promise<boolean>;
+  /** Remembers "Always" for `name`, beyond this session. Absent: the card offers no "Always". */
+  allowAlways?(name: string): Promise<void>;
 };
 
 /** Timers, injectable for tests. */
@@ -158,6 +174,13 @@ export type ToolKind = ToolPart['kind'];
 /** How a wait for the user ended. */
 type ApprovalOutcome = ApprovalDecision | 'stopped' | 'timeout' | 'aborted' | 'shutdown';
 
+type AllowedOutcome = 'allow' | 'allow-session' | 'allow-always';
+
+/** Whether an outcome lets the call run. */
+function isAllowed(outcome: ApprovalOutcome): outcome is AllowedOutcome {
+  return outcome === 'allow' || outcome === 'allow-session' || outcome === 'allow-always';
+}
+
 /** Why pending approvals are settled without the user's answer. */
 export type ApprovalSweep = 'stopped' | 'shutdown';
 
@@ -166,6 +189,7 @@ type PendingApproval = {
   turnId: string;
   name: string;
   canAllowSession: boolean;
+  canAllowAlways: boolean;
   /** The preview of the change the call would make, when it is one to a model file (§25). */
   preview?: ChangePreviewJob;
   settle(outcome: ApprovalOutcome): void;
@@ -342,11 +366,16 @@ export class ToolGate implements McpToolGate {
       state: 'running',
       input: call.input ?? {},
       ...(preview && rel ? { diff: unifiedDiff(rel, preview) } : {}),
+      ...(call.name === 'install_package' ? { install: installAsked(call.input) } : {}),
     };
     this.host.emit({ type: 'part-start', messageId, part });
     const update = (patch: Partial<ToolPart>) => this.host.emit({ type: 'part-update', messageId, partId: part.id, patch });
 
-    if (needsApproval(call.name, turn.mode) && !this.allowedForSession.has(call.name)) {
+    const asks = needsApproval(call.name, turn.mode) && !this.allowedForSession.has(call.name);
+    if (asks && (await this.isAlwaysAllowed(call.name))) {
+      // The user chose "Always" for this tool before: it runs, and the card says why nothing was asked.
+      update({ approval: { id: randomUUID(), canAllowSession: false, decision: 'allow-always', standing: true } });
+    } else if (asks) {
       // A change to a model file: what it does to the model fills in on the card while it waits (§25).
       const changePreview = preview && isModelFile(preview.absPath)
         ? new ChangePreviewJob(
@@ -363,8 +392,12 @@ export class ToolGate implements McpToolGate {
             this.autoPreviewMaxBuildMs,
           )
         : undefined;
+      if (part.install) {
+        // What the hub says of the package fills in on the card while it waits, and never holds the wait.
+        void this.readInstall(part.install, messageId, part.id, update);
+      }
       const outcome = await this.waitForApproval(turn.turnId, call.name, update, signal, changePreview);
-      if (outcome !== 'allow' && outcome !== 'allow-session') {
+      if (!isAllowed(outcome)) {
         this.host.persist();
         return { allow: false, message: outcomeMessage(outcome) };
       }
@@ -470,18 +503,25 @@ export class ToolGate implements McpToolGate {
   /**
    * The user's answer to an approval. `not-found`: no call waits on that id
    * (unknown, or already settled); `not-offered`: "Allow for this session"
-   * was asked of a call that does not offer it.
+   * or "Always" was asked of a call that does not offer it.
+   *
+   * "Always" lets this call run at once and remembers the choice through the
+   * host, beyond the session; a later call of the tool asks again only if
+   * that could not be saved, or the user turned it off since.
    */
   decide(approvalId: string, decision: ApprovalDecision): 'ok' | 'not-found' | 'not-offered' {
     const pending = this.pending.get(approvalId);
     if (!pending) {
       return 'not-found';
     }
-    if (decision === 'allow-session' && !pending.canAllowSession) {
+    if ((decision === 'allow-session' && !pending.canAllowSession) || (decision === 'allow-always' && !pending.canAllowAlways)) {
       return 'not-offered';
     }
     if (decision === 'allow-session') {
       this.allowedForSession.add(pending.name);
+    }
+    if (decision === 'allow-always') {
+      this.host.allowAlways?.(pending.name).catch((e) => console.error(`[agent] could not remember "Always" for ${pending.name}:`, e));
     }
     pending.settle(decision);
     return 'ok';
@@ -866,6 +906,45 @@ export class ToolGate implements McpToolGate {
     }
   }
 
+  /** Whether the user chose "Always" for `name`; a preference that cannot be read counts as no. */
+  private async isAlwaysAllowed(name: string): Promise<boolean> {
+    if (!ALWAYS_TOOLS.has(name) || !this.host.alwaysAllowed) {
+      return false;
+    }
+    try {
+      return await this.host.alwaysAllowed(name);
+    } catch (e) {
+      console.error('[agent] could not read the "Always" preference:', e);
+      return false;
+    }
+  }
+
+  /**
+   * Reads the package an install waits on from the hub (through the engine)
+   * and puts what it says on the card. Best effort: a hub that cannot say
+   * leaves the card with what the call asked, and the buttons work all along.
+   */
+  private async readInstall(
+    asked: InstallSummary,
+    messageId: string,
+    partId: string,
+    update: (patch: Partial<ToolPart>) => void,
+  ): Promise<void> {
+    let install: InstallSummary;
+    try {
+      const read = await getHubPackage({ pinnedWorkspace: this.host.pinnedWorkspace(), name: asked.name, ...(asked.version ? { version: asked.version } : {}) });
+      install = read.ok === true ? installRead(asked, read.data) : { ...asked, state: 'unavailable', problem: read.message };
+    } catch (e) {
+      install = { ...asked, state: 'unavailable', problem: e instanceof Error ? e.message : String(e) };
+    }
+    // The card may be gone (a reverted turn), or answered: what the hub said is still worth keeping on it.
+    if (this.host.part(messageId, partId)?.type !== 'tool') {
+      return;
+    }
+    update({ install });
+    this.host.persist();
+  }
+
   private waitForApproval(
     turnId: string,
     name: string,
@@ -875,7 +954,9 @@ export class ToolGate implements McpToolGate {
   ): Promise<ApprovalOutcome> {
     const id = randomUUID();
     const canAllowSession = canAllowForSession(name);
-    update({ state: 'awaiting-approval', approval: { id, canAllowSession } });
+    const canAllowAlways = ALWAYS_TOOLS.has(name) && !!this.host.allowAlways;
+    const approval = { id, canAllowSession, ...(canAllowAlways ? { canAllowAlways } : {}) };
+    update({ state: 'awaiting-approval', approval });
     return new Promise<ApprovalOutcome>((resolve) => {
       let settled = false;
       const onAbort = () => settle('aborted');
@@ -890,11 +971,11 @@ export class ToolGate implements McpToolGate {
         signal.removeEventListener('abort', onAbort);
         // The preview ends with the wait, whatever ended it: a build that has not started is not started.
         const unfinished = preview?.cancel();
-        update({ ...outcomePatch(outcome, { id, canAllowSession }), ...(unfinished ? { preview: unfinished } : {}) });
+        update({ ...outcomePatch(outcome, approval), ...(unfinished ? { preview: unfinished } : {}) });
         this.host.approvalsChanged(turnId, this.pendingApprovalIds(turnId));
         resolve(outcome);
       };
-      this.pending.set(id, { id, turnId, name, canAllowSession, ...(preview ? { preview } : {}), settle });
+      this.pending.set(id, { id, turnId, name, canAllowSession, canAllowAlways, ...(preview ? { preview } : {}), settle });
       signal.addEventListener('abort', onAbort, { once: true });
       this.host.approvalsChanged(turnId, this.pendingApprovalIds(turnId));
       // Saved while waiting: an engine restart now finds the card and says so.
@@ -984,10 +1065,11 @@ export function relativeTo(workspacePath: string, absPath: string): string {
   return rel === '' || rel.startsWith('..') || path.isAbsolute(rel) ? absPath : rel.split(path.sep).join('/');
 }
 
-function outcomePatch(outcome: ApprovalOutcome, approval: { id: string; canAllowSession: boolean }): Partial<ToolPart> {
+function outcomePatch(outcome: ApprovalOutcome, approval: { id: string; canAllowSession: boolean; canAllowAlways?: boolean }): Partial<ToolPart> {
   switch (outcome) {
     case 'allow':
     case 'allow-session':
+    case 'allow-always':
       return { state: 'running', approval: { ...approval, decision: outcome } };
     case 'deny':
       return { state: 'denied', approval: { ...approval, decision: 'deny' }, error: 'Declined.' };
@@ -1002,7 +1084,7 @@ function outcomePatch(outcome: ApprovalOutcome, approval: { id: string; canAllow
   }
 }
 
-function outcomeMessage(outcome: Exclude<ApprovalOutcome, 'allow' | 'allow-session'>): string {
+function outcomeMessage(outcome: Exclude<ApprovalOutcome, AllowedOutcome>): string {
   switch (outcome) {
     case 'deny':
       return DECLINED_MESSAGE;
@@ -1082,6 +1164,45 @@ function parseToolError(text: string): { code: string; message?: string; details
 function dirtyFileOf(_state: CallState, failure: { details?: any }): string | null {
   const files = failure.details?.dirtyFiles;
   return Array.isArray(files) && typeof files[0] === 'string' ? files[0] : null;
+}
+
+/** What an install's card shows before the hub is read: the call's own name, version, target and upgrade. */
+export function installAsked(input: unknown): InstallSummary {
+  const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  return {
+    state: 'loading',
+    name: typeof i.name === 'string' ? i.name.trim() : '',
+    version: typeof i.version === 'string' && i.version !== '' ? i.version : null,
+    target: i.target === 'library' || i.target === 'project' ? i.target : null,
+    upgrade: i.upgrade === true,
+  };
+}
+
+/** The card's summary with what the hub says of the package (the version described is the one the install gets). */
+export function installRead(asked: InstallSummary, hub: GetHubPackageOutput): InstallSummary {
+  const described = hub.described;
+  const parts = described?.parts ?? [];
+  return {
+    ...asked,
+    state: 'ready',
+    version: asked.version ?? described?.version ?? hub.installVersion ?? hub.latestVersion,
+    publisher: hub.publisher,
+    description: hub.description,
+    license: hub.license,
+    installs: hub.installs,
+    ...(hub.deprecated ? { deprecated: hub.deprecated } : {}),
+    ...(described
+      ? {
+          contents: {
+            features: described.features.length,
+            parts: parts.filter((p) => p.kind === 'part').length,
+            assemblies: parts.filter((p) => p.kind === 'assembly').length,
+          },
+        }
+      : {}),
+    installed: hub.installed,
+    pinned: hub.pinned,
+  };
 }
 
 /** A short title for a FluidCAD tool call, in the user's terms. */

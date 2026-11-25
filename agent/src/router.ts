@@ -269,8 +269,8 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
       return;
     }
     const decision = req.body?.decision;
-    if (decision !== 'allow' && decision !== 'allow-session' && decision !== 'deny') {
-      res.status(400).json({ error: '`decision` must be "allow", "allow-session" or "deny".' });
+    if (decision !== 'allow' && decision !== 'allow-session' && decision !== 'allow-always' && decision !== 'deny') {
+      res.status(400).json({ error: '`decision` must be "allow", "allow-session", "allow-always" or "deny".' });
       return;
     }
     const result = session.decideApproval(String(req.params.approvalId), decision as ApprovalDecision);
@@ -279,7 +279,7 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
         res.status(204).end();
         return;
       case 'not-offered':
-        res.status(400).json({ error: '"Allow for this session" is not offered for this action.' });
+        res.status(400).json({ error: `${decision === 'allow-always' ? '"Always"' : '"Allow for this session"'} is not offered for this action.` });
         return;
       case 'already-decided':
         res.status(409).json({ error: 'This approval was already settled.' });

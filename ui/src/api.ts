@@ -371,6 +371,8 @@ export interface AgentPreferences {
   providers?: AgentProviderConfig[];
   /** Ask before every edit (default), or apply workspace edits without asking. */
   permissionMode: 'ask' | 'auto-edits';
+  /** The agent installs hub packages without asking ("Always" on an install's card). Absent: it asks. */
+  alwaysAllowInstalls?: boolean;
 }
 
 /**

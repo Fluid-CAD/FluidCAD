@@ -104,8 +104,10 @@ export type ChatPanelDeps = {
   settings(): ChatPanelSettings;
   /** Open a web page in the user's browser, through the host (ExternalLinks). */
   openExternal(url: string): void;
-  /** Settings → Agent; absent where the page has no Settings. */
-  openSettings?(): void;
+  /** Settings → Agent, at `section` (its API keys when none is named); absent where the page has no Settings. */
+  openSettings?(section?: string): void;
+  /** The user chose "Always" on an install's card and the engine saved it: the page's agent settings follow. */
+  onInstallsAlwaysAllowed?(): void;
   /** Show a source location in the editor (a render error's line). */
   openSource?(filePath: string, line: number, column: number): void;
   /** Colours closed code blocks like the editor (Monaco's colorize), once the editor is loaded. */
@@ -328,7 +330,14 @@ export class ChatPanel {
       colorizer: () => deps.colorizer?.() ?? null,
       fileUrl: (name: string) => (this.state.session ? deps.client.fileUrl(this.state.session.id, name) : ''),
       ...(deps.openSource ? { openSource: deps.openSource } : {}),
-      decideApproval: (approvalId: string, decision: ApprovalDecision) => this.state.decideApproval(approvalId, decision),
+      decideApproval: async (approvalId: string, decision: ApprovalDecision) => {
+        const ok = await this.state.decideApproval(approvalId, decision);
+        if (ok && decision === 'allow-always') {
+          deps.onInstallsAlwaysAllowed?.();
+        }
+        return ok;
+      },
+      ...(deps.openSettings ? { openAgentSettings: () => deps.openSettings!('general') } : {}),
       answerQuestion: (questionId: string, reply: QuestionReply) => this.state.answerQuestion(questionId, reply),
       chooseVariant: (variantsId: string, reply: VariantsReply) => this.state.chooseVariant(variantsId, reply),
       saveVariantPicture: (variantsId: string, label: string, dataUrl: string) => this.state.saveVariantPicture(variantsId, label, dataUrl),

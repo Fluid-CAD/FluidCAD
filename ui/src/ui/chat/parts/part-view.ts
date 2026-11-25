@@ -14,6 +14,8 @@ export type PartContext = {
   fileUrl(name: string): string;
   /** Show a source location in the editor (a render error's line); absent without one. */
   openSource?(filePath: string, line: number, column: number): void;
+  /** Settings → Agent, where "Always" for installs is turned off; absent where the page has no Settings. */
+  openAgentSettings?(): void;
   /**
    * Answer a tool call waiting for approval; resolves true once the engine
    * took it (the card then changes through the part's next update). Absent:

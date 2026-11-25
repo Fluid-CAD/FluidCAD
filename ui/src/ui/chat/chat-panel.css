@@ -841,6 +841,96 @@
   color: var(--chat-muted);
 }
 
+[data-role='chat-panel'] .chat-approval-link {
+  margin-left: 2px;
+  font-size: inherit;
+  color: var(--color-base-content);
+}
+
+/* --- Install confirmation (install_package) -------------------------------- */
+
+[data-role='chat-panel'] .chat-install {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  background: color-mix(in oklab, var(--color-base-content) 3%, var(--color-base-100));
+}
+
+[data-role='chat-panel'] .chat-install-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+[data-role='chat-panel'] .chat-install-icon {
+  margin-top: 1px;
+  color: var(--color-primary);
+}
+
+[data-role='chat-panel'] .chat-install-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+[data-role='chat-panel'] .chat-install-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-install-version {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-install-meta,
+[data-role='chat-panel'] .chat-install-facts,
+[data-role='chat-panel'] .chat-install-loading {
+  font-size: 11px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-install-description {
+  margin: 0;
+  color: var(--color-base-content);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-install-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-install-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--chat-muted);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-install-note.chat-install-warning {
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-install-note.chat-install-warning > span:first-child {
+  color: var(--color-warning);
+}
+
 /* --- Question cards (ask_user) --------------------------------------------- */
 
 [data-role='chat-panel'] .chat-question {

@@ -152,6 +152,8 @@ export {
   type WriteFileOutput,
   type EditRangeInput,
 } from './tools/source.ts';
+// The in-app agent's gate reads the package an install waits on, for its card.
+export { getHubPackage, type GetHubPackageOutput } from './tools/hub.ts';
 export type { ToolResult } from './types.ts';
 export {
   createMcpHttpHandler,

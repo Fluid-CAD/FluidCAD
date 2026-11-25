@@ -42,6 +42,8 @@ let dirtyFiles: string[] = [];
 /** What the engine's `POST /api/hub/install` does; null answers 404 like any other route. */
 let hubInstall: ((body: any) => { status: number; json: unknown }) | null = null;
 let hubInstalls: any[] = [];
+/** The engine's `GET /api/hub/...` reads (get_hub_package), by URL; a URL not listed answers 404. */
+let hubReads: Record<string, unknown> = {};
 /**
  * What the engine's `POST /api/scratch-build` answers for a candidate text
  * (propose_variants); null answers 404 like any other route. A promise holds
@@ -69,6 +71,7 @@ beforeEach(async () => {
   dirtyFiles = [];
   hubInstall = null;
   hubInstalls = [];
+  hubReads = {};
   scratchBuild = null;
   scratchBuilds = [];
   scratchCost = null;
@@ -112,6 +115,11 @@ beforeEach(async () => {
     if (req.url === '/api/editor/dirty-files') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(dirtyFiles.map((p) => ({ path: p, lastModifiedMs: 0 }))));
+      return;
+    }
+    if (req.method === 'GET' && req.url && Object.hasOwn(hubReads, decodeURIComponent(req.url))) {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(hubReads[decodeURIComponent(req.url)]));
       return;
     }
     if (req.url === '/api/hub/install' && hubInstall) {
@@ -669,6 +677,144 @@ describe('ToolGate: installing a package from the hub', () => {
     expect(host.tools()[2].title).toBe('Upgrade to @acme/other from the hub');
     gate.decide(last, 'deny');
     await third;
+  });
+
+  /** The hub's answers for @acme/kit 0.2.0: two features, a part and an assembly. */
+  const kitOnHub = (overrides: Record<string, unknown> = {}) => {
+    hubReads[`/api/hub/packages/${KIT}`] = {
+      description: 'Standoffs and mounting bosses.',
+      publisher: 'acme',
+      latestVersion: '0.2.0',
+      counts: { installs: 1234, likes: 5 },
+      listing: { license: 'MIT' },
+      local: { installed: [], pinned: null },
+      versions: [{ version: '0.2.0', status: 'published' }],
+      ...overrides,
+    };
+    hubReads[`/api/hub/packages/${KIT}/versions/0.2.0`] = {
+      version: '0.2.0',
+      status: 'published',
+      manifest: {
+        features: [{ id: 'standoff', exportName: 'standoff' }, { id: 'boss', exportName: 'boss' }],
+        parts: [{ exportName: 'plate', kind: 'part' }, { exportName: 'stack', kind: 'assembly' }],
+      },
+    };
+  };
+
+  /** A host whose "Always" is a flag in memory, as the preference is on disk. */
+  class AlwaysHost extends FakeHost {
+    always = false;
+    remembered: string[] = [];
+    async alwaysAllowed(name: string): Promise<boolean> {
+      return name === 'install_package' && this.always;
+    }
+    async allowAlways(name: string): Promise<void> {
+      this.remembered.push(name);
+      this.always = true;
+    }
+  }
+
+  /** The install card once the hub's answer is on it. */
+  async function installRead(host: FakeHost, index = 0): Promise<ToolPart> {
+    for (let i = 0; i < 200; i++) {
+      const part = host.tools()[index];
+      if (part?.install && part.install.state !== 'loading') {
+        return part;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error('the install card was never read');
+  }
+
+  it("shows the package on the card: what the call asked at once, then what the hub says of it", async () => {
+    kitOnHub();
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT, target: 'project' } });
+    const id = await host.waiting();
+    const first = host.events.find((e) => e.type === 'part-start' && e.part.type === 'tool');
+    expect(first && first.type === 'part-start' && (first.part as ToolPart).install).toEqual({ state: 'loading', name: KIT, version: null, target: 'project', upgrade: false });
+    expect((await installRead(host)).install).toEqual({
+      state: 'ready',
+      name: KIT,
+      version: '0.2.0',
+      target: 'project',
+      upgrade: false,
+      publisher: 'acme',
+      description: 'Standoffs and mounting bosses.',
+      license: 'MIT',
+      installs: 1234,
+      contents: { features: 2, parts: 1, assemblies: 1 },
+      installed: [],
+      pinned: null,
+    });
+    gate.decide(id, 'deny');
+    await call;
+  });
+
+  it('a hub that cannot describe the package leaves the card with what the call asked, and the buttons work', async () => {
+    const host = new FakeHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT, version: '0.2.0' } });
+    const id = await host.waiting();
+    const part = await installRead(host);
+    expect(part.install).toMatchObject({ state: 'unavailable', name: KIT, version: '0.2.0', target: null });
+    expect(part.install!.problem).toBeTruthy();
+    expect(gate.decide(id, 'deny')).toBe('ok');
+    expect(textOf(await call)).toBe(DECLINED_MESSAGE);
+  });
+
+  it('Always installs at once, is remembered through the host, and later installs run without asking', async () => {
+    hubInstall = installing(null);
+    kitOnHub();
+    const host = new AlwaysHost();
+    const gate = new ToolGate(host);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    const id = await host.waiting();
+    expect(host.tools()[0].approval).toEqual({ id, canAllowSession: false, canAllowAlways: true });
+    expect(gate.decide(id, 'allow-always')).toBe('ok');
+    expect((await call).isError).not.toBe(true);
+    expect(host.remembered).toEqual(['install_package']);
+    expect(host.tools()[0]).toMatchObject({ state: 'done', approval: { id, decision: 'allow-always' } });
+
+    // The next install asks nothing: its card says why.
+    const approvalsBefore = host.approvalChanges.length;
+    expect((await client.callTool({ name: 'install_package', arguments: { name: '@acme/other' } })).isError).not.toBe(true);
+    expect(host.approvalChanges.length).toBe(approvalsBefore);
+    expect(host.tools()[1]).toMatchObject({ state: 'done', approval: { canAllowSession: false, decision: 'allow-always', standing: true } });
+    expect(hubInstalls.map((b) => b.name)).toEqual([KIT, '@acme/other']);
+
+    // Turned off (Settings → Agent): it asks again.
+    host.always = false;
+    const third = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    gate.decide(await host.waiting(2), 'deny');
+    expect(textOf(await third)).toBe(DECLINED_MESSAGE);
+  });
+
+  it('offers no Always without a host that can remember it, nor for anything but an install', async () => {
+    const plain = new FakeHost();
+    const gate = new ToolGate(plain);
+    const client = await connect(gate);
+    const call = client.callTool({ name: 'install_package', arguments: { name: KIT } });
+    const id = await plain.waiting();
+    expect(plain.tools()[0].approval).toEqual({ id, canAllowSession: false });
+    expect(gate.decide(id, 'allow-always')).toBe('not-offered');
+    gate.decide(id, 'deny');
+    await call;
+
+    const host = new AlwaysHost();
+    const editGate = new ToolGate(host);
+    const editClient = await connect(editGate);
+    const write = editClient.callTool({ name: 'write_file', arguments: { path: 'a.fluid.js', content: '// a\n' } });
+    const writeId = await host.waiting();
+    expect(host.tools()[0].approval).toEqual({ id: writeId, canAllowSession: true });
+    expect(editGate.decide(writeId, 'allow-always')).toBe('not-offered');
+    expect(host.remembered).toEqual([]);
+    editGate.decide(writeId, 'deny');
+    await write;
   });
 
   it('searches and reads the hub without asking', async () => {

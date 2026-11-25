@@ -26,7 +26,7 @@ import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createConfigurationScreenshot } from './routes/screenshot-configuration.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
-import { loadPreferences } from './preferences.ts';
+import { loadPreferences, updateAgentPreferences } from './preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
 import { createSceneRouter } from './routes/scene.ts';
 import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
@@ -419,6 +419,7 @@ app.use('/api', createAgentRoutes({
   renderState: agentRenderState,
   unit: projectUnitNow,
   loadPreferences,
+  updateAgentPreferences,
   modelParams: () => fluidCadServer.getParamDefinitions(),
 }));
 app.use('/api', MeshesRoute.router(core.meshes));

@@ -75,6 +75,10 @@ export type SessionDeps = {
   /** The model on screen and the parameters its last render declared, for `offer_params` (§26). */
   model(): ParamCardModel;
   instructions(): string;
+  /** Whether the user chose "Always" for tool `name` (an install). Absent: never. */
+  alwaysAllowed?(name: string): Promise<boolean>;
+  /** Remembers "Always" for tool `name` in the preferences. Absent: no card offers it. */
+  allowAlways?(name: string): Promise<void>;
   idleMs?: number;
   /** Approval timeout and timers (tests). */
   gate?: ToolGateOptions;
@@ -150,6 +154,8 @@ export class AgentSession {
         checkpoint: (turnId, checkpoint) => this.takeCheckpoint(turnId, checkpoint),
         dropCheckpoint: (turnId, filePath) => this.dropCheckpoint(turnId, filePath),
         model: () => deps.model(),
+        ...(deps.alwaysAllowed ? { alwaysAllowed: (name: string) => deps.alwaysAllowed!(name) } : {}),
+        ...(deps.allowAlways ? { allowAlways: (name: string) => deps.allowAlways!(name) } : {}),
       },
       deps.gate,
     );

@@ -126,6 +126,9 @@ export function applyAgentPreferences(prefs: UserPreferences): void {
     if (stored.permissionMode === 'auto-edits') {
       next.permissionMode = 'auto-edits';
     }
+    if (stored.alwaysAllowInstalls === true) {
+      next.alwaysAllowInstalls = true;
+    }
   }
   agentSettings.update(next);
 }

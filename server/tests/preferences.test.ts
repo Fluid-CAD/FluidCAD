@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import express from 'express';
-import { loadPreferences, preferredNewProjectUnit, resetPreferences, savePreferences, type Preferences } from '../src/preferences.ts';
+import { loadPreferences, preferredNewProjectUnit, resetPreferences, savePreferences, updateAgentPreferences, type Preferences } from '../src/preferences.ts';
 import { createPreferencesRouter } from '../src/routes/preferences.ts';
 import { AgentCredentials } from '../src/agent-credentials.ts';
 
@@ -230,6 +230,22 @@ describe.runIf(onLinux)('preferences — the agent panel', () => {
       const reset = await post(`${base}/preferences/reset`, {});
       expect(reset.agent).toEqual({ defaultAgent: null, permissionMode: 'ask' });
     });
+  });
+
+  it('keeps "Always" for installs as true or not at all, and updateAgentPreferences merges it like a POST', async () => {
+    await withServer(async (base) => {
+      let prefs = await post(`${base}/preferences`, { agent: { alwaysAllowInstalls: 'yes' } });
+      expect('alwaysAllowInstalls' in prefs.agent).toBe(false);
+      prefs = await post(`${base}/preferences`, { agent: { alwaysAllowInstalls: true } });
+      expect(prefs.agent.alwaysAllowInstalls).toBe(true);
+      prefs = await post(`${base}/preferences`, { agent: { permissionMode: 'auto-edits' } });
+      expect(prefs.agent.alwaysAllowInstalls).toBe(true);
+      prefs = await post(`${base}/preferences`, { agent: { alwaysAllowInstalls: false } });
+      expect('alwaysAllowInstalls' in prefs.agent).toBe(false);
+    });
+    const agent = await updateAgentPreferences({ alwaysAllowInstalls: true });
+    expect(agent).toMatchObject({ permissionMode: 'auto-edits', alwaysAllowInstalls: true });
+    expect((await loadPreferences()).agent.alwaysAllowInstalls).toBe(true);
   });
 
   it('drops the old API-key choice (Claude Code runs on the subscription only)', async () => {

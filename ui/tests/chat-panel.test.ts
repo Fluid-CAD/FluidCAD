@@ -1347,6 +1347,105 @@ describe('approval on tool cards (§12.1)', () => {
     expect(h.$('[data-part="tool"]')!.textContent).toContain('Install @acme/kit from the hub');
   });
 
+  /** An install waiting, with what the hub said of the package. */
+  const installPart = (overrides: Partial<ToolPart> = {}) => editPart({
+    name: 'install_package',
+    title: 'Install @acme/kit from the hub',
+    kind: 'outside',
+    input: { name: '@acme/kit' },
+    diff: undefined,
+    approval: { id: 'ap3', canAllowSession: false, canAllowAlways: true },
+    install: {
+      state: 'ready',
+      name: '@acme/kit',
+      version: '0.2.0',
+      target: null,
+      upgrade: false,
+      publisher: 'acme',
+      description: 'Standoffs and <b>mounting</b> bosses.',
+      license: 'MIT',
+      installs: 1234,
+      contents: { features: 2, parts: 1, assemblies: 0 },
+      installed: [],
+      pinned: null,
+    },
+    ...overrides,
+  });
+
+  it('an install shows a confirmation card: the package as the hub describes it, then Install, Always and Deny', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart());
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-ref="approval"] [data-ref="install"]')!;
+    expect(card.dataset.state).toBe('ready');
+    expect(card.querySelector('[data-ref="install-name"]')!.textContent).toBe('@acme/kit');
+    expect(card.querySelector('[data-ref="install-version"]')!.textContent).toBe('0.2.0');
+    expect(card.querySelector('[data-ref="install-meta"]')!.textContent).toBe('by acme · MIT · 1,234 installs');
+    // The publisher's text is text: no markup of theirs reaches the page.
+    const description = card.querySelector('[data-ref="install-description"]')!;
+    expect(description.textContent).toBe('Standoffs and <b>mounting</b> bosses.');
+    expect(description.querySelector('b')).toBeNull();
+    expect(card.querySelector('[data-ref="install-facts"]')!.textContent).toBe('2 features, 1 part · Goes where Settings → Packages puts new packages');
+    expect(h.$$('[data-ref="approval"] button').map((b) => [b.dataset.ref, b.textContent!.trim()])).toEqual([
+      ['allow', 'Install'],
+      ['allow-always', 'Always'],
+      ['deny', 'Deny'],
+    ]);
+  });
+
+  it('the install card says where the package goes, an upgrade, a copy already here and a deprecation; reading the hub, it says so', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart({
+      input: { name: '@acme/kit', target: 'project', upgrade: true },
+      install: { state: 'ready', name: '@acme/kit', version: '0.2.0', target: 'project', upgrade: true, installed: ['0.2.0'], pinned: '0.1.0', deprecated: 'Use @acme/kit2.' },
+    }));
+    const h = mount(client);
+    await opened(h);
+    expect(h.$('[data-ref="install-facts"]')!.textContent).toBe('Copied into this project’s packages/ folder');
+    expect(h.$('[data-ref="install-upgrade"]')!.textContent!.trim()).toBe('Moves this project up from 0.1.0');
+    expect(h.$('[data-ref="install-local"]')!.textContent!.trim()).toBe('Already on this machine: nothing to download');
+    expect(h.$('[data-ref="install-deprecated"]')!.textContent!.trim()).toBe('Deprecated: Use @acme/kit2.');
+
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'edit', patch: { install: { state: 'loading', name: '@acme/kit', version: null, target: null, upgrade: false } } });
+    expect(h.$('[data-ref="install"]')!.dataset.state).toBe('loading');
+    expect(h.$('[data-ref="install-loading"]')!.textContent).toBe('Reading the package on the hub…');
+    expect(h.$('[data-ref="install-version"]')).toBeNull();
+    // The buttons work while the hub is read.
+    expect(h.$$<HTMLButtonElement>('[data-ref="approval"] button').every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('Always sends its decision, tells the page, and the card says installs are allowed always, with a way to change it', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart());
+    const onInstallsAlwaysAllowed = vi.fn();
+    const h = mount(client, {}, { onInstallsAlwaysAllowed });
+    await opened(h);
+    h.$<HTMLButtonElement>('[data-ref="allow-always"]')!.click();
+    await settle();
+    expect(client.decideApproval).toHaveBeenLastCalledWith('s', 'ap3', 'allow-always');
+    expect(onInstallsAlwaysAllowed).toHaveBeenCalledTimes(1);
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'edit', patch: { state: 'running', approval: { id: 'ap3', canAllowSession: false, canAllowAlways: true, decision: 'allow-always' } } });
+    const approval = h.$('[data-ref="approval"]')!;
+    expect(approval.textContent).toContain('You allowed package installs always');
+    approval.querySelector<HTMLButtonElement>('[data-ref="always-settings"]')!.click();
+    expect(h.openSettings).toHaveBeenCalledWith('general');
+  });
+
+  it('an install that ran without asking because of Always says so', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart({ state: 'done', approval: { id: 'ap4', canAllowSession: false, decision: 'allow-always', standing: true } }));
+    const h = mount(client);
+    await opened(h);
+    const approval = h.$('[data-ref="approval"]')!;
+    expect(approval.classList.contains('hidden')).toBe(false);
+    expect(approval.textContent).toContain('Installed without asking: you chose Always for package installs');
+    expect(approval.querySelector('[data-ref="install"]')).toBeNull();
+    // The package stays with the card's details.
+    h.$<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    expect(h.$('[data-ref="details"] [data-ref="install-name"]')!.textContent).toBe('@acme/kit');
+  });
+
   it('settled elsewhere (another tab, a stop): the buttons go; stopped, timed out and cancelled cards say why', async () => {
     const client = new FakeChatClient();
     waitingSession(client);

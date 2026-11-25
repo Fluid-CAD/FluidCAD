@@ -171,9 +171,17 @@ export type ToolPart = {
   /**
    * Set when the call needed the user's approval. `canAllowSession` says
    * whether "Allow for this session" is offered (never for actions outside
-   * the workspace). `decision` is set once the user answered.
+   * the workspace); `canAllowAlways` whether "Always" is (a package install,
+   * on an engine that can remember it). `decision` is set once the user
+   * answered. `standing`: nothing was asked, because the user chose "Always"
+   * before (`decision` is then `allow-always`).
    */
-  approval?: { id: string; canAllowSession: boolean; decision?: ApprovalDecision };
+  approval?: { id: string; canAllowSession: boolean; canAllowAlways?: boolean; decision?: ApprovalDecision; standing?: true };
+  /**
+   * The package an `install_package` call installs, for its confirmation
+   * card: what the call asked for at once, what the hub says of it once read.
+   */
+  install?: InstallSummary;
   /**
    * What the change does to the model, built without writing it: set for a
    * `write_file` or `edit_range` on a model file that waits for approval
@@ -240,7 +248,37 @@ export type ChangePreviewPictures = {
 };
 
 /** Body of `POST api/agent/sessions/:id/approvals/:approvalId`. */
-export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
+export type ApprovalDecision = 'allow' | 'allow-session' | 'allow-always' | 'deny';
+
+/**
+ * What an install's confirmation card shows. `name`, `version`, `target`
+ * and `upgrade` are the call's own; the rest is the hub's, read while the
+ * card waits: `loading` until then, `ready` once read, `unavailable` when
+ * the hub could not say (`problem`). Hub text (the description, the
+ * deprecation) is the publisher's: shown as text, never as markup.
+ */
+export type InstallSummary = {
+  state: 'loading' | 'ready' | 'unavailable';
+  name: string;
+  /** The version asked for; else, once read, the one the install gets. Null when neither is known. */
+  version: string | null;
+  /** Where the call asked it to go; null: the "New packages go to" setting decides. */
+  target: 'library' | 'project' | null;
+  upgrade: boolean;
+  publisher?: string | null;
+  description?: string | null;
+  license?: string | null;
+  installs?: number;
+  /** The publisher's deprecation message. */
+  deprecated?: string;
+  /** What the version installed exports. */
+  contents?: { features: number; parts: number; assemblies: number };
+  /** Versions already on this machine; the one the project uses. */
+  installed?: string[];
+  pinned?: string | null;
+  /** `unavailable`: why. */
+  problem?: string;
+};
 
 /**
  * One choice of a question. `svg` is a drawing of it, written by the model:

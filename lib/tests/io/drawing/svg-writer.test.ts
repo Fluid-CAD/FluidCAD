@@ -5,8 +5,8 @@ import { Curves, DRAWING_TOLERANCE_MM } from "../../../io/drawing/drawing.js";
 import type { Curve2D, Drawing2D, DrawingEntity, Vec2 } from "../../../io/drawing/drawing.js";
 import { BSplineCurve2D } from "../../../io/drawing/bspline.js";
 import type { LengthUnit } from "../../../units/units.js";
-import { SvgReader } from "./svg-reader.js";
-import type { SvgElement, SvgSegment } from "./svg-reader.js";
+import { SvgOracle } from "./svg-oracle.js";
+import type { SvgElement, SvgSegment } from "./svg-oracle.js";
 
 function drawingOf(entities: DrawingEntity[], unit: LengthUnit = 'mm'): Drawing2D {
   return { unit, entities, bounds: Curves.boundsOf(entities), warnings: [] };
@@ -50,7 +50,7 @@ const TOLERANCE = DRAWING_TOLERANCE_MM;
 /** The one element a single-curve drawing is written as. */
 function written(curve: Curve2D, options: SvgWriterOptions = {}): { element: SvgElement; top: number } {
   const drawing = drawingOf([{ layer: 'visible', curve }]);
-  const file = SvgReader.parse(SvgWriter.write(drawing, options));
+  const file = SvgOracle.parse(SvgWriter.write(drawing, options));
   expect(file.groups).toHaveLength(1);
   expect(file.groups[0].elements).toHaveLength(1);
   return { element: file.groups[0].elements[0], top: drawing.bounds!.max.y };
@@ -60,7 +60,7 @@ function written(curve: Curve2D, options: SvgWriterOptions = {}): { element: Svg
 function unflipped(segments: SvgSegment[], top: number, perSegment = PER_SEGMENT): Vec2[] {
   const points: Vec2[] = [];
   segments.forEach((segment, index) => {
-    const samples = SvgReader.sample(segment, perSegment);
+    const samples = SvgOracle.sample(segment, perSegment);
     for (const p of index === 0 ? samples : samples.slice(1)) {
       points.push({ x: p.x, y: top - p.y });
     }
@@ -93,17 +93,17 @@ function onSpans(curve: Extract<Curve2D, { kind: 'bspline' }>, spans: Extract<Cu
 
 describe("SvgWriter structure", () => {
   const text = SvgWriter.write(drawingOf(everyKind()), { title: 'Top view' });
-  const file = SvgReader.parse(text);
+  const file = SvgOracle.parse(text);
 
   it("is a well-formed SVG document with a title", () => {
-    // SvgReader.parse above already threw on malformed XML or a foreign root.
+    // SvgOracle.parse above already threw on malformed XML or a foreign root.
     expect(text.startsWith('<?xml version="1.0" encoding="UTF-8"?>\n<svg ')).toBe(true);
     expect(text.endsWith('</svg>\n')).toBe(true);
     expect(/^[\x20-\x7e\n]*$/.test(text)).toBe(true);
     expect(file.attributes.xmlns).toBe('http://www.w3.org/2000/svg');
     expect(file.attributes.version).toBe('1.1');
     expect(file.title).toBe('Top view');
-    expect(SvgReader.parse(SvgWriter.write(drawingOf(everyKind()))).title).toBe('Drawing');
+    expect(SvgOracle.parse(SvgWriter.write(drawingOf(everyKind()))).title).toBe('Drawing');
   });
 
   it("carries nothing that runs, loads or styles from outside its attributes", () => {
@@ -137,12 +137,12 @@ describe("SvgWriter structure", () => {
   });
 
   it("writes only the layers in use", () => {
-    const visibleOnly = SvgReader.parse(SvgWriter.write(drawingOf(everyKind().filter((e) => e.layer === 'visible'))));
+    const visibleOnly = SvgOracle.parse(SvgWriter.write(drawingOf(everyKind().filter((e) => e.layer === 'visible'))));
     expect(visibleOnly.groups.map((g) => g.id)).toEqual(['visible']);
   });
 
   it("writes a lone circle as a circle and everything else as a path", () => {
-    const tags = (id: string) => SvgReader.group(file, id).elements.map((e) => e.tag);
+    const tags = (id: string) => SvgOracle.group(file, id).elements.map((e) => e.tag);
     // tangent: the circle, the full ellipse, the rational quarter circle.
     expect(tags('tangent').sort()).toEqual(['circle', 'path', 'path']);
     expect(tags('visible').every((tag) => tag === 'path')).toBe(true);
@@ -150,12 +150,12 @@ describe("SvgWriter structure", () => {
   });
 
   it("writes a valid, blank page for an empty drawing", () => {
-    const empty = SvgReader.parse(SvgWriter.write(drawingOf([])));
+    const empty = SvgOracle.parse(SvgWriter.write(drawingOf([])));
     expect(empty.groups).toHaveLength(0);
     expect(empty.viewBox).toEqual({ x: -5, y: -5, width: 10, height: 10 });
     expect(empty.attributes.width).toBe('10mm');
     // Even with no margin the page has a size: zero would render nothing, anywhere.
-    const bare = SvgReader.parse(SvgWriter.write(drawingOf([]), { margin: 0 }));
+    const bare = SvgOracle.parse(SvgWriter.write(drawingOf([]), { margin: 0 }));
     expect(bare.viewBox.width).toBeGreaterThan(0);
     expect(bare.viewBox.height).toBeGreaterThan(0);
   });
@@ -172,7 +172,7 @@ describe("SvgWriter page", () => {
   ];
 
   it("frames the drawing's bounds plus the margin, X as in the model and Y down from the top", () => {
-    const file = SvgReader.parse(SvgWriter.write(drawingOf(box)));
+    const file = SvgOracle.parse(SvgWriter.write(drawingOf(box)));
     expect(file.viewBox).toEqual({ x: 5, y: -5, width: 50, height: 40 });
     expect(file.attributes.width).toBe('50mm');
     expect(file.attributes.height).toBe('40mm');
@@ -181,10 +181,10 @@ describe("SvgWriter page", () => {
   });
 
   it("takes the margin and the stroke width in millimetres", () => {
-    const file = SvgReader.parse(SvgWriter.write(drawingOf(box), { margin: 0, strokeWidth: 0.5 }));
+    const file = SvgOracle.parse(SvgWriter.write(drawingOf(box), { margin: 0, strokeWidth: 0.5 }));
     expect(file.viewBox).toEqual({ x: 10, y: 0, width: 40, height: 30 });
     expect(file.groups[0].attributes['stroke-width']).toBe('0.5');
-    const hidden = SvgReader.parse(SvgWriter.write(drawingOf(box.map((e) => ({ ...e, layer: 'hidden' as const }))), { strokeWidth: 0.5 }));
+    const hidden = SvgOracle.parse(SvgWriter.write(drawingOf(box.map((e) => ({ ...e, layer: 'hidden' as const }))), { strokeWidth: 0.5 }));
     expect(hidden.groups[0].attributes['stroke-width']).toBe('0.25');
     expect(hidden.groups[0].attributes['stroke-dasharray']).toBe('6 2');
   });
@@ -200,7 +200,7 @@ describe("SvgWriter page", () => {
 
   it("gives a drawing with no height a page to be seen on", () => {
     const flat: DrawingEntity[] = [{ layer: 'visible', curve: { kind: 'line', a: { x: 0, y: 3 }, b: { x: 40, y: 3 } } }];
-    const file = SvgReader.parse(SvgWriter.write(drawingOf(flat), { margin: 0 }));
+    const file = SvgOracle.parse(SvgWriter.write(drawingOf(flat), { margin: 0 }));
     expect(file.viewBox.width).toBe(40);
     expect(file.viewBox.height).toBe(0.25);
     // The line runs through the middle of the band.
@@ -219,7 +219,7 @@ describe("SvgWriter page", () => {
 
   it.each(cases)("keeps a %s drawing's numbers and gives the page its physical size", (unit, viewBox, width, height, stroke) => {
     const entities: DrawingEntity[] = [{ layer: 'visible', curve: { kind: 'line', a: { x: 0, y: 0 }, b: { x: 2, y: 1 } } }];
-    const file = SvgReader.parse(SvgWriter.write(drawingOf(entities, unit)));
+    const file = SvgOracle.parse(SvgWriter.write(drawingOf(entities, unit)));
     expect(file.attributes.viewBox).toBe(viewBox);
     expect(file.attributes.width).toBe(width);
     expect(file.attributes.height).toBe(height);
@@ -235,7 +235,7 @@ describe("SvgWriter geometry round trip", () => {
   it("line", () => {
     const curve: Curve2D = { kind: 'line', a: { x: 0, y: 0 }, b: { x: 40, y: 12.5 } };
     const { element, top } = written(curve);
-    const segments = SvgReader.segments(element.attributes.d);
+    const segments = SvgOracle.segments(element.attributes.d);
     expect(segments.map((s) => s.command)).toEqual(['L']);
     expect(deviation(unflipped(segments, top), Curves.sample(curve, PER_SEGMENT))).toBeLessThan(1e-6);
   });
@@ -261,7 +261,7 @@ describe("SvgWriter geometry round trip", () => {
 
   it.each(arcs)("%s", (_name, curve) => {
     const { element, top } = written(curve);
-    const segments = SvgReader.segments(element.attributes.d);
+    const segments = SvgOracle.segments(element.attributes.d);
     const drawn = segments.filter((s) => s.command === 'A');
     // A full ellipse closes with a zero-length Z; nothing else is in the path.
     expect(segments.filter((s) => s.command !== 'A').every((s) => s.command === 'Z' && Math.hypot(s.from.x - s.to.x, s.from.y - s.to.y) < 1e-9)).toBe(true);
@@ -270,7 +270,7 @@ describe("SvgWriter geometry round trip", () => {
     for (const arc of drawn) {
       if (arc.command === 'A') {
         expect(arc.largeArc).toBe(false);
-        expect(Math.abs(SvgReader.arcCenter(arc).delta)).toBeLessThan((2 * Math.PI) / 3 + 1e-6);
+        expect(Math.abs(SvgOracle.arcCenter(arc).delta)).toBeLessThan((2 * Math.PI) / 3 + 1e-6);
       }
     }
     // The pieces are equal shares of the sweep, so together they sample the curve evenly.
@@ -280,17 +280,17 @@ describe("SvgWriter geometry round trip", () => {
 
   it("turns each arc the way the drawing does: counter-clockwise is sweep flag 0 on a page whose Y runs down", () => {
     // Walked from its start (the lower end) the first is counter-clockwise, the second clockwise.
-    const forward = SvgReader.segments(written({ kind: 'arc', center: { x: 0, y: 0 }, radius: 5, start: 0, end: 1 }).element.attributes.d);
-    const backward = SvgReader.segments(written({ kind: 'arc', center: { x: 0, y: 0 }, radius: 5, start: 2, end: 3 }).element.attributes.d);
+    const forward = SvgOracle.segments(written({ kind: 'arc', center: { x: 0, y: 0 }, radius: 5, start: 0, end: 1 }).element.attributes.d);
+    const backward = SvgOracle.segments(written({ kind: 'arc', center: { x: 0, y: 0 }, radius: 5, start: 2, end: 3 }).element.attributes.d);
     expect(forward.map((s) => s.command === 'A' && s.sweep)).toEqual([false]);
     expect(backward.map((s) => s.command === 'A' && s.sweep)).toEqual([true]);
   });
 
   it("writes a circle's radii, an ellipse's two semi-axes and the major axis' angle on the page", () => {
-    const arc = SvgReader.segments(written({ kind: 'arc', center: { x: 0, y: 0 }, radius: 5, start: 0, end: 1 }).element.attributes.d)[0];
+    const arc = SvgOracle.segments(written({ kind: 'arc', center: { x: 0, y: 0 }, radius: 5, start: 0, end: 1 }).element.attributes.d)[0];
     expect(arc.command === 'A' && [arc.rx, arc.ry, arc.rotation]).toEqual([5, 5, 0]);
     // Major axis along (3, 4): 53.13° up in the drawing, so −53.13° on the page.
-    const ellipse = SvgReader.segments(written({ kind: 'ellipse', center: { x: 5, y: -5 }, major: { x: 3, y: 4 }, ratio: 0.4, start: 0, end: 1 }).element.attributes.d)[0];
+    const ellipse = SvgOracle.segments(written({ kind: 'ellipse', center: { x: 5, y: -5 }, major: { x: 3, y: 4 }, ratio: 0.4, start: 0, end: 1 }).element.attributes.d)[0];
     expect(ellipse.command === 'A' && [ellipse.rx, ellipse.ry]).toEqual([5, 2]);
     expect(ellipse.command === 'A' && ellipse.rotation).toBeCloseTo(-53.13010235, 7);
   });
@@ -303,7 +303,7 @@ describe("SvgWriter geometry round trip", () => {
       poles: [{ x: 0, y: 0 }, { x: 4, y: 9 }, { x: 11, y: -3 }, { x: 16, y: 8 }, { x: 22, y: 1 }, { x: 25, y: 6 }],
     };
     const { element, top } = written(curve);
-    const segments = SvgReader.segments(element.attributes.d);
+    const segments = SvgOracle.segments(element.attributes.d);
     expect(segments.map((s) => s.command)).toEqual(['C', 'C', 'C']);
     expect(deviation(unflipped(segments, top), onSpans(curve, curve))).toBeLessThan(1e-6);
   });
@@ -314,7 +314,7 @@ describe("SvgWriter geometry round trip", () => {
       poles: [{ x: 0, y: 0 }, { x: 2, y: 5 }, { x: 6, y: -1 }, { x: 9, y: 3 }],
     };
     const q = written(quadratic);
-    const qs = SvgReader.segments(q.element.attributes.d);
+    const qs = SvgOracle.segments(q.element.attributes.d);
     expect(qs.map((s) => s.command)).toEqual(['Q', 'Q']);
     expect(deviation(unflipped(qs, q.top), onSpans(quadratic, quadratic))).toBeLessThan(1e-6);
 
@@ -323,7 +323,7 @@ describe("SvgWriter geometry round trip", () => {
       poles: [{ x: 0, y: 0 }, { x: 2, y: 5 }, { x: 6, y: -1 }, { x: 9, y: 3 }],
     };
     const l = written(linear);
-    const ls = SvgReader.segments(l.element.attributes.d);
+    const ls = SvgOracle.segments(l.element.attributes.d);
     expect(ls.map((s) => s.command)).toEqual(['L', 'L', 'L']);
     expect(deviation(unflipped(ls, l.top), onSpans(linear, linear))).toBeLessThan(1e-6);
   });
@@ -335,7 +335,7 @@ describe("SvgWriter geometry round trip", () => {
       poles: [{ x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }], weights: [1, Math.SQRT1_2, 1],
     };
     const { element, top } = written(conic);
-    const segments = SvgReader.segments(element.attributes.d);
+    const segments = SvgOracle.segments(element.attributes.d);
     expect(segments.every((s) => s.command === 'C')).toBe(true);
     // The pieces are the spans of the cubic the fit gives; each lies on the conic at the same parameters.
     const cubic = BSplineCurve2D.toCubic(conic, TOLERANCE);
@@ -357,7 +357,7 @@ describe("SvgWriter geometry round trip", () => {
       ],
     };
     const { element, top } = written(sextic);
-    const segments = SvgReader.segments(element.attributes.d);
+    const segments = SvgOracle.segments(element.attributes.d);
     expect(segments.every((s) => s.command === 'C')).toBe(true);
     const cubic = BSplineCurve2D.toCubic(sextic, TOLERANCE);
     expect(deviation(unflipped(segments, top), onSpans(sextic, cubic))).toBeLessThan(2 * TOLERANCE);
@@ -412,9 +412,9 @@ describe("SvgWriter chains", () => {
       arc([5, 25], 5, Math.PI / 2, Math.PI),
     ];
     const drawing = drawingOf(entities);
-    const file = SvgReader.parse(SvgWriter.write(drawing));
+    const file = SvgOracle.parse(SvgWriter.write(drawing));
     expect(file.groups[0].elements).toHaveLength(1);
-    const segments = SvgReader.segments(file.groups[0].elements[0].attributes.d);
+    const segments = SvgOracle.segments(file.groups[0].elements[0].attributes.d);
     expect(segments.map((s) => s.command).join('')).toBe('LALALALAZ');
     // A loop is walked counter-clockwise: every arc keeps the drawing's own sense.
     expect(segments.every((s) => s.command !== 'A' || s.sweep === false)).toBe(true);
@@ -425,10 +425,10 @@ describe("SvgWriter chains", () => {
 
   it("leaves a loop's last straight side to Z", () => {
     const square = [line([0, 0], [10, 0]), line([10, 0], [10, 10]), line([10, 10], [0, 10]), line([0, 10], [0, 0])];
-    const file = SvgReader.parse(SvgWriter.write(drawingOf(square), { margin: 0 }));
+    const file = SvgOracle.parse(SvgWriter.write(drawingOf(square), { margin: 0 }));
     expect(file.groups[0].elements.map((e) => e.attributes.d)).toEqual(['M 0 10 L 10 10 L 10 0 L 0 0 Z']);
     // An open run of the same three sides is not closed.
-    const open = SvgReader.parse(SvgWriter.write(drawingOf(square.slice(0, 3)), { margin: 0 }));
+    const open = SvgOracle.parse(SvgWriter.write(drawingOf(square.slice(0, 3)), { margin: 0 }));
     expect(open.groups[0].elements.map((e) => e.attributes.d)).toEqual(['M 0 10 L 10 10 L 10 0 L 0 0']);
   });
 
@@ -436,9 +436,9 @@ describe("SvgWriter chains", () => {
     // The run starts at its lower end, (−5, 0): the arc is walked from π back to π/2.
     const entities = [arc([0, 0], 5, Math.PI / 2, Math.PI), line([0, 5], [10, 5])];
     const drawing = drawingOf(entities);
-    const file = SvgReader.parse(SvgWriter.write(drawing));
+    const file = SvgOracle.parse(SvgWriter.write(drawing));
     expect(file.groups[0].elements).toHaveLength(1);
-    const segments = SvgReader.segments(file.groups[0].elements[0].attributes.d);
+    const segments = SvgOracle.segments(file.groups[0].elements[0].attributes.d);
     expect(segments.map((s) => s.command)).toEqual(['A', 'L']);
     expect(segments[0].command === 'A' && segments[0].sweep).toBe(true);
     expect(segments[0].from).toEqual({ x: -5, y: 5 });
@@ -455,8 +455,8 @@ describe("SvgWriter chains", () => {
     // The run's lower end is the spline's own end, (12, 0).
     const entities: DrawingEntity[] = [{ layer: 'visible', curve: spline }, line([0, 10], [-5, 20])];
     const drawing = drawingOf(entities);
-    const file = SvgReader.parse(SvgWriter.write(drawing));
-    const segments = SvgReader.segments(file.groups[0].elements[0].attributes.d);
+    const file = SvgOracle.parse(SvgWriter.write(drawing));
+    const segments = SvgOracle.segments(file.groups[0].elements[0].attributes.d);
     expect(segments.map((s) => s.command)).toEqual(['C', 'C', 'L']);
     const top = drawing.bounds!.max.y;
     expect(segments[0].from).toEqual({ x: 12, y: top });
@@ -481,7 +481,7 @@ describe("SvgWriter numbers", () => {
   it("writes each unit to the same physical fineness, so the kernel's rounding does not show", () => {
     const noisy = (unit: LengthUnit, x: number) => {
       const entities: DrawingEntity[] = [{ layer: 'visible', curve: { kind: 'line', a: { x: 0, y: 0 }, b: { x, y: 0 } } }];
-      return SvgReader.parse(SvgWriter.write(drawingOf(entities, unit), { margin: 0 })).groups[0].elements[0].attributes.d;
+      return SvgOracle.parse(SvgWriter.write(drawingOf(entities, unit), { margin: 0 })).groups[0].elements[0].attributes.d;
     };
     // 2e-9 mm short of 15 mm, in each unit: written as the round number it is.
     expect(noisy('mm', 14.999999998)).toBe('M 0 0 L 15 0');
@@ -507,7 +507,7 @@ describe("SvgWriter numbers", () => {
     expect(/[0-9]e[-+]?[0-9]/i.test(text)).toBe(false);
     expect(/(^|[ "])-0([ "]|$)/.test(text)).toBe(false);
     expect(text.includes('NaN')).toBe(false);
-    SvgReader.parse(text);
+    SvgOracle.parse(text);
   });
 
   it("refuses a drawing with a non-finite coordinate or a malformed spline", () => {

@@ -33,7 +33,7 @@ import type { Extrude } from "../../features/extrude.js";
 import type { Solid } from "../../common/solid.js";
 import { DrawingModels as M } from "./drawing/models.js";
 import { DxfOracle } from "./drawing/dxf-oracle.js";
-import { SvgReader } from "./drawing/svg-reader.js";
+import { SvgOracle } from "./drawing/svg-oracle.js";
 
 const SIX_VIEWS: StandardPlane[] = ['top', 'bottom', 'front', 'back', 'right', 'left'];
 const TWO_PI = 2 * Math.PI;
@@ -847,7 +847,7 @@ describe("drawing projection — the CSWP tutorial part", () => {
     const solids = tutorialPart();
     for (const on of SIX_VIEWS) {
       const drawing = viewOf(solids, on, { hiddenLines: true, tangentEdges: true });
-      const svg = SvgReader.parse(SvgWriter.write(drawing, { margin: 0 }));
+      const svg = SvgOracle.parse(SvgWriter.write(drawing, { margin: 0 }));
       const dxf = DxfOracle.parse(DxfWriter.write(drawing));
 
       // The page is the extents the DXF declares, in the same numbers.
@@ -873,9 +873,9 @@ describe("drawing projection — the CSWP tutorial part", () => {
             continue;
           }
           expect(element.tag, on).toBe('path');
-          for (const segment of SvgReader.segments(element.attributes.d)) {
+          for (const segment of SvgOracle.segments(element.attributes.d)) {
             drawn++;
-            for (const p of SvgReader.sample(segment, 6)) {
+            for (const p of SvgOracle.sample(segment, 6)) {
               expect(p.x, on).toBeGreaterThan(minX - 1e-6);
               expect(p.x, on).toBeLessThan(maxX + 1e-6);
               expect(p.y, on).toBeGreaterThan(-1e-6);
@@ -892,9 +892,9 @@ describe("drawing projection — the CSWP tutorial part", () => {
   it("puts the top view the right way up in SVG: the far side of the plate at the top of the page", () => {
     const solids = tutorialPart();
     const drawing = viewOf(solids, 'top');
-    const svg = SvgReader.parse(SvgWriter.write(drawing, { margin: 0 }));
+    const svg = SvgOracle.parse(SvgWriter.write(drawing, { margin: 0 }));
     // The counterbored hole sits near the plate's front-right corner, (170, 30): low on the page, to the right.
-    const circles = SvgReader.group(svg, 'visible').elements.filter((e) => e.tag === 'circle');
+    const circles = SvgOracle.group(svg, 'visible').elements.filter((e) => e.tag === 'circle');
     expect(circles.map((c) => [Number(c.attributes.cx), Number(c.attributes.cy), Number(c.attributes.r)]).sort((p, q) => p[2] - q[2]))
       .toEqual([[170, drawing.bounds!.max.y - 30, 7.5], [170, drawing.bounds!.max.y - 30, 15]]);
     expect(drawing.bounds!.max.y - 30).toBeGreaterThan(svg.viewBox.height / 2);
@@ -1158,7 +1158,7 @@ describe("FileExport — SVG", () => {
     const top = FileExport.exportShapes(solids, { format: 'svg', plane: 'top' });
     expect(top.fileName).toBe('export-top.svg');
     expect(typeof top.data).toBe('string');
-    const file = SvgReader.parse(top.data as string);
+    const file = SvgOracle.parse(top.data as string);
     expect(file.title).toBe('Top view');
     expect(file.viewBox).toEqual({ x: -5, y: -5, width: 20, height: 20 });
     expect(file.attributes.width).toBe('20mm');
@@ -1169,7 +1169,7 @@ describe("FileExport — SVG", () => {
     // An axis name is written under its view's name.
     const back = FileExport.exportShapes(solids, { format: 'svg', plane: '-xz' });
     expect(back.fileName).toBe('export-back.svg');
-    expect(SvgReader.parse(back.data as string).title).toBe('Back view');
+    expect(SvgOracle.parse(back.data as string).title).toBe('Back view');
   });
 
   it("takes the stroke width and margin of the page, and the drawing's options", () => {
@@ -1177,16 +1177,16 @@ describe("FileExport — SVG", () => {
     const result = FileExport.exportShapes(solids, {
       format: 'svg', plane: 'front', hiddenLines: true, svg: { strokeWidth: 0.5, margin: 2 },
     });
-    const file = SvgReader.parse(result.data as string);
+    const file = SvgOracle.parse(result.data as string);
     expect(file.viewBox).toEqual({ x: -2, y: -2, width: 14, height: 14 });
-    expect(SvgReader.group(file, 'visible').attributes['stroke-width']).toBe('0.5');
+    expect(SvgOracle.group(file, 'visible').attributes['stroke-width']).toBe('0.5');
     expect(() => FileExport.exportShapes(solids, { format: 'svg', plane: 'front', svg: { strokeWidth: 0 } })).toThrow(/stroke width/);
   });
 
   it("keeps an inch document's numbers and sizes the page in inches", () => {
     const solids = exportable(box(2));
     const text = withUnit('in', () => FileExport.exportShapes(solids, { format: 'svg', plane: 'front', unit: 'in', svg: { margin: 0 } }).data as string);
-    const file = SvgReader.parse(text);
+    const file = SvgOracle.parse(text);
     expect(file.viewBox).toEqual({ x: 0, y: 0, width: 2, height: 2 });
     expect(file.attributes.width).toBe('2in');
     expect(file.attributes.height).toBe('2in');
@@ -1198,7 +1198,7 @@ describe("FileExport — SVG", () => {
     const ids = sceneSolids().map((s) => s.id);
     const result = getSceneManager().exportShapes(scene, ids, { format: 'svg', plane: 'right', hiddenLines: true });
     expect(result.fileName).toBe('export-right.svg');
-    expect(SvgReader.parse(result.data as string).attributes.width).toBe('20mm');
+    expect(SvgOracle.parse(result.data as string).attributes.width).toBe('20mm');
     expect(FileExport.isDrawing({ format: 'svg', plane: 'top' })).toBe(true);
     expect(FileExport.isDrawing({ format: 'dxf', plane: 'top' })).toBe(true);
     expect(FileExport.isDrawing({ format: 'step' })).toBe(false);

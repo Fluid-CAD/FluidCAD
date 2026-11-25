@@ -1,7 +1,8 @@
 import { render } from "../setup.js";
+import { getSceneManager } from "../../scene-manager.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { arc, bezier, circle, ellipse, line, point as sketchPoint, text } from "../../core/2d/index.js";
+import { arc, bezier, circle, eArc, ellipse, line, point as sketchPoint, text } from "../../core/2d/index.js";
 import { coincident, diameter, distance, fix, horizontal, radius, vertical } from "../../core/constraints/index.js";
 import { SketchImport } from "../../io/drawing/sketch-import.js";
 import type { SketchImportPlan, SketchJoinEnd, SketchPin, SketchPinPoint, SketchPrimitive } from "../../io/drawing/sketch-import.js";
@@ -31,6 +32,8 @@ export function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = tr
         return circle(p(primitive.center), primitive.diameter);
       case 'ellipse':
         return ellipse(p(primitive.center), primitive.rx, primitive.ry, primitive.rotation);
+      case 'eArc':
+        return eArc(p(primitive.start), p(primitive.end), p(primitive.center), primitive.rx, primitive.ry, primitive.rotation);
       case 'bezier':
         return bezier(...primitive.points.map(p));
       case 'point':
@@ -114,17 +117,23 @@ export function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = tr
   }
 }
 
-/** How the solver left a sketch of the plan with its pins. */
+/** How the solver left a sketch of the plan with its pins. The sketch is the only thing in its scene, so one test can ask about many plans. */
 export function solved(plan: SketchImportPlan, joined: boolean): { outcome: string; dof: number; redundant: number; conflicting: number } {
+  getSceneManager().startScene();
   const pins = SketchImport.pins(plan, { joined, decimals: OPTIONS.decimals });
   const sk = sketch("xy", () => draw(plan, pins, joined)) as any;
   const solver = render().getRenderedObjects().find((o) => o.id === sk.id)!.object.solver;
   return { outcome: solver.outcome, dof: solver.dof, redundant: solver.redundant.length, conflicting: solver.conflicting.length };
 }
 
-/** The volume of the plan's profile extruded by `height`, and how the solver left its sketch. */
-export function extrudedVolume(plan: SketchImportPlan, height: number): { volume: number; outcome: string } {
-  const sk = sketch("xy", () => draw(plan)) as any;
+/**
+ * The volume of the plan's profile extruded by `height`, and how the solver
+ * left its sketch; `joined` writes the plan's joins. The sketch and its
+ * extrusion are the only things in their scene.
+ */
+export function extrudedVolume(plan: SketchImportPlan, height: number, joined = true): { volume: number; outcome: string } {
+  getSceneManager().startScene();
+  const sk = sketch("xy", () => draw(plan, [], joined)) as any;
   extrude(height);
   const scene = render();
   const solid = scene.getAllSceneObjects().flatMap((o) => o.getShapes()).find((s) => s.getType() === "solid") as Solid;

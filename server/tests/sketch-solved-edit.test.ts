@@ -91,6 +91,44 @@ describe('applySolvedEmission', () => {
     expect(result.names).toEqual(['l1', 'l2']);
   });
 
+  it('writes an imported elliptical arc with what fixes it: its points, a semi-radius, its axis, its centre from its start', async () => {
+    // What the DXF import emits for elliptical arcs fixed in place, each held the way its ends allow.
+    const result = await applySolvedEmission(EMPTY_SKETCH, {
+      sketchLine: 3,
+      geometry: [
+        { kind: 'eArc', text: 'eArc([120, 50], [100, 60], [100, 50], 20, 10)' },
+        { kind: 'line', text: 'line([100, 60], [120, 50])' },
+        { kind: 'eArc', text: 'eArc([13.660254, 12.320508], [-4.330127, 17.5], [0, 0], 20, 10, 30)' },
+        { kind: 'eArc', text: 'eArc([20, 0], [-20, 0], [0, 0], 20, 10)' },
+      ],
+      constraints: [
+        { kind: 'coincident', targets: [{ newIndex: 0, role: 'end' }, { newIndex: 1, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'center' }] },
+        { kind: 'horizontal', targets: [{ newIndex: 0 }] },
+        { kind: 'radius', targets: [{ newIndex: 2 }], valueExpr: '20', axis: 'x' },
+        { kind: 'radius', targets: [{ newIndex: 3 }], valueExpr: '10', axis: 'y' },
+        { kind: 'distance', targets: [{ newIndex: 3, role: 'start' }, { newIndex: 3, role: 'center' }], valueExpr: '20', axis: 'x' },
+        { kind: 'horizontal', targets: [{ newIndex: 3, role: 'start' }, { newIndex: 3, role: 'center' }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n').map((line) => line.trim());
+    expect(lines).toContain('const ea1 = eArc([120, 50], [100, 60], [100, 50], 20, 10);');
+    expect(lines).toContain('const ea2 = eArc([13.660254, 12.320508], [-4.330127, 17.5], [0, 0], 20, 10, 30);');
+    expect(lines).toContain('coincident(ea1.end(), l1.start());');
+    expect(lines).toContain('fix(ea1.start());');
+    expect(lines).toContain('fix(ea1.center());');
+    expect(lines).toContain('horizontal(ea1);');
+    expect(lines).toContain(`radius(ea2, 20, 'x');`);
+    expect(lines).toContain(`radius(ea3, 10, 'y');`);
+    expect(lines).toContain(`distance(ea3.start(), ea3.center(), 20, 'x');`);
+    expect(lines).toContain('horizontal(ea3.start(), ea3.center());');
+    expect(result.names).toEqual(['ea1', 'l1', 'ea2', 'ea3']);
+    expect(result.newCode).toMatch(/import \{[^}]*\beArc\b[^}]*\} from "fluidcad\/core"/);
+  });
+
   it('inserts geometry BEFORE the first constraint statement, constraints at the body end', async () => {
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,

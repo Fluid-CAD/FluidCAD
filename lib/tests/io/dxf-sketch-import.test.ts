@@ -67,15 +67,95 @@ describe("a DXF imported into a sketch", () => {
     const read = DxfReader.read(fileOf([base, top]));
     const m = Affine.placement(2, Math.PI / 3, { x: 100, y: -40 });
     const placed = read.entities.map((e) => Affine.curve(m, e.curve, 1e-9)!);
-    const plan = SketchImport.plan(placed, { ...OPTIONS, tolerance: 1e-4 });
-    expect(plan.approximated).toBe(1);
+    const plan = SketchImport.plan(placed, OPTIONS);
+    // Both as themselves: the cubic as a bezier, the half ellipse as an elliptical arc turned with the drawing.
+    expect(plan.primitives.map((p) => p.kind)).toEqual(['bezier', 'eArc']);
+    expect(plan.primitives[1]).toMatchObject({ ry: 20, rotation: 60 });
+    expect(plan.approximated).toBe(0);
     const { volume, outcome } = extrudedVolume(plan, 1);
     expect(outcome).toBe('solved');
     // Half the ellipse, plus the dip under it: ∫ y dx along the cubic, with
     // y(t) = −18·t(1 − t) and x′(t) = 30·(1 + 2·t(1 − t)), is 540 · (1/6 + 2/30) = 126.
     // The placement doubles lengths, so the area is four times that.
     const area = (Math.PI * 20 * 10) / 2 + 126;
-    expect(volume).toBeCloseTo(area * 4, 1);
+    expect(volume).toBeCloseTo(area * 4, 3);
+  });
+
+  describe("an elliptical arc", () => {
+    /** A slice of an ellipse: the `ELLIPSE` entity of a file, and a line from each of its ends to its centre. */
+    const slice = (ellipse: (string | number)[], centre: { x: number; y: number }): Curve2D[] => {
+      const text = [0, "SECTION", 2, "ENTITIES", 0, "ELLIPSE", 8, "0", ...ellipse, 0, "ENDSEC", 0, "EOF"].join("\n");
+      const arc = DxfReader.read(text).entities[0].curve;
+      const [start, end] = Curves.endpoints(arc)!;
+      return [arc, { kind: 'line', a: end, b: centre }, { kind: 'line', a: centre, b: start }];
+    };
+    // Centre (10, 5), radii 20 × 10, from parameter 0.4 to 2: a slice of 20 · 10 · 1.6 / 2 = 160.
+    const ELLIPSE = [10, 10, 20, 5, 11, 20, 21, 0, 40, 0.5, 41, 0.4, 42, 2];
+    const AREA = (20 * 10 * 1.6) / 2;
+
+    it("extrudes a slice of an ellipse: the arc is the piece the file drew, not the rest of the ellipse", () => {
+      const plan = SketchImport.plan(slice(ELLIPSE, { x: 10, y: 5 }), OPTIONS);
+      expect(plan.primitives.map((p) => p.kind)).toEqual(['eArc', 'line', 'line']);
+      expect(plan.joins).toHaveLength(3);
+      expect(plan.approximated).toBe(0);
+      const { volume, outcome } = extrudedVolume(plan, 2);
+      expect(outcome).toBe('solved');
+      expect(volume).toBeCloseTo(AREA * 2, 4);
+    });
+
+    it("extrudes the same slice from a drawing on a flipped plane: the arc turns the other way over the mirrored points", () => {
+      // Seen from below (extrusion −Z) the parameter runs clockwise: the slice hangs under the long axis.
+      const curves = slice([...ELLIPSE, 210, 0, 220, 0, 230, -1], { x: 10, y: 5 });
+      expect(Curves.bounds(curves[0]).max.y).toBeLessThan(5);
+      const plan = SketchImport.plan(curves, OPTIONS);
+      expect(plan.primitives[0].kind).toBe('eArc');
+      const { volume, outcome } = extrudedVolume(plan, 2);
+      expect(outcome).toBe('solved');
+      expect(volume).toBeCloseTo(AREA * 2, 4);
+    });
+
+    it("extrudes the slice placed, turned and scaled to numbers that do not round: its written ends still meet their lines", () => {
+      const m = Affine.placement(1 / 3, 0.7, { x: 100 / 7, y: -40 / 9 });
+      const placed = slice(ELLIPSE, { x: 10, y: 5 }).map((curve) => Affine.curve(m, curve, 1e-9)!);
+      const plan = SketchImport.plan(placed, OPTIONS);
+      const arc = plan.primitives[0];
+      if (arc.kind !== 'eArc') {
+        throw new Error(`expected an elliptical arc, got ${arc.kind}`);
+      }
+      // None of these numbers is round: the ends are rounded like the lines' ends they are written at.
+      expect(arc.start).toEqual((plan.primitives[2] as { end: unknown }).end);
+      expect(arc.end).toEqual((plan.primitives[1] as { start: unknown }).start);
+
+      sketch("xy", () => draw(plan));
+      const drawn = render().getAllSceneObjects();
+      const built = drawn.find((o) => o.getType() === 'eArc')!.serialize() as { start: { x: number; y: number }; end: { x: number; y: number } };
+      const lines = drawn.filter((o) => o.getType() === 'line').map((o) => o.serialize() as { start: { x: number; y: number }; end: { x: number; y: number } });
+      expect(Math.hypot(built.end.x - lines[0].start.x, built.end.y - lines[0].start.y)).toBeLessThan(1e-9);
+      expect(Math.hypot(built.start.x - lines[1].end.x, built.start.y - lines[1].end.y)).toBeLessThan(1e-9);
+      // And nothing moved to get there: the arc is drawn at its written ends.
+      expect(Math.hypot(built.start.x - arc.start.x, built.start.y - arc.start.y)).toBeLessThan(1e-9);
+      expect(Math.hypot(built.end.x - arc.end.x, built.end.y - arc.end.y)).toBeLessThan(1e-9);
+    });
+
+    it("draws the arc's ends where they are written with no join to hold them: nearer than the kernel tells apart", () => {
+      const m = Affine.placement(1 / 3, 0.7, { x: 100 / 7, y: -40 / 9 });
+      const placed = slice(ELLIPSE, { x: 10, y: 5 }).map((curve) => Affine.curve(m, curve, 1e-9)!);
+      const plan = SketchImport.plan(placed, OPTIONS);
+      sketch("xy", () => draw(plan, [], false));
+      const drawn = render().getAllSceneObjects();
+      const built = drawn.find((o) => o.getType() === 'eArc')!.serialize() as { start: { x: number; y: number }; end: { x: number; y: number } };
+      const lines = drawn.filter((o) => o.getType() === 'line').map((o) => o.serialize() as { start: { x: number; y: number }; end: { x: number; y: number } });
+      expect(Math.hypot(built.end.x - lines[0].start.x, built.end.y - lines[0].start.y)).toBeLessThan(1e-9);
+      expect(Math.hypot(built.start.x - lines[1].end.x, built.start.y - lines[1].end.y)).toBeLessThan(1e-9);
+    });
+
+    it("extrudes the placed slice when its joins are not written: the ends are close enough to close the profile", () => {
+      const m = Affine.placement(1 / 3, 0.7, { x: 100 / 7, y: -40 / 9 });
+      const placed = slice(ELLIPSE, { x: 10, y: 5 }).map((curve) => Affine.curve(m, curve, 1e-9)!);
+      const apart = extrudedVolume(SketchImport.plan(placed, OPTIONS), 3, false);
+      expect(apart.outcome).toBe('solved');
+      expect(apart.volume).toBeCloseTo((AREA / 9) * 3, 4);
+    });
   });
 
   it("extrudes a full ellipse and what a non-uniform block scale makes of a circle", () => {
@@ -153,6 +233,98 @@ describe("a DXF imported into a sketch", () => {
         })),
       ];
       expect(solved(SketchImport.plan(curves, OPTIONS), true)).toEqual(FIXED);
+    });
+
+    /** A piece of an ellipse of radii 20 × 8 about (13, −4): its long axis at `degrees`, from parameter `start` through `sweep`. */
+    const ellipseArc = (degrees: number, start: number, sweep: number): Curve2D => ({
+      kind: 'ellipse',
+      center: { x: 13, y: -4 },
+      major: { x: 20 * Math.cos(degrees * Math.PI / 180), y: 20 * Math.sin(degrees * Math.PI / 180) },
+      ratio: 0.4,
+      start,
+      end: start + sweep,
+    });
+    /** The arc alone, and the arc with a line across its ends: what the joins then carry. */
+    const alone = (arc: Curve2D) => SketchImport.plan([arc], OPTIONS);
+    const closed = (arc: Curve2D) => {
+      const [start, end] = Curves.endpoints(arc)!;
+      return SketchImport.plan([arc, { kind: 'line', a: end, b: start }], OPTIONS);
+    };
+    /** What holds the plan's elliptical arc beside its two ends. */
+    const held = (plan: SketchImportPlan) => SketchImport.pins(plan, { joined: false, decimals: 6 })
+      .filter((pin) => (pin.kind === 'fix' ? pin.point.primitive === 0 && pin.point.point === 'center' : pin.primitive === 0));
+    const QUARTER = Math.PI / 2;
+
+    it("fixes an elliptical arc along a sketch axis by its ends, its centre and that axis", () => {
+      for (const [degrees, direction] of [[0, 'horizontal'], [90, 'vertical']] as const) {
+        const arc = ellipseArc(degrees, 0, QUARTER);
+        expect(held(alone(arc))).toEqual([
+          { kind: 'fix', point: { primitive: 0, point: 'center' } },
+          { kind: 'level', primitive: 0, direction },
+        ]);
+        expect(solved(alone(arc), false)).toEqual(FIXED);
+        expect(solved(closed(arc), true)).toEqual(FIXED);
+      }
+    });
+
+    it("holds half an ellipse, whose centre is on its chord, by its other radius and where the centre sits across the chord", () => {
+      // From one end of the long axis to the other: the ends say how long that axis is and where its middle is along it, no more.
+      const arc = ellipseArc(0, 0, Math.PI);
+      expect(held(alone(arc))).toEqual([
+        { kind: 'semi-radius', primitive: 0, axis: 'y', value: 8 },
+        { kind: 'aligned', primitive: 0, direction: 'horizontal' },
+        { kind: 'level', primitive: 0, direction: 'horizontal' },
+      ]);
+      expect(solved(alone(arc), false)).toEqual(FIXED);
+      expect(solved(closed(arc), true)).toEqual(FIXED);
+    });
+
+    it("fixes a level elliptical arc of any sweep, from a sliver to nearly all the way round", () => {
+      for (const degrees of [0, 90]) {
+        for (const start of [0, 0.3, 1.1, QUARTER, 2.5, Math.PI, 4, 5.5]) {
+          for (const sweep of [0.02, 0.2, 1, QUARTER, 2.2, Math.PI, 4, 3 * QUARTER, 5.9, 6.27]) {
+            const arc = ellipseArc(degrees, start, sweep);
+            expect(solved(alone(arc), false), `${degrees}° from ${start} through ${sweep}`).toEqual(FIXED);
+            expect(solved(closed(arc), true), `${degrees}° from ${start} through ${sweep}, joined`).toEqual(FIXED);
+          }
+        }
+      }
+    });
+
+    it("fixes a turned elliptical arc by its centre and a semi-radius: the ends hold its angle", () => {
+      const arc = ellipseArc(30, 0.4, 1.6);
+      expect(held(alone(arc))).toEqual([
+        { kind: 'fix', point: { primitive: 0, point: 'center' } },
+        { kind: 'semi-radius', primitive: 0, axis: 'x', value: expect.closeTo(20, 5) },
+      ]);
+      for (const degrees of [30, -47.3, 3]) {
+        for (const start of [0.3, 1.1, 2.5, 4, 5.5]) {
+          for (const sweep of [0.02, 0.2, 1, QUARTER, 2.2, Math.PI, 4, 3 * QUARTER, 5.9, 6.27]) {
+            const turned = ellipseArc(degrees, start, sweep);
+            expect(solved(alone(turned), false), `${degrees}° from ${start} through ${sweep}`).toEqual(FIXED);
+            expect(solved(closed(turned), true), `${degrees}° from ${start} through ${sweep}, joined`).toEqual(FIXED);
+          }
+        }
+      }
+    });
+
+    it("fixes a turned elliptical arc with one end on its ellipse's axis: the other end holds its angle", () => {
+      for (const sweep of [1, 2.2, 4]) {
+        expect(solved(alone(ellipseArc(30, 0, sweep)), false)).toEqual(FIXED);
+        expect(solved(closed(ellipseArc(30, QUARTER, sweep)), true)).toEqual(FIXED);
+      }
+    });
+
+    it("leaves a turned elliptical arc that runs between its ellipse's own axes its angle, and nothing else", () => {
+      // A quarter from vertex to vertex: turning the ellipse about its centre moves neither end off it.
+      expect(held(alone(ellipseArc(30, 0, QUARTER)))).toEqual([{ kind: 'fix', point: { primitive: 0, point: 'center' } }]);
+      for (const start of [0, QUARTER, Math.PI]) {
+        for (const sweep of [QUARTER, Math.PI, 3 * QUARTER]) {
+          const arc = ellipseArc(30, start, sweep);
+          expect(solved(alone(arc), false), `from ${start} through ${sweep}`).toEqual({ ...FIXED, dof: 1 });
+          expect(solved(closed(arc), true), `from ${start} through ${sweep}, joined`).toEqual({ ...FIXED, dof: 1 });
+        }
+      }
     });
 
     it("leaves a turned ellipse its angle, the one thing no constraint holds, and an upright one nothing", () => {

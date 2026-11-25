@@ -141,7 +141,7 @@ export type DrawingImportToolDeps = {
  * the knob above it to rotate (Shift snaps to 15°). The dialog holds the
  * file, the unit its numbers are in, a scale, the layers, whether ends that
  * meet are joined and whether the geometry is fixed in place. Import writes
- * one statement per curve — `line`, `arc`, `circle`, `ellipse`, `bezier` —
+ * one statement per curve — `line`, `arc`, `circle`, `ellipse`, `eArc`, `bezier` —
  * a `point` per point of the file, a `coincident` per join and, when asked, the constraints that pin it all,
  * in one edit; the file itself is not kept or linked.
  *
@@ -728,7 +728,7 @@ export class DrawingImportTool extends SketchTool {
     }
     notes.push(...DrawingImportTexts.notes(this.tickedTexts(), this.panel.texts));
     if (plan && plan.approximated > 0) {
-      notes.push(`${plan.approximated} ${plan.approximated === 1 ? 'curve has' : 'curves have'} no sketch statement of ${plan.approximated === 1 ? 'its' : 'their'} own (an elliptical arc, a weighted or high-degree spline) and ${plan.approximated === 1 ? 'is' : 'are'} written as cubic beziers.`);
+      notes.push(`${plan.approximated} ${plan.approximated === 1 ? 'curve has' : 'curves have'} no sketch statement of ${plan.approximated === 1 ? 'its' : 'their'} own (a weighted or high-degree spline) and ${plan.approximated === 1 ? 'is' : 'are'} written as cubic beziers.`);
     }
     if (plan && plan.duplicates > 0) {
       notes.push(`${plan.duplicates} ${plan.duplicates === 1 ? 'curve is' : 'curves are'} drawn twice in the file and written once.`);

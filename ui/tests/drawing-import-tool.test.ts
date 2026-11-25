@@ -460,6 +460,144 @@ describe('DrawingImportTool: points', () => {
   });
 });
 
+describe('DrawingImportTool: elliptical arcs', () => {
+  const ellipse = (layer: string, center: [number, number], major: [number, number], ratio: number, start: number, end: number): Groups =>
+    [0, 'ELLIPSE', 8, layer, 10, center[0], 20, center[1], 11, major[0], 21, major[1], 40, ratio, 41, start, 42, end];
+
+  /** A quarter of a 20 × 10 ellipse about (100, 50), closed by a line from each end to its centre. */
+  const QUARTER = dxf([
+    ...ellipse('0', [100, 50], [20, 0], 0.5, 0, Math.PI / 2),
+    ...line('0', [100, 60], [100, 50]),
+    ...line('0', [100, 50], [120, 50]),
+  ]);
+
+  it('writes an elliptical arc as an eArc statement, joined by its ends, with nothing to warn about', async () => {
+    const { choose, role, apply, texts, emit, tool } = makeTool();
+    await choose(QUARTER);
+    expect(role('summary').textContent).toBe('3 sketch entities, 3 joins');
+    expect(role('warnings').classList.contains('hidden')).toBe(true);
+    expect(tool.preview.segmentCount).toBeGreaterThan(2 + 6);
+    await apply();
+    expect(texts()).toEqual([
+      'eArc([120, 50], [100, 60], [100, 50], 20, 10)',
+      'line([100, 60], [100, 50])',
+      'line([100, 50], [120, 50])',
+    ]);
+    const request = emit.mock.calls[0][0];
+    expect(request.geometry[0].kind).toBe('eArc');
+    expect(request.constraints).toEqual([
+      { kind: 'coincident', targets: [{ newIndex: 0, role: 'start' }, { newIndex: 2, role: 'end' }] },
+      { kind: 'coincident', targets: [{ newIndex: 0, role: 'end' }, { newIndex: 1, role: 'start' }] },
+      { kind: 'coincident', targets: [{ newIndex: 1, role: 'end' }, { newIndex: 2, role: 'start' }] },
+    ]);
+  });
+
+  it('turns an elliptical arc with the drawing: the same statement, its angle written', async () => {
+    const { choose, press, moveTo, release, role, apply, texts } = makeTool();
+    await choose(QUARTER);
+    // The drawing is 100…120 by 50…60: the knob sits 28 above the middle of its top edge.
+    press([110, 88]);
+    moveTo([50, 57], { shiftKey: true });
+    release([50, 57]);
+    expect(role('readout').textContent).toBe('20.00 × 10.00 mm at 110.00, 55.00 · 90°');
+    await apply();
+    // A quarter turn about (110, 55): the centre goes to (115, 45), the long axis stands upright.
+    expect(texts()[0]).toBe('eArc([115, 65], [105, 45], [115, 45], 20, 10, 90)');
+  });
+
+  it('scales and converts an elliptical arc with the drawing', async () => {
+    const { choose, role, apply, texts } = makeTool();
+    await choose(QUARTER);
+    const scale = role<HTMLInputElement>('scale');
+    scale.value = '0.5';
+    scale.dispatchEvent(new Event('change'));
+    await apply();
+    expect(texts()[0]).toBe('eArc([60, 25], [50, 30], [50, 25], 10, 5)');
+  });
+
+  it('writes the arc that turns the other way for a drawing on a flipped plane', async () => {
+    const { choose, apply, texts } = makeTool();
+    // Seen from below, the same quarter hangs under its long axis: counter-clockwise it runs from the bottom to the right.
+    await choose(dxf([...ellipse('0', [100, 50], [20, 0], 0.5, 0, Math.PI / 2), 210, 0, 220, 0, 230, -1]));
+    await apply();
+    expect(texts()).toEqual(['eArc([100, 40], [120, 50], [100, 50], 20, 10)']);
+  });
+
+  it('fixes an elliptical arc by its ends, its centre and the axis it lies along', async () => {
+    const { choose, role, apply, emit } = makeTool();
+    await choose(QUARTER);
+    const toggle = role<HTMLInputElement>('fix');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    // The arc's two ends and the lines' shared one fixed once each, then the arc's centre and its angle.
+    expect(role('summary').textContent).toBe('3 sketch entities, 3 joins, fixed by 5 constraints');
+    await apply();
+    expect(emit.mock.calls[0][0].constraints.slice(3)).toEqual([
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'center' }] },
+      { kind: 'horizontal', targets: [{ newIndex: 0 }] },
+      { kind: 'fix', targets: [{ newIndex: 1, role: 'end' }] },
+    ]);
+  });
+
+  it('fixes a turned elliptical arc by its centre and a semi-radius, with every end fixed when the joins are off', async () => {
+    const { choose, role, apply, emit, texts } = makeTool({ autoConstraints: false });
+    // Turned 30°, between two points that are not on its own axes.
+    await choose(dxf(ellipse('0', [0, 0], [20 * Math.cos(Math.PI / 6), 20 * Math.sin(Math.PI / 6)], 0.5, 0.4, 2)));
+    const toggle = role<HTMLInputElement>('fix');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    expect(role('summary').textContent).toBe('1 sketch entity, fixed by 4 constraints');
+    await apply();
+    // The semi-radii are the two numbers the written ends settle: written finer, so the ends are on the ellipse.
+    const [, rx, ry] = texts()[0].match(/^eArc\(\[[^\]]+\], \[[^\]]+\], \[0, 0\], ([\d.]+), ([\d.]+), 30\)$/)!;
+    expect(Number(rx)).toBeCloseTo(20, 5);
+    expect(Number(ry)).toBeCloseTo(10, 5);
+    // The dimension states the radius the statement is written with.
+    expect(emit.mock.calls[0][0].constraints).toEqual([
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+      { kind: 'fix', targets: [{ newIndex: 0, role: 'center' }] },
+      { kind: 'radius', targets: [{ newIndex: 0 }], valueExpr: rx, axis: 'x' },
+    ]);
+  });
+
+  it('counts an elliptical arc as the one statement it is towards the most one import writes', async () => {
+    const arcs = (count: number): Groups => {
+      const groups: Groups = [];
+      for (let i = 0; i < count; i++) {
+        groups.push(...ellipse('0', [i * 50, 0], [20, 0], 0.5, 0, 3));
+      }
+      return groups;
+    };
+    const full = makeTool();
+    await full.choose(dxf(arcs(MAX_IMPORT_STATEMENTS)));
+    expect(full.role('summary').textContent).toBe('2,000 sketch entities');
+    expect(full.role<HTMLButtonElement>('apply').disabled).toBe(false);
+    document.body.innerHTML = '';
+
+    const over = makeTool();
+    await over.choose(dxf(arcs(MAX_IMPORT_STATEMENTS + 1)));
+    expect(over.role('summary').textContent).toBe('This would write 2,001 sketch entities; one import takes up to 2,000.');
+    expect(over.role<HTMLButtonElement>('apply').disabled).toBe(true);
+    await over.apply();
+    expect(over.emit).not.toHaveBeenCalled();
+  });
+
+  it('says how many weighted splines were written as cubic beziers, and counts no elliptical arc among them', async () => {
+    const { choose, role } = makeTool();
+    await choose(dxf([
+      ...ellipse('0', [100, 50], [20, 0], 0.5, 0, 2),
+      // A quarter circle the way a NURBS draws it: three poles, the middle one weighted.
+      0, 'SPLINE', 8, '0', 70, 4, 71, 2, 72, 6, 73, 3, 40, 0, 40, 0, 40, 0, 40, 1, 40, 1, 40, 1,
+      10, 10, 20, 0, 41, 1, 10, 10, 20, 10, 41, Math.SQRT1_2, 10, 0, 20, 10, 41, 1,
+    ]));
+    expect(role('warnings-title').textContent).toBe('Warnings (1)');
+    expect(role('notes').textContent).toBe('1 curve has no sketch statement of its own (a weighted or high-degree spline) and is written as cubic beziers.');
+  });
+});
+
 describe('DrawingImportTool: construction lines', () => {
   const xline = (layer: string, at: [number, number], direction: [number, number]): Groups =>
     [0, 'XLINE', 8, layer, 10, at[0], 20, at[1], 11, direction[0], 21, direction[1]];
@@ -966,6 +1104,22 @@ describe('DrawingImportTool: an SVG', () => {
     // The plate is 20…60 by 30…50 above the page's lower edge; its top and left edges are on the guides.
     expect(texts().slice(4)).toEqual(['line([16, 50], [64, 50])', 'line([20, 26], [20, 54])']);
     expect(emit.mock.calls[0][0].geometry.slice(4).every((g) => g.guide === true)).toBe(true);
+  });
+
+  it('writes a path\'s arc of an ellipse as an eArc statement, Y up, and the mirrored one from its other end', async () => {
+    const { choose, apply, texts, role } = makeTool({ source: SVG_IMPORT });
+    // A quarter of a 20 × 10 ellipse about (50, 50) on the page, drawn once as it is and once in a mirrored group.
+    await choose(`<svg ${SVG} width="100mm" height="100mm" viewBox="0 0 100 100" fill="none" stroke="#000">
+      <path d="M 70 50 A 20 10 0 0 0 50 40"/>
+      <g transform="translate(100 0) scale(-1 1)"><path d="M 70 50 A 20 10 0 0 0 50 40"/></g></svg>`, 'arcs.svg');
+    expect(role('summary').textContent).toBe('2 sketch entities, 1 join');
+    expect(role('warnings').classList.contains('hidden')).toBe(true);
+    await apply();
+    // The page is 100 high: its (50, 40) is (50, 60) in the sketch. Counter-clockwise, the mirrored quarter starts at the top.
+    expect(texts()).toEqual([
+      'eArc([70, 50], [50, 60], [50, 50], 20, 10)',
+      'eArc([50, 60], [30, 50], [50, 50], 20, 10)',
+    ]);
   });
 
   it('offers the units only a file is in, and reads a page without a size in the document\'s', async () => {

@@ -86,6 +86,58 @@ describe("an SVG imported into a sketch", () => {
     expect(volume).toBeCloseTo(Math.PI * 12 * 4, 2);
   });
 
+  // A quarter of a 20 × 10 ellipse and the lines from its ends to its centre: a slice of 50π.
+  // The rest of the ellipse, three quarters of it, would enclose three times that.
+  const SLICE = `<path d="M 0 0 L 20 0 A 20 10 0 0 1 0 10 Z" fill="none" stroke="#000"/>`;
+  const SLICE_AREA = (Math.PI * 20 * 10) / 4;
+  const sliceIn = (transform: string) =>
+    `<svg ${NS} width="200mm" height="200mm" viewBox="0 0 200 200"><g transform="${transform}">${SLICE}</g></svg>`;
+
+  it("extrudes a slice of an ellipse drawn as a path arc: the elliptical arc is the piece the page shows", () => {
+    const plan = planOf(sliceIn("translate(60 50)"));
+    expect(plan.primitives.map((p) => p.kind)).toEqual(['line', 'eArc', 'line']);
+    // Y turned over: on the sketch the quarter hangs under its long axis, and runs counter-clockwise from its lower end.
+    expect(plan.primitives[1]).toEqual({ kind: 'eArc', start: { x: 60, y: 140 }, end: { x: 80, y: 150 }, center: { x: 60, y: 150 }, rx: 20, ry: 10, rotation: 0 });
+    expect(plan.joins).toHaveLength(3);
+    expect(plan.approximated).toBe(0);
+    const { volume, outcome } = extrudedVolume(plan, 2);
+    expect(outcome).toBe('solved');
+    expect(volume).toBeCloseTo(SLICE_AREA * 2, 4);
+  });
+
+  it("extrudes the slice in groups that stretch, shear, turn and mirror it: an elliptical arc each time, of the area the transform leaves", () => {
+    const transforms: [string, number][] = [
+      // A shear: the arc's ends are no longer on the axes of the ellipse it has become.
+      ["matrix(1.5 0.2 -0.3 0.8 60 50)", 1.5 * 0.8 + 0.3 * 0.2],
+      ["translate(100 100) rotate(25) scale(-1 1.5)", 1.5],
+      ["translate(100 100) skewX(20) rotate(-70) scale(0.5 2)", 1],
+    ];
+    for (const [transform, scale] of transforms) {
+      const plan = planOf(sliceIn(transform));
+      expect(plan.primitives.map((p) => p.kind), transform).toEqual(['line', 'eArc', 'line']);
+      expect(plan.approximated).toBe(0);
+      const { volume, outcome } = extrudedVolume(plan, 1);
+      expect(outcome).toBe('solved');
+      expect(volume, transform).toBeCloseTo(SLICE_AREA * scale, 3);
+    }
+  });
+
+  it("extrudes a slice whose path arc is itself turned, and the same slice drawn the other way round", () => {
+    // The ellipse turned 30° on the page: from the end of its long axis to the end of its short one.
+    const [ax, ay, bx, by] = [20 * Math.cos(Math.PI / 6), 20 * Math.sin(Math.PI / 6), -10 * Math.sin(Math.PI / 6), 10 * Math.cos(Math.PI / 6)];
+    const forward = `M 0 0 L ${ax} ${ay} A 20 10 30 0 1 ${bx} ${by} Z`;
+    const backward = `M 0 0 L ${bx} ${by} A 20 10 30 0 0 ${ax} ${ay} Z`;
+    for (const d of [forward, backward]) {
+      const plan = planOf(`<svg ${NS} width="200mm" height="200mm" viewBox="0 0 200 200"><path transform="translate(100 100)" d="${d}" fill="none" stroke="#000"/></svg>`);
+      const arc = plan.primitives.find((p) => p.kind === 'eArc')!;
+      // Turned 30° clockwise on the page is 30° clockwise still once Y points up: −30°.
+      expect(arc).toMatchObject({ center: { x: 100, y: 100 }, rx: expect.closeTo(20, 5), ry: expect.closeTo(10, 5), rotation: -30 });
+      const { volume, outcome } = extrudedVolume(plan, 1);
+      expect(outcome).toBe('solved');
+      expect(volume).toBeCloseTo(SLICE_AREA, 4);
+    }
+  });
+
   it("extrudes an outline of quadratic and cubic béziers as the same curves", () => {
     // A lens: a parabola over the X axis and a cubic under it, between (0, 50) and (40, 50) on the page.
     const text = `<svg ${NS} width="100" height="100"><path d="M0 50 Q20 10 40 50 C30 70 10 70 0 50 Z" fill="none" stroke="black"/></svg>`;
@@ -97,6 +149,18 @@ describe("an SVG imported into a sketch", () => {
     // Under the parabola: two thirds of 40 × 20. Under the cubic: ∫ y dx with
     // y(t) = 60·t(1 − t) and x′(t) = −30·(1 + 2·t(1 − t)) is 1800 · (1/6 + 2/30) = 420.
     expect(volume).toBeCloseTo((2 / 3) * 40 * 20 + 420, 2);
+  });
+
+  it("fixes an imported elliptical arc in place, and leaves a turned one between its ellipse's own axes only its angle", () => {
+    const FIXED = { outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 };
+    // As drawn it lies along the sketch axes; sheared, its ends hold its angle.
+    for (const transform of ["translate(60 50)", "matrix(1.5 0.2 -0.3 0.8 60 50)", "translate(100 100) skewX(20) rotate(-70) scale(0.5 2)"]) {
+      expect(solved(planOf(sliceIn(transform)), true), transform).toEqual(FIXED);
+      expect(solved(planOf(sliceIn(transform)), false), transform).toEqual(FIXED);
+    }
+    // Only turned, it still runs from one vertex of its ellipse to the next: nothing holds the turn.
+    expect(solved(planOf(sliceIn("translate(100 100) rotate(25)")), true)).toEqual({ ...FIXED, dof: 1 });
+    expect(solved(planOf(sliceIn("translate(100 100) rotate(25)")), false)).toEqual({ ...FIXED, dof: 1 });
   });
 
   it("fixes an imported plate in place: no freedom left, nothing stated twice", () => {

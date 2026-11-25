@@ -3,6 +3,7 @@ import { SketchImport } from "../../../io/drawing/sketch-import.js";
 import type { SketchPrimitive } from "../../../io/drawing/sketch-import.js";
 import { Affine } from "../../../io/drawing/affine.js";
 import { BSplineCurve2D } from "../../../io/drawing/bspline.js";
+import { Conic } from "../../../io/drawing/conic.js";
 import { Curves } from "../../../io/drawing/drawing.js";
 import type { Curve2D, Vec2 } from "../../../io/drawing/drawing.js";
 
@@ -132,40 +133,136 @@ describe("SketchImport: the statement each curve becomes", () => {
     }
   });
 
-  it("fits an elliptical arc with cubics that stay on the ellipse and run its whole extent", () => {
-    const arc: Curve2D = { kind: 'ellipse', center: { x: 3, y: 4 }, major: { x: 20, y: 0 }, ratio: 0.5, start: 0.5, end: 4 };
-    const { primitives, joins, approximated } = plan([arc], { ...OPTIONS, tolerance: 1e-3 });
-    expect(approximated).toBe(1);
-    // 3.5 radians: three pieces do it, not dozens.
-    expect(primitives).toHaveLength(3);
-    const onEllipse = (p: Vec2) => Math.hypot((p.x - 3) / 20, (p.y - 4) / 10);
-    for (const primitive of primitives) {
-      expect(primitive.kind).toBe('bezier');
-      const points = (primitive as { points: Vec2[] }).points;
-      expect(points).toHaveLength(4);
-      for (let k = 0; k <= 40; k++) {
-        // The tolerance is 1e-3 of length: 5e-5 of the unit circle the ellipse is the image of, at its long radius of 20.
-        expect(Math.abs(onEllipse(bezierAt(points, k / 40)) - 1)).toBeLessThan(5e-5);
-      }
-    }
-    const first = (primitives[0] as { points: Vec2[] }).points[0];
-    const lastPoints = (primitives[primitives.length - 1] as { points: Vec2[] }).points;
-    const last = lastPoints[lastPoints.length - 1];
-    const [start, end] = Curves.endpoints(arc)!;
-    expect(first.x).toBeCloseTo(start.x, 5);
-    expect(first.y).toBeCloseTo(start.y, 5);
-    expect(last.x).toBeCloseTo(end.x, 5);
-    expect(last.y).toBeCloseTo(end.y, 5);
-    expect(joins).toHaveLength(primitives.length - 1);
+  it("writes an open elliptical arc as itself: its ends, counter-clockwise, on the ellipse of its centre, semi-radii and angle", () => {
+    const arc: Curve2D = { kind: 'ellipse', center: { x: 3, y: 4 }, major: { x: 20, y: 0 }, ratio: 0.5, start: 0, end: Math.PI / 2 };
+    const { primitives, joins, approximated } = plan([arc]);
+    expect(primitives).toEqual([
+      { kind: 'eArc', start: { x: 23, y: 4 }, end: { x: 3, y: 14 }, center: { x: 3, y: 4 }, rx: 20, ry: 10, rotation: 0 },
+    ]);
+    // The statement is the curve: nothing is fitted, nothing counted.
+    expect(approximated).toBe(0);
+    expect(joins).toEqual([]);
   });
 
-  it("cuts an elliptical arc finer for a tighter tolerance, and never coarser than a quarter turn a piece", () => {
-    const half: Curve2D = { kind: 'ellipse', center: { x: 0, y: 0 }, major: { x: 19, y: 0 }, ratio: 0.6, start: Math.PI, end: 2 * Math.PI };
-    expect(plan([half], { ...OPTIONS, tolerance: 1e-4 }).primitives).toHaveLength(4);
-    expect(plan([half], { ...OPTIONS, tolerance: 1 }).primitives).toHaveLength(2);
-    const tight = plan([half], { ...OPTIONS, tolerance: 1e-6 }).primitives;
-    expect(tight.length).toBeGreaterThan(4);
-    expect(tight.length).toBeLessThan(12);
+  it("writes a turned elliptical arc with the angle of its long axis in (−90°, 90°], its ends where the file has them", () => {
+    const turned = (degrees: number): Curve2D => ({
+      kind: 'ellipse',
+      center: { x: -7, y: 2.5 },
+      major: { x: 12 * Math.cos(degrees * Math.PI / 180), y: 12 * Math.sin(degrees * Math.PI / 180) },
+      ratio: 0.25,
+      start: 0.5,
+      end: 4,
+    });
+    for (const degrees of [30, 150, -90, 211.5]) {
+      const curve = turned(degrees);
+      const [primitive] = plan([curve]).primitives;
+      if (primitive.kind !== 'eArc') {
+        throw new Error(`expected an elliptical arc, got ${primitive.kind}`);
+      }
+      expect(primitive.rotation).toBeGreaterThan(-90);
+      expect(primitive.rotation).toBeLessThanOrEqual(90);
+      expect(((primitive.rotation - degrees) % 180 + 180) % 180).toBeCloseTo(0, 6);
+      expect(primitive.center).toEqual({ x: -7, y: 2.5 });
+      expect(primitive.rx).toBeCloseTo(12, 5);
+      expect(primitive.ry).toBeCloseTo(3, 5);
+      const [start, end] = Curves.endpoints(curve)!;
+      expect(primitive.start.x).toBeCloseTo(start.x, 6);
+      expect(primitive.start.y).toBeCloseTo(start.y, 6);
+      expect(primitive.end.x).toBeCloseTo(end.x, 6);
+      expect(primitive.end.y).toBeCloseTo(end.y, 6);
+    }
+  });
+
+  it("draws the written elliptical arc over the file's: the same piece of the same ellipse, whatever the rounding did to its ends", () => {
+    const curve: Curve2D = {
+      kind: 'ellipse',
+      center: { x: 1 / 3, y: -2 / 7 },
+      major: { x: 17 * Math.cos(0.7), y: 17 * Math.sin(0.7) },
+      ratio: 1 / 3,
+      start: 1.1,
+      end: 1.1 + 4.4,
+    };
+    for (const decimals of [6, 3, 1]) {
+      const [primitive] = plan([curve], { ...OPTIONS, decimals }).primitives;
+      const outline = SketchImport.outline(primitive);
+      const expected = Curves.sample(curve, outline.length - 1);
+      // The rounding moves every written number by half a step at most; the arc is a few of those off.
+      outline.forEach((p, i) => {
+        expect(Math.hypot(p.x - expected[i].x, p.y - expected[i].y)).toBeLessThan(10 ** -decimals * 10);
+      });
+    }
+  });
+
+  it("writes an ellipse that passes through the written ends: two of its numbers are settled by them, and written finer", () => {
+    const curve: Curve2D = {
+      kind: 'ellipse',
+      center: { x: 1 / 3, y: -2 / 7 },
+      major: { x: 17 * Math.cos(0.7), y: 17 * Math.sin(0.7) },
+      ratio: 1 / 3,
+      start: 1.1,
+      end: 3.9,
+    };
+    /** How far off its ellipse a point of the statement is, in the ellipse's own measure: nothing on it. */
+    const off = (arc: Extract<SketchPrimitive, { kind: 'eArc' }>, at: Vec2) => {
+      const turn = arc.rotation * Math.PI / 180;
+      const dx = at.x - arc.center.x;
+      const dy = at.y - arc.center.y;
+      return Math.hypot((dx * Math.cos(turn) + dy * Math.sin(turn)) / arc.rx, (dy * Math.cos(turn) - dx * Math.sin(turn)) / arc.ry) - 1;
+    };
+    const decimalsOf = (value: number) => (String(value).split('.')[1] ?? '').length;
+    for (const decimals of [6, 3]) {
+      const [arc] = plan([curve], { ...OPTIONS, decimals }).primitives;
+      if (arc.kind !== 'eArc') {
+        throw new Error(`expected an elliptical arc, got ${arc.kind}`);
+      }
+      // The ends, the centre and the angle are written to the plan's decimals; the two semi-radii to four more.
+      for (const value of [arc.start.x, arc.start.y, arc.end.x, arc.end.y, arc.center.x, arc.center.y, arc.rotation]) {
+        expect(decimalsOf(value)).toBeLessThanOrEqual(decimals);
+      }
+      expect(decimalsOf(arc.rx)).toBeGreaterThan(decimals);
+      expect(decimalsOf(arc.rx)).toBeLessThanOrEqual(decimals + 4);
+      expect(decimalsOf(arc.ry)).toBeLessThanOrEqual(decimals + 4);
+      // Both a rounding step from the file's, and the ends on the ellipse to within the finer step.
+      expect(Math.abs(arc.rx - 17)).toBeLessThan(10 ** -decimals * 5);
+      expect(Math.abs(arc.ry - 17 / 3)).toBeLessThan(10 ** -decimals * 5);
+      expect(Math.abs(off(arc, arc.start))).toBeLessThan(10 ** -(decimals + 4));
+      expect(Math.abs(off(arc, arc.end))).toBeLessThan(10 ** -(decimals + 4));
+    }
+  });
+
+  it("settles a centre coordinate where the ends cannot tell a radius: half an ellipse says nothing of its other radius", () => {
+    // From one end of the long axis to the other, turned 40°: the short radius is the file's, the centre follows the ends.
+    const half: Curve2D = {
+      kind: 'ellipse',
+      center: { x: 2, y: 3 },
+      major: { x: 9 * Math.cos(40 * Math.PI / 180), y: 9 * Math.sin(40 * Math.PI / 180) },
+      ratio: 0.5,
+      start: 0,
+      end: Math.PI,
+    };
+    const [arc] = plan([half]).primitives;
+    if (arc.kind !== 'eArc') {
+      throw new Error(`expected an elliptical arc, got ${arc.kind}`);
+    }
+    expect(arc.ry).toBe(4.5);
+    expect(arc.rotation).toBe(40);
+    expect(arc.rx).toBeCloseTo(9, 5);
+    expect(arc.center.x).toBeCloseTo(2, 5);
+    expect(arc.center.y).toBeCloseTo(3, 5);
+    // The written ends are the two ends of the written long axis, to within the finer step.
+    const along = (at: Vec2) => (at.x - arc.center.x) * Math.cos(40 * Math.PI / 180) + (at.y - arc.center.y) * Math.sin(40 * Math.PI / 180);
+    expect(along(arc.start)).toBeCloseTo(arc.rx, 9);
+    expect(along(arc.end)).toBeCloseTo(-arc.rx, 9);
+  });
+
+  it("leaves round numbers as they are: an elliptical arc whose written ends are on its written ellipse", () => {
+    const [arc] = plan([{ kind: 'ellipse', center: { x: 3, y: 4 }, major: { x: 0, y: 20 }, ratio: 0.5, start: 0, end: 3 * Math.PI / 2 }]).primitives;
+    expect(arc).toEqual({ kind: 'eArc', start: { x: 3, y: 24 }, end: { x: 13, y: 4 }, center: { x: 3, y: 4 }, rx: 20, ry: 10, rotation: 90 });
+  });
+
+  it("writes an elliptical arc that is the whole ellipse as an ellipse", () => {
+    const { primitives } = plan([{ kind: 'ellipse', center: { x: 0, y: 0 }, major: { x: 0, y: 8 }, ratio: 0.5, start: 1, end: 1 + 2 * Math.PI }]);
+    expect(primitives).toEqual([{ kind: 'ellipse', center: { x: 0, y: 0 }, rx: 8, ry: 4, rotation: 90 }]);
   });
 
   it("writes a polyline as its segments", () => {
@@ -193,6 +290,41 @@ describe("SketchImport: what is left out", () => {
     expect(primitives[0].kind).toBe('arc');
     // Its two ends are within the join tolerance, and still not joined: that would fold it.
     expect(joins).toEqual([]);
+  });
+
+  it("keeps an elliptical arc whose ends nearly meet after going most of the way round, and drops one that goes nowhere", () => {
+    const ellipse = { kind: 'ellipse' as const, center: { x: 0, y: 0 }, major: { x: 10, y: 0 }, ratio: 0.5 };
+    const { primitives, joins } = plan([
+      { ...ellipse, start: 0.3, end: 0.3 + 2 * Math.PI - 5e-5 },
+      { ...ellipse, center: { x: 50, y: 0 }, start: 0.3, end: 0.3 + 5e-5 },
+    ]);
+    expect(primitives).toHaveLength(1);
+    expect(primitives[0]).toMatchObject({ kind: 'eArc', center: { x: 0, y: 0 } });
+    // Its two ends are within the join tolerance, and still not joined: that would fold it.
+    expect(joins).toEqual([]);
+  });
+
+  it("writes an elliptical arc whose ends are written as one point as the whole ellipse, or not at all when it went nowhere", () => {
+    // Written to one decimal, ends a few thousandths apart are one point: the statement could not tell the two pieces apart.
+    const ellipse = { kind: 'ellipse' as const, major: { x: 10, y: 0 }, ratio: 0.5 };
+    const coarse = { tolerance: 1e-5, joinTolerance: 1e-3, decimals: 1 };
+    const { primitives } = plan([
+      { ...ellipse, center: { x: 0, y: 0 }, start: 0.3, end: 0.3 + 2 * Math.PI - 2e-4 },
+      { ...ellipse, center: { x: 50, y: 0 }, start: 0.3, end: 0.3 + 2e-4 },
+    ], coarse);
+    expect(primitives).toEqual([{ kind: 'ellipse', center: { x: 0, y: 0 }, rx: 10, ry: 5, rotation: 0 }]);
+  });
+
+  it("drops an elliptical arc drawn twice, whichever way round the file drew it, and counts it", () => {
+    // The same quarter as a counter-clockwise run from its first end and as a clockwise run from its last.
+    const u = { x: 12 * Math.cos(0.4), y: 12 * Math.sin(0.4) };
+    const v = { x: -5 * Math.sin(0.4), y: 5 * Math.cos(0.4) };
+    const forward = Conic.fromConjugateDiameters({ x: 2, y: 3 }, u, v, 0.2, 1.9, 1e-9)!;
+    const backward = Conic.fromConjugateDiameters({ x: 2, y: 3 }, u, { x: -v.x, y: -v.y }, -1.9, -0.2, 1e-9)!;
+    const { primitives, duplicates } = plan([forward, backward]);
+    expect(primitives).toHaveLength(1);
+    expect(primitives[0].kind).toBe('eArc');
+    expect(duplicates).toBe(1);
   });
 
   it("drops a curve drawn twice, whichever way a line runs, and counts it", () => {
@@ -246,6 +378,19 @@ describe("SketchImport: joins", () => {
       { a: { primitive: 0, end: 'start' }, b: { primitive: 2, end: 'end' } },
       { a: { primitive: 0, end: 'end' }, b: { primitive: 1, end: 'start' } },
       { a: { primitive: 1, end: 'end' }, b: { primitive: 2, end: 'start' } },
+    ]);
+  });
+
+  it("joins an elliptical arc by its two ends, like an arc", () => {
+    // A half ellipse over its own chord.
+    const { primitives, joins } = plan([
+      { kind: 'ellipse', center: { x: 0, y: 0 }, major: { x: 10, y: 0 }, ratio: 0.5, start: 0, end: Math.PI },
+      line([-10, 0], [10, 0]),
+    ]);
+    expect(primitives.map((p) => p.kind)).toEqual(['eArc', 'line']);
+    expect(joins).toEqual([
+      { a: { primitive: 0, end: 'start' }, b: { primitive: 1, end: 'end' } },
+      { a: { primitive: 0, end: 'end' }, b: { primitive: 1, end: 'start' } },
     ]);
   });
 
@@ -401,6 +546,22 @@ describe("SketchImport.outline", () => {
     expect(Math.max(...ellipse.map((p) => Math.abs(p.x)))).toBeCloseTo(5, 6);
     expect(Math.max(...ellipse.map((p) => Math.abs(p.y)))).toBeCloseTo(10, 6);
   });
+
+  it("runs an elliptical arc counter-clockwise from its start to its end, on its ellipse", () => {
+    // Three quarters of an upright 10 × 5 ellipse, from the top of its long axis round to its right side.
+    const outline = SketchImport.outline({ kind: 'eArc', start: { x: 0, y: 10 }, end: { x: 5, y: 0 }, center: { x: 0, y: 0 }, rx: 10, ry: 5, rotation: 90 });
+    expect(outline[0].x).toBeCloseTo(0, 9);
+    expect(outline[0].y).toBeCloseTo(10, 9);
+    expect(outline[outline.length - 1].x).toBeCloseTo(5, 9);
+    expect(outline[outline.length - 1].y).toBeCloseTo(0, 9);
+    for (const p of outline) {
+      expect(Math.hypot(p.x / 5, p.y / 10)).toBeCloseTo(1, 9);
+    }
+    // The long way round: through the left side and the bottom, never the first quadrant's inside.
+    expect(Math.min(...outline.map((p) => p.x))).toBeCloseTo(-5, 2);
+    expect(Math.min(...outline.map((p) => p.y))).toBeCloseTo(-10, 2);
+    expect(outline.some((p) => p.x > 0.1 && p.y > 0.1)).toBe(false);
+  });
 });
 
 describe("Affine", () => {
@@ -449,6 +610,30 @@ describe("Affine", () => {
       expect(p.x).toBeCloseTo(expected[i].x, 9);
       expect(p.y).toBeCloseTo(expected[i].y, 9);
     });
+  });
+
+  it("mirrors an elliptical arc into the one that turns the other way over the mirrored points, which the plan writes from its other end", () => {
+    const arc: Curve2D = { kind: 'ellipse', center: { x: 4, y: 1 }, major: { x: 9, y: 3 }, ratio: 0.4, start: 0.3, end: 2.1 };
+    const mirror = { a: -1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+    const placed = Affine.curve(mirror, arc, 1e-9)!;
+    expect(placed.kind).toBe('ellipse');
+    const expected = Curves.sample(arc, 8).map((p) => Affine.point(mirror, p)).reverse();
+    Curves.sample(placed, 8).forEach((p, i) => {
+      expect(p.x).toBeCloseTo(expected[i].x, 9);
+      expect(p.y).toBeCloseTo(expected[i].y, 9);
+    });
+    const [drawn] = plan([arc]).primitives;
+    const [mirrored] = plan([placed]).primitives;
+    if (drawn.kind !== 'eArc' || mirrored.kind !== 'eArc') {
+      throw new Error('expected two elliptical arcs');
+    }
+    // Counter-clockwise both: the mirrored arc starts where the drawn one's end went.
+    expect(mirrored.start).toEqual({ x: -drawn.end.x, y: drawn.end.y });
+    expect(mirrored.end).toEqual({ x: -drawn.start.x, y: drawn.start.y });
+    expect(mirrored.center).toEqual({ x: -4, y: 1 });
+    expect(mirrored.rx).toBeCloseTo(drawn.rx, 9);
+    expect(mirrored.ry).toBeCloseTo(drawn.ry, 9);
+    expect(mirrored.rotation).toBeCloseTo(-drawn.rotation, 6);
   });
 
   it("stretches a circle into an ellipse along the stretched axis, and flattens it to a segment", () => {

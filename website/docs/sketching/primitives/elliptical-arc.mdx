@@ -57,6 +57,8 @@ y = cy + rx * cos(t) * sin(rotation) + ry * sin(t) * cos(rotation)
 
 Compute that point for the start angle and for the end angle and pass them as `start` and `end`. Add `.cw()` when the end angle is smaller than the start angle. The parameter angle is not the angle you would measure from the centre with a protractor unless `rx` equals `ry`.
 
+[Import DXF](/docs/sketching/tools/import-dxf) and [Import SVG](/docs/sketching/tools/import-svg) do this for you: an elliptical arc of the file is written as an `eArc` statement.
+
 ## Accessors
 
 | Accessor | Meaning |

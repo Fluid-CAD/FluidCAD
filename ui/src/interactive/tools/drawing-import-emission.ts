@@ -57,6 +57,14 @@ export class DrawingImportEmission {
         const rotation = primitive.rotation !== 0 ? `, ${n(primitive.rotation)}` : '';
         return { kind: 'ellipse', text: `ellipse(${p(primitive.center)}, ${n(primitive.rx)}, ${n(primitive.ry)}${rotation})` };
       }
+      case 'eArc': {
+        // Counter-clockwise from start to end, as every arc of a drawing runs: the statement's own default.
+        const rotation = primitive.rotation !== 0 ? `, ${n(primitive.rotation)}` : '';
+        return {
+          kind: 'eArc',
+          text: `eArc(${p(primitive.start)}, ${p(primitive.end)}, ${p(primitive.center)}, ${n(primitive.rx)}, ${n(primitive.ry)}${rotation})`,
+        };
+      }
       case 'bezier':
         return { kind: 'bezier', text: `bezier(${primitive.points.map(p).join(', ')})` };
       case 'point':

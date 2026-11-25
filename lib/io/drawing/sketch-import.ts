@@ -4,16 +4,17 @@ import { BSplineCurve2D } from "./bspline.js";
 import { DrawingCleanup } from "./cleanup.js";
 import type { CutLine } from "./construction-lines.js";
 import { ImportedTexts, type ResolvedText } from "./imported-text.js";
+import { SketchEllipticalArcs, type SketchEllipticalArc } from "./sketch-elliptical-arc.js";
 
 type BSpline = Extract<Curve2D, { kind: 'bspline' }>;
-type Ellipse = Extract<Curve2D, { kind: 'ellipse' }>;
 
 /**
  * One sketch statement an imported curve becomes, as plain geometry in
  * sketch coordinates — the arguments of `line(start, end)`,
  * `arc(start, end, center)` (counter-clockwise), `circle(center, diameter)`,
- * `ellipse(center, rx, ry, rotation)` (degrees), `bezier(...points)` and,
- * for a point of the file, `point(at)`. A line marked `guide` is a
+ * `ellipse(center, rx, ry, rotation)` (degrees),
+ * `eArc(start, end, center, rx, ry, rotation)` (counter-clockwise, degrees),
+ * `bezier(...points)` and, for a point of the file, `point(at)`. A line marked `guide` is a
  * construction line: written `line(start, end).guide()`. A text is the
  * sketch's own `text(…)` (see {@link SketchTextPrimitive}).
  */
@@ -22,6 +23,7 @@ export type SketchPrimitive =
   | { kind: 'arc'; start: Vec2; end: Vec2; center: Vec2 }
   | { kind: 'circle'; center: Vec2; diameter: number }
   | { kind: 'ellipse'; center: Vec2; rx: number; ry: number; rotation: number }
+  | SketchEllipticalArc
   | { kind: 'bezier'; points: Vec2[] }
   | { kind: 'point'; at: Vec2 }
   | SketchTextPrimitive;
@@ -53,16 +55,16 @@ export type SketchTextPrimitive = {
 export type SketchDrawnPrimitive = Exclude<SketchPrimitive, { kind: 'text' }>;
 type DrawnPrimitive = SketchDrawnPrimitive;
 
-/** An end of a primitive that a join names: of a line or an arc, a bezier's first or last point, or a point primitive itself (`'point'`). */
+/** An end of a primitive that a join names: of a line, an arc or an elliptical arc, a bezier's first or last point, or a point primitive itself (`'point'`). */
 export type SketchJoinEnd = { primitive: number; end: 'start' | 'end' | 'point' };
 
 /** Two ends that meet: what a `coincident` between them states. */
 export type SketchJoin = { a: SketchJoinEnd; b: SketchJoinEnd };
 
 /**
- * A point of a primitive a pin names: an end (of a line, an arc or a
- * bezier), the centre (of an arc, a circle or an ellipse), a bezier's
- * control point by index, a point primitive itself (`'point'`), or the
+ * A point of a primitive a pin names: an end (of a line, an arc, an
+ * elliptical arc or a bezier), the centre (of an arc, a circle, an ellipse
+ * or an elliptical arc), a bezier's control point by index, a point primitive itself (`'point'`), or the
  * anchor of a text placed by one (`'anchor'`).
  */
 export type SketchPinPoint = { primitive: number; point: 'start' | 'end' | 'center' | 'point' | 'anchor' | number };
@@ -73,13 +75,15 @@ export type SketchPinPoint = { primitive: number; point: 'start' | 'end' | 'cent
  * - `fix` — `fix(point)`: the point stays at the coordinates it is written with;
  * - `radius` — `radius(arc, value)`;
  * - `offset` — `distance(arc.start(), arc.center(), value, axis)`: how far
- *   the centre is from the arc's start along one sketch axis;
+ *   the centre is from the start of the arc, or of the elliptical arc,
+ *   along one sketch axis;
  * - `aligned` — `vertical(arc.start(), arc.center())` (the same x) or
  *   `horizontal(…)` (the same y): that offset when it is zero, said as the
  *   alignment it is instead of a dimension of nothing;
  * - `diameter` — `diameter(circle, value)`;
- * - `semi-radius` — `radius(ellipse, value, axis)`;
- * - `level` — `horizontal(ellipse)` / `vertical(ellipse)`: its RX axis along X or Y.
+ * - `semi-radius` — `radius(ellipse, value, axis)`, of an ellipse or an elliptical arc;
+ * - `level` — `horizontal(ellipse)` / `vertical(ellipse)`: the RX axis of an
+ *   ellipse or an elliptical arc along X or Y.
  */
 export type SketchPin =
   | { kind: 'fix'; point: SketchPinPoint }
@@ -102,7 +106,7 @@ export interface SketchImportPlan {
   joins: SketchJoin[];
   /** Curves left out because another curve of the import is the same one. */
   duplicates: number;
-  /** Curves a sketch has no statement for (an elliptical arc, a rational or high-degree spline), written as cubic beziers within the tolerance. */
+  /** Curves a sketch has no statement for (a rational or high-degree spline), written as cubic beziers within the tolerance. */
   approximated: number;
 }
 
@@ -111,7 +115,12 @@ export interface SketchImportOptions {
   tolerance: number;
   /** How close two ends must be for a join. At least `tolerance`. */
   joinTolerance: number;
-  /** The decimals the statements are written with. Everything is rounded to them first, so joins and duplicates are judged on what is written. */
+  /**
+   * The decimals the statements are written with. Everything is rounded to
+   * them first, so joins and duplicates are judged on what is written. (Two
+   * numbers of an elliptical arc are written with a few more: see
+   * `SketchEllipticalArcs`.)
+   */
   decimals: number;
 }
 
@@ -128,8 +137,12 @@ const LEVEL = 1e-9;
 
 const TWO_PI = 2 * Math.PI;
 
-/** How far the best cubic strays from a circular arc of angle θ, in radii per θ⁶. */
-const CUBIC_ARC_ERROR = 1.8e-5;
+/**
+ * The decimals past the plan's own that a number is written with when it
+ * has to agree with others to within what the kernel tells apart: the
+ * numbers of an elliptical arc's ellipse that its written ends settle.
+ */
+const FINE_DECIMALS = 4;
 
 /**
  * An arc's radius holds its bulge while its centre is at least this share of
@@ -138,19 +151,16 @@ const CUBIC_ARC_ERROR = 1.8e-5;
  */
 const ARC_RADIUS_HOLDS = 0.2;
 
-/** An elliptical arc is never cut into more pieces than this, whatever the tolerance asks. */
-const MAX_ARC_PIECES = 64;
-
 /**
  * Drawing curves → the sketch statements that draw them.
  *
- * A sketch has lines, arcs, circles, full ellipses and beziers, so that is
- * what the curves become. A B-spline is written as its own Bézier pieces,
- * one per knot span — exactly the same curve, whatever its degree up to
- * three. A rational spline, one of a higher degree and an elliptical arc
- * have no exact statement: they are fitted with cubics within the tolerance
- * first, and counted. A point of the file is a `point`: what a drill
- * centre or a datum mark is to a sketch.
+ * A sketch has lines, arcs, circles, ellipses, elliptical arcs and beziers,
+ * so that is what the curves become. A B-spline is written as its own
+ * Bézier pieces, one per knot span — exactly the same curve, whatever its
+ * degree up to three. A rational spline and one of a higher degree have no
+ * exact statement: they are fitted with cubics within the tolerance first,
+ * and counted. A point of the file is a `point`: what a drill centre or a
+ * datum mark is to a sketch.
  *
  * A construction line is a guide line: drawn, and kept out of profiles.
  * Where it was cut is no point of the drawing, so its ends join nothing —
@@ -175,11 +185,15 @@ export class SketchImport {
   ): SketchImportPlan {
     const tolerance = options.tolerance;
     const joinTolerance = Math.max(options.joinTolerance, tolerance);
-    const scale = 10 ** options.decimals;
-    const round = (value: number) => {
-      const rounded = Math.round(value * scale) / scale;
-      return rounded === 0 ? 0 : rounded;
+    const rounding = (decimals: number) => {
+      const scale = 10 ** decimals;
+      return (value: number) => {
+        const rounded = Math.round(value * scale) / scale;
+        return rounded === 0 ? 0 : rounded;
+      };
     };
+    const round = rounding(options.decimals);
+    const fine = rounding(options.decimals + FINE_DECIMALS);
     const point = (p: Vec2): Vec2 => ({ x: round(p.x), y: round(p.y) });
 
     const raw: DrawnPrimitive[] = [];
@@ -204,9 +218,9 @@ export class SketchImport {
     const seen = new Set<string>();
     let duplicates = 0;
     for (const primitive of raw) {
-      const rounded = SketchImport.rounded(primitive, point, round);
+      const rounded = SketchImport.rounded(primitive, point, round, fine);
       // A point has no extent to lose; a curve under the join tolerance is a speck.
-      if (rounded.kind !== 'point' && SketchImport.extent(rounded) <= joinTolerance) {
+      if (!rounded || (rounded.kind !== 'point' && SketchImport.extent(rounded) <= joinTolerance)) {
         continue;
       }
       const key = SketchImport.key(rounded);
@@ -294,8 +308,15 @@ export class SketchImport {
    * along the axis the chord runs across — or, when that distance is zero,
    * by being level with the start.
    *
-   * One thing stays free: an ellipse turned off the sketch axes has no
-   * constraint that holds its angle. `decimals` are the plan's.
+   * An elliptical arc between fixed ends has three things left to hold,
+   * of its centre, its two semi-radii and its angle: which three depends
+   * on where on the ellipse its ends are (see `SketchEllipticalArcs.holds`).
+   *
+   * One thing stays free: the angle of an ellipse turned off the sketch
+   * axes, which no constraint holds — of a full ellipse, and of an
+   * elliptical arc whose two ends are both on its ellipse's own axes (a
+   * quarter, a half or three quarters of it, vertex to vertex), which are
+   * the ends that do not hold it either. `decimals` are the plan's.
    */
   static pins(plan: SketchImportPlan, options: { joined: boolean; decimals: number }): SketchPin[] {
     const scale = 10 ** options.decimals;
@@ -330,17 +351,36 @@ export class SketchImport {
             pins.push({ kind: 'radius', primitive: index, value: round(radius) });
           } else {
             // The centre moves across the chord: measured along the axis nearest to that.
-            const axis = Math.abs(chord.x) >= Math.abs(chord.y) ? 'y' : 'x';
-            const value = round(Math.abs(primitive.center[axis] - primitive.start[axis]));
-            if (value === 0) {
-              // The same x is a vertical pair, the same y a horizontal one.
-              pins.push({ kind: 'aligned', primitive: index, direction: axis === 'x' ? 'vertical' : 'horizontal' });
-            } else {
-              pins.push({ kind: 'offset', primitive: index, axis, value });
-            }
+            pins.push(SketchImport.centreAlong(index, primitive, Math.abs(chord.x) >= Math.abs(chord.y) ? 'y' : 'x', round));
           }
           break;
         }
+        case 'eArc':
+          fixEnd(index, 'start');
+          fixEnd(index, 'end');
+          for (const hold of SketchEllipticalArcs.holds(primitive)) {
+            switch (hold) {
+              case 'center':
+                pins.push({ kind: 'fix', point: { primitive: index, point: 'center' } });
+                break;
+              case 'center-x':
+                pins.push(SketchImport.centreAlong(index, primitive, 'x', round));
+                break;
+              case 'center-y':
+                pins.push(SketchImport.centreAlong(index, primitive, 'y', round));
+                break;
+              case 'rx':
+                pins.push({ kind: 'semi-radius', primitive: index, axis: 'x', value: primitive.rx });
+                break;
+              case 'ry':
+                pins.push({ kind: 'semi-radius', primitive: index, axis: 'y', value: primitive.ry });
+                break;
+              case 'level':
+                pins.push({ kind: 'level', primitive: index, direction: primitive.rotation === 0 ? 'horizontal' : 'vertical' });
+                break;
+            }
+          }
+          break;
         case 'circle':
           pins.push({ kind: 'fix', point: { primitive: index, point: 'center' } });
           pins.push({ kind: 'diameter', primitive: index, value: primitive.diameter });
@@ -376,6 +416,25 @@ export class SketchImport {
     return pins;
   }
 
+  /**
+   * The pin that holds a centre along one sketch axis, by where it sits
+   * from its curve's start: that far along the axis, or — when that is
+   * nothing — level with it.
+   */
+  private static centreAlong(
+    index: number,
+    primitive: { start: Vec2; center: Vec2 },
+    axis: 'x' | 'y',
+    round: (value: number) => number,
+  ): SketchPin {
+    const value = round(Math.abs(primitive.center[axis] - primitive.start[axis]));
+    if (value === 0) {
+      // The same x is a vertical pair, the same y a horizontal one.
+      return { kind: 'aligned', primitive: index, direction: axis === 'x' ? 'vertical' : 'horizontal' };
+    }
+    return { kind: 'offset', primitive: index, axis, value };
+  }
+
   /** The points a preview draws a primitive through. */
   static outline(primitive: SketchPrimitive): Vec2[] {
     switch (primitive.kind) {
@@ -404,6 +463,8 @@ export class SketchImport {
           end: TWO_PI,
         }, 72);
       }
+      case 'eArc':
+        return SketchEllipticalArcs.outline(primitive);
       case 'bezier': {
         const steps = 12 * (primitive.points.length - 1);
         const points: Vec2[] = [];
@@ -446,21 +507,11 @@ export class SketchImport {
       case 'ellipse': {
         if (Curves.isClosed(curve, tolerance)) {
           const rx = Math.hypot(curve.major.x, curve.major.y);
-          // The RX axis has no direction: its angle is kept in (−90°, 90°].
-          let rotation = (Math.atan2(curve.major.y, curve.major.x) * 180) / Math.PI;
-          // (The margin keeps a −90° that floating point left a hair short on the 90° side.)
-          if (rotation > 90 + 1e-9) {
-            rotation -= 180;
-          } else if (rotation <= -90 + 1e-9) {
-            rotation += 180;
-          }
-          out.push({ kind: 'ellipse', center: curve.center, rx, ry: rx * curve.ratio, rotation });
-          return false;
+          out.push({ kind: 'ellipse', center: curve.center, rx, ry: rx * curve.ratio, rotation: SketchEllipticalArcs.rotation(curve.major) });
+        } else {
+          out.push(SketchEllipticalArcs.of(curve));
         }
-        for (const points of SketchImport.ellipseArc(curve, tolerance)) {
-          out.push({ kind: 'bezier', points });
-        }
-        return true;
+        return false;
       }
       case 'bspline': {
         const exact = curve.degree <= 3 && !curve.weights;
@@ -488,44 +539,6 @@ export class SketchImport {
     }
   }
 
-  /**
-   * An elliptical arc as cubic Béziers no farther than `tolerance` from it.
-   *
-   * The arc is the image of a circular arc, and the cubic that best follows
-   * a circular arc of angle θ is known: its two inner poles sit on the end
-   * tangents, 4/3 · tan(θ/4) radii from the ends. It strays from the circle
-   * by about 1.8e-5 · θ⁶ radii (2.7e-4 at a quarter turn), so the number of
-   * equal pieces that keeps the error under the tolerance follows from the
-   * arc's angle and its long radius — a handful, where a fit that compares
-   * the two curves at equal parameters would take dozens.
-   */
-  private static ellipseArc(curve: Ellipse, tolerance: number): Vec2[][] {
-    const sweep = curve.end - curve.start;
-    const radius = Math.hypot(curve.major.x, curve.major.y);
-    const needed = sweep * Math.pow((radius * CUBIC_ARC_ERROR) / tolerance, 1 / 6);
-    const pieces = Math.min(MAX_ARC_PIECES, Math.max(Math.ceil(sweep / (Math.PI / 2) - 1e-9), Math.ceil(needed)));
-    const step = sweep / pieces;
-    const reach = (4 / 3) * Math.tan(step / 4);
-    // The ellipse's own frame: `c` along the major axis, `s` along the minor.
-    const at = (c: number, s: number): Vec2 => ({
-      x: curve.center.x + c * curve.major.x - s * curve.ratio * curve.major.y,
-      y: curve.center.y + c * curve.major.y + s * curve.ratio * curve.major.x,
-    });
-    const segments: Vec2[][] = [];
-    for (let i = 0; i < pieces; i++) {
-      const t0 = curve.start + i * step;
-      const t1 = t0 + step;
-      const [c0, s0, c1, s1] = [Math.cos(t0), Math.sin(t0), Math.cos(t1), Math.sin(t1)];
-      segments.push([
-        at(c0, s0),
-        at(c0 - reach * s0, s0 + reach * c0),
-        at(c1 + reach * s1, s1 - reach * c1),
-        at(c1, s1),
-      ]);
-    }
-    return segments;
-  }
-
   private static bezierPoint(points: readonly Vec2[], t: number): Vec2 {
     const work = points.map((p) => ({ x: p.x, y: p.y }));
     for (let level = work.length - 1; level > 0; level--) {
@@ -539,7 +552,13 @@ export class SketchImport {
 
   // ─── Rounding, duplicates ───────────────────────────────────────────────
 
-  private static rounded(primitive: DrawnPrimitive, point: (p: Vec2) => Vec2, round: (v: number) => number): DrawnPrimitive {
+  /** The primitive as it is written; null when the rounding leaves nothing of it. `fine` rounds what has to be written finer than the rest. */
+  private static rounded(
+    primitive: DrawnPrimitive,
+    point: (p: Vec2) => Vec2,
+    round: (v: number) => number,
+    fine: (v: number) => number,
+  ): DrawnPrimitive | null {
     switch (primitive.kind) {
       case 'line':
         return {
@@ -560,6 +579,8 @@ export class SketchImport {
           ry: round(primitive.ry),
           rotation: round(primitive.rotation),
         };
+      case 'eArc':
+        return SketchEllipticalArcs.rounded(primitive, point, round, fine);
       case 'bezier':
         return { kind: 'bezier', points: primitive.points.map(point) };
       case 'point':
@@ -584,6 +605,8 @@ export class SketchImport {
         return primitive.diameter;
       case 'ellipse':
         return Math.min(primitive.rx, primitive.ry) * 2;
+      case 'eArc':
+        return SketchEllipticalArcs.length(primitive);
       case 'bezier': {
         let reach = 0;
         for (const p of primitive.points) {
@@ -608,6 +631,8 @@ export class SketchImport {
         return `c|${p(primitive.center)}|${primitive.diameter}`;
       case 'ellipse':
         return `e|${p(primitive.center)}|${primitive.rx}|${primitive.ry}|${primitive.rotation}`;
+      case 'eArc':
+        return SketchEllipticalArcs.key(primitive);
       case 'bezier': {
         const forward = primitive.points.map(p).join('|');
         const backward = [...primitive.points].reverse().map(p).join('|');
@@ -623,8 +648,8 @@ export class SketchImport {
   /**
    * The ends that sit within `tolerance` of each other, grouped (an end near
    * an end near a third is one meeting point) and each group written as a
-   * star from its first end. Two ends of one line or arc never join: that
-   * would fold the curve onto a point. A bezier that closes on itself does.
+   * star from its first end. Two ends of one line, arc or elliptical arc
+   * never join: that would fold the curve onto a point. A bezier that closes on itself does.
    * A point primitive is an end of its own, so one drawn on a curve's end
    * stays on it. A guide line has no ends to join: they are where an
    * endless line was cut.
@@ -636,7 +661,7 @@ export class SketchImport {
       if (SketchImport.isGuide(primitive)) {
         return;
       }
-      if (primitive.kind === 'line' || primitive.kind === 'arc') {
+      if (primitive.kind === 'line' || primitive.kind === 'arc' || primitive.kind === 'eArc') {
         ends.push({ primitive: index, end: 'start', at: primitive.start }, { primitive: index, end: 'end', at: primitive.end });
       } else if (primitive.kind === 'bezier') {
         ends.push(

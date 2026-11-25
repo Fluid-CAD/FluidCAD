@@ -7,7 +7,7 @@ import {UiFigure} from '@site/src/components/docs/UiFigure';
 
 # Import DXF
 
-Bring a 2D drawing into a sketch: a laser profile, a supplier's outline, a logo, a legacy 2D part. The **DXF** tool reads the file, lets you place it by hand, and writes its curves as the sketch's own entities — `line`, `arc`, `circle`, `ellipse` and `bezier` statements you can drag, constrain, trim and extrude like anything you drew yourself.
+Bring a 2D drawing into a sketch: a laser profile, a supplier's outline, a logo, a legacy 2D part. The **DXF** tool reads the file, lets you place it by hand, and writes its curves as the sketch's own entities — `line`, `arc`, `circle`, `ellipse`, `eArc` and `bezier` statements you can drag, constrain, trim and extrude like anything you drew yourself.
 
 The file is read once. Nothing links the sketch to it afterwards: editing the DXF later does not change the model, and the file does not need to travel with the project.
 
@@ -115,6 +115,7 @@ The import then also writes:
 - a `fix` on every point — once per meeting point when ends are joined, so nothing is stated twice;
 - a `radius` on every arc and a `diameter` on every circle;
 - both semi-radii of every ellipse, and `horizontal` or `vertical` when it lies along a sketch axis;
+- on every elliptical arc, what its two fixed ends leave open: most often a `fix` on its centre with `horizontal` or `vertical` when it lies along a sketch axis, and with one semi-radius when it does not;
 - a `fix` on every control point of a bezier.
 
 <UiFigure
@@ -126,7 +127,8 @@ The import then also writes:
 To change part of a fixed import, delete the constraints that hold it (pick the glyph or the dimension and press <kbd>Delete</kbd>) and add your own. Two details:
 
 - An arc of about a half turn is not held by a radius: with both ends fixed, its radius barely changes as it bulges, so the constraint would hold nothing. Its centre is held level with its start instead (`vertical(a.start(), a.center())`), or at a distance from it along one axis.
-- An ellipse turned off the sketch axes keeps one degree of freedom, its angle: no constraint holds it.
+- An elliptical arc between two fixed ends needs three more things held, out of its centre, its two semi-radii and its angle. Which three depends on where its ends are on the ellipse: half an ellipse, for one, has its centre on the line between its ends whatever its other radius is, so that radius is dimensioned and the centre is held across the line, like the centre of a half-turn arc.
+- An ellipse turned off the sketch axes keeps one degree of freedom, its angle: no constraint holds it. The ends of a turned elliptical arc hold its angle for it, unless both are on the ellipse's own axes: a quarter, a half or three quarters of an ellipse, from the end of one axis to the end of another, keeps that degree of freedom too.
 
 ## Move, scale and rotate
 
@@ -150,7 +152,7 @@ A drawing made near its file's origin lands **as drawn**: its coordinates become
 | Arc | `arc` |
 | Polyline, with or without arc segments (bulges) | One `line` or `arc` per segment |
 | Ellipse | `ellipse` |
-| Elliptical arc | A few cubic `bezier` curves that follow it closely |
+| Elliptical arc | [`eArc`](/docs/sketching/primitives/elliptical-arc): the same arc |
 | Spline | Its own Bézier pieces, as `bezier` statements: the same curve |
 | Point | [`point`](/docs/sketching/primitives/point) |
 | Construction line (`XLINE`), ray (`RAY`) | A `line` marked `.guide()`, when [Construction lines](#construction-lines) is on |
@@ -161,7 +163,7 @@ A point of the file — a drill centre, a datum mark — is a `point` in the ske
 
 Dimensions, leaders, hatches and images are neither curves, points nor text and are left out: they annotate a drawing, and a sketch holds the geometry a feature is made from. The dialog's **Warnings** section lists how many of each it skipped. A curve drawn twice in the file is written once. Only model space is read.
 
-A sketch has no statement for an elliptical arc, a weighted (rational) spline or a spline above degree three. These are written as cubic beziers that stay within a ten-thousandth of a millimetre of the original, and **Warnings** says how many there were.
+A sketch has no statement for a weighted (rational) spline or a spline above degree three. These are written as cubic beziers that stay within a ten-thousandth of a millimetre of the original, and **Warnings** says how many there were.
 
 <UiFigure
   src="/img/docs/ui/import-dxf-result.png"
@@ -173,7 +175,7 @@ A sketch has no statement for an elliptical arc, a weighted (rational) spline or
 
 Unless you imported with [Fix in place](#fix-in-place), the entities sit at the positions the file gave them but are not yet dimensioned: the status at the bottom of the viewport reports the degrees of freedom that remain. They extrude as they are. To make the sketch driven by dimensions, [constrain](/docs/sketching/constraints/introduction) it the usual way — pin a point, add horizontal and vertical constraints, dimension the sizes that matter.
 
-In the code, the import is plain sketch statements, with coordinates written to more decimals than a clicked point so corners, tangencies and centres stay as exact as the file had them:
+In the code, the import is plain sketch statements, with coordinates written to more decimals than a clicked point so corners, tangencies and centres stay as exact as the file had them. An elliptical arc has two of its numbers, most often its semi-radii, written finer still, so that the ellipse passes through the two ends it is written with:
 
 ```js
 sketch("xy", () => {

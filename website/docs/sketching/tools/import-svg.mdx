@@ -7,7 +7,7 @@ import {UiFigure} from '@site/src/components/docs/UiFigure';
 
 # Import SVG
 
-Bring a vector drawing into a sketch: a logo, an outline from Inkscape, Illustrator, Affinity or Figma, a laser profile, an icon. The **SVG** tool reads the file, lets you place it by hand, and writes its curves as the sketch's own entities — `line`, `arc`, `circle`, `ellipse` and `bezier` statements you can drag, constrain, trim and extrude like anything you drew yourself.
+Bring a vector drawing into a sketch: a logo, an outline from Inkscape, Illustrator, Affinity or Figma, a laser profile, an icon. The **SVG** tool reads the file, lets you place it by hand, and writes its curves as the sketch's own entities — `line`, `arc`, `circle`, `ellipse`, `eArc` and `bezier` statements you can drag, constrain, trim and extrude like anything you drew yourself.
 
 The file is read once. Nothing links the sketch to it afterwards: editing the SVG later does not change the model, and the file does not need to travel with the project.
 
@@ -44,7 +44,7 @@ The import flattens all of it. Every curve that comes out is in one coordinate s
 - **References**: what a `<use>` points at is drawn where the reference stands, as many times as it is referred to. A `<symbol>` is fitted into the size the reference gives it. An `<svg>` nested in the drawing is placed and scaled like a page of its own.
 - **Units and percentages** on any length: `10mm`, `1in`, `50%` of the page.
 
-The geometry stays what it is under a transform. A circle moved, turned or scaled evenly is a `circle`; scaled along one axis or sheared, it is the `ellipse` it has become. A mirrored arc is the arc that turns the other way, over the same points.
+The geometry stays what it is under a transform. A circle moved, turned or scaled evenly is a `circle`; scaled along one axis or sheared, it is the `ellipse` it has become, and an arc of it the `eArc`. A mirrored arc is the arc that turns the other way, over the same points.
 
 ## Unit and size
 
@@ -126,7 +126,7 @@ To bring those in, convert the text to paths in the program that made the file (
 | `<ellipse>` | `ellipse` |
 | `<path>`: straight segments | `line` |
 | `<path>`: arcs of a circle | `arc`, or `circle` when they go all the way round |
-| `<path>`: arcs of an ellipse | `ellipse` when they close it, else a few cubic `bezier` curves that follow the arc closely |
+| `<path>`: arcs of an ellipse | `ellipse` when they close it, else [`eArc`](/docs/sketching/primitives/elliptical-arc): the same arc |
 | `<path>`: cubic and quadratic curves | `bezier`: the same curve |
 | `<g>`, `<a>`, `<switch>`, `<svg>`, `<use>`, `<symbol>` | What they hold or refer to, [flattened](#flattening) |
 | An Inkscape guide | A `line` marked `.guide()`, when [Guides](#guides) is on |

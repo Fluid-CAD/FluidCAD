@@ -17,6 +17,8 @@ export { DrawingCleanup } from "./cleanup.js";
 export type { DrawingChain, DrawingChainItem } from "./cleanup.js";
 export { DxfWriter } from "./dxf-writer.js";
 export { DxfReader } from "./dxf-reader.js";
+export { SvgReader } from "./svg-reader.js";
+export type { SvgReadOptions } from "./svg-reader.js";
 export { ImportedDrawings } from "./import.js";
 export type { ImportedDrawing, ImportedEntity, ImportedLayer, ImportedUnit } from "./import.js";
 export { SketchImport } from "./sketch-import.js";

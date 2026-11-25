@@ -90,6 +90,7 @@ export const TOOL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Object
   'sketch:text': ['letters', 'font', 'engrave', 'label'],
   'sketch:image': ['picture', 'photo', 'scan', 'trace', 'reference'],
   'sketch:dxf': ['import', 'drawing', 'insert dxf', 'autocad', 'vector', 'outline', 'laser'],
+  'sketch:svg': ['import', 'drawing', 'insert svg', 'inkscape', 'illustrator', 'vector', 'logo', 'icon', 'outline', 'laser'],
   'sketch:fillet': ['round', 'corner', 'radius'],
   'sketch:offset': ['parallel', 'inset', 'outset'],
   'sketch:split': ['break', 'divide'],

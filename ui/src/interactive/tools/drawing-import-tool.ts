@@ -5,11 +5,12 @@ import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { ICON_FILE_IMPORT } from '../../ui/icons';
 import { sceneUnit } from '../../units/scene-unit';
-import { MM_PER_UNIT, UNIT_DISPLAY_DECIMALS } from '../../units/units';
+import { MM_PER_UNIT, UNIT_DISPLAY_DECIMALS, type LengthUnit } from '../../units/units';
 import { localToWorld, pixelToSketchThreshold, projectToSketch } from '../sketch-plane-utils';
 import type { Curve2D, DrawingBounds } from '../../../../lib/io/drawing/drawing.js';
 import { Affine } from '../../../../lib/io/drawing/affine.js';
 import { DxfReader } from '../../../../lib/io/drawing/dxf-reader.js';
+import { SvgReader } from '../../../../lib/io/drawing/svg-reader.js';
 import { ImportedDrawings, type ImportedDrawing } from '../../../../lib/io/drawing/import.js';
 import { SketchImport, type SketchImportPlan } from '../../../../lib/io/drawing/sketch-import.js';
 import { DrawingImportPanel, type DrawingImportFormat, type DrawingUnitChoice } from './drawing-import-panel';
@@ -59,8 +60,30 @@ export const DXF_IMPORT: DrawingImportSource = {
   chooseLabel: 'Choose DXF…',
   accept: '.dxf',
   icon: 'dxf',
+  hiddenLayer: 'off or frozen in the file',
   maxBytes: 32 * 1024 * 1024,
   read: (bytes) => DxfReader.readBytes(bytes),
+};
+
+/**
+ * An SVG's numbers are in units no document is in. Its page says how long
+ * one is — when it does not, or says it wrong, these are what it may be.
+ */
+export const SVG_IMPORT: DrawingImportSource = {
+  id: 'svg',
+  label: 'Import SVG',
+  title: 'Import SVG',
+  chooseLabel: 'Choose SVG…',
+  accept: '.svg,image/svg+xml',
+  icon: 'svg',
+  hiddenLayer: 'hidden in the file',
+  units: [
+    { key: 'px', label: 'Pixel, 96 to the inch', mm: 25.4 / 96 },
+    { key: 'pt', label: 'Point, 72 to the inch', mm: 25.4 / 72 },
+    { key: 'px90', label: 'Pixel, 90 to the inch', mm: 25.4 / 90 },
+  ],
+  maxBytes: 32 * 1024 * 1024,
+  read: (bytes) => SvgReader.readBytes(bytes),
 };
 
 /** What the pointer is doing to the drawing. */
@@ -80,7 +103,8 @@ export type DrawingImportToolDeps = {
 };
 
 /**
- * Imports a 2D drawing file into the sketch as the sketch's own entities.
+ * Imports a 2D drawing file — a DXF, an SVG — into the sketch as the
+ * sketch's own entities.
  *
  * The file is read in the page and shown at once: where the file has it
  * when it is drawn around the file's origin, in the middle of the view when
@@ -283,10 +307,12 @@ export class DrawingImportTool extends SketchTool {
   /** Sketch units per file unit, before the user's own scale. */
   private unitFactor(): number {
     const documentMm = MM_PER_UNIT[sceneUnit.current];
-    const fileMm = this.unitChoice === 'file'
-      ? this.drawing?.unit?.mm ?? documentMm
-      : MM_PER_UNIT[this.unitChoice];
-    return fileMm / documentMm;
+    if (this.unitChoice === 'file') {
+      // What the file says, or — when it says nothing — its numbers as they are.
+      return (this.drawing?.unit?.mm ?? documentMm) / documentMm;
+    }
+    const ofFile = this.source.units?.find((unit) => unit.key === this.unitChoice);
+    return (ofFile?.mm ?? MM_PER_UNIT[this.unitChoice as LengthUnit] ?? documentMm) / documentMm;
   }
 
   private setUnit(unit: DrawingUnitChoice): void {

@@ -47,6 +47,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
     { id: 'text', label: 'Text', iconPng: 'text' },
     { id: 'image', label: 'Reference Image', caption: 'Image', iconPng: 'image' },
     { id: 'dxf', label: 'Import DXF', caption: 'DXF', iconPng: 'dxf' },
+    { id: 'svg', label: 'Import SVG', caption: 'SVG', iconPng: 'svg' },
   ]},
   { tools: [
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
@@ -84,6 +85,7 @@ export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   text: 'x',
   image: 'im',
   dxf: 'dx',
+  svg: 'sv',
   project: 'pj',
   intersect: 'ix',
 };

@@ -4,8 +4,22 @@ import { formatLength, LENGTH_UNITS, type LengthUnit } from '../../units/units';
 import { iconUrl } from '../../ui/icon-url';
 import type { ImportedLayer } from '../../../../lib/io/drawing/import.js';
 
-/** The file unit the dialog offers: what the file says (`file`), or one the user names. */
-export type DrawingUnitChoice = 'file' | LengthUnit;
+/**
+ * The file unit the dialog offers: what the file says (`file`), a unit a
+ * document can be in, or the key of one only a file can be in (see
+ * {@link DrawingFileUnit}).
+ */
+export type DrawingUnitChoice = 'file' | LengthUnit | string;
+
+/** A unit a kind of file may be drawn in that no document is: an SVG's pixels. */
+export type DrawingFileUnit = {
+  /** What the choice is known by; not a document unit's name. */
+  key: string;
+  /** As the select shows it. */
+  label: string;
+  /** Its length in millimetres. */
+  mm: number;
+};
 
 /** What tells the dialog which kind of file it imports. */
 export type DrawingImportFormat = {
@@ -17,6 +31,10 @@ export type DrawingImportFormat = {
   accept: string;
   /** The icon's name under `/icons`. */
   icon: string;
+  /** File units offered after the document's own. */
+  units?: readonly DrawingFileUnit[];
+  /** What a layer the file does not show is, said after its name: "off or frozen in the file". */
+  hiddenLayer: string;
 };
 
 /** What Apply would write, for the dialog's summary line. */
@@ -34,7 +52,7 @@ export type DrawingImportSummary = {
 };
 
 /**
- * The dialog of a drawing import (DXF today). It holds what the viewport
+ * The dialog of a drawing import (DXF, SVG). It holds what the viewport
  * cannot: the file, the unit its numbers are in, a scale, which layers come
  * in, whether ends that meet are joined, and Apply / Cancel. Place and angle
  * are read-outs: they are set by dragging the drawing, its corner handles
@@ -53,6 +71,7 @@ export class DrawingImportPanel {
   onApply?: () => void;
   onExit?: () => void;
 
+  private readonly format: DrawingImportFormat;
   private shell: PanelShell;
   private fileInput: HTMLInputElement;
   private fileLabel: HTMLDivElement;
@@ -74,6 +93,7 @@ export class DrawingImportPanel {
   private blocked = false;
 
   constructor(container: HTMLElement, format: DrawingImportFormat) {
+    this.format = format;
     // A sketch tool's dialog: Escape inside it cancels the tool.
     this.shell = new PanelShell(container, 'fluidcad-drawing-import-panel', format.title, iconUrl(format.icon), 'inside');
     this.shell.onEscape = () => this.onExit?.();
@@ -211,6 +231,9 @@ export class DrawingImportPanel {
     for (const unit of LENGTH_UNITS) {
       this.unitSelect.add(new Option(unit.label, unit.value));
     }
+    for (const unit of this.format.units ?? []) {
+      this.unitSelect.add(new Option(unit.label, unit.key));
+    }
     this.unitSelect.value = 'file';
     this.unitSelect.title = declaredUnit !== null
       ? `The file says its numbers are in ${declaredUnit}. They are converted into the document's unit.`
@@ -229,7 +252,7 @@ export class DrawingImportPanel {
       const label = document.createElement('span');
       label.className = 'flex-1 truncate text-base-content/70';
       label.textContent = layer.name;
-      label.title = layer.hidden ? `${layer.name}: off or frozen in the file` : layer.name;
+      label.title = layer.hidden ? `${layer.name}: ${this.format.hiddenLayer}` : layer.name;
       const count = document.createElement('span');
       count.className = 'text-base-content/50 tabular-nums';
       count.textContent = layer.hidden ? `off · ${layer.count}` : String(layer.count);

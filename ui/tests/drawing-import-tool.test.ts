@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Scene } from 'three';
-import { DrawingImportTool, DXF_IMPORT, MAX_IMPORT_STATEMENTS } from '../src/interactive/tools/drawing-import-tool';
+import { DrawingImportTool, DXF_IMPORT, SVG_IMPORT, MAX_IMPORT_STATEMENTS, type DrawingImportSource } from '../src/interactive/tools/drawing-import-tool';
 import type { SolvedEmissionRequest } from '../src/interactive/tools/solved-emission';
 import type { PlaneData } from '../src/types';
 import { sceneUnit } from '../src/units/scene-unit';
@@ -53,7 +53,7 @@ const PLATE = dxf([
   0, 'CIRCLE', 8, 'HOLES', 10, 120, 20, 60, 40, 4,
 ]);
 
-function makeTool(opts: { emitResult?: { success: boolean; reason?: string }; autoConstraints?: boolean } = {}) {
+function makeTool(opts: { emitResult?: { success: boolean; reason?: string }; autoConstraints?: boolean; source?: DrawingImportSource } = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const scene = new Scene();
@@ -71,7 +71,7 @@ function makeTool(opts: { emitResult?: { success: boolean; reason?: string }; au
   const onRequestExit = vi.fn();
   const files = new Map<File, string>();
   const tool = new DrawingImportTool(ctx, XY, {} as any, vi.fn(), container, {
-    source: DXF_IMPORT,
+    source: opts.source ?? DXF_IMPORT,
     onRequestExit,
     readBytes: async (file) => new TextEncoder().encode(files.get(file) ?? ''),
   });
@@ -370,6 +370,102 @@ describe('DrawingImportTool: units and scale', () => {
     await apply();
     expect(texts()[0]).toBe('line([50, 25], [70, 25])');
     expect(texts()[4]).toBe('circle([60, 30], 4)');
+  });
+});
+
+describe('DrawingImportTool: an SVG', () => {
+  const SVG = 'xmlns="http://www.w3.org/2000/svg"';
+  const INKSCAPE = 'xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"';
+  /** A 40 × 20 mm plate with a hole on an 80 × 60 mm page, its notes on a layer switched off. */
+  const PLATE_SVG = `<svg ${SVG} ${INKSCAPE} width="80mm" height="60mm" viewBox="0 0 80 60">
+    <g inkscape:groupmode="layer" inkscape:label="Outline" fill="none" stroke="#000"><rect x="20" y="10" width="40" height="20"/><circle cx="40" cy="20" r="4"/></g>
+    <g inkscape:groupmode="layer" inkscape:label="Notes" style="display:none"><path d="M0 0 L80 60" stroke="#000"/><text x="5" y="5">draft</text></g></svg>`;
+
+  it('opens as its own dialog, taking SVG files', () => {
+    const { role, tool } = makeTool({ source: SVG_IMPORT });
+    expect(tool.id).toBe('svg');
+    expect(tool.label).toBe('Import SVG');
+    expect(role('file').getAttribute('accept')).toBe('.svg,image/svg+xml');
+    expect(role('choose').textContent).toBe('Choose SVG…');
+  });
+
+  it('shows the drawing above the page\'s lower-left corner, in the unit the page gives, with its layers', async () => {
+    const { role, choose, layerBox } = makeTool({ source: SVG_IMPORT });
+    await choose(PLATE_SVG, 'plate.svg');
+    expect(role('file-label').textContent).toBe('plate.svg');
+    expect(role<HTMLSelectElement>('unit').selectedOptions[0].textContent).toBe('Same as file (mm)');
+    // The page is 60 high: the plate's 10…30 from its top is 30…50 from its bottom.
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 40.00, 40.00');
+    expect(role('summary').textContent).toBe('5 sketch entities, 4 joins');
+    expect(layerBox('Outline').checked).toBe(true);
+    // A layer the file hides starts unticked, and says why.
+    expect(layerBox('Notes').checked).toBe(false);
+    expect(layerBox('Notes').parentElement!.querySelector('span')!.title).toBe('Notes: hidden in the file');
+    expect(role('notes').textContent).toBe('Not curves, left out: 1 text.');
+  });
+
+  it('writes the flattened drawing as sketch statements, Y up', async () => {
+    const { choose, apply, texts, emit } = makeTool({ source: SVG_IMPORT });
+    await choose(`<svg ${SVG} width="100mm" height="100mm" viewBox="0 0 100 100">
+      <g transform="translate(50 50) rotate(90)" fill="none" stroke="#000"><rect x="-20" y="-10" width="40" height="20"/><circle cx="10" r="4"/></g></svg>`, 'turned.svg');
+    await apply();
+    // A quarter turn on the page: the 40 × 20 rectangle stands upright about (50, 50), its hole below the middle.
+    expect(texts()).toEqual([
+      'line([60, 70], [60, 30])',
+      'line([60, 30], [40, 30])',
+      'line([40, 30], [40, 70])',
+      'line([40, 70], [60, 70])',
+      'circle([50, 40], 8)',
+    ]);
+    expect(emit.mock.calls[0][0].constraints).toHaveLength(4);
+  });
+
+  it('offers the units only a file is in, and reads a page without a size in the document\'s', async () => {
+    const { role, choose, apply, texts } = makeTool({ source: SVG_IMPORT });
+    await choose(`<svg ${SVG} viewBox="0 0 96 96"><path d="M0 96 L96 96" stroke="#000"/></svg>`, 'icon.svg');
+    const select = role<HTMLSelectElement>('unit');
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      'Document unit (mm)', 'Millimeter', 'Centimeter', 'Meter', 'Inch', 'Foot',
+      'Pixel, 96 to the inch', 'Point, 72 to the inch', 'Pixel, 90 to the inch',
+    ]);
+    expect(role('readout').textContent).toBe('96.00 × 0.00 mm at 48.00, 0.00');
+    select.value = 'px';
+    select.dispatchEvent(new Event('change'));
+    expect(role('readout').textContent).toBe('25.40 × 0.00 mm at 12.70, 0.00');
+    select.value = 'pt';
+    select.dispatchEvent(new Event('change'));
+    await apply();
+    // 96 points of a 72nd of an inch, written to the document's decimals.
+    expect(texts()).toEqual(['line([0, 0], [33.866667, 0])']);
+  });
+
+  it('reads pixels at 96 to the inch when the page is sized in them', async () => {
+    const { role, choose } = makeTool({ source: SVG_IMPORT });
+    await choose(`<svg ${SVG} width="96" height="96"><rect width="96" height="48"/></svg>`, 'box.svg');
+    expect(role<HTMLSelectElement>('unit').selectedOptions[0].textContent).toBe('Same as file (px)');
+    expect(role('readout').textContent).toBe('25.40 × 12.70 mm at 12.70, 19.05');
+  });
+
+  it('notes the béziers it read as arcs, and what the file hides or clips', async () => {
+    const k = 10 * 0.5522847498;
+    const { role, choose } = makeTool({ source: SVG_IMPORT });
+    await choose(`<svg ${SVG} width="50mm" height="50mm" viewBox="0 0 50 50">
+      <path d="M30 20 C30 ${20 + k} ${20 + k} 30 20 30 C${20 - k} 30 10 ${20 + k} 10 20 C10 ${20 - k} ${20 - k} 10 20 10 C${20 + k} 10 30 ${20 - k} 30 20 Z"/>
+      <path d="M0 0h50v50H0z" fill="none"/></svg>`, 'dot.svg');
+    expect(role('summary').textContent).toBe('1 sketch entity');
+    expect(role('warnings-title').textContent).toBe('Warnings (2)');
+    expect([...role('notes').children].map((item) => item.textContent)).toEqual([
+      '1 shape has neither a fill nor a stroke, or is made invisible: it was left out.',
+      '4 bezier curves follow a circle and were read as arcs.',
+    ]);
+  });
+
+  it('says why a file is not an SVG', async () => {
+    const { choose, message } = makeTool({ source: SVG_IMPORT });
+    await choose(PLATE, 'plate.dxf');
+    expect(message().textContent).toMatch(/not an SVG file/);
+    await choose('<svg xmlns="http://www.w3.org/2000/svg"><g></svg>', 'broken.svg');
+    expect(message().textContent).toMatch(/not well-formed XML/);
   });
 });
 

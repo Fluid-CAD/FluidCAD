@@ -430,6 +430,159 @@ describe('DrawingImportTool: points', () => {
   });
 });
 
+describe('DrawingImportTool: construction lines', () => {
+  const xline = (layer: string, at: [number, number], direction: [number, number]): Groups =>
+    [0, 'XLINE', 8, layer, 10, at[0], 20, at[1], 11, direction[0], 21, direction[1]];
+  const ray = (layer: string, at: [number, number], direction: [number, number]): Groups =>
+    [0, 'RAY', 8, layer, 10, at[0], 20, at[1], 11, direction[0], 21, direction[1]];
+
+  /** The plate's outline, its two centre lines as construction lines, and a ray from its first corner along the lower edge. */
+  const LAID_OUT = dxf([
+    ...line('OUTLINE', [100, 50], [140, 50]),
+    ...line('OUTLINE', [140, 50], [140, 70]),
+    ...line('OUTLINE', [140, 70], [100, 70]),
+    ...line('OUTLINE', [100, 70], [100, 50]),
+    ...xline('LAYOUT', [120, 60], [1, 0]),
+    ...xline('LAYOUT', [120, 60], [0, 1]),
+    ...ray('LAYOUT', [100, 50], [1, 0]),
+  ]);
+
+  const turnOn = (role: ReturnType<typeof makeTool>['role']) => {
+    const toggle = role<HTMLInputElement>('guides');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+  };
+
+  it('has no toggle for a file without construction lines', async () => {
+    const { role, choose } = makeTool();
+    await choose(PLATE);
+    expect(role('guides-row').classList.contains('hidden')).toBe(true);
+  });
+
+  it('shows the toggle for a file that has them, off: nothing of them drawn, counted or written', async () => {
+    const { role, choose, tool, apply, texts } = makeTool();
+    await choose(LAID_OUT);
+    expect(role('guides-row').classList.contains('hidden')).toBe(false);
+    expect(role<HTMLInputElement>('guides').checked).toBe(false);
+    expect(tool.preview.guideCount).toBe(0);
+    expect(role('summary').textContent).toBe('4 sketch entities, 4 joins');
+    // Read, not left out: nothing to warn about.
+    expect(role('warnings').classList.contains('hidden')).toBe(true);
+    await apply();
+    expect(texts()).toHaveLength(4);
+  });
+
+  it('draws them once asked for, counts them in the summary, and leaves the drawing\'s frame as it was', async () => {
+    const { role, choose, tool } = makeTool();
+    await choose(LAID_OUT);
+    const frame = tool.frame().spec;
+    turnOn(role);
+    expect(tool.preview.guideCount).toBe(3);
+    expect(tool.preview.segmentCount).toBe(4);
+    expect(role('summary').textContent).toBe('7 sketch entities (3 guide lines), 4 joins');
+    expect(role('readout').textContent).toBe('40.00 × 20.00 mm at 120.00, 60.00');
+    expect(tool.frame().spec).toEqual(frame);
+  });
+
+  it('writes each as a guide line cut a little past the drawing, after the curves, joined to nothing', async () => {
+    const { role, choose, apply, emit, texts } = makeTool();
+    await choose(LAID_OUT);
+    turnOn(role);
+    await apply();
+    // The frame is the plate and a tenth of its longer side: 96…144 by 46…74.
+    expect(texts().slice(4)).toEqual([
+      'line([96, 60], [144, 60])',
+      'line([120, 46], [120, 74])',
+      'line([100, 50], [144, 50])',
+    ]);
+    const request = emit.mock.calls[0][0];
+    expect(request.geometry.map((g) => g.guide === true)).toEqual([false, false, false, false, true, true, true]);
+    // The four corners and no more: the ray starts on a corner and is not tied to it.
+    expect(request.constraints).toHaveLength(4);
+  });
+
+  it('fixes both ends of each guide line when the drawing is fixed in place', async () => {
+    const { role, choose, apply, emit } = makeTool();
+    await choose(LAID_OUT);
+    turnOn(role);
+    const fix = role<HTMLInputElement>('fix');
+    fix.checked = true;
+    fix.dispatchEvent(new Event('change'));
+    // Four corners, and two ends for each of three guide lines.
+    expect(role('summary').textContent).toBe('7 sketch entities (3 guide lines), 4 joins, fixed by 10 constraints');
+    await apply();
+    const fixes = emit.mock.calls[0][0].constraints.filter((c) => c.kind === 'fix');
+    expect(fixes.slice(-6)).toEqual([4, 5, 6].flatMap((newIndex) => [
+      { kind: 'fix', targets: [{ newIndex, role: 'start' }] },
+      { kind: 'fix', targets: [{ newIndex, role: 'end' }] },
+    ]));
+  });
+
+  it('says what to do when only construction lines are ticked, and sizes them by themselves once asked for', async () => {
+    const { role, choose, apply, texts, layerBox, tool } = makeTool();
+    await choose(LAID_OUT);
+    const outline = layerBox('OUTLINE');
+    outline.checked = false;
+    outline.dispatchEvent(new Event('change'));
+    expect(role('summary').textContent).toBe('Only construction lines on the ticked layers. Turn on Construction lines to import them.');
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(true);
+    turnOn(role);
+    expect(tool.preview.guideCount).toBe(3);
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(false);
+    await apply();
+    // Their own points span 100…120 by 50…60: a frame 2 wider all round.
+    expect(texts()).toEqual([
+      'line([98, 60], [122, 60])',
+      'line([120, 48], [120, 62])',
+      'line([100, 50], [122, 50])',
+    ]);
+  });
+
+  it('opens a file of nothing but construction lines, and imports two axes through one point a hundred units long', async () => {
+    const { role, choose, apply, texts, message } = makeTool();
+    await choose(dxf([...xline('0', [10, 20], [1, 0]), ...xline('0', [10, 20], [0, 1])]));
+    expect(message().textContent).toBe('');
+    expect(role('options').classList.contains('hidden')).toBe(false);
+    expect(role('guides-row').classList.contains('hidden')).toBe(false);
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(true);
+    turnOn(role);
+    expect(role('summary').textContent).toBe('2 sketch entities (2 guide lines)');
+    expect(role('readout').textContent).toBe('100.00 × 100.00 mm at 10.00, 20.00');
+    await apply();
+    expect(texts()).toEqual(['line([-40, 20], [60, 20])', 'line([10, -30], [10, 70])']);
+  });
+
+  it('scales and converts construction lines with the drawing', async () => {
+    const { role, choose, apply, texts } = makeTool();
+    await choose(dxf([...line('0', [0, 0], [10, 0]), ...xline('0', [5, 0], [0, 1])], [9, '$INSUNITS', 70, 1]));
+    turnOn(role);
+    await apply();
+    expect(texts()).toEqual(['line([0, 0], [254, 0])', 'line([127, -25.4], [127, 25.4])']);
+  });
+
+  it('turns the toggle back off for the next file', async () => {
+    const { role, choose, tool } = makeTool();
+    await choose(LAID_OUT);
+    turnOn(role);
+    await choose(LAID_OUT);
+    expect(role<HTMLInputElement>('guides').checked).toBe(false);
+    expect(tool.preview.guideCount).toBe(0);
+  });
+
+  it('counts guide lines towards the most one import writes', async () => {
+    const many: Groups = [...line('0', [0, 0], [10, 0])];
+    for (let i = 0; i < MAX_IMPORT_STATEMENTS; i++) {
+      many.push(...xline('0', [i / 1000, 0], [0, 1]));
+    }
+    const { role, choose } = makeTool();
+    await choose(dxf(many));
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(false);
+    turnOn(role);
+    expect(role('summary').textContent).toMatch(/^This would write 2,001 sketch entities; one import takes up to 2,000\./);
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(true);
+  });
+});
+
 describe('DrawingImportTool: units and scale', () => {
   it('converts the unit the file declares into the document\'s', async () => {
     const { choose, role, apply, texts } = makeTool();
@@ -513,6 +666,26 @@ describe('DrawingImportTool: an SVG', () => {
       'circle([50, 40], 8)',
     ]);
     expect(emit.mock.calls[0][0].constraints).toHaveLength(4);
+  });
+
+  it('brings in an Inkscape file\'s guides under a toggle of their own name, as guide lines', async () => {
+    const { role, choose, apply, texts, emit, tool } = makeTool({ source: SVG_IMPORT });
+    await choose(`<svg ${SVG} xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+      inkscape:version="1.2.2 (b0a8486541, 2022-12-01)" width="100mm" height="60mm" viewBox="0 0 100 60">
+      <sodipodi:namedview id="base"><sodipodi:guide position="20,50" orientation="0,-1" id="g1" /><sodipodi:guide position="20,50" orientation="1,0" id="g2" /></sodipodi:namedview>
+      <rect x="20" y="10" width="40" height="20" fill="none" stroke="#000"/></svg>`, 'plate.svg');
+    expect(role('guides-row').classList.contains('hidden')).toBe(false);
+    expect(role('guides-label').textContent).toBe('Guides');
+    expect(role('summary').textContent).toBe('4 sketch entities, 4 joins');
+    const toggle = role<HTMLInputElement>('guides');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    expect(tool.preview.guideCount).toBe(2);
+    expect(role('summary').textContent).toBe('6 sketch entities (2 guide lines), 4 joins');
+    await apply();
+    // The plate is 20…60 by 30…50 above the page's lower edge; its top and left edges are on the guides.
+    expect(texts().slice(4)).toEqual(['line([16, 50], [64, 50])', 'line([20, 26], [20, 54])']);
+    expect(emit.mock.calls[0][0].geometry.slice(4).every((g) => g.guide === true)).toBe(true);
   });
 
   it('offers the units only a file is in, and reads a page without a size in the document\'s', async () => {

@@ -1,13 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { setupOC } from "../setup.js";
+import { render, setupOC } from "../setup.js";
+import sketch from "../../core/sketch.js";
 import { DxfReader } from "../../io/drawing/dxf-reader.js";
 import { DxfWriter } from "../../io/drawing/dxf-writer.js";
 import { Affine } from "../../io/drawing/affine.js";
 import { SketchImport } from "../../io/drawing/sketch-import.js";
+import { ConstructionLines } from "../../io/drawing/construction-lines.js";
+import { ImportedDrawings } from "../../io/drawing/import.js";
 import type { SketchImportPlan } from "../../io/drawing/sketch-import.js";
 import { Curves } from "../../io/drawing/drawing.js";
 import type { Curve2D, DrawingEntity } from "../../io/drawing/drawing.js";
-import { OPTIONS, extrudedVolume, solved } from "./sketch-plan.js";
+import { OPTIONS, draw, extrudedVolume, solved } from "./sketch-plan.js";
 
 // The import end to end, the way the sketch DXF tool runs it: a file read,
 // its curves planned as sketch statements, and those statements written
@@ -192,5 +195,68 @@ describe("a DXF imported into a sketch", () => {
     const plan = drilledPlate();
     expect(solved(plan, true)).toEqual({ outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 });
     expect(solved(plan, false)).toEqual({ outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 });
+  });
+  // A 40 × 20 plate laid out by its two centre lines and a ray from its first corner through the opposite one.
+  const laidOutPlate = (): SketchImportPlan => {
+    const text = [
+      0, "SECTION", 2, "ENTITIES",
+      0, "LWPOLYLINE", 8, "PLATE", 90, 4, 70, 1, 10, 0, 20, 0, 10, 40, 20, 0, 10, 40, 20, 20, 10, 0, 20, 20,
+      0, "XLINE", 8, "LAYOUT", 10, 0, 20, 10, 11, 1, 21, 0,
+      0, "XLINE", 8, "LAYOUT", 10, 20, 20, 0, 11, 0, 21, 1,
+      0, "RAY", 8, "LAYOUT", 10, 0, 20, 0, 11, 2 / Math.sqrt(5), 21, 1 / Math.sqrt(5),
+      0, "ENDSEC", 0, "EOF",
+    ].join("\n");
+    const read = DxfReader.read(text);
+    const curves = read.entities.map((e) => e.curve);
+    const guides = ConstructionLines.segments(read.constructionLines, ImportedDrawings.bounds(curves));
+    return SketchImport.plan(curves, OPTIONS, [], { guides });
+  };
+
+  it("cuts construction lines to a little past the drawing: across it, and a ray from its start", () => {
+    const guides = laidOutPlate().primitives.filter((p) => SketchImport.isGuide(p));
+    // The frame is the plate and a tenth of its longer side: −4…44 by −4…24.
+    expect(guides).toEqual([
+      { kind: 'line', start: { x: -4, y: 10 }, end: { x: 44, y: 10 }, guide: true },
+      { kind: 'line', start: { x: 20, y: -4 }, end: { x: 20, y: 24 }, guide: true },
+      // The ray leaves the corner along (2, 1) and stops beside the frame's far corner (44, 24).
+      { kind: 'line', start: { x: 0, y: 0 }, end: { x: 44.8, y: 22.4 }, guide: true },
+    ]);
+  });
+
+  it("draws construction lines as guide lines, which the sketch keeps out of the profile it extrudes", () => {
+    const plan = laidOutPlate();
+    expect(plan.joins).toHaveLength(4);
+    const { volume, outcome } = extrudedVolume(plan, 2);
+    expect(outcome).toBe('solved');
+    expect(volume).toBeCloseTo(40 * 20 * 2, 6);
+  });
+
+  it("marks the lines it draws for construction lines as guides, and no other", () => {
+    const plan = laidOutPlate();
+    sketch("xy", () => draw(plan));
+    const lines = render().getAllSceneObjects().filter((o) => o.getType() === 'line');
+    expect(lines.map((line) => line.isGuide())).toEqual([false, false, false, false, true, true, true]);
+  });
+
+  it("fixes guide lines in place with the outline: no freedom left, nothing stated twice", () => {
+    const plan = laidOutPlate();
+    expect(solved(plan, true)).toEqual({ outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 });
+    expect(solved(plan, false)).toEqual({ outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 });
+  });
+
+  it("fixes construction lines that are all a file holds", () => {
+    const text = [
+      0, "SECTION", 2, "ENTITIES",
+      0, "XLINE", 8, "0", 10, 0, 20, 0, 11, 1, 21, 0,
+      0, "XLINE", 8, "0", 10, 0, 20, 0, 11, 0, 21, 1,
+      0, "ENDSEC", 0, "EOF",
+    ].join("\n");
+    const guides = ConstructionLines.segments(DxfReader.read(text).constructionLines, null);
+    const plan = SketchImport.plan([], OPTIONS, [], { guides });
+    expect(plan.primitives).toEqual([
+      { kind: 'line', start: { x: -50, y: 0 }, end: { x: 50, y: 0 }, guide: true },
+      { kind: 'line', start: { x: 0, y: -50 }, end: { x: 0, y: 50 }, guide: true },
+    ]);
+    expect(solved(plan, true)).toEqual({ outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 });
   });
 });

@@ -65,6 +65,32 @@ describe('applySolvedEmission', () => {
     expect(result.newCode).toMatch(/import \{[^}]*\bpoint\b[^}]*\} from "fluidcad\/core"/);
   });
 
+  it('writes imported construction lines as guide lines, whose ends a fix still names', async () => {
+    // What the DXF import emits for a line of the outline and a construction line across it, fixed in place.
+    const result = await applySolvedEmission(EMPTY_SKETCH, {
+      sketchLine: 3,
+      geometry: [
+        { kind: 'line', text: 'line([0, 0], [40, 0])' },
+        { kind: 'line', text: 'line([20, -4], [20, 24])', guide: true },
+      ],
+      constraints: [
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+        { kind: 'fix', targets: [{ newIndex: 1, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 1, role: 'end' }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n').map((line) => line.trim());
+    expect(lines).toContain('const l1 = line([0, 0], [40, 0]);');
+    expect(lines).toContain('const l2 = line([20, -4], [20, 24]).guide();');
+    // The guide mark is on the statement, not on the name a constraint refers to it by.
+    expect(lines).toContain('fix(l2.start());');
+    expect(lines).toContain('fix(l2.end());');
+    expect(lines.indexOf('const l2 = line([20, -4], [20, 24]).guide();')).toBeLessThan(lines.indexOf('fix(l2.start());'));
+    expect(result.names).toEqual(['l1', 'l2']);
+  });
+
   it('inserts geometry BEFORE the first constraint statement, constraints at the body end', async () => {
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,

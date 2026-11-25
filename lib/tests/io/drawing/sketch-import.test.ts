@@ -316,6 +316,73 @@ describe("SketchImport: points", () => {
   });
 });
 
+describe("SketchImport: guide lines", () => {
+  const cut = (a: [number, number], b: [number, number]) => ({ a: { x: a[0], y: a[1] }, b: { x: b[0], y: b[1] } });
+
+  it("writes a construction line as a guide line, after the curves and the points, rounded like them", () => {
+    const { primitives, duplicates, approximated } = SketchImport.plan(
+      [line([0, 0], [40, 0])],
+      OPTIONS,
+      [{ x: 5, y: 5 }],
+      { guides: [cut([-4, 1 / 3], [44, 1 / 3])] },
+    );
+    expect(primitives).toEqual([
+      { kind: 'line', start: { x: 0, y: 0 }, end: { x: 40, y: 0 } },
+      { kind: 'point', at: { x: 5, y: 5 } },
+      { kind: 'line', start: { x: -4, y: 0.333333 }, end: { x: 44, y: 0.333333 }, guide: true },
+    ]);
+    expect(primitives.map((p) => SketchImport.isGuide(p))).toEqual([false, false, true]);
+    expect(duplicates).toBe(0);
+    expect(approximated).toBe(0);
+  });
+
+  it("joins a guide line's ends to nothing: they are where an endless line was cut", () => {
+    // The guide's ends sit exactly on the outline's corners and on a point.
+    const { joins } = SketchImport.plan(
+      [line([0, 0], [10, 0]), line([10, 0], [10, 10])],
+      OPTIONS,
+      [{ x: 10, y: 10 }],
+      { guides: [cut([0, 0], [10, 10]), cut([10, 10], [20, 10])] },
+    );
+    expect(joins).toEqual([
+      { a: { primitive: 0, end: 'end' }, b: { primitive: 1, end: 'start' } },
+      { a: { primitive: 1, end: 'end' }, b: { primitive: 2, end: 'point' } },
+    ]);
+  });
+
+  it("writes one construction line given twice once, whichever way it runs, without counting it as a curve drawn twice", () => {
+    const { primitives, duplicates } = SketchImport.plan([], OPTIONS, [], {
+      guides: [cut([0, 0], [10, 10]), cut([10, 10], [0, 0]), cut([0, 0], [10, 10.0000001])],
+    });
+    expect(primitives).toHaveLength(1);
+    expect(duplicates).toBe(0);
+  });
+
+  it("keeps a guide line that lies on a line of the outline, and the line", () => {
+    const { primitives, duplicates } = SketchImport.plan([line([0, 0], [10, 0])], OPTIONS, [], { guides: [cut([0, 0], [10, 0])] });
+    expect(primitives.map((p) => SketchImport.isGuide(p))).toEqual([false, true]);
+    expect(duplicates).toBe(0);
+  });
+
+  it("leaves out a guide line cut to nothing", () => {
+    const { primitives } = SketchImport.plan([], OPTIONS, [], { guides: [cut([3, 3], [3, 3.0000001])] });
+    expect(primitives).toEqual([]);
+  });
+
+  it("fixes each end of a guide line on its own, joined or not", () => {
+    const made = SketchImport.plan(
+      [line([0, 0], [10, 0]), line([10, 0], [10, 10])],
+      OPTIONS,
+      [],
+      { guides: [cut([0, 0], [10, 10])] },
+    );
+    const fixed = (joined: boolean) => SketchImport.pins(made, { joined, decimals: OPTIONS.decimals })
+      .map((pin) => (pin.kind === 'fix' ? `${pin.point.primitive}:${pin.point.point}` : pin.kind));
+    expect(fixed(true)).toEqual(['0:start', '0:end', '1:end', '2:start', '2:end']);
+    expect(fixed(false)).toEqual(['0:start', '0:end', '1:start', '1:end', '2:start', '2:end']);
+  });
+});
+
 describe("SketchImport.outline", () => {
   it("runs from a primitive's start to its end, on the curve", () => {
     const arc = SketchImport.outline({ kind: 'arc', start: { x: 10, y: 0 }, end: { x: 0, y: 10 }, center: { x: 0, y: 0 } });

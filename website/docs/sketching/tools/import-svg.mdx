@@ -85,6 +85,12 @@ SVG has no layers of its own; each program marks them its own way, and the impor
 
 A layer the file hides is marked **off** and starts unticked. The list is shown when the file has more than one layer.
 
+## Guides
+
+Inkscape keeps guides beside a drawing: lines with no end that shapes were snapped to. They are not part of the picture and no viewer shows them. When the file has any, the dialog shows a **Guides** toggle. It starts off. Turn it on to bring them in as [guide lines](/docs/sketching/tools/guides), cut a little past the drawing the way [Import DXF](/docs/sketching/tools/import-dxf#construction-lines) cuts construction lines. Guides belong to the page, not to a layer: they come with whatever layers are ticked.
+
+Guides are read from files made with Inkscape 0.92 or later, on a page that is neither turned nor stretched. Older versions placed guides another way; those, and guides on a turned or stretched page, are left out and counted under **Warnings**.
+
 ## What is imported
 
 | In the file | In the sketch |
@@ -98,6 +104,7 @@ A layer the file hides is marked **off** and starts unticked. The list is shown 
 | `<path>`: arcs of an ellipse | `ellipse` when they close it, else a few cubic `bezier` curves that follow the arc closely |
 | `<path>`: cubic and quadratic curves | `bezier`: the same curve |
 | `<g>`, `<a>`, `<switch>`, `<svg>`, `<use>`, `<symbol>` | What they hold or refer to, [flattened](#flattening) |
+| An Inkscape guide | A `line` marked `.guide()`, when [Guides](#guides) is on |
 
 ### Circles and arcs drawn as curves
 

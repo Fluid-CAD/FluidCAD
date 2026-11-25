@@ -1,10 +1,11 @@
 import type { Curve2D } from "./drawing.js";
 import { Affine, type Affine2 } from "./affine.js";
-import type { ImportedDrawing, ImportedEntity, ImportedLayer, ImportedUnit } from "./import.js";
+import type { ImportedConstructionLine, ImportedDrawing, ImportedEntity, ImportedLayer, ImportedUnit } from "./import.js";
 import { ImportedDrawings } from "./import.js";
 import { PathSegments, type PathSegment, type Subpath } from "./path-segments.js";
 import { SvgPathData } from "./svg-path.js";
 import { SvgStyleSheet } from "./svg-style.js";
+import { SvgGuides } from "./svg-guides.js";
 import { SvgValues } from "./svg-values.js";
 import { XmlParser, type XmlDocument, type XmlElement } from "./xml.js";
 
@@ -164,6 +165,10 @@ type Context = {
  * four béziers. Runs of arcs on one circle are read as that one arc or
  * circle, and a bezier that follows a circle as its arc (`PathSegments`).
  *
+ * **Guides.** The guides an Inkscape file keeps beside its drawing are read
+ * as construction lines (see `SvgGuides`); whoever imports decides whether
+ * they come in.
+ *
  * **Left out:** text, images and embedded objects, counted in `skipped`;
  * clip paths and masks, whose shapes come in whole, with a warning; fills,
  * strokes' widths, markers, patterns and filters, which are not curves.
@@ -241,6 +246,7 @@ export class SvgReader {
   /** User units per absolute unit: what `1mm` is in the file's coordinates. */
   private units: Record<string, number> = SvgValues.unitFactors(CSS_PER_INCH);
   private unit: ImportedUnit | null = null;
+  private guides: ImportedConstructionLine[] = [];
   private visits = 0;
 
   private constructor(document: XmlDocument, options: SvgReadOptions) {
@@ -333,10 +339,14 @@ export class SvgReader {
     let scale = 1;
     let pageWidth = width ?? 0;
     let pageHeight = height ?? 0;
+    // Nothing but the view box's corner lies between user units and the page:
+    // the box fills the page with one scale both ways, and the page is not turned.
+    let plain = true;
     if (box && width !== null && height !== null) {
       const aspect = SvgValues.aspect(SvgReader.attribute(root, 'preserveAspectRatio'));
       const ratioX = width / box.width;
       const ratioY = height / box.height;
+      plain = aspect.uniform && Math.abs(ratioX - ratioY) <= Math.max(ratioX, ratioY) * 1e-9;
       if (aspect.uniform) {
         // One scale for both axes, so the view box's numbers stay as they
         // are: the page is the box, with room to spare (or cut off) along
@@ -362,6 +372,7 @@ export class SvgReader {
       if (!m) {
         this.tally.transformErrors++;
       } else if (!Affine.isIdentity(m)) {
+        plain = false;
         const about = { x: pageWidth / 2, y: pageHeight / 2 };
         toPage = Affine.compose(toPage, Affine.compose(
           Affine.translation({ x: -about.x, y: -about.y }),
@@ -373,6 +384,18 @@ export class SvgReader {
     // Turned over: up the page is up the drawing, from the page's lower edge when it has one.
     const out = Affine.compose(toPage, { a: 1, b: 0, c: 0, d: -1, e: 0, f: pageHeight });
     this.unit = sized ? SvgReader.unitOf((MM_PER_INCH / perInch) * scale) : null;
+
+    // A guide gives its place from the page's lower-left corner in user
+    // units: the drawing's own frame on a plain page that has a height.
+    const guides = SvgGuides.read(root, {
+      inkscapeVersion: SvgReader.attribute(root, 'version', INKSCAPE_NAMESPACE),
+      plain: plain && pageHeight > 0,
+    });
+    this.guides = guides.lines.map((line) => ({ layer: null, ...line }));
+    if (guides.unread > 0) {
+      this.tally.skipped.guide = (this.tally.skipped.guide ?? 0) + guides.unread;
+      this.notes.push(`${guides.unread === 1 ? 'A guide was' : `${guides.unread} guides were`} left out: ${guides.reason}.`);
+    }
 
     const context = this.derive({
       m: out,
@@ -964,7 +987,7 @@ export class SvgReader {
     if (tally.percentWithoutPage) {
       warnings.push('Some sizes are given as percentages of a page the file does not give a size for; they were read as zero.');
     }
-    return { unit: this.unit, layers, entities, points: [], skipped: tally.skipped, warnings };
+    return { unit: this.unit, layers, entities, points: [], constructionLines: this.guides, skipped: tally.skipped, warnings };
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────

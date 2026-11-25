@@ -641,6 +641,81 @@ describe("SvgReader: layers", () => {
   });
 });
 
+describe("SvgReader: Inkscape guides", () => {
+  const SODIPODI = 'xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"';
+  /** A file the way Inkscape writes one: its version on the root, its guides under the named view. */
+  const inkscape = (version: string | null, size: string, guides: string, body = '<rect x="6" y="4" width="12" height="16" fill="none" stroke="#000"/>') =>
+    `<svg ${NS} ${INKSCAPE} ${SODIPODI} ${version === null ? '' : `inkscape:version="${version}"`} ${size}>`
+    + `<sodipodi:namedview id="namedview1" pagecolor="#ffffff" showguides="true">${guides}</sodipodi:namedview>${body}</svg>`;
+  const guide = (position: string, orientation: string) =>
+    `<sodipodi:guide position="${position}" orientation="${orientation}" id="guide1" inkscape:locked="false" />`;
+
+  it("reads a guide where Inkscape has it: from the page's lower-left corner, Y up, running across its orientation", () => {
+    // A 24 × 24 page drawn at twice its size. The rectangle's top edge is 4 down the page: 20 up it.
+    const read = SvgReader.read(inkscape('1.2.2 (b0a8486541, 2022-12-01)', 'width="48" height="48" viewBox="0 0 24 24"',
+      guide('6,20', '0,-1') + guide('6,20', '1,0') + guide('18,4', '0.70710678,0.70710678')));
+    expect(read.constructionLines).toHaveLength(3);
+    const [level, upright, slanted] = read.constructionLines;
+    expect(level).toEqual({ layer: null, at: { x: 6, y: 20 }, direction: { x: 1, y: 0 }, ray: false });
+    expect(upright).toEqual({ layer: null, at: { x: 6, y: 20 }, direction: { x: 0, y: 1 }, ray: false });
+    expectPoint(slanted.direction, [-Math.SQRT1_2, Math.SQRT1_2]);
+    // The level and the upright guide lie on the rectangle's top and left edges, as its author snapped them.
+    const top = read.entities.map((e) => e.curve).find((c) => c.kind === 'line' && c.a.y === 20 && c.b.y === 20);
+    const left = read.entities.map((e) => e.curve).find((c) => c.kind === 'line' && c.a.x === 6 && c.b.x === 6);
+    expect(top).toBeDefined();
+    expect(left).toBeDefined();
+    // The slanted one runs through the rectangle's lower-right corner, (18, 4), up to the left.
+    expect(slanted.at).toEqual({ x: 18, y: 4 });
+    expect(read.skipped).toEqual({});
+    expect(read.warnings).toEqual([]);
+  });
+
+  it("measures a guide from the page's corner, not from the view box's origin", () => {
+    // The view box starts at (10, 20): the page's lower-left corner is user (10, 70).
+    const read = SvgReader.read(inkscape('1.3.2', 'width="100" height="50" viewBox="10 20 100 50"', guide('5,8', '0,1') + guide('5,8', '1,0'),
+      '<path d="M15 62 H60" fill="none" stroke="#000"/>'));
+    // The path starts 5 from the left edge and 8 from the bottom one: on both guides.
+    const [start] = Curves.endpoints(read.entities[0].curve)!;
+    expectPoint(start, [5, 8]);
+    expect(read.constructionLines.map((line) => line.at)).toEqual([{ x: 5, y: 8 }, { x: 5, y: 8 }]);
+  });
+
+  it("reads a guide of a page without a view box, and the words Inkscape once wrote for level and upright", () => {
+    const read = SvgReader.read(inkscape('0.92.4 (5da689c313, 2019-01-14)', 'width="24" height="24"', guide('0,12', 'horizontal') + guide('12,0', 'vertical')));
+    expect(read.constructionLines.map((line) => line.direction)).toEqual([{ x: -1, y: 0 }, { x: 0, y: 1 }]);
+    expect(read.constructionLines.map((line) => line.at)).toEqual([{ x: 0, y: 12 }, { x: 12, y: 0 }]);
+  });
+
+  it("leaves out, and counts, the guides of a file from Inkscape before 0.92, which placed them another way", () => {
+    const read = SvgReader.read(inkscape('0.48.2 r9819', 'width="24" height="24"', guide('0,20', '1,0') + guide('4,24', '0,1')));
+    expect(read.constructionLines).toEqual([]);
+    expect(read.skipped).toEqual({ guide: 2 });
+    expect(read.warnings.join(' ')).toMatch(/2 guides were left out: the file was made with Inkscape before 0\.92/);
+  });
+
+  it("leaves out the guides of a file that does not say what wrote it, and of a page that is stretched or turned", () => {
+    const unnamed = SvgReader.read(inkscape(null, 'width="24" height="24"', guide('4,4', '1,0')));
+    expect(unnamed.constructionLines).toEqual([]);
+    expect(unnamed.warnings.join(' ')).toMatch(/A guide was left out: the file does not say which program wrote them/);
+    const stretched = SvgReader.read(inkscape('1.2', 'width="48" height="24" viewBox="0 0 24 24"', guide('4,4', '1,0')));
+    expect(stretched.constructionLines).toEqual([]);
+    expect(stretched.skipped).toEqual({ guide: 1 });
+    expect(stretched.warnings.join(' ')).toMatch(/the page is turned, stretched or has no size/);
+    const turned = SvgReader.read(inkscape('1.2', 'width="24" height="24" transform="rotate(90)"', guide('4,4', '1,0')));
+    expect(turned.constructionLines).toEqual([]);
+  });
+
+  it("counts a guide that is not written as numbers, and reads the others", () => {
+    const read = SvgReader.read(inkscape('1.2', 'width="24" height="24"', guide('4,4', '1,0') + guide('4', '0,1') + guide('5,5', '0,0')));
+    expect(read.constructionLines).toHaveLength(1);
+    expect(read.skipped).toEqual({ guide: 2 });
+  });
+
+  it("has no construction lines in a file without guides", () => {
+    expect(SvgReader.read(page('<rect width="10" height="10"/>')).constructionLines).toEqual([]);
+  });
+});
+
 describe("SvgReader: files as they come", () => {
   it("reads an Illustrator file: entities for its namespaces and styles, a switch, layers by id", () => {
     const text = `<?xml version="1.0" encoding="utf-8"?>

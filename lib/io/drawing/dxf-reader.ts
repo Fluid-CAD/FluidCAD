@@ -3,7 +3,7 @@ import { Curves } from "./drawing.js";
 import { Affine, type Affine2 } from "./affine.js";
 import { BSplineCurve2D } from "./bspline.js";
 import { Conic } from "./conic.js";
-import type { ImportedDrawing, ImportedEntity, ImportedLayer, ImportedPoint, ImportedUnit } from "./import.js";
+import type { ImportedConstructionLine, ImportedDrawing, ImportedEntity, ImportedLayer, ImportedPoint, ImportedUnit } from "./import.js";
 import { interpolateBSpline2d } from "../../math/bspline-interpolation.js";
 
 type Pair = { code: number; value: string };
@@ -82,9 +82,10 @@ const SILENT_TYPES = new Set(['SEQEND', 'VERTEX', 'ATTRIB', 'ATTDEF', 'VIEWPORT'
  * with their knots and weights, or fit points alone), `LWPOLYLINE` and the
  * old `POLYLINE` with bulges (each segment a line or an arc), and `INSERT`
  * with its block expanded in place — moved, turned, scaled per axis,
- * mirrored, arrayed, nested. A `POINT` is read as a point, apart from the
- * curves. Model space only; an entity made invisible is left out. Everything
- * else — text, dimensions, hatches, images — is counted in `skipped`.
+ * mirrored, arrayed, nested. A `POINT` is read as a point, and an `XLINE`
+ * or a `RAY` as a construction line, each apart from the curves. Model
+ * space only; an entity made invisible is left out. Everything else —
+ * text, dimensions, hatches, images — is counted in `skipped`.
  *
  * Coordinates are the file's own: nothing is recentred or scaled; `unit`
  * says what the file declares. A drawing is taken as its top view: an entity
@@ -134,6 +135,7 @@ export class DxfReader {
   private readonly hiddenLayers = new Set<string>();
   private readonly entities: ImportedEntity[] = [];
   private readonly points: ImportedPoint[] = [];
+  private readonly constructionLines: ImportedConstructionLine[] = [];
   private readonly skipped: Record<string, number> = {};
   private unitCode = 0;
   private projected = 0;
@@ -353,6 +355,16 @@ export class DxfReader {
         case 'POINT':
           this.addPoint(layer, { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) }, m);
           break;
+        case 'XLINE':
+        case 'RAY':
+          this.addConstructionLine(
+            layer,
+            { x: DxfReader.num(record, 10, 0), y: DxfReader.num(record, 20, 0) },
+            { x: DxfReader.num(record, 11, 0), y: DxfReader.num(record, 21, 0) },
+            record.type === 'RAY',
+            m,
+          );
+          break;
         default:
           if (!SILENT_TYPES.has(record.type)) {
             this.skipped[record.type] = (this.skipped[record.type] ?? 0) + 1;
@@ -371,11 +383,16 @@ export class DxfReader {
     if (!placed || DxfReader.hasNaN(placed)) {
       return;
     }
-    if (this.entities.length + this.points.length >= MAX_ENTITIES) {
-      throw new Error(`The drawing has more than ${MAX_ENTITIES.toLocaleString('en-US')} curves and points once its blocks are expanded: too many to import.`);
-    }
+    this.makeRoom();
     this.seeLayer(layer);
     this.entities.push({ layer, curve: placed });
+  }
+
+  /** Throws when the file has grown past what an import can take. */
+  private makeRoom(): void {
+    if (this.entities.length + this.points.length + this.constructionLines.length >= MAX_ENTITIES) {
+      throw new Error(`The drawing has more than ${MAX_ENTITIES.toLocaleString('en-US')} curves and points once its blocks are expanded: too many to import.`);
+    }
   }
 
   /** One point of the file — world coordinates, seen from above like everything else — taken through `m`. */
@@ -384,11 +401,26 @@ export class DxfReader {
     if (!Number.isFinite(placed.x) || !Number.isFinite(placed.y)) {
       return;
     }
-    if (this.entities.length + this.points.length >= MAX_ENTITIES) {
-      throw new Error(`The drawing has more than ${MAX_ENTITIES.toLocaleString('en-US')} curves and points once its blocks are expanded: too many to import.`);
-    }
+    this.makeRoom();
     this.seeLayer(layer);
     this.points.push({ layer, at: placed });
+  }
+
+  /**
+   * An `XLINE` (endless both ways) or a `RAY` (endless one way): a point
+   * and a direction, both world coordinates, taken through `m`. One that
+   * runs straight at the viewer is a point seen from above, and left out.
+   */
+  private addConstructionLine(layer: string, at: Vec2, direction: Vec2, ray: boolean, m: Affine2): void {
+    const placed = Affine.point(m, at);
+    const along = Affine.vector(m, direction);
+    const length = Math.hypot(along.x, along.y);
+    if (!Number.isFinite(placed.x) || !Number.isFinite(placed.y) || !Number.isFinite(length) || !(length > 0)) {
+      return;
+    }
+    this.makeRoom();
+    this.seeLayer(layer);
+    this.constructionLines.push({ layer, at: placed, direction: { x: along.x / length, y: along.y / length }, ray });
   }
 
   /**
@@ -633,8 +665,9 @@ export class DxfReader {
 
   private result(): ImportedDrawing {
     const counts = new Map<string, number>();
-    for (const drawn of [...this.entities, ...this.points]) {
-      counts.set(drawn.layer, (counts.get(drawn.layer) ?? 0) + 1);
+    for (const drawn of [...this.entities, ...this.points, ...this.constructionLines]) {
+      // Everything a DXF draws is on a layer.
+      counts.set(drawn.layer!, (counts.get(drawn.layer!) ?? 0) + 1);
     }
     const layers: ImportedLayer[] = this.layerOrder
       .filter((name) => counts.has(name))
@@ -664,7 +697,15 @@ export class DxfReader {
     if (this.nestedTooDeep) {
       warnings.push('A block refers to itself, or blocks are nested too deep; the reference was left out.');
     }
-    return { unit, layers, entities: this.entities, points: this.points, skipped: this.skipped, warnings };
+    return {
+      unit,
+      layers,
+      entities: this.entities,
+      points: this.points,
+      constructionLines: this.constructionLines,
+      skipped: this.skipped,
+      warnings,
+    };
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────

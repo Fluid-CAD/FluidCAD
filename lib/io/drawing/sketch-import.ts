@@ -2,6 +2,7 @@ import type { Curve2D, Vec2 } from "./drawing.js";
 import { Curves } from "./drawing.js";
 import { BSplineCurve2D } from "./bspline.js";
 import { DrawingCleanup } from "./cleanup.js";
+import type { CutLine } from "./construction-lines.js";
 
 type BSpline = Extract<Curve2D, { kind: 'bspline' }>;
 type Ellipse = Extract<Curve2D, { kind: 'ellipse' }>;
@@ -11,10 +12,11 @@ type Ellipse = Extract<Curve2D, { kind: 'ellipse' }>;
  * sketch coordinates — the arguments of `line(start, end)`,
  * `arc(start, end, center)` (counter-clockwise), `circle(center, diameter)`,
  * `ellipse(center, rx, ry, rotation)` (degrees), `bezier(...points)` and,
- * for a point of the file, `point(at)`.
+ * for a point of the file, `point(at)`. A line marked `guide` is a
+ * construction line: written `line(start, end).guide()`.
  */
 export type SketchPrimitive =
-  | { kind: 'line'; start: Vec2; end: Vec2 }
+  | { kind: 'line'; start: Vec2; end: Vec2; guide?: true }
   | { kind: 'arc'; start: Vec2; end: Vec2; center: Vec2 }
   | { kind: 'circle'; center: Vec2; diameter: number }
   | { kind: 'ellipse'; center: Vec2; rx: number; ry: number; rotation: number }
@@ -58,7 +60,7 @@ export type SketchPin =
   | { kind: 'level'; primitive: number; direction: 'horizontal' | 'vertical' };
 
 export interface SketchImportPlan {
-  /** The statements to write: the curves' in the order of the curves they come from, then the points'. */
+  /** The statements to write: the curves' in the order of the curves they come from, then the points', then the guide lines'. */
   primitives: SketchPrimitive[];
   /** The ends that meet — a point on an end is one of them — each meeting point as a star from its first end. */
   joins: SketchJoin[];
@@ -75,6 +77,12 @@ export interface SketchImportOptions {
   joinTolerance: number;
   /** The decimals the statements are written with. Everything is rounded to them first, so joins and duplicates are judged on what is written. */
   decimals: number;
+}
+
+/** What a plan takes besides curves and points. */
+export interface SketchImportExtras {
+  /** Construction lines, already cut to a length (see `ConstructionLines`): each becomes a guide line. */
+  guides?: readonly CutLine[];
 }
 
 const TWO_PI = 2 * Math.PI;
@@ -103,12 +111,22 @@ const MAX_ARC_PIECES = 64;
  * first, and counted. A point of the file is a `point`: what a drill
  * centre or a datum mark is to a sketch.
  *
+ * A construction line is a guide line: drawn, and kept out of profiles.
+ * Where it was cut is no point of the drawing, so its ends join nothing —
+ * fixed in place, each is fixed on its own — and it is told apart from the
+ * curves: one lying on a line of the outline is not that line drawn twice.
+ *
  * The plan also lists where ends meet. A sketch does not join ends because
  * they share coordinates — a `coincident` does — so without the joins an
  * imported outline would come apart at the first drag.
  */
 export class SketchImport {
-  static plan(curves: readonly Curve2D[], options: SketchImportOptions, points: readonly Vec2[] = []): SketchImportPlan {
+  static plan(
+    curves: readonly Curve2D[],
+    options: SketchImportOptions,
+    points: readonly Vec2[] = [],
+    extras: SketchImportExtras = {},
+  ): SketchImportPlan {
     const tolerance = options.tolerance;
     const joinTolerance = Math.max(options.joinTolerance, tolerance);
     const scale = 10 ** options.decimals;
@@ -132,6 +150,9 @@ export class SketchImport {
     for (const at of points) {
       raw.push({ kind: 'point', at });
     }
+    for (const guide of extras.guides ?? []) {
+      raw.push({ kind: 'line', start: guide.a, end: guide.b, guide: true });
+    }
 
     const primitives: SketchPrimitive[] = [];
     const seen = new Set<string>();
@@ -144,8 +165,8 @@ export class SketchImport {
       }
       const key = SketchImport.key(rounded);
       if (seen.has(key)) {
-        // `duplicates` counts curves: a point marked twice is just written once.
-        if (rounded.kind !== 'point') {
+        // `duplicates` counts curves: a point marked twice, or a construction line, is just written once.
+        if (rounded.kind !== 'point' && !SketchImport.isGuide(rounded)) {
           duplicates++;
         }
         continue;
@@ -293,6 +314,11 @@ export class SketchImport {
     }
   }
 
+  /** Whether a primitive is a construction line: a line written as a guide. */
+  static isGuide(primitive: SketchPrimitive): boolean {
+    return primitive.kind === 'line' && primitive.guide === true;
+  }
+
   // ─── Conversion ─────────────────────────────────────────────────────────
 
   /** Appends the statements of one curve; true when they approximate it. */
@@ -411,7 +437,12 @@ export class SketchImport {
   private static rounded(primitive: SketchPrimitive, point: (p: Vec2) => Vec2, round: (v: number) => number): SketchPrimitive {
     switch (primitive.kind) {
       case 'line':
-        return { kind: 'line', start: point(primitive.start), end: point(primitive.end) };
+        return {
+          kind: 'line',
+          start: point(primitive.start),
+          end: point(primitive.end),
+          ...(primitive.guide ? { guide: true as const } : {}),
+        };
       case 'arc':
         return { kind: 'arc', start: point(primitive.start), end: point(primitive.end), center: point(primitive.center) };
       case 'circle':
@@ -464,7 +495,8 @@ export class SketchImport {
     const either = (forward: string, backward: string) => (forward < backward ? forward : backward);
     switch (primitive.kind) {
       case 'line':
-        return `l|${either(`${p(primitive.start)}|${p(primitive.end)}`, `${p(primitive.end)}|${p(primitive.start)}`)}`;
+        // A guide line is another thing than a line of the outline it may lie on.
+        return `${primitive.guide ? 'g' : 'l'}|${either(`${p(primitive.start)}|${p(primitive.end)}`, `${p(primitive.end)}|${p(primitive.start)}`)}`;
       case 'arc':
         return `a|${p(primitive.start)}|${p(primitive.end)}|${p(primitive.center)}`;
       case 'circle':
@@ -489,12 +521,16 @@ export class SketchImport {
    * star from its first end. Two ends of one line or arc never join: that
    * would fold the curve onto a point. A bezier that closes on itself does.
    * A point primitive is an end of its own, so one drawn on a curve's end
-   * stays on it.
+   * stays on it. A guide line has no ends to join: they are where an
+   * endless line was cut.
    */
   private static joins(primitives: readonly SketchPrimitive[], tolerance: number): SketchJoin[] {
     type End = SketchJoinEnd & { at: Vec2 };
     const ends: End[] = [];
     primitives.forEach((primitive, index) => {
+      if (SketchImport.isGuide(primitive)) {
+        return;
+      }
       if (primitive.kind === 'line' || primitive.kind === 'arc') {
         ends.push({ primitive: index, end: 'start', at: primitive.start }, { primitive: index, end: 'end', at: primitive.end });
       } else if (primitive.kind === 'bezier') {

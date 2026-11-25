@@ -11,8 +11,9 @@ import type { Curve2D, DrawingBounds, Vec2 } from '../../../../lib/io/drawing/dr
 import { Affine } from '../../../../lib/io/drawing/affine.js';
 import { DxfReader } from '../../../../lib/io/drawing/dxf-reader.js';
 import { SvgReader } from '../../../../lib/io/drawing/svg-reader.js';
-import { ImportedDrawings, type ImportedDrawing } from '../../../../lib/io/drawing/import.js';
+import { ImportedDrawings, type ImportedConstructionLine, type ImportedDrawing } from '../../../../lib/io/drawing/import.js';
 import { SketchImport, type SketchImportPlan } from '../../../../lib/io/drawing/sketch-import.js';
+import { ConstructionLines, type CutLine } from '../../../../lib/io/drawing/construction-lines.js';
 import { DrawingImportPanel, type DrawingImportFormat, type DrawingUnitChoice } from './drawing-import-panel';
 import { DrawingImportPreview } from './drawing-import-preview';
 import { DrawingImportEmission } from './drawing-import-emission';
@@ -61,6 +62,11 @@ export const DXF_IMPORT: DrawingImportSource = {
   accept: '.dxf',
   icon: 'dxf',
   hiddenLayer: 'off or frozen in the file',
+  guides: {
+    label: 'Construction lines',
+    title: 'Bring in the file\'s construction lines as guide lines: drawn dashed, and left out of profiles. They have no ends in the file, so each one is cut a little past the drawing.',
+    only: 'Only construction lines on the ticked layers. Turn on Construction lines to import them.',
+  },
   maxBytes: 32 * 1024 * 1024,
   read: (bytes) => DxfReader.readBytes(bytes),
 };
@@ -77,6 +83,11 @@ export const SVG_IMPORT: DrawingImportSource = {
   accept: '.svg,image/svg+xml',
   icon: 'svg',
   hiddenLayer: 'hidden in the file',
+  guides: {
+    label: 'Guides',
+    title: 'Bring in the guides the file keeps beside its drawing as guide lines: drawn dashed, and left out of profiles. They have no ends in the file, so each one is cut a little past the drawing.',
+    only: 'Only guides here. Turn on Guides to import them.',
+  },
   units: [
     { key: 'px', label: 'Pixel, 96 to the inch', mm: 25.4 / 96 },
     { key: 'pt', label: 'Point, 72 to the inch', mm: 25.4 / 72 },
@@ -116,6 +127,11 @@ export type DrawingImportToolDeps = {
  * one statement per curve — `line`, `arc`, `circle`, `ellipse`, `bezier` —
  * a `point` per point of the file, a `coincident` per join and, when asked, the constraints that pin it all,
  * in one edit; the file itself is not kept or linked.
+ *
+ * A file's construction lines (lines with no end) come in when the dialog's
+ * toggle asks for them: as guide lines, cut a little past the rest of the
+ * drawing. They do not size the frame the drawing is placed by, unless
+ * they are all there is.
  */
 export class DrawingImportTool extends SketchTool {
   readonly id: ToolId;
@@ -137,6 +153,8 @@ export class DrawingImportTool extends SketchTool {
   /** The curves and the points of those layers, in the file's coordinates, and their bounds together. */
   private curves: Curve2D[] = [];
   private points: Vec2[] = [];
+  /** The construction lines of those layers, cut to a length; none unless they are asked for. */
+  private guides: CutLine[] = [];
   private bounds: DrawingBounds | null = null;
   private placement: DrawingPlacement | null = null;
   private unitChoice: DrawingUnitChoice = 'file';
@@ -171,6 +189,7 @@ export class DrawingImportTool extends SketchTool {
     this.panel.onUnit = (unit) => this.setUnit(unit);
     this.panel.onScale = (scale) => this.setUserScale(scale);
     this.panel.onLayers = (layers) => this.setLayers(layers);
+    this.panel.onGuides = () => this.retake();
     this.panel.onJoins = () => this.refreshSummary();
     this.panel.onFix = () => this.refreshSummary();
     this.panel.onAsDrawn = () => this.placeAsDrawn();
@@ -250,7 +269,7 @@ export class DrawingImportTool extends SketchTool {
       this.panel.setMessage(error instanceof Error ? error.message : String(error));
       return;
     }
-    if (drawing.entities.length === 0 && drawing.points.length === 0) {
+    if (drawing.entities.length === 0 && drawing.points.length === 0 && drawing.constructionLines.length === 0) {
       const skipped = ImportedDrawings.describeSkipped(drawing.skipped);
       this.panel.setMessage(skipped
         ? `The file has no lines, curves or points to import (it holds ${skipped}).`
@@ -263,7 +282,9 @@ export class DrawingImportTool extends SketchTool {
     this.layers = new Set((shown.length > 0 ? shown : drawing.layers).map((layer) => layer.name));
     this.unitChoice = 'file';
     this.userScale = 1;
-    this.panel.setFile(file.name, drawing.unit?.name ?? null, drawing.layers, this.layers);
+    this.panel.setFile(file.name, drawing.unit?.name ?? null, drawing.layers, this.layers, {
+      constructionLines: drawing.constructionLines.length,
+    });
     this.panel.setScale(1);
     this.takeLayers();
     this.placement = this.bounds ? this.initialPlacement(this.bounds) : null;
@@ -272,7 +293,13 @@ export class DrawingImportTool extends SketchTool {
     this.bringIntoView();
   }
 
-  /** The curves, points and bounds of the ticked layers. */
+  /**
+   * The curves, points and bounds of the ticked layers — and their
+   * construction lines when those are asked for, cut to the rest. The
+   * bounds are the curves' and the points': what the drawing is placed and
+   * measured by. Construction lines reach past them, and only stand in
+   * when nothing else is ticked.
+   */
   private takeLayers(): void {
     this.curves = (this.drawing?.entities ?? [])
       .filter((entity) => this.layers.has(entity.layer))
@@ -280,18 +307,30 @@ export class DrawingImportTool extends SketchTool {
     this.points = (this.drawing?.points ?? [])
       .filter((point) => this.layers.has(point.layer))
       .map((point) => point.at);
-    this.bounds = ImportedDrawings.bounds(this.curves, this.points);
-    this.preview.setDrawing(this.curves, this.points, this.bounds);
+    const content = ImportedDrawings.bounds(this.curves, this.points);
+    this.guides = this.panel.guides ? ConstructionLines.segments(this.tickedConstructionLines(), content) : [];
+    this.bounds = content ?? ImportedDrawings.bounds([], this.guides.flatMap((guide) => [guide.a, guide.b]));
+    this.preview.setDrawing(this.curves, this.points, this.bounds, this.guides);
+  }
+
+  private tickedConstructionLines(): ImportedConstructionLine[] {
+    // One on no layer belongs to the page: it comes with whatever is ticked.
+    return (this.drawing?.constructionLines ?? []).filter((line) => line.layer === null || this.layers.has(line.layer));
   }
 
   private setLayers(layers: Set<string>): void {
+    this.layers = layers;
+    this.retake();
+  }
+
+  /** What comes in changed: layers ticked, construction lines asked for. */
+  private retake(): void {
     if (!this.drawing) {
       return;
     }
     // The drawing stays put while layers come and go: the map from file to
     // sketch is kept, and the frame re-centres on what is left.
     const before = this.placement && this.bounds ? DrawingPlacements.affine(this.placement, this.bounds) : null;
-    this.layers = layers;
     this.takeLayers();
     if (!this.bounds) {
       this.placement = null;
@@ -612,7 +651,9 @@ export class DrawingImportTool extends SketchTool {
       tolerance,
       joinTolerance: DrawingImportTool.fromMm(JOIN_TOLERANCE_MM),
       decimals: DrawingImportTool.decimals(),
-    }, this.points.map((point) => Affine.point(m, point)));
+    }, this.points.map((point) => Affine.point(m, point)), {
+      guides: this.guides.map((guide) => ({ a: Affine.point(m, guide.a), b: Affine.point(m, guide.b) })),
+    });
   }
 
   /** The decimals an imported coordinate is written with, in the document's unit. */
@@ -642,7 +683,13 @@ export class DrawingImportTool extends SketchTool {
     const entities = plan?.primitives.length ?? 0;
     let blocked: string | null = null;
     if (entities === 0) {
-      blocked = this.layers.size === 0 ? 'Tick at least one layer.' : 'Nothing to import on the ticked layers.';
+      if (!this.panel.guides && this.tickedConstructionLines().length > 0) {
+        blocked = this.source.guides.only;
+      } else if (this.layers.size === 0) {
+        blocked = 'Tick at least one layer.';
+      } else {
+        blocked = 'Nothing to import on the ticked layers.';
+      }
     } else if (entities > MAX_IMPORT_STATEMENTS) {
       blocked = `This would write ${entities.toLocaleString('en-US')} sketch entities; one import takes up to ${MAX_IMPORT_STATEMENTS.toLocaleString('en-US')}.`
         + (drawing.layers.length > 1 ? ' Untick layers to bring in less.' : '');
@@ -651,7 +698,8 @@ export class DrawingImportTool extends SketchTool {
     const pins = plan && this.panel.fix
       ? SketchImport.pins(plan, { joined, decimals: DrawingImportTool.decimals() }).length
       : 0;
-    this.panel.setSummary({ entities, joins: joined ? plan?.joins.length ?? 0 : 0, pins, notes, blocked });
+    const guides = plan?.primitives.filter((primitive) => SketchImport.isGuide(primitive)).length ?? 0;
+    this.panel.setSummary({ entities, guides, joins: joined ? plan?.joins.length ?? 0 : 0, pins, notes, blocked });
   }
 
   // --------------------------------------------------------------- commit

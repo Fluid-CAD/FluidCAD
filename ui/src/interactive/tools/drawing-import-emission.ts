@@ -5,7 +5,8 @@ import type { SolvedConstraintParam, SolvedEmissionRequest, SolvedEmissionTarget
 
 /**
  * An import plan as the one edit that writes it: a statement per primitive
- * (a `point` for a point of the file) and a `coincident` per join, through the same rail the drawing tools use.
+ * (a `point` for a point of the file, a guide line for a construction line)
+ * and a `coincident` per join, through the same rail the drawing tools use.
  *
  * Unlike a clicked position (two decimals), an imported coordinate is
  * written as the plan rounded it: a drawing's corners, tangencies and
@@ -33,7 +34,12 @@ export class DrawingImportEmission {
     const p = DrawingImportEmission.point;
     switch (primitive.kind) {
       case 'line':
-        return { kind: 'line', text: `line(${p(primitive.start)}, ${p(primitive.end)})` };
+        return {
+          kind: 'line',
+          text: `line(${p(primitive.start)}, ${p(primitive.end)})`,
+          // A construction line: the server writes `.guide()` after it.
+          ...(primitive.guide ? { guide: true } : {}),
+        };
       case 'arc':
         return { kind: 'arc', text: `arc(${p(primitive.start)}, ${p(primitive.end)}, ${p(primitive.center)})` };
       case 'circle':

@@ -1,10 +1,13 @@
-import { BufferGeometry, Float32BufferAttribute, Group, Matrix4, Points, PointsMaterial, Vector3 } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Group, Line, Matrix4, Points, PointsMaterial, ShaderMaterial, Vector3 } from 'three';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineResolutionRegistry } from '../../meshes/shape-meshes/line-resolution';
+import { createDashDotLine } from '../../meshes/dash-dot-line';
+import { trackPixelsPerWorld } from '../../meshes/screen-scale';
 import type { Curve2D, DrawingBounds, Vec2 } from '../../../../lib/io/drawing/drawing.js';
 import { Curves } from '../../../../lib/io/drawing/drawing.js';
+import type { CutLine } from '../../../../lib/io/drawing/construction-lines.js';
 import type { PlaneData } from '../../types';
 import { themeColors } from '../../scene/theme-colors';
 import { DrawingPlacements, type DrawingPlacement } from './drawing-import-placement';
@@ -28,11 +31,15 @@ const TURN_SEGMENTS = 96;
  * their bounds, and the file's points are dots among them; a placement only
  * sets the group's matrix. Dragging a drawing
  * of thousands of curves is then one matrix per frame, with nothing rebuilt.
+ *
+ * Construction lines are drawn the way a sketch draws its guides — dash,
+ * dot, dash — in the preview's own colour: what they will be once imported.
  */
 export class DrawingImportPreview {
   readonly group: Group;
   private lines: LineSegments2 | null = null;
   private dots: Points<BufferGeometry, PointsMaterial> | null = null;
+  private guides: Line<BufferGeometry, ShaderMaterial>[] = [];
   private segments = 0;
   private plane: PlaneData;
   private placement: DrawingPlacement | null = null;
@@ -50,8 +57,12 @@ export class DrawingImportPreview {
     this.applyMatrix();
   }
 
-  /** Draw `curves` and `points`; `bounds` are theirs together. Null or nothing to draw clears the preview. */
-  setDrawing(curves: readonly Curve2D[], points: readonly Vec2[], bounds: DrawingBounds | null): void {
+  /**
+   * Draw `curves`, `points` and `guides` (construction lines, cut to a
+   * length); `bounds` are what the drawing is placed by. Null or nothing to
+   * draw clears the preview.
+   */
+  setDrawing(curves: readonly Curve2D[], points: readonly Vec2[], bounds: DrawingBounds | null, guides: readonly CutLine[] = []): void {
     this.clear();
     if (!bounds) {
       return;
@@ -62,6 +73,9 @@ export class DrawingImportPreview {
     }
     if (points.length > 0) {
       this.drawPoints(points, center);
+    }
+    for (const guide of guides) {
+      this.drawGuide(guide, center);
     }
   }
 
@@ -113,6 +127,26 @@ export class DrawingImportPreview {
     this.group.add(this.dots);
   }
 
+  /** One construction line, in the sketch's guide pattern. */
+  private drawGuide(guide: CutLine, center: Vec2): void {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      guide.a.x - center.x, guide.a.y - center.y, 0,
+      guide.b.x - center.x, guide.b.y - center.y, 0,
+    ], 3));
+    const line = createDashDotLine(geometry, themeColors.ghostWireColor, { depthTest: false }) as Line<BufferGeometry, ShaderMaterial>;
+    // The pattern is measured along the line in file units, and the
+    // placement scales those: the dashes keep their size on screen only
+    // when that scale is counted in.
+    trackPixelsPerWorld(line, (pixelsPerWorld) => {
+      line.material.uniforms.pixelsPerWorld.value = pixelsPerWorld * (this.placement?.scale ?? 1);
+    });
+    line.renderOrder = RENDER_ORDER;
+    line.frustumCulled = false;
+    this.guides.push(line);
+    this.group.add(line);
+  }
+
   setPlacement(placement: DrawingPlacement | null): void {
     this.placement = placement;
     this.applyMatrix();
@@ -121,6 +155,11 @@ export class DrawingImportPreview {
   /** How many line segments are on screen — what a test reads. */
   get segmentCount(): number {
     return this.lines ? this.segments : 0;
+  }
+
+  /** How many construction lines are on screen — what a test reads. */
+  get guideCount(): number {
+    return this.guides.length;
   }
 
   /** How many dots are on screen — what a test reads. */
@@ -147,6 +186,12 @@ export class DrawingImportPreview {
       this.dots.material.dispose();
       this.dots = null;
     }
+    for (const guide of this.guides) {
+      this.group.remove(guide);
+      guide.geometry.dispose();
+      guide.material.dispose();
+    }
+    this.guides = [];
   }
 
   /** plane frame · move to `at` · turn · scale — the drawing's centre is the group's origin. */

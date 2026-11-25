@@ -58,6 +58,21 @@ When the file does not say, the select reads **Document unit (mm)**: the numbers
 
 Each layer of the file that has curves on it gets a tick box with its number of curves. Layers that are switched off or frozen in the file are marked **off** and start unticked — they are usually notes, borders and construction lines the drawing's author was not looking at either. Tick them to bring them in.
 
+### Construction lines
+
+A DXF may hold construction lines: lines with no end (`XLINE`), or with only one (`RAY`), drawn to lay a part out. When the file has any, the dialog shows a **Construction lines** toggle. It starts off. Turn it on to bring them in as [guide lines](/docs/sketching/tools/guides): drawn dashed, there to snap and constrain to, and left out of the profiles a feature is made from.
+
+A sketch line has two ends, so each construction line is cut to the drawing it lays out. It reaches a tenth of the drawing's longer side past the drawing, and stops there:
+
+- A level or upright line is as long as the drawing is wide or tall, plus that margin at each end.
+- A slanted line crosses the whole drawing and its margin.
+- A ray starts where the file starts it and runs to where a line would stop. One that points away from the drawing is a stub as long as the margin.
+- A line that passes beside the drawing stays where the file has it, and is as long as the drawing is wide seen along it.
+
+When construction lines are all the ticked layers hold, they are sized by the points the file gives them by. If those are all one point, such as two axes through the origin, each line is 100 units long about it.
+
+The frame with the handles stays around the drawing itself; the guide lines reach past it. A guide line's ends are where it was cut, not points of the drawing, so **Join ends that meet** ties them to nothing, and [Fix in place](#fix-in-place) fixes each end on its own. A construction line the file has twice is written once.
+
 ### Joins
 
 A sketch does not treat two ends as connected because they share coordinates; a [coincident](/docs/sketching/constraints/introduction) constraint connects them. With **Join ends that meet** on, the import writes one wherever ends are within a thousandth of a millimetre of each other, so an imported outline stays in one piece when you drag part of it. It starts on when the sketch's **Infer while drawing** setting is on.
@@ -111,6 +126,7 @@ A drawing made near its file's origin lands **as drawn**: its coordinates become
 | Elliptical arc | A few cubic `bezier` curves that follow it closely |
 | Spline | Its own Bézier pieces, as `bezier` statements: the same curve |
 | Point | [`point`](/docs/sketching/primitives/point) |
+| Construction line (`XLINE`), ray (`RAY`) | A `line` marked `.guide()`, when [Construction lines](#construction-lines) is on |
 | Block reference (insert) | The block's contents, in place: moved, turned, scaled, mirrored, arrayed |
 
 A point of the file — a drill centre, a datum mark — is a `point` in the sketch: something to snap, constrain or dimension to, and to place a [hole](/docs/3d-operations/hole) on. It is shown as a dot while you place the drawing, sits on its layer like a curve, and is tied to a line or arc end it lies on when **Join ends that meet** is ticked.

@@ -11,10 +11,27 @@ export type ImportedEntity = { layer: string; curve: Curve2D };
 /** One point of an imported file — a DXF `POINT`: a position and nothing more, on the layer the file put it. */
 export type ImportedPoint = { layer: string; at: Vec2 };
 
-/** A layer of the file that has curves or points on it. */
+/**
+ * A construction line of an imported file — a DXF `XLINE` or `RAY`, an
+ * Inkscape guide: a straight line with no end, drawn to lay other things
+ * out by. A sketch takes it as a guide line, cut to a length (see
+ * `ConstructionLines`).
+ */
+export type ImportedConstructionLine = {
+  /** The layer the file put it on; null for one that belongs to the page and to no layer (an Inkscape guide). */
+  layer: string | null;
+  /** A point the line runs through: the start of a ray. */
+  at: Vec2;
+  /** The way it runs, one unit long. */
+  direction: Vec2;
+  /** It leaves `at` in `direction` only; otherwise it runs both ways. */
+  ray: boolean;
+};
+
+/** A layer of the file that has something on it: curves, points, construction lines. */
 export type ImportedLayer = {
   name: string;
-  /** How many curves and points the file has on it. */
+  /** How many curves, points and construction lines the file has on it. */
   count: number;
   /** The file has the layer turned off or frozen: its author was not looking at it. */
   hidden: boolean;
@@ -32,6 +49,8 @@ export interface ImportedDrawing {
   entities: ImportedEntity[];
   /** Every point read, in the file's order, in the same coordinates. A point is no curve: a sketch takes it as a `point`. */
   points: ImportedPoint[];
+  /** Every construction line read, in the file's order, in the same coordinates. Whoever imports decides whether they come in. */
+  constructionLines: ImportedConstructionLine[];
   /** What the file holds that is not a curve and was left out, by entity type: `{ TEXT: 3, HATCH: 1 }`. */
   skipped: Record<string, number>;
   /** What the person importing should know: curves projected, a block that is missing, … */

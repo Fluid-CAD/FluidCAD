@@ -452,6 +452,90 @@ describe("DxfReader: points", () => {
   });
 });
 
+describe("DxfReader: construction lines", () => {
+  const block = (name: string, groups: Groups, base: [number, number] = [0, 0]): Groups =>
+    [0, "BLOCK", 8, "0", 2, name, 70, 0, 10, base[0], 20, base[1], ...groups, 0, "ENDBLK"];
+
+  it("reads an XLINE and a RAY as construction lines on their layer, apart from the curves and not left out", () => {
+    const read = DxfReader.read(dxf({
+      entities: [
+        0, "LINE", 8, "OUTLINE", 10, 0, 20, 0, 11, 40, 21, 0,
+        0, "XLINE", 8, "LAYOUT", 10, 20, 20, 5, 30, 0, 11, 0, 21, 1, 31, 0,
+        0, "RAY", 8, "LAYOUT", 10, 0, 20, 0, 30, 0, 11, 0.6, 21, 0.8, 31, 0,
+      ],
+    }));
+    expect(read.entities).toHaveLength(1);
+    expect(read.constructionLines).toEqual([
+      { layer: 'LAYOUT', at: { x: 20, y: 5 }, direction: { x: 0, y: 1 }, ray: false },
+      { layer: 'LAYOUT', at: { x: 0, y: 0 }, direction: { x: 0.6, y: 0.8 }, ray: true },
+    ]);
+    expect(read.skipped).toEqual({});
+    expect(read.warnings).toEqual([]);
+    expect(read.layers).toEqual([
+      { name: 'OUTLINE', count: 1, hidden: false },
+      { name: 'LAYOUT', count: 2, hidden: false },
+    ]);
+  });
+
+  it("gives a direction of any length as one unit long", () => {
+    const [line] = DxfReader.read(dxf({ entities: [0, "XLINE", 8, "0", 10, 1, 20, 2, 11, 30, 21, -40] })).constructionLines;
+    expectPoint(line.direction, [0.6, -0.8]);
+  });
+
+  it("sees a line that climbs off the plane from above, and leaves out one that runs straight up", () => {
+    const read = DxfReader.read(dxf({
+      entities: [
+        0, "XLINE", 8, "0", 10, 0, 20, 0, 30, 0, 11, 0.6, 21, 0, 31, 0.8,
+        0, "XLINE", 8, "0", 10, 5, 20, 5, 30, 0, 11, 0, 21, 0, 31, 1,
+        0, "RAY", 8, "0", 10, 5, 20, 5, 11, 0, 21, 0,
+      ],
+    }));
+    expect(read.constructionLines).toEqual([{ layer: '0', at: { x: 0, y: 0 }, direction: { x: 1, y: 0 }, ray: false }]);
+  });
+
+  it("takes a block's construction lines through its reference: turned, stretched, mirrored, on the reference's layer", () => {
+    const read = DxfReader.read(dxf({
+      blocks: block("AXES", [
+        0, "XLINE", 8, "0", 10, 1, 20, 0, 11, 1, 21, 0,
+        0, "RAY", 8, "CENTRES", 10, 1, 20, 0, 11, 0.6, 21, 0.8,
+      ], [1, 0]),
+      entities: [
+        0, "INSERT", 8, "LAYOUT", 2, "AXES", 10, 10, 20, 20, 50, 90,
+        0, "INSERT", 8, "LAYOUT", 2, "AXES", 10, 0, 20, 0, 41, -2, 42, 0.5,
+      ],
+    }));
+    expect(read.constructionLines.map((line) => line.layer)).toEqual(['LAYOUT', 'CENTRES', 'LAYOUT', 'CENTRES']);
+    const [turned, turnedRay, stretched, stretchedRay] = read.constructionLines;
+    // A quarter turn: along X becomes along Y, through the insertion point.
+    expectPoint(turned.at, [10, 20]);
+    expectPoint(turned.direction, [0, 1]);
+    expectPoint(turnedRay.direction, [-0.8, 0.6]);
+    expect(turnedRay.ray).toBe(true);
+    // Mirrored in X and doubled, halved in Y: the direction is the stretched one, one unit long again.
+    expectPoint(stretched.direction, [-1, 0]);
+    const length = Math.hypot(-1.2, 0.4);
+    expectPoint(stretchedRay.direction, [-1.2 / length, 0.4 / length]);
+    expectPoint(stretchedRay.at, [0, 0]);
+  });
+
+  it("leaves out a construction line in paper space and one made invisible", () => {
+    const read = DxfReader.read(dxf({
+      entities: [
+        0, "XLINE", 8, "0", 67, 1, 10, 1, 20, 1, 11, 1, 21, 0,
+        0, "RAY", 8, "0", 60, 1, 10, 2, 20, 2, 11, 1, 21, 0,
+        0, "XLINE", 8, "0", 10, 3, 20, 3, 11, 1, 21, 0,
+      ],
+    }));
+    expect(read.constructionLines.map((line) => line.at)).toEqual([{ x: 3, y: 3 }]);
+  });
+
+  it("reads a file of nothing but construction lines, with their layer", () => {
+    const read = DxfReader.read(dxf({ entities: [0, "XLINE", 8, "AXES", 10, 0, 20, 0, 11, 1, 21, 0] }));
+    expect(read.entities).toEqual([]);
+    expect(read.layers).toEqual([{ name: 'AXES', count: 1, hidden: false }]);
+  });
+});
+
 describe("DxfReader: what the file says about itself", () => {
   const line: Groups = [0, "LINE", 8, "A", 10, 0, 20, 0, 11, 1, 21, 1];
 

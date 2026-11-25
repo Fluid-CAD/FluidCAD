@@ -20,8 +20,10 @@ export function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = tr
   const p = (v: { x: number; y: number }): [number, number] => [v.x, v.y];
   const made = plan.primitives.map((primitive) => {
     switch (primitive.kind) {
-      case 'line':
-        return line(p(primitive.start), p(primitive.end));
+      case 'line': {
+        const drawn = line(p(primitive.start), p(primitive.end));
+        return primitive.guide ? drawn.guide() : drawn;
+      }
       case 'arc':
         return arc(p(primitive.start), p(primitive.end), p(primitive.center));
       case 'circle':

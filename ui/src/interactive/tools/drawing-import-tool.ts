@@ -7,7 +7,7 @@ import { ICON_FILE_IMPORT } from '../../ui/icons';
 import { sceneUnit } from '../../units/scene-unit';
 import { MM_PER_UNIT, UNIT_DISPLAY_DECIMALS, type LengthUnit } from '../../units/units';
 import { localToWorld, pixelToSketchThreshold, projectToSketch } from '../sketch-plane-utils';
-import type { Curve2D, DrawingBounds } from '../../../../lib/io/drawing/drawing.js';
+import type { Curve2D, DrawingBounds, Vec2 } from '../../../../lib/io/drawing/drawing.js';
 import { Affine } from '../../../../lib/io/drawing/affine.js';
 import { DxfReader } from '../../../../lib/io/drawing/dxf-reader.js';
 import { SvgReader } from '../../../../lib/io/drawing/svg-reader.js';
@@ -114,7 +114,7 @@ export type DrawingImportToolDeps = {
  * file, the unit its numbers are in, a scale, the layers, whether ends that
  * meet are joined and whether the geometry is fixed in place. Import writes
  * one statement per curve — `line`, `arc`, `circle`, `ellipse`, `bezier` —
- * a `coincident` per join and, when asked, the constraints that pin it all,
+ * a `point` per point of the file, a `coincident` per join and, when asked, the constraints that pin it all,
  * in one edit; the file itself is not kept or linked.
  */
 export class DrawingImportTool extends SketchTool {
@@ -134,8 +134,9 @@ export class DrawingImportTool extends SketchTool {
   private drawing: ImportedDrawing | null = null;
   /** The names of the layers that come in. */
   private layers = new Set<string>();
-  /** The curves of those layers, in the file's coordinates, and their bounds. */
+  /** The curves and the points of those layers, in the file's coordinates, and their bounds together. */
   private curves: Curve2D[] = [];
+  private points: Vec2[] = [];
   private bounds: DrawingBounds | null = null;
   private placement: DrawingPlacement | null = null;
   private unitChoice: DrawingUnitChoice = 'file';
@@ -249,11 +250,11 @@ export class DrawingImportTool extends SketchTool {
       this.panel.setMessage(error instanceof Error ? error.message : String(error));
       return;
     }
-    if (drawing.entities.length === 0) {
+    if (drawing.entities.length === 0 && drawing.points.length === 0) {
       const skipped = ImportedDrawings.describeSkipped(drawing.skipped);
       this.panel.setMessage(skipped
-        ? `The file has no lines or curves to import (it holds ${skipped}).`
-        : 'The file has no lines or curves to import.');
+        ? `The file has no lines, curves or points to import (it holds ${skipped}).`
+        : 'The file has no lines, curves or points to import.');
       return;
     }
     this.drawing = drawing;
@@ -271,13 +272,16 @@ export class DrawingImportTool extends SketchTool {
     this.bringIntoView();
   }
 
-  /** The curves and bounds of the ticked layers. */
+  /** The curves, points and bounds of the ticked layers. */
   private takeLayers(): void {
     this.curves = (this.drawing?.entities ?? [])
       .filter((entity) => this.layers.has(entity.layer))
       .map((entity) => entity.curve);
-    this.bounds = ImportedDrawings.bounds(this.curves);
-    this.preview.setCurves(this.curves, this.bounds);
+    this.points = (this.drawing?.points ?? [])
+      .filter((point) => this.layers.has(point.layer))
+      .map((point) => point.at);
+    this.bounds = ImportedDrawings.bounds(this.curves, this.points);
+    this.preview.setDrawing(this.curves, this.points, this.bounds);
   }
 
   private setLayers(layers: Set<string>): void {
@@ -351,7 +355,8 @@ export class DrawingImportTool extends SketchTool {
     );
     const span = Math.hypot(bounds.max.x - bounds.min.x, bounds.max.y - bounds.min.y);
     const view = this.viewRect();
-    if (away <= span * FAR_FROM_ORIGIN || !view) {
+    // A lone point has no size to be far by: its coordinates are all it says.
+    if (!(span > 0) || away <= span * FAR_FROM_ORIGIN || !view) {
       return asDrawn;
     }
     return DrawingPlacements.centeredOn(asDrawn, [(view.min[0] + view.max[0]) / 2, (view.min[1] + view.max[1]) / 2]);
@@ -607,7 +612,7 @@ export class DrawingImportTool extends SketchTool {
       tolerance,
       joinTolerance: DrawingImportTool.fromMm(JOIN_TOLERANCE_MM),
       decimals: DrawingImportTool.decimals(),
-    });
+    }, this.points.map((point) => Affine.point(m, point)));
   }
 
   /** The decimals an imported coordinate is written with, in the document's unit. */

@@ -4,6 +4,7 @@ import { DxfReader } from "../../io/drawing/dxf-reader.js";
 import { DxfWriter } from "../../io/drawing/dxf-writer.js";
 import { Affine } from "../../io/drawing/affine.js";
 import { SketchImport } from "../../io/drawing/sketch-import.js";
+import type { SketchImportPlan } from "../../io/drawing/sketch-import.js";
 import { Curves } from "../../io/drawing/drawing.js";
 import type { Curve2D, DrawingEntity } from "../../io/drawing/drawing.js";
 import { OPTIONS, extrudedVolume, solved } from "./sketch-plan.js";
@@ -161,5 +162,35 @@ describe("a DXF imported into a sketch", () => {
       expect(solved(SketchImport.plan([ellipseAt(90)], OPTIONS), true)).toEqual(FIXED);
       expect(solved(SketchImport.plan([ellipseAt(30)], OPTIONS), true)).toEqual({ ...FIXED, dof: 1 });
     });
+  });
+
+  // A 40 × 20 plate, a drill centre near each end, and a datum mark on its first corner.
+  const drilledPlate = (): SketchImportPlan => {
+    const text = [
+      0, "SECTION", 2, "ENTITIES",
+      0, "LWPOLYLINE", 8, "PLATE", 90, 4, 70, 1, 10, 0, 20, 0, 10, 40, 20, 0, 10, 40, 20, 20, 10, 0, 20, 20,
+      0, "POINT", 8, "DRILL", 10, 8, 20, 10,
+      0, "POINT", 8, "DRILL", 10, 32, 20, 10,
+      0, "POINT", 8, "DATUM", 10, 0, 20, 0,
+      0, "ENDSEC", 0, "EOF",
+    ].join("\n");
+    const read = DxfReader.read(text);
+    return SketchImport.plan(read.entities.map((e) => e.curve), OPTIONS, read.points.map((p) => p.at));
+  };
+
+  it("brings a drill pattern in as points beside the outline, which extrudes as it did", () => {
+    const plan = drilledPlate();
+    expect(plan.primitives.map((p) => p.kind)).toEqual(['line', 'line', 'line', 'line', 'point', 'point', 'point']);
+    // The four corners, and the datum mark on the first of them.
+    expect(plan.joins).toHaveLength(4 + 1);
+    const { volume, outcome } = extrudedVolume(plan, 2);
+    expect(outcome).toBe('solved');
+    expect(volume).toBeCloseTo(40 * 20 * 2, 6);
+  });
+
+  it("fixes imported points in place with the outline: no freedom left, nothing stated twice", () => {
+    const plan = drilledPlate();
+    expect(solved(plan, true)).toEqual({ outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 });
+    expect(solved(plan, false)).toEqual({ outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 });
   });
 });

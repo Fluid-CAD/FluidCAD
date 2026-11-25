@@ -10,27 +10,29 @@ type Ellipse = Extract<Curve2D, { kind: 'ellipse' }>;
  * One sketch statement an imported curve becomes, as plain geometry in
  * sketch coordinates — the arguments of `line(start, end)`,
  * `arc(start, end, center)` (counter-clockwise), `circle(center, diameter)`,
- * `ellipse(center, rx, ry, rotation)` (degrees) and `bezier(...points)`.
+ * `ellipse(center, rx, ry, rotation)` (degrees), `bezier(...points)` and,
+ * for a point of the file, `point(at)`.
  */
 export type SketchPrimitive =
   | { kind: 'line'; start: Vec2; end: Vec2 }
   | { kind: 'arc'; start: Vec2; end: Vec2; center: Vec2 }
   | { kind: 'circle'; center: Vec2; diameter: number }
   | { kind: 'ellipse'; center: Vec2; rx: number; ry: number; rotation: number }
-  | { kind: 'bezier'; points: Vec2[] };
+  | { kind: 'bezier'; points: Vec2[] }
+  | { kind: 'point'; at: Vec2 };
 
-/** An end of a primitive that a join names: of a line or an arc, or a bezier's first or last point. */
-export type SketchJoinEnd = { primitive: number; end: 'start' | 'end' };
+/** An end of a primitive that a join names: of a line or an arc, a bezier's first or last point, or a point primitive itself (`'point'`). */
+export type SketchJoinEnd = { primitive: number; end: 'start' | 'end' | 'point' };
 
 /** Two ends that meet: what a `coincident` between them states. */
 export type SketchJoin = { a: SketchJoinEnd; b: SketchJoinEnd };
 
 /**
  * A point of a primitive a pin names: an end (of a line, an arc or a
- * bezier), the centre (of an arc, a circle or an ellipse), or a bezier's
- * control point by index.
+ * bezier), the centre (of an arc, a circle or an ellipse), a bezier's
+ * control point by index, or a point primitive itself (`'point'`).
  */
-export type SketchPinPoint = { primitive: number; point: 'start' | 'end' | 'center' | number };
+export type SketchPinPoint = { primitive: number; point: 'start' | 'end' | 'center' | 'point' | number };
 
 /**
  * One constraint that holds imported geometry where the file drew it:
@@ -56,9 +58,9 @@ export type SketchPin =
   | { kind: 'level'; primitive: number; direction: 'horizontal' | 'vertical' };
 
 export interface SketchImportPlan {
-  /** The statements to write, in the order of the curves they come from. */
+  /** The statements to write: the curves' in the order of the curves they come from, then the points'. */
   primitives: SketchPrimitive[];
-  /** The ends that meet, each meeting point as a star from its first end. */
+  /** The ends that meet — a point on an end is one of them — each meeting point as a star from its first end. */
   joins: SketchJoin[];
   /** Curves left out because another curve of the import is the same one. */
   duplicates: number;
@@ -98,14 +100,15 @@ const MAX_ARC_PIECES = 64;
  * one per knot span — exactly the same curve, whatever its degree up to
  * three. A rational spline, one of a higher degree and an elliptical arc
  * have no exact statement: they are fitted with cubics within the tolerance
- * first, and counted.
+ * first, and counted. A point of the file is a `point`: what a drill
+ * centre or a datum mark is to a sketch.
  *
  * The plan also lists where ends meet. A sketch does not join ends because
  * they share coordinates — a `coincident` does — so without the joins an
  * imported outline would come apart at the first drag.
  */
 export class SketchImport {
-  static plan(curves: readonly Curve2D[], options: SketchImportOptions): SketchImportPlan {
+  static plan(curves: readonly Curve2D[], options: SketchImportOptions, points: readonly Vec2[] = []): SketchImportPlan {
     const tolerance = options.tolerance;
     const joinTolerance = Math.max(options.joinTolerance, tolerance);
     const scale = 10 ** options.decimals;
@@ -126,18 +129,25 @@ export class SketchImport {
         approximated++;
       }
     }
+    for (const at of points) {
+      raw.push({ kind: 'point', at });
+    }
 
     const primitives: SketchPrimitive[] = [];
     const seen = new Set<string>();
     let duplicates = 0;
     for (const primitive of raw) {
       const rounded = SketchImport.rounded(primitive, point, round);
-      if (SketchImport.extent(rounded) <= joinTolerance) {
+      // A point has no extent to lose; a curve under the join tolerance is a speck.
+      if (rounded.kind !== 'point' && SketchImport.extent(rounded) <= joinTolerance) {
         continue;
       }
       const key = SketchImport.key(rounded);
       if (seen.has(key)) {
-        duplicates++;
+        // `duplicates` counts curves: a point marked twice is just written once.
+        if (rounded.kind !== 'point') {
+          duplicates++;
+        }
         continue;
       }
       seen.add(key);
@@ -180,7 +190,7 @@ export class SketchImport {
       }
     }
     const pins: SketchPin[] = [];
-    const fixEnd = (primitive: number, end: 'start' | 'end') => {
+    const fixEnd = (primitive: number, end: SketchJoinEnd['end']) => {
       if (!carried.has(`${primitive}:${end}`)) {
         pins.push({ kind: 'fix', point: { primitive, point: end } });
       }
@@ -234,6 +244,9 @@ export class SketchImport {
           }
           fixEnd(index, 'end');
           break;
+        case 'point':
+          fixEnd(index, 'point');
+          break;
       }
     });
     return pins;
@@ -275,6 +288,8 @@ export class SketchImport {
         }
         return points;
       }
+      case 'point':
+        return [primitive.at];
     }
   }
 
@@ -411,11 +426,13 @@ export class SketchImport {
         };
       case 'bezier':
         return { kind: 'bezier', points: primitive.points.map(point) };
+      case 'point':
+        return { kind: 'point', at: point(primitive.at) };
     }
   }
 
   /** How far the primitive reaches: under the join tolerance it is a speck, not a curve. */
-  private static extent(primitive: SketchPrimitive): number {
+  private static extent(primitive: Exclude<SketchPrimitive, { kind: 'point' }>): number {
     const far = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.y - b.y);
     switch (primitive.kind) {
       case 'line':
@@ -459,6 +476,8 @@ export class SketchImport {
         const backward = [...primitive.points].reverse().map(p).join('|');
         return `b|${either(forward, backward)}`;
       }
+      case 'point':
+        return `p|${p(primitive.at)}`;
     }
   }
 
@@ -469,6 +488,8 @@ export class SketchImport {
    * an end near a third is one meeting point) and each group written as a
    * star from its first end. Two ends of one line or arc never join: that
    * would fold the curve onto a point. A bezier that closes on itself does.
+   * A point primitive is an end of its own, so one drawn on a curve's end
+   * stays on it.
    */
   private static joins(primitives: readonly SketchPrimitive[], tolerance: number): SketchJoin[] {
     type End = SketchJoinEnd & { at: Vec2 };
@@ -481,6 +502,8 @@ export class SketchImport {
           { primitive: index, end: 'start', at: primitive.points[0] },
           { primitive: index, end: 'end', at: primitive.points[primitive.points.length - 1] },
         );
+      } else if (primitive.kind === 'point') {
+        ends.push({ primitive: index, end: 'point', at: primitive.at });
       }
     });
 

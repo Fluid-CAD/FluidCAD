@@ -1,4 +1,4 @@
-import type { Curve2D, DrawingBounds } from "./drawing.js";
+import type { Curve2D, DrawingBounds, Vec2 } from "./drawing.js";
 import { Curves } from "./drawing.js";
 
 // What a 2D file read for import comes back as: the curves of the file in
@@ -8,10 +8,13 @@ import { Curves } from "./drawing.js";
 /** One curve of an imported file, on the layer the file put it. */
 export type ImportedEntity = { layer: string; curve: Curve2D };
 
-/** A layer of the file that has curves on it. */
+/** One point of an imported file — a DXF `POINT`: a position and nothing more, on the layer the file put it. */
+export type ImportedPoint = { layer: string; at: Vec2 };
+
+/** A layer of the file that has curves or points on it. */
 export type ImportedLayer = {
   name: string;
-  /** How many curves the file has on it. */
+  /** How many curves and points the file has on it. */
   count: number;
   /** The file has the layer turned off or frozen: its author was not looking at it. */
   hidden: boolean;
@@ -27,6 +30,8 @@ export interface ImportedDrawing {
   layers: ImportedLayer[];
   /** Every curve read, in the file's order, in the file's own coordinates and unit. */
   entities: ImportedEntity[];
+  /** Every point read, in the file's order, in the same coordinates. A point is no curve: a sketch takes it as a `point`. */
+  points: ImportedPoint[];
   /** What the file holds that is not a curve and was left out, by entity type: `{ TEXT: 3, HATCH: 1 }`. */
   skipped: Record<string, number>;
   /** What the person importing should know: curves projected, a block that is missing, … */
@@ -34,12 +39,18 @@ export interface ImportedDrawing {
 }
 
 export class ImportedDrawings {
-  /** The bounds of the curves together; null when there are none. */
-  static bounds(curves: readonly Curve2D[]): DrawingBounds | null {
-    if (curves.length === 0) {
+  /** The bounds of the curves and the points together; null when there are none. */
+  static bounds(curves: readonly Curve2D[], points: readonly Vec2[] = []): DrawingBounds | null {
+    if (curves.length === 0 && points.length === 0) {
       return null;
     }
     const box = { min: { x: Infinity, y: Infinity }, max: { x: -Infinity, y: -Infinity } };
+    for (const point of points) {
+      box.min.x = Math.min(box.min.x, point.x);
+      box.min.y = Math.min(box.min.y, point.y);
+      box.max.x = Math.max(box.max.x, point.x);
+      box.max.y = Math.max(box.max.y, point.y);
+    }
     for (const curve of curves) {
       const b = Curves.bounds(curve);
       box.min.x = Math.min(box.min.x, b.min.x);

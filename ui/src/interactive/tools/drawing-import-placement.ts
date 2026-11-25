@@ -20,6 +20,9 @@ export type DrawingPlacement = {
 /** A side of the frame is never thinner than this share of the other: a drawing of one straight line still has a body to grab. */
 const MIN_ASPECT = 0.08;
 
+/** The side of the frame, in file units, around a drawing with no size at all: one point. */
+const LONE_POINT_FRAME = 1;
+
 /**
  * The placement of an imported drawing as geometry: the frame the handles
  * are drawn on (the Image tool's own rectangle, so the two tools feel the
@@ -111,11 +114,14 @@ export class DrawingPlacements {
     return { x: (bounds.min.x + bounds.max.x) / 2, y: (bounds.min.y + bounds.max.y) / 2 };
   }
 
-  /** The frame's sides in file units: the bounds', the thin one widened to a share of the other. */
+  /** The frame's sides in file units: the bounds', the thin one widened to a share of the other. A lone point gets a square to be grabbed by. */
   private static frameSize(bounds: DrawingBounds): { width: number; height: number } {
     const width = bounds.max.x - bounds.min.x;
     const height = bounds.max.y - bounds.min.y;
-    const long = Math.max(width, height, Number.MIN_VALUE);
+    const long = Math.max(width, height);
+    if (!(long > 0)) {
+      return { width: LONE_POINT_FRAME, height: LONE_POINT_FRAME };
+    }
     return { width: Math.max(width, long * MIN_ASPECT), height: Math.max(height, long * MIN_ASPECT) };
   }
 }

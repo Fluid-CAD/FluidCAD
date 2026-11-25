@@ -5,7 +5,7 @@ import type { SolvedConstraintParam, SolvedEmissionRequest, SolvedEmissionTarget
 
 /**
  * An import plan as the one edit that writes it: a statement per primitive
- * and a `coincident` per join, through the same rail the drawing tools use.
+ * (a `point` for a point of the file) and a `coincident` per join, through the same rail the drawing tools use.
  *
  * Unlike a clicked position (two decimals), an imported coordinate is
  * written as the plan rounded it: a drawing's corners, tangencies and
@@ -44,6 +44,8 @@ export class DrawingImportEmission {
       }
       case 'bezier':
         return { kind: 'bezier', text: `bezier(${primitive.points.map(p).join(', ')})` };
+      case 'point':
+        return { kind: 'point', text: `point(${p(primitive.at)})` };
     }
   }
 
@@ -66,7 +68,8 @@ export class DrawingImportEmission {
           pointIndex: ref.end === 'start' ? 0 : primitive.points.length - 1,
         };
       }
-      return { newIndex: ref.primitive, role: ref.end };
+      // A point statement is the point: no role to name on it.
+      return ref.end === 'point' ? { newIndex: ref.primitive } : { newIndex: ref.primitive, role: ref.end };
     };
     const point = (ref: SketchPinPoint): SolvedEmissionTargetParam => {
       if (typeof ref.point === 'number') {

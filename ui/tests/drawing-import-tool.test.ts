@@ -185,7 +185,7 @@ describe('DrawingImportTool: reading a file', () => {
   it('says so when a file holds nothing to draw', async () => {
     const { choose, message, role } = makeTool();
     await choose(dxf([0, 'TEXT', 8, '0', 10, 0, 20, 0, 40, 2, 1, 'hello']));
-    expect(message().textContent).toBe('The file has no lines or curves to import (it holds 1 TEXT).');
+    expect(message().textContent).toBe('The file has no lines, curves or points to import (it holds 1 TEXT).');
     expect(role<HTMLButtonElement>('apply').disabled).toBe(true);
   });
 
@@ -332,6 +332,101 @@ describe('DrawingImportTool: Import', () => {
     expect(role<HTMLButtonElement>('apply').disabled).toBe(true);
     await apply();
     expect(emit).not.toHaveBeenCalled();
+  });
+});
+
+describe('DrawingImportTool: points', () => {
+  const point = (layer: string, at: [number, number]): Groups => [0, 'POINT', 8, layer, 10, at[0], 20, at[1]];
+
+  /** The plate's outline with a drill centre near each end and a datum mark on its first corner. */
+  const DRILLED = dxf([
+    ...line('OUTLINE', [100, 50], [140, 50]),
+    ...line('OUTLINE', [140, 50], [140, 70]),
+    ...line('OUTLINE', [140, 70], [100, 70]),
+    ...line('OUTLINE', [100, 70], [100, 50]),
+    ...point('DRILL', [108, 60]),
+    ...point('DRILL', [132, 60]),
+    ...point('DATUM', [100, 50]),
+  ]);
+
+  it('shows a file\'s points as dots among its curves, with their layers', async () => {
+    const { role, choose, tool, layerBox } = makeTool();
+    await choose(DRILLED);
+    expect(tool.preview.pointCount).toBe(3);
+    expect(tool.preview.segmentCount).toBe(4);
+    expect(layerBox('DRILL').checked).toBe(true);
+    expect(layerBox('DRILL').parentElement!.textContent).toContain('2');
+    // The corner mark rides on the outline's first corner: one more join than the outline's four.
+    expect(role('summary').textContent).toBe('7 sketch entities, 5 joins');
+    expect(role('warnings').classList.contains('hidden')).toBe(true);
+  });
+
+  it('writes each point as a point statement, after the curves, and ties the one on a corner to it', async () => {
+    const { choose, apply, emit, texts } = makeTool();
+    await choose(DRILLED);
+    await apply();
+    expect(texts()).toEqual([
+      'line([100, 50], [140, 50])',
+      'line([140, 50], [140, 70])',
+      'line([140, 70], [100, 70])',
+      'line([100, 70], [100, 50])',
+      'point([108, 60])',
+      'point([132, 60])',
+      'point([100, 50])',
+    ]);
+    const request = emit.mock.calls[0][0];
+    expect(request.geometry.slice(4).map((g) => g.kind)).toEqual(['point', 'point', 'point']);
+    // A point statement is the point itself: the join names it without a role.
+    expect(request.constraints).toContainEqual({ kind: 'coincident', targets: [{ newIndex: 0, role: 'start' }, { newIndex: 6 }] });
+    expect(request.constraints).toHaveLength(5);
+  });
+
+  it('fixes a point that stands alone, and leaves one on a corner to its join', async () => {
+    const { choose, role, apply, emit } = makeTool();
+    await choose(DRILLED);
+    const toggle = role<HTMLInputElement>('fix');
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    // Four corners and the two drill centres.
+    expect(role('summary').textContent).toBe('7 sketch entities, 5 joins, fixed by 6 constraints');
+    await apply();
+    const fixes = emit.mock.calls[0][0].constraints.filter((c) => c.kind === 'fix');
+    expect(fixes.slice(-2)).toEqual([{ kind: 'fix', targets: [{ newIndex: 4 }] }, { kind: 'fix', targets: [{ newIndex: 5 }] }]);
+  });
+
+  it('brings in a layer of points on its own, placed with the rest', async () => {
+    const { choose, apply, texts, layerBox, role, tool } = makeTool();
+    await choose(DRILLED);
+    for (const name of ['OUTLINE', 'DATUM']) {
+      const box = layerBox(name);
+      box.checked = false;
+      box.dispatchEvent(new Event('change'));
+    }
+    expect(tool.preview.segmentCount).toBe(0);
+    expect(tool.preview.pointCount).toBe(2);
+    expect(role('summary').textContent).toBe('2 sketch entities');
+    expect(role('readout').textContent).toBe('24.00 × 0.00 mm at 120.00, 60.00');
+    await apply();
+    expect(texts()).toEqual(['point([108, 60])', 'point([132, 60])']);
+  });
+
+  it('scales and converts points with the drawing', async () => {
+    const { choose, apply, texts } = makeTool();
+    await choose(dxf([...line('0', [0, 0], [2, 0]), ...point('0', [1, 1])], [9, '$INSUNITS', 70, 1]));
+    await apply();
+    expect(texts()).toEqual(['line([0, 0], [50.8, 0])', 'point([25.4, 25.4])']);
+  });
+
+  it('imports a file of one point: a frame to grab it by, the point where the file has it', async () => {
+    const { choose, apply, texts, role, tool } = makeTool();
+    await choose(dxf(point('0', [12, 8])));
+    expect(role<HTMLButtonElement>('apply').disabled).toBe(false);
+    expect(tool.preview.pointCount).toBe(1);
+    const frame = tool.frame();
+    expect(frame.spec.width).toBe(1);
+    expect(frame.spec.height).toBe(1);
+    await apply();
+    expect(texts()).toEqual(['point([12, 8])']);
   });
 });
 

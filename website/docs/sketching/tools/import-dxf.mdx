@@ -110,9 +110,12 @@ A drawing made near its file's origin lands **as drawn**: its coordinates become
 | Ellipse | `ellipse` |
 | Elliptical arc | A few cubic `bezier` curves that follow it closely |
 | Spline | Its own Bézier pieces, as `bezier` statements: the same curve |
+| Point | [`point`](/docs/sketching/primitives/point) |
 | Block reference (insert) | The block's contents, in place: moved, turned, scaled, mirrored, arrayed |
 
-Text, dimensions, leaders, hatches, points and images are not curves and are left out: they annotate a drawing, and a sketch holds the geometry a feature is made from. The dialog's **Warnings** section lists how many of each it skipped. A curve drawn twice in the file is written once. Only model space is read.
+A point of the file — a drill centre, a datum mark — is a `point` in the sketch: something to snap, constrain or dimension to, and to place a [hole](/docs/3d-operations/hole) on. It is shown as a dot while you place the drawing, sits on its layer like a curve, and is tied to a line or arc end it lies on when **Join ends that meet** is ticked.
+
+Text, dimensions, leaders, hatches and images are neither curves nor points and are left out: they annotate a drawing, and a sketch holds the geometry a feature is made from. The dialog's **Warnings** section lists how many of each it skipped. A curve drawn twice in the file is written once. Only model space is read.
 
 A sketch has no statement for an elliptical arc, a weighted (rational) spline or a spline above degree three. These are written as cubic beziers that stay within a ten-thousandth of a millimetre of the original, and **Warnings** says how many there were.
 

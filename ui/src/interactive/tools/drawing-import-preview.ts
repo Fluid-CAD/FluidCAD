@@ -1,9 +1,9 @@
-import { Group, Matrix4, Vector3 } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Group, Matrix4, Points, PointsMaterial, Vector3 } from 'three';
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { LineResolutionRegistry } from '../../meshes/shape-meshes/line-resolution';
-import type { Curve2D, DrawingBounds } from '../../../../lib/io/drawing/drawing.js';
+import type { Curve2D, DrawingBounds, Vec2 } from '../../../../lib/io/drawing/drawing.js';
 import { Curves } from '../../../../lib/io/drawing/drawing.js';
 import type { PlaneData } from '../../types';
 import { themeColors } from '../../scene/theme-colors';
@@ -15,6 +15,9 @@ const RENDER_ORDER = 4;
 /** The preview's stroke, in pixels: as present as the sketch's own lines, whatever the display's density. */
 const LINE_WIDTH_PX = 1.5;
 
+/** A point of the file is a dot this many pixels across, whatever the zoom. */
+const POINT_SIZE_PX = 7;
+
 /** Segments a full turn of a circle or an ellipse is drawn with. */
 const TURN_SEGMENTS = 96;
 
@@ -22,12 +25,14 @@ const TURN_SEGMENTS = 96;
  * The drawing being imported, drawn on the sketch plane while it is placed.
  *
  * The curves are sampled once, in the file's coordinates about the centre of
- * their bounds; a placement only sets the group's matrix. Dragging a drawing
+ * their bounds, and the file's points are dots among them; a placement only
+ * sets the group's matrix. Dragging a drawing
  * of thousands of curves is then one matrix per frame, with nothing rebuilt.
  */
 export class DrawingImportPreview {
   readonly group: Group;
   private lines: LineSegments2 | null = null;
+  private dots: Points<BufferGeometry, PointsMaterial> | null = null;
   private segments = 0;
   private plane: PlaneData;
   private placement: DrawingPlacement | null = null;
@@ -45,13 +50,22 @@ export class DrawingImportPreview {
     this.applyMatrix();
   }
 
-  /** Draw `curves`; `bounds` are theirs. Null or no curves clears the preview. */
-  setCurves(curves: readonly Curve2D[], bounds: DrawingBounds | null): void {
+  /** Draw `curves` and `points`; `bounds` are theirs together. Null or nothing to draw clears the preview. */
+  setDrawing(curves: readonly Curve2D[], points: readonly Vec2[], bounds: DrawingBounds | null): void {
     this.clear();
-    if (!bounds || curves.length === 0) {
+    if (!bounds) {
       return;
     }
     const center = DrawingPlacements.center(bounds);
+    if (curves.length > 0) {
+      this.drawCurves(curves, center);
+    }
+    if (points.length > 0) {
+      this.drawPoints(points, center);
+    }
+  }
+
+  private drawCurves(curves: readonly Curve2D[], center: Vec2): void {
     const positions: number[] = [];
     for (const curve of curves) {
       const points = Curves.sample(curve, DrawingImportPreview.segmentsOf(curve));
@@ -81,6 +95,24 @@ export class DrawingImportPreview {
     this.group.add(this.lines);
   }
 
+  private drawPoints(points: readonly Vec2[], center: Vec2): void {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute(points.flatMap((p) => [p.x - center.x, p.y - center.y, 0]), 3));
+    const material = new PointsMaterial({
+      color: themeColors.ghostWireColor.getHex(),
+      size: POINT_SIZE_PX,
+      sizeAttenuation: false,
+      transparent: true,
+      opacity: 0.95,
+      depthTest: false,
+      depthWrite: false,
+    });
+    this.dots = new Points(geometry, material);
+    this.dots.renderOrder = RENDER_ORDER;
+    this.dots.frustumCulled = false;
+    this.group.add(this.dots);
+  }
+
   setPlacement(placement: DrawingPlacement | null): void {
     this.placement = placement;
     this.applyMatrix();
@@ -91,20 +123,30 @@ export class DrawingImportPreview {
     return this.lines ? this.segments : 0;
   }
 
+  /** How many dots are on screen — what a test reads. */
+  get pointCount(): number {
+    return this.dots ? this.dots.geometry.getAttribute('position').count : 0;
+  }
+
   dispose(): void {
     this.clear();
     this.group.removeFromParent();
   }
 
   private clear(): void {
-    if (!this.lines) {
-      return;
+    if (this.lines) {
+      this.group.remove(this.lines);
+      this.lines.geometry.dispose();
+      this.lines.material.dispose();
+      this.lines = null;
+      this.segments = 0;
     }
-    this.group.remove(this.lines);
-    this.lines.geometry.dispose();
-    this.lines.material.dispose();
-    this.lines = null;
-    this.segments = 0;
+    if (this.dots) {
+      this.group.remove(this.dots);
+      this.dots.geometry.dispose();
+      this.dots.material.dispose();
+      this.dots = null;
+    }
   }
 
   /** plane frame · move to `at` · turn · scale — the drawing's centre is the group's origin. */

@@ -381,6 +381,77 @@ describe("DxfReader: blocks", () => {
   });
 });
 
+describe("DxfReader: points", () => {
+  const block = (name: string, groups: Groups, base: [number, number] = [0, 0]): Groups =>
+    [0, "BLOCK", 8, "0", 2, name, 70, 0, 10, base[0], 20, base[1], ...groups, 0, "ENDBLK"];
+
+  it("reads a POINT as a point on its layer, apart from the curves and not left out", () => {
+    const read = DxfReader.read(dxf({
+      entities: [
+        0, "LINE", 8, "OUTLINE", 10, 0, 20, 0, 11, 40, 21, 0,
+        0, "POINT", 8, "DRILL", 10, 12.5, 20, 7.25,
+        0, "POINT", 8, "DRILL", 10, 27.5, 20, 7.25, 30, 3,
+      ],
+    }));
+    expect(read.entities).toHaveLength(1);
+    expect(read.points).toEqual([
+      { layer: 'DRILL', at: { x: 12.5, y: 7.25 } },
+      // A point above the plane is seen from above, like everything else.
+      { layer: 'DRILL', at: { x: 27.5, y: 7.25 } },
+    ]);
+    expect(read.skipped).toEqual({});
+    expect(read.warnings).toEqual([]);
+  });
+
+  it("lists a layer that holds only points, and counts points with the curves", () => {
+    const read = DxfReader.read(dxf({
+      entities: [
+        0, "POINT", 8, "MARKS", 10, 1, 20, 1,
+        0, "LINE", 8, "BOTH", 10, 0, 20, 0, 11, 1, 21, 1,
+        0, "POINT", 8, "BOTH", 10, 1, 20, 1,
+      ],
+    }));
+    expect(read.layers).toEqual([
+      { name: 'MARKS', count: 1, hidden: false },
+      { name: 'BOTH', count: 2, hidden: false },
+    ]);
+  });
+
+  it("places a block's points where the block is inserted: moved, turned, scaled, arrayed, on the reference's layer", () => {
+    const read = DxfReader.read(dxf({
+      blocks: block("MARK", [0, "POINT", 8, "0", 10, 2, 20, 0], [1, 0]),
+      entities: [
+        0, "INSERT", 8, "HOLES", 2, "MARK", 10, 10, 20, 20, 41, 2, 42, 2, 50, 90,
+        0, "INSERT", 8, "ROW", 2, "MARK", 10, 0, 20, 0, 70, 3, 44, 10,
+      ],
+    }));
+    expect(read.points.map((p) => p.layer)).toEqual(['HOLES', 'ROW', 'ROW', 'ROW']);
+    // One unit along X from the block's base point: doubled, turned a quarter turn.
+    expectPoint(read.points[0].at, [10, 22]);
+    expectPoint(read.points[1].at, [1, 0]);
+    expectPoint(read.points[2].at, [11, 0]);
+    expectPoint(read.points[3].at, [21, 0]);
+  });
+
+  it("leaves out a point in paper space and one made invisible", () => {
+    const read = DxfReader.read(dxf({
+      entities: [
+        0, "POINT", 8, "0", 67, 1, 10, 1, 20, 1,
+        0, "POINT", 8, "0", 60, 1, 10, 2, 20, 2,
+        0, "POINT", 8, "0", 10, 3, 20, 3,
+      ],
+    }));
+    expect(read.points).toEqual([{ layer: '0', at: { x: 3, y: 3 } }]);
+  });
+
+  it("reads a file of nothing but points", () => {
+    const read = DxfReader.read(dxf({ entities: [0, "POINT", 8, "0", 10, -4, 20, 9] }));
+    expect(read.entities).toEqual([]);
+    expect(read.points).toEqual([{ layer: '0', at: { x: -4, y: 9 } }]);
+    expect(read.layers).toEqual([{ name: '0', count: 1, hidden: false }]);
+  });
+});
+
 describe("DxfReader: what the file says about itself", () => {
   const line: Groups = [0, "LINE", 8, "A", 10, 0, 20, 0, 11, 1, 21, 1];
 
@@ -423,7 +494,7 @@ describe("DxfReader: what the file says about itself", () => {
         0, "TEXT", 8, "0", 10, 0, 20, 0, 40, 2, 1, "hello",
         0, "TEXT", 8, "0", 10, 0, 20, 5, 40, 2, 1, "again",
         0, "DIMENSION", 8, "0", 2, "*D1",
-        0, "POINT", 8, "0", 10, 1, 20, 1,
+        0, "HATCH", 8, "0", 2, "SOLID",
         0, "LINE", 8, "0", 67, 1, 10, 0, 20, 0, 11, 1, 21, 1,
         0, "LINE", 8, "0", 60, 1, 10, 0, 20, 0, 11, 1, 21, 1,
         0, "VIEWPORT", 8, "0", 67, 1,
@@ -431,7 +502,7 @@ describe("DxfReader: what the file says about itself", () => {
       ],
     }));
     expect(read.entities).toHaveLength(1);
-    expect(read.skipped).toEqual({ TEXT: 2, DIMENSION: 1, POINT: 1 });
+    expect(read.skipped).toEqual({ TEXT: 2, DIMENSION: 1, HATCH: 1 });
   });
 
   it("reads a file's bytes in the code page its header names, and UTF-8 as UTF-8", () => {

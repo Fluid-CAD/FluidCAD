@@ -964,7 +964,7 @@ export class SvgReader {
     if (tally.percentWithoutPage) {
       warnings.push('Some sizes are given as percentages of a page the file does not give a size for; they were read as zero.');
     }
-    return { unit: this.unit, layers, entities, skipped: tally.skipped, warnings };
+    return { unit: this.unit, layers, entities, points: [], skipped: tally.skipped, warnings };
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────

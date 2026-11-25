@@ -41,6 +41,30 @@ describe('applySolvedEmission', () => {
     expect(result.newCode).toContain('midpoint(p1, a.start(), l1.end());');
   });
 
+  it('writes imported points: a point statement is its own target for a join and for a fix', async () => {
+    // What the DXF import emits for a line with a point on its end and a point standing alone.
+    const result = await applySolvedEmission(EMPTY_SKETCH, {
+      sketchLine: 3,
+      geometry: [
+        { kind: 'line', text: 'line([0, 0], [40, 0])' },
+        { kind: 'point', text: 'point([40, 0])' },
+        { kind: 'point', text: 'point([20, 10])' },
+      ],
+      constraints: [
+        { kind: 'coincident', targets: [{ newIndex: 0, role: 'end' }, { newIndex: 1 }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+        { kind: 'fix', targets: [{ newIndex: 2 }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('const p1 = point([40, 0]);');
+    expect(result.newCode).toContain('const p2 = point([20, 10]);');
+    expect(result.newCode).toContain('coincident(l1.end(), p1);');
+    expect(result.newCode).toContain('fix(p2);');
+    expect(result.newCode).toMatch(/import \{[^}]*\bpoint\b[^}]*\} from "fluidcad\/core"/);
+  });
+
   it('inserts geometry BEFORE the first constraint statement, constraints at the body end', async () => {
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,

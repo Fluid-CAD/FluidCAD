@@ -1,7 +1,7 @@
 import { render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { arc, bezier, circle, ellipse, line } from "../../core/2d/index.js";
+import { arc, bezier, circle, ellipse, line, point as sketchPoint } from "../../core/2d/index.js";
 import { coincident, diameter, distance, fix, horizontal, radius, vertical } from "../../core/constraints/index.js";
 import { SketchImport } from "../../io/drawing/sketch-import.js";
 import type { SketchImportPlan, SketchJoinEnd, SketchPin, SketchPinPoint } from "../../io/drawing/sketch-import.js";
@@ -30,6 +30,8 @@ export function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = tr
         return ellipse(p(primitive.center), primitive.rx, primitive.ry, primitive.rotation);
       case 'bezier':
         return bezier(...primitive.points.map(p));
+      case 'point':
+        return sketchPoint(p(primitive.at));
     }
   });
   const end = (ref: SketchJoinEnd) => {
@@ -37,6 +39,9 @@ export function draw(plan: SketchImportPlan, pins: SketchPin[] = [], joined = tr
     const statement = made[ref.primitive] as any;
     if (primitive.kind === 'bezier') {
       return statement.point(ref.end === 'start' ? 0 : primitive.points.length - 1);
+    }
+    if (ref.end === 'point') {
+      return statement;
     }
     return ref.end === 'start' ? statement.start() : statement.end();
   };

@@ -258,6 +258,64 @@ describe("SketchImport: joins", () => {
   });
 });
 
+describe("SketchImport: points", () => {
+  const at = (x: number, y: number): Vec2 => ({ x, y });
+
+  it("writes a point after the curves, rounded like them", () => {
+    const { primitives, approximated, duplicates } = SketchImport.plan(
+      [line([0, 0], [40, 0])],
+      OPTIONS,
+      [at(12.5, 7.25), at(1 / 3, -1e-9)],
+    );
+    expect(primitives).toEqual([
+      { kind: 'line', start: { x: 0, y: 0 }, end: { x: 40, y: 0 } },
+      { kind: 'point', at: { x: 12.5, y: 7.25 } },
+      { kind: 'point', at: { x: 0.333333, y: 0 } },
+    ]);
+    expect(Object.is((primitives[2] as { at: Vec2 }).at.y, 0)).toBe(true);
+    expect(approximated).toBe(0);
+    expect(duplicates).toBe(0);
+  });
+
+  it("writes a point marked twice once, without counting it among the curves drawn twice", () => {
+    const { primitives, duplicates } = SketchImport.plan([], OPTIONS, [at(5, 5), at(5, 5.0000001), at(6, 5)]);
+    expect(primitives).toEqual([{ kind: 'point', at: { x: 5, y: 5 } }, { kind: 'point', at: { x: 6, y: 5 } }]);
+    expect(duplicates).toBe(0);
+  });
+
+  it("plans a file of nothing but points", () => {
+    const { primitives, joins } = SketchImport.plan([], OPTIONS, [at(0, 0), at(10, 0), at(10, 10)]);
+    expect(primitives.map((p) => p.kind)).toEqual(['point', 'point', 'point']);
+    expect(joins).toEqual([]);
+  });
+
+  it("joins a point to the end it sits on, and to nothing along a curve or at a centre", () => {
+    const { primitives, joins } = SketchImport.plan(
+      [line([0, 0], [10, 0]), line([10, 0], [10, 10]), { kind: 'circle', center: { x: 30, y: 30 }, radius: 4 }],
+      OPTIONS,
+      [at(10, 0), at(5, 0), at(30, 30)],
+    );
+    expect(primitives.map((p) => p.kind)).toEqual(['line', 'line', 'circle', 'point', 'point', 'point']);
+    // The corner is one meeting point: the first line's end, with the second line's start and the point on it.
+    expect(joins).toEqual([
+      { a: { primitive: 0, end: 'end' }, b: { primitive: 1, end: 'start' } },
+      { a: { primitive: 0, end: 'end' }, b: { primitive: 3, end: 'point' } },
+    ]);
+  });
+
+  it("fixes a point once: on its own when it stands alone, through its join when it sits on an end", () => {
+    const plan = SketchImport.plan([line([0, 0], [10, 0])], OPTIONS, [at(10, 0), at(5, 5)]);
+    const fixed = (joined: boolean) => SketchImport.pins(plan, { joined, decimals: OPTIONS.decimals })
+      .map((pin) => (pin.kind === 'fix' ? `${pin.point.primitive}:${pin.point.point}` : pin.kind));
+    expect(fixed(true)).toEqual(['0:start', '0:end', '2:point']);
+    expect(fixed(false)).toEqual(['0:start', '0:end', '1:point', '2:point']);
+  });
+
+  it("draws a point's outline as the point", () => {
+    expect(SketchImport.outline({ kind: 'point', at: { x: 3, y: 4 } })).toEqual([{ x: 3, y: 4 }]);
+  });
+});
+
 describe("SketchImport.outline", () => {
   it("runs from a primitive's start to its end, on the curve", () => {
     const arc = SketchImport.outline({ kind: 'arc', start: { x: 10, y: 0 }, end: { x: 0, y: 10 }, center: { x: 0, y: 0 } });

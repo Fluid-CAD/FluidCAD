@@ -122,6 +122,33 @@ describe("an SVG imported into a sketch", () => {
     }
   });
 
+  it("writes the radii a transform gives a path arc as the plan rounds them: round where the transform keeps them round, never refitted to the ends", () => {
+    const decimalsOf = (value: number) => (String(value).split('.')[1] ?? '').length;
+    // Stretched along the page's axes: 20 × 10 becomes 30 × 20.
+    const stretched = planOf(sliceIn("translate(60 50) scale(1.5 2)")).primitives.find((p) => p.kind === 'eArc')!;
+    expect(stretched).toMatchObject({ rx: 30, ry: 20, rotation: 0 });
+    // Sheared, the ellipse's radii and angle are numbers that do not round: written to the plan's decimals, and its ends to four more.
+    for (const transform of ["matrix(1.5 0.2 -0.3 0.8 60 50)", "translate(100 100) skewX(20) rotate(-70) scale(0.5 2)"]) {
+      const plan = planOf(sliceIn(transform));
+      const arc = plan.primitives.find((p) => p.kind === 'eArc')!;
+      if (arc.kind !== 'eArc') {
+        throw new Error('expected an elliptical arc');
+      }
+      for (const value of [arc.rx, arc.ry, arc.rotation, arc.center.x, arc.center.y]) {
+        expect(decimalsOf(value), transform).toBeLessThanOrEqual(OPTIONS.decimals);
+      }
+      for (const value of [arc.start.x, arc.start.y, arc.end.x, arc.end.y]) {
+        expect(decimalsOf(value), transform).toBeLessThanOrEqual(OPTIONS.decimals + 4);
+      }
+      // The radii fixing it in place states are the ones it is written with.
+      for (const pin of SketchImport.pins(plan, { joined: true, decimals: OPTIONS.decimals })) {
+        if (pin.kind === 'semi-radius') {
+          expect(pin.value, transform).toBe(pin.axis === 'x' ? arc.rx : arc.ry);
+        }
+      }
+    }
+  });
+
   it("extrudes a slice whose path arc is itself turned, and the same slice drawn the other way round", () => {
     // The ellipse turned 30° on the page: from the end of its long axis to the end of its short one.
     const [ax, ay, bx, by] = [20 * Math.cos(Math.PI / 6), 20 * Math.sin(Math.PI / 6), -10 * Math.sin(Math.PI / 6), 10 * Math.cos(Math.PI / 6)];

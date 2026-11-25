@@ -10,7 +10,7 @@ import { ImportedDrawings } from "../../io/drawing/import.js";
 import type { SketchImportPlan } from "../../io/drawing/sketch-import.js";
 import { Curves } from "../../io/drawing/drawing.js";
 import type { Curve2D, DrawingEntity } from "../../io/drawing/drawing.js";
-import { OPTIONS, draw, extrudedVolume, solved } from "./sketch-plan.js";
+import { OPTIONS, draw, drawnCurves, extrudedVolume, solved } from "./sketch-plan.js";
 
 // The import end to end, the way the sketch DXF tool runs it: a file read,
 // its curves planned as sketch statements, and those statements written
@@ -156,6 +156,75 @@ describe("a DXF imported into a sketch", () => {
       expect(apart.outcome).toBe('solved');
       expect(apart.volume).toBeCloseTo((AREA / 9) * 3, 4);
     });
+
+    it("keeps the radii the file gives it, 12 and 6, through the kernel: its ends meet their lines, and fixed in place nothing moves", () => {
+      const FIXED = { outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 };
+      const far = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y);
+      // Along the sketch axes and turned; a sliver, under and near a half turn, and nearly all the way round.
+      for (const degrees of [0, 90, 30, -47.3]) {
+        for (const [from, sweep] of [[0.4, 0.02], [0.4, 1.6], [0.3, 3.1], [1.1, 3.1], [1, 5.9]]) {
+          const turn = degrees * Math.PI / 180;
+          const file = [10, 10, 20, 5, 11, 12 * Math.cos(turn), 21, 12 * Math.sin(turn), 40, 0.5, 41, from, 42, from + sweep];
+          const plan = SketchImport.plan(slice(file, { x: 10, y: 5 }), OPTIONS);
+          const name = `${degrees}° from ${from} through ${sweep}`;
+          const written = plan.primitives[0];
+          if (written.kind !== 'eArc') {
+            throw new Error(`${name}: expected an elliptical arc, got ${written.kind}`);
+          }
+          expect({ center: written.center, rx: written.rx, ry: written.ry, rotation: written.rotation }, name).toEqual({ center: { x: 10, y: 5 }, rx: 12, ry: 6, rotation: degrees });
+          expect(plan.joins, name).toHaveLength(3);
+
+          // No join written: the arc is drawn where it is written, and so its ends are the lines' ends.
+          const apart = drawnCurves(plan, [], false);
+          const [arc, toCentre, fromCentre] = apart.curves;
+          expect(far(arc.end, toCentre.start), name).toBeLessThan(1e-9);
+          expect(far(arc.start, fromCentre.end), name).toBeLessThan(1e-9);
+          const { volume, outcome } = extrudedVolume(plan, 1, false);
+          expect(outcome, name).toBe('solved');
+          expect(volume, name).toBeCloseTo(12 * 6 * sweep / 2, 2);
+
+          for (const joined of [true, false]) {
+            const pins = SketchImport.pins(plan, { joined, decimals: OPTIONS.decimals });
+            // A semi-radius pin states the semi-radius the statement is written with.
+            for (const pin of pins) {
+              if (pin.kind === 'semi-radius') {
+                expect(pin.value, name).toBe(pin.axis === 'x' ? 12 : 6);
+              }
+            }
+            const fixed = drawnCurves(plan, pins, joined);
+            expect({ outcome: fixed.outcome, dof: fixed.dof, redundant: fixed.redundant, conflicting: fixed.conflicting }, `${name}, joined ${joined}`).toEqual(FIXED);
+            const [solvedArc] = fixed.curves;
+            expect(Math.abs(solvedArc.rx! - 12), name).toBeLessThan(1e-9);
+            expect(Math.abs(solvedArc.ry! - 6), name).toBeLessThan(1e-9);
+            expect(far(solvedArc.center!, { x: 10, y: 5 }), name).toBeLessThan(1e-9);
+            expect(far(solvedArc.start, written.start), name).toBeLessThan(1e-9);
+            expect(far(solvedArc.end, written.end), name).toBeLessThan(1e-9);
+          }
+        }
+      }
+    });
+
+    it("draws two elliptical arcs that meet at a point no rounding keeps: each passes through it, joined or not, and fixed in place nothing is left free", () => {
+      const FIXED = { outcome: 'solved', dof: 0, redundant: 0, conflicting: 0 };
+      // Two pieces of a 20 × 10 ellipse's shape, the second moved to start where the first ends, and a line back.
+      const first: Curve2D = { kind: 'ellipse', center: { x: 0, y: 0 }, major: { x: 20, y: 0 }, ratio: 0.5, start: 0.3, end: 1.2 };
+      const [begin, meet] = Curves.endpoints(first)!;
+      const second: Curve2D = { kind: 'ellipse', center: { x: meet.x - 20 * Math.cos(2.5), y: meet.y - 10 * Math.sin(2.5) }, major: { x: 20, y: 0 }, ratio: 0.5, start: 2.5, end: 3.4 };
+      const [, finish] = Curves.endpoints(second)!;
+      const plan = SketchImport.plan([first, second, { kind: 'line', a: finish, b: begin }], OPTIONS);
+      expect(plan.primitives.map((p) => p.kind)).toEqual(['eArc', 'eArc', 'line']);
+      expect(plan.joins).toHaveLength(3);
+      const [a, b, back] = drawnCurves(plan, [], false).curves;
+      const far = (p: { x: number; y: number }, q: { x: number; y: number }) => Math.hypot(p.x - q.x, p.y - q.y);
+      expect(far(a.end, b.start)).toBeLessThan(1e-9);
+      expect(far(b.end, back.start)).toBeLessThan(1e-9);
+      expect(far(back.end, a.start)).toBeLessThan(1e-9);
+      const apart = extrudedVolume(plan, 1, false);
+      expect(apart.outcome).toBe('solved');
+      expect(apart.volume).toBeGreaterThan(0);
+      expect(solved(plan, true)).toEqual(FIXED);
+      expect(solved(plan, false)).toEqual(FIXED);
+    });
   });
 
   it("extrudes a full ellipse and what a non-uniform block scale makes of a circle", () => {
@@ -295,7 +364,7 @@ describe("a DXF imported into a sketch", () => {
       const arc = ellipseArc(30, 0.4, 1.6);
       expect(held(alone(arc))).toEqual([
         { kind: 'fix', point: { primitive: 0, point: 'center' } },
-        { kind: 'semi-radius', primitive: 0, axis: 'x', value: expect.closeTo(20, 5) },
+        { kind: 'semi-radius', primitive: 0, axis: 'x', value: 20 },
       ]);
       for (const degrees of [30, -47.3, 3]) {
         for (const start of [0.3, 1.1, 2.5, 4, 5.5]) {

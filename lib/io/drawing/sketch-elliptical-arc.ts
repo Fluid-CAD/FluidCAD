@@ -1,6 +1,6 @@
 import type { Curve2D, Vec2 } from "./drawing.js";
 import { Curves } from "./drawing.js";
-import { ellipseArcSpan, ellipseParamOf, sampleEllipseArc } from "../../sketch-solver/earc-geometry.js";
+import { ellipseArcSpan, ellipseParamOf, projectOntoEllipse, sampleEllipseArc } from "../../sketch-solver/earc-geometry.js";
 import type { EllipseFrame } from "../../sketch-solver/earc-geometry.js";
 
 type OpenEllipse = Extract<Curve2D, { kind: 'ellipse' }>;
@@ -105,8 +105,8 @@ const ANGLE_HOLDS = 0.01;
  * step away from where they are written, and from the end of a line
  * written at the same point. Nothing holds those together unless a join
  * is written, and an outline open by a millionth encloses nothing. So the
- * written ellipse is made to pass through the written ends: two of its
- * numbers are worked out from them again, and written finer.
+ * written ends are put on the written ellipse (see `EllipticalArcEnds`),
+ * and the ellipse keeps the numbers of the file.
  */
 export class SketchEllipticalArcs {
   /** The angle of an ellipse's long axis, in degrees. The axis has no direction: the angle is kept in (−90°, 90°]. */
@@ -141,14 +141,14 @@ export class SketchEllipticalArcs {
    * ends the rounding wrote as one point, or carried past each other,
    * would draw the other piece: such an arc is the whole ellipse when it
    * went most of the way round, and nothing (null) when it went nowhere.
-   * `fine` rounds to more decimals than `round`: what the two numbers the
-   * ends settle are written with.
+   * Every number is rounded with `round`, the ends too: where they are put
+   * on the ellipse is for `EllipticalArcEnds`, once the plan's ends are
+   * known.
    */
   static rounded(
     arc: SketchEllipticalArc,
     point: (p: Vec2) => Vec2,
     round: (value: number) => number,
-    fine: (value: number) => number,
   ): SketchEllipticalArc | WholeEllipse | null {
     const written: SketchEllipticalArc = {
       kind: 'eArc',
@@ -162,23 +162,41 @@ export class SketchEllipticalArcs {
     if (!(written.rx > 0) || !(written.ry > 0)) {
       return null;
     }
-    const turned = SketchEllipticalArcs.sweep(arc);
     const onePoint = written.start.x === written.end.x && written.start.y === written.end.y;
-    if (onePoint || Math.abs(SketchEllipticalArcs.sweep(written) - turned) > Math.PI) {
-      return turned > Math.PI
+    if (onePoint || !SketchEllipticalArcs.sameWay(arc, written)) {
+      return SketchEllipticalArcs.sweep(arc) > Math.PI
         ? { kind: 'ellipse', center: written.center, rx: written.rx, ry: written.ry, rotation: written.rotation }
         : null;
     }
-    return SketchEllipticalArcs.through(written, fine);
+    return written;
+  }
+
+  /**
+   * The point of the arc's ellipse that the written point `at` names (the
+   * one the statement reads it as), rounded with `fine`: written there, an
+   * end is on the ellipse to within what the kernel tells apart, and is
+   * drawn where it is written. A point already on the ellipse to the
+   * decimals of `fine` is written as it is.
+   */
+  static onEllipse(arc: SketchEllipticalArc, at: Vec2, fine: (value: number) => number): Vec2 {
+    const [x, y] = projectOntoEllipse(SketchEllipticalArcs.frame(arc), at.x, at.y);
+    return { x: fine(x), y: fine(y) };
+  }
+
+  /** Whether `moved` runs round its ellipse the way `arc` does: its ends moved, not carried past each other. */
+  static sameWay(arc: SketchEllipticalArc, moved: SketchEllipticalArc): boolean {
+    return Math.abs(SketchEllipticalArcs.sweep(moved) - SketchEllipticalArcs.sweep(arc)) <= Math.PI;
   }
 
   /**
    * The written arc on an ellipse that passes through its two written
    * ends: the pair of numbers the ends settle best (see {@link SETTLED})
    * is solved for them, and rounded with `fine`. The arc as it is when the
-   * ends settle nothing better than the rounding left it.
+   * ends settle nothing better than the rounding left it. For an arc whose
+   * ends cannot be moved onto its ellipse: where it meets another
+   * elliptical arc (see `EllipticalArcEnds`).
    */
-  private static through(written: SketchEllipticalArc, fine: (value: number) => number): SketchEllipticalArc {
+  static through(written: SketchEllipticalArc, fine: (value: number) => number): SketchEllipticalArc {
     const settled = SketchEllipticalArcs.choose(
       SETTLED,
       [SketchEllipticalArcs.gradient(written, written.start), SketchEllipticalArcs.gradient(written, written.end)],

@@ -5,6 +5,8 @@ import { DrawingCleanup } from "./cleanup.js";
 import type { CutLine } from "./construction-lines.js";
 import { ImportedTexts, type ResolvedText } from "./imported-text.js";
 import { SketchEllipticalArcs, type SketchEllipticalArc } from "./sketch-elliptical-arc.js";
+import { EllipticalArcEnds } from "./sketch-elliptical-arc-ends.js";
+import { SketchEnds } from "./sketch-ends.js";
 
 type BSpline = Extract<Curve2D, { kind: 'bspline' }>;
 
@@ -117,9 +119,9 @@ export interface SketchImportOptions {
   joinTolerance: number;
   /**
    * The decimals the statements are written with. Everything is rounded to
-   * them first, so joins and duplicates are judged on what is written. (Two
-   * numbers of an elliptical arc are written with a few more: see
-   * `SketchEllipticalArcs`.)
+   * them first, so joins and duplicates are judged on what is written. (The
+   * ends of an elliptical arc, and the ends that meet them, are written with
+   * a few more: see `EllipticalArcEnds`.)
    */
   decimals: number;
 }
@@ -139,8 +141,10 @@ const TWO_PI = 2 * Math.PI;
 
 /**
  * The decimals past the plan's own that a number is written with when it
- * has to agree with others to within what the kernel tells apart: the
- * numbers of an elliptical arc's ellipse that its written ends settle.
+ * has to agree with others to within what the kernel tells apart: the ends
+ * of an elliptical arc, which have to be on the ellipse it is written with
+ * (and, where two elliptical arcs meet, the numbers of their ellipses those
+ * ends settle).
  */
 const FINE_DECIMALS = 4;
 
@@ -185,15 +189,8 @@ export class SketchImport {
   ): SketchImportPlan {
     const tolerance = options.tolerance;
     const joinTolerance = Math.max(options.joinTolerance, tolerance);
-    const rounding = (decimals: number) => {
-      const scale = 10 ** decimals;
-      return (value: number) => {
-        const rounded = Math.round(value * scale) / scale;
-        return rounded === 0 ? 0 : rounded;
-      };
-    };
-    const round = rounding(options.decimals);
-    const fine = rounding(options.decimals + FINE_DECIMALS);
+    const round = SketchImport.rounding(options.decimals);
+    const fine = SketchImport.rounding(options.decimals + FINE_DECIMALS);
     const point = (p: Vec2): Vec2 => ({ x: round(p.x), y: round(p.y) });
 
     const raw: DrawnPrimitive[] = [];
@@ -215,10 +212,12 @@ export class SketchImport {
     }
 
     const primitives: SketchPrimitive[] = [];
+    // What each written primitive was before it was rounded.
+    const sources: DrawnPrimitive[] = [];
     const seen = new Set<string>();
     let duplicates = 0;
     for (const primitive of raw) {
-      const rounded = SketchImport.rounded(primitive, point, round, fine);
+      const rounded = SketchImport.rounded(primitive, point, round);
       // A point has no extent to lose; a curve under the join tolerance is a speck.
       if (!rounded || (rounded.kind !== 'point' && SketchImport.extent(rounded) <= joinTolerance)) {
         continue;
@@ -233,7 +232,9 @@ export class SketchImport {
       }
       seen.add(key);
       primitives.push(rounded);
+      sources.push(primitive);
     }
+    EllipticalArcEnds.settle(primitives, sources, fine);
     const joins = SketchImport.joins(primitives, joinTolerance);
     SketchImport.addTexts(extras.texts ?? [], primitives, point, round);
 
@@ -319,8 +320,9 @@ export class SketchImport {
    * the ends that do not hold it either. `decimals` are the plan's.
    */
   static pins(plan: SketchImportPlan, options: { joined: boolean; decimals: number }): SketchPin[] {
-    const scale = 10 ** options.decimals;
-    const round = (value: number) => Math.round(value * scale) / scale;
+    const round = SketchImport.rounding(options.decimals);
+    // An elliptical arc's ends are written finer (see `EllipticalArcEnds`): so is how far its centre is from its start.
+    const fine = SketchImport.rounding(options.decimals + FINE_DECIMALS);
     // An end a join attaches to another is carried by that join.
     const carried = new Set<string>();
     if (options.joined) {
@@ -364,10 +366,10 @@ export class SketchImport {
                 pins.push({ kind: 'fix', point: { primitive: index, point: 'center' } });
                 break;
               case 'center-x':
-                pins.push(SketchImport.centreAlong(index, primitive, 'x', round));
+                pins.push(SketchImport.centreAlong(index, primitive, 'x', fine));
                 break;
               case 'center-y':
-                pins.push(SketchImport.centreAlong(index, primitive, 'y', round));
+                pins.push(SketchImport.centreAlong(index, primitive, 'y', fine));
                 break;
               case 'rx':
                 pins.push({ kind: 'semi-radius', primitive: index, axis: 'x', value: primitive.rx });
@@ -433,6 +435,15 @@ export class SketchImport {
       return { kind: 'aligned', primitive: index, direction: axis === 'x' ? 'vertical' : 'horizontal' };
     }
     return { kind: 'offset', primitive: index, axis, value };
+  }
+
+  /** Rounding to `decimals`, a negative zero written as zero. */
+  private static rounding(decimals: number): (value: number) => number {
+    const scale = 10 ** decimals;
+    return (value: number) => {
+      const rounded = Math.round(value * scale) / scale;
+      return rounded === 0 ? 0 : rounded;
+    };
   }
 
   /** The points a preview draws a primitive through. */
@@ -552,12 +563,15 @@ export class SketchImport {
 
   // ─── Rounding, duplicates ───────────────────────────────────────────────
 
-  /** The primitive as it is written; null when the rounding leaves nothing of it. `fine` rounds what has to be written finer than the rest. */
+  /**
+   * The primitive as it is written; null when the rounding leaves nothing
+   * of it. (The ends of an elliptical arc are written finer afterwards: see
+   * `EllipticalArcEnds`.)
+   */
   private static rounded(
     primitive: DrawnPrimitive,
     point: (p: Vec2) => Vec2,
     round: (v: number) => number,
-    fine: (v: number) => number,
   ): DrawnPrimitive | null {
     switch (primitive.kind) {
       case 'line':
@@ -580,7 +594,7 @@ export class SketchImport {
           rotation: round(primitive.rotation),
         };
       case 'eArc':
-        return SketchEllipticalArcs.rounded(primitive, point, round, fine);
+        return SketchEllipticalArcs.rounded(primitive, point, round);
       case 'bezier':
         return { kind: 'bezier', points: primitive.points.map(point) };
       case 'point':
@@ -655,23 +669,7 @@ export class SketchImport {
    * endless line was cut.
    */
   private static joins(primitives: readonly SketchPrimitive[], tolerance: number): SketchJoin[] {
-    type End = SketchJoinEnd & { at: Vec2 };
-    const ends: End[] = [];
-    primitives.forEach((primitive, index) => {
-      if (SketchImport.isGuide(primitive)) {
-        return;
-      }
-      if (primitive.kind === 'line' || primitive.kind === 'arc' || primitive.kind === 'eArc') {
-        ends.push({ primitive: index, end: 'start', at: primitive.start }, { primitive: index, end: 'end', at: primitive.end });
-      } else if (primitive.kind === 'bezier') {
-        ends.push(
-          { primitive: index, end: 'start', at: primitive.points[0] },
-          { primitive: index, end: 'end', at: primitive.points[primitive.points.length - 1] },
-        );
-      } else if (primitive.kind === 'point') {
-        ends.push({ primitive: index, end: 'point', at: primitive.at });
-      }
-    });
+    const ends = SketchEnds.of(primitives);
 
     const parent = ends.map((_, i) => i);
     const find = (i: number): number => {

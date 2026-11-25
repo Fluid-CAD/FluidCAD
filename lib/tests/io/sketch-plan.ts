@@ -126,6 +126,25 @@ export function solved(plan: SketchImportPlan, joined: boolean): { outcome: stri
   return { outcome: solver.outcome, dof: solver.dof, redundant: solver.redundant.length, conflicting: solver.conflicting.length };
 }
 
+/** A solved line or elliptical arc as its statement serializes it. */
+export type DrawnCurve = { type: string; start: { x: number; y: number }; end: { x: number; y: number }; rx?: number; ry?: number; rotation?: number; center?: { x: number; y: number } };
+
+/**
+ * The lines and elliptical arcs the kernel drew for the plan, in the
+ * plan's order, with `pins` and, when `joined`, its joins; and how the
+ * solver left the sketch. The sketch is the only thing in its scene.
+ */
+export function drawnCurves(plan: SketchImportPlan, pins: SketchPin[], joined: boolean): { curves: DrawnCurve[]; outcome: string; dof: number; redundant: number; conflicting: number } {
+  getSceneManager().startScene();
+  const sk = sketch("xy", () => draw(plan, pins, joined)) as any;
+  const scene = render();
+  const curves = scene.getAllSceneObjects()
+    .filter((o) => o.getType() === 'line' || o.getType() === 'eArc')
+    .map((o) => ({ type: o.getType(), ...(o.serialize() as Omit<DrawnCurve, 'type'>) }));
+  const solver = scene.getRenderedObjects().find((o) => o.id === sk.id)!.object.solver;
+  return { curves, outcome: solver.outcome, dof: solver.dof, redundant: solver.redundant.length, conflicting: solver.conflicting.length };
+}
+
 /**
  * The volume of the plan's profile extruded by `height`, and how the solver
  * left its sketch; `joined` writes the plan's joins. The sketch and its

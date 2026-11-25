@@ -175,7 +175,7 @@ A sketch has no statement for a weighted (rational) spline or a spline above deg
 
 Unless you imported with [Fix in place](#fix-in-place), the entities sit at the positions the file gave them but are not yet dimensioned: the status at the bottom of the viewport reports the degrees of freedom that remain. They extrude as they are. To make the sketch driven by dimensions, [constrain](/docs/sketching/constraints/introduction) it the usual way — pin a point, add horizontal and vertical constraints, dimension the sizes that matter.
 
-In the code, the import is plain sketch statements, with coordinates written to more decimals than a clicked point so corners, tangencies and centres stay as exact as the file had them. An elliptical arc has two of its numbers, most often its semi-radii, written finer still, so that the ellipse passes through the two ends it is written with:
+In the code, the import is plain sketch statements, with coordinates written to more decimals than a clicked point so corners, tangencies and centres stay as exact as the file had them. An elliptical arc keeps the file's centre, semi-radii and angle; its two ends, and the ends of whatever meets them, are written finer still, so that they lie on the ellipse it is written with. Where two elliptical arcs meet, each ellipse is made to pass through the point they share instead, and two of its numbers are the ones written finer:
 
 ```js
 sketch("xy", () => {

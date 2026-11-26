@@ -19,9 +19,13 @@ import { SurfaceClassifier } from "../../oc/surface-classifier.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { Plane } from "../../math/plane.js";
+import { ShapeOps } from "../../oc/shape-ops.js";
 import { withUnit } from "../../units/registry.js";
+import type { Scene } from "../../rendering/scene.js";
 import { extentDistances } from "../../filters/extent.js";
 import { edgeSideDistances } from "../../filters/edge/above-below.js";
+import { FreeformBodies } from "../helpers/freeform-bodies.js";
+import { findSolids } from "../selection/pick-helpers.js";
 
 function bezier(poles: number[][]): Edge {
   const curve = Geometry.makeBezierCurve(poles.map(([x, y, z]) => new Point(x, y, z)));
@@ -96,6 +100,24 @@ function sagSlab() {
     line([0, 5], [0, 1]);
   });
   return extrude(10);
+}
+
+/** The scene's faces whose side of a plane is read off their extent, with the surface kind of each. */
+function freeformFaces(scene: Scene): Face[] {
+  return findSolids(scene)
+    .flatMap(solid => solid.getSubShapes("face"))
+    .filter(f => !SurfaceClassifier.isAnalytic(SurfaceClassifier.classify(f).kind));
+}
+
+/** Whether `above` and `below` keep the shape, entirely and partly, in that order. */
+function sideAnswers<T extends Shape>(shape: T, of: () => { above: FilterBuilderBase<T>; partlyAbove: FilterBuilderBase<T>; below: FilterBuilderBase<T>; partlyBelow: FilterBuilderBase<T> }): boolean[] {
+  const builders = of();
+  return [builders.above, builders.partlyAbove, builders.below, builders.partlyBelow].map(b => matches(shape, b));
+}
+
+/** The same four answers, worked out from two distances. */
+function sidesOf([near, far]: number[]): boolean[] {
+  return [near > 0 && far > 0, near > 0 || far > 0, near < 0 && far < 0, near < 0 || far < 0];
 }
 
 describe("sampled predicates on curved edges", () => {
@@ -287,6 +309,61 @@ describe("sampled predicates on curved edges", () => {
       expect(aboveFaces.every(f => f.getEdges().every(e => CurveClassifier.classify(e).kind === "line"))).toBe(true);
       const belowKinds = (partlyBelow.getShapes() as Face[]).map(f => SurfaceClassifier.classify(f).kind).sort();
       expect(belowKinds).toEqual(["extruded", "plane", "plane"]);
+    });
+
+    it("answers for a free-form face as its measured extent does, wherever the plane lies", () => {
+      FreeformBodies.filletedSlab();
+      FreeformBodies.ellipseLoft(200);
+      FreeformBodies.revolvedSpline();
+      const faces = freeformFaces(render());
+      // Six fillets and a loft wall on B-spline surfaces, three extruded walls, a revolved one.
+      expect(faces.map(f => SurfaceClassifier.classify(f).kind).sort()).toEqual([
+        "extruded", "extruded", "extruded",
+        "freeform", "freeform", "freeform", "freeform", "freeform", "freeform", "freeform",
+        "revolved",
+      ]);
+      const tilted = new Plane(new Point(3, -2, 5), new Vector3d(2, 1, 0).normalize(), new Vector3d(1, -2, 3).normalize());
+      for (const f of faces) {
+        for (const base of [XY, new Plane(new Point(0, 0, 0), new Vector3d(1, 0, 0), new Vector3d(0, -1, 0)), tilted]) {
+          const { min, max } = ShapeOps.extentAlongRaw(f.getShape(), base);
+          // Clear of the face on either side, touching each end of it, and through it.
+          for (const offset of [min - 25, min - 1e-3, min, (min + max) / 2, max, max + 1e-3, max + 25]) {
+            const plane = base.offset(offset);
+            const answers = sideAnswers(f, () => ({
+              above: face().above(plane),
+              partlyAbove: face().above(plane, { partial: true }),
+              below: face().below(plane),
+              partlyBelow: face().below(plane, { partial: true }),
+            }));
+            expect(answers).toEqual(sidesOf(extentDistances(f, plane)));
+          }
+        }
+      }
+    });
+
+    it("does not measure a face on a B-spline surface that lies clear of the plane", () => {
+      FreeformBodies.filletedSlab();
+      const fillets = freeformFaces(render()).filter(f => SurfaceClassifier.classify(f).kind === "freeform");
+      expect(fillets).toHaveLength(6);
+      const box = vi.spyOn(ShapeOps, "getExactBoundingBoxRaw");
+      const framed = vi.spyOn(ShapeOps, "extentAlongRaw");
+      try {
+        // The slab stands between z = 0 and z = 10, within 50 of the origin.
+        expect(fillets.every(f => matches(f, face().above("xy", -5)))).toBe(true);
+        expect(fillets.some(f => matches(f, face().above("xy", { offset: 15, partial: true })))).toBe(false);
+        expect(fillets.every(f => matches(f, face().below("yz", 80)))).toBe(true);
+        expect(fillets.every(f => matches(f, face().above(new Plane(new Point(0, 0, -40), new Vector3d(1, 0, 0), new Vector3d(0, -1, 1).normalize()))))).toBe(true);
+        expect(box).not.toHaveBeenCalled();
+        expect(framed).not.toHaveBeenCalled();
+
+        // A plane through the top fillets measures those three alone.
+        expect(fillets.filter(f => matches(f, face().above("xy", 9))).length).toBe(0);
+        expect(fillets.filter(f => matches(f, face().above("xy", { offset: 9, partial: true }))).length).toBe(3);
+        expect(box).toHaveBeenCalledTimes(3);
+      } finally {
+        box.mockRestore();
+        framed.mockRestore();
+      }
     });
 
     it.each(["in", "m"] as const)("treats a flat B-spline face lying in the plane as on neither side in a document in %s", unit => {

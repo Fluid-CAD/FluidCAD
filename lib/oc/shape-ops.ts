@@ -1,4 +1,5 @@
 import type {
+  Adaptor3d_Surface,
   Bnd_Box,
   BRepBuilderAPI_Transform,
   ShapeUpgrade_UnifySameDomain,
@@ -12,6 +13,7 @@ import { Convert } from "./convert.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
+import { Vector3d } from "../math/vector3d.js";
 import { Shape } from "../common/shape.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Face } from "../common/face.js";
@@ -40,7 +42,30 @@ import { RenderSeams } from "./render-seams.js";
 /** The least and greatest signed distance of a shape from a plane; see {@link ShapeOps.extentAlongRaw}. */
 export type Extent = { min: number; max: number };
 
-const extents = new WeakMap<Shape, Map<string, Extent>>();
+/**
+ * What bounds one wrapper, each read once: a wrapper's OC shape never
+ * changes while it lives, and selector synthesis asks the same half-space
+ * questions of the same candidates many times per pick.
+ */
+type Bounds = {
+  /** The exact world box: its three axes are the shape's spans along x, y and z. */
+  world?: BoundingBox;
+  /** The shape's exact span along any other direction, from the world origin. */
+  spans?: Map<string, Extent>;
+  /** See {@link ShapeOps.controlHullRaw}. */
+  hull?: BoundingBox | null;
+};
+
+const bounds = new WeakMap<Shape, Bounds>();
+
+function boundsOf(shape: Shape): Bounds {
+  let kept = bounds.get(shape);
+  if (!kept) {
+    kept = {};
+    bounds.set(shape, kept);
+  }
+  return kept;
+}
 
 export type CleanShapeLineage = {
   shape: Shape;
@@ -188,24 +213,70 @@ export class ShapeOps {
   }
 
   /**
-   * {@link extentAlongRaw}, kept per wrapper and plane: a wrapper's OC shape
-   * never changes while it lives, and selector synthesis asks the same
-   * half-space questions of the same candidates many times per pick.
+   * {@link extentAlongRaw}, from what is kept per wrapper and direction:
+   * the shape's span along the plane's normal is measured once from the
+   * world origin, and any plane with that normal reads its extent off it by
+   * subtracting where the plane sits. The three world axes share one box.
    */
   static extentAlong(shape: Shape, plane: Plane): Extent {
-    let byPlane = extents.get(shape);
-    if (!byPlane) {
-      byPlane = new Map();
-      extents.set(shape, byPlane);
+    const span = ShapeOps.spanAlong(shape, plane.normal);
+    const shift = plane.origin.toVector3d().dot(plane.normal);
+    return { min: span.min - shift, max: span.max - shift };
+  }
+
+  /**
+   * An interval that holds the shape's true extent along `plane`'s normal,
+   * read off its control hull (kept per wrapper) at no cost per plane; null
+   * for a shape with no such hull (see {@link controlHullRaw}). The exact
+   * extent of a face on a B-spline surface costs tens of milliseconds, and
+   * a caller that only asks which side of a plane a shape lies on has its
+   * answer whenever this interval clears the plane. {@link extentAlong}
+   * can read past it by the kernel's padding.
+   */
+  static outerExtentAlong(shape: Shape, plane: Plane): Extent | null {
+    const kept = boundsOf(shape);
+    if (kept.hull === undefined) {
+      kept.hull = ShapeOps.controlHullRaw(shape.getShape());
     }
-    const { origin: o, normal: n } = plane;
-    const key = `${o.x},${o.y},${o.z}|${n.x},${n.y},${n.z}`;
-    let extent = byPlane.get(key);
-    if (!extent) {
-      extent = ShapeOps.extentAlongRaw(shape.getShape(), plane);
-      byPlane.set(key, extent);
+    const hull = kept.hull;
+    if (!hull) {
+      return null;
     }
-    return extent;
+    // A box's reach along a direction: each axis gives its nearer or farther end.
+    const { normal: n, origin } = plane;
+    const reach = (pick: (a: number, b: number) => number) =>
+      pick(n.x * hull.minX, n.x * hull.maxX) + pick(n.y * hull.minY, n.y * hull.maxY) + pick(n.z * hull.minZ, n.z * hull.maxZ);
+    const near = reach(Math.min);
+    const far = reach(Math.max);
+    const shift = origin.toVector3d().dot(n);
+    // These sums and the exact extent's round differently; a few ulps of
+    // the largest term keep the interval an outer one.
+    const rounding = 8 * Number.EPSILON * Math.max(Math.abs(near), Math.abs(far), Math.abs(shift));
+    return { min: near - shift - rounding, max: far - shift + rounding };
+  }
+
+  /** The shape's exact span along `direction`: its extent from a plane through the world origin. */
+  private static spanAlong(shape: Shape, direction: Vector3d): Extent {
+    const kept = boundsOf(shape);
+    const { x, y, z } = direction;
+    const axis = (y === 0 && z === 0 && Math.abs(x) === 1) ? 'X'
+      : (x === 0 && z === 0 && Math.abs(y) === 1) ? 'Y'
+      : (x === 0 && y === 0 && Math.abs(z) === 1) ? 'Z'
+      : null;
+    if (axis) {
+      kept.world ??= ShapeOps.getExactBoundingBoxRaw(shape.getShape());
+      const min = kept.world[`min${axis}`];
+      const max = kept.world[`max${axis}`];
+      return x + y + z > 0 ? { min, max } : { min: -max, max: -min };
+    }
+    kept.spans ??= new Map();
+    const key = `${x},${y},${z}`;
+    let span = kept.spans.get(key);
+    if (!span) {
+      span = ShapeOps.extentAlongRaw(shape.getShape(), Plane.fromPointAndNormal(new Point(0, 0, 0), direction));
+      kept.spans.set(key, span);
+    }
+    return span;
   }
 
   /**
@@ -239,6 +310,79 @@ export class ShapeOps {
       frame.delete();
       disposeNormal();
       disposeOrigin();
+    }
+  }
+
+  /**
+   * A box sure to enclose the face, for microseconds: the hull of its
+   * surface's control points. Null for any other shape.
+   *
+   * It is the kernel's quick box (`BRepBndLib.Add` on the geometry), taken
+   * only where that box is a proof. For a face on a B-spline surface whose
+   * parameters lie within the surface's own, the kernel boxes the control
+   * points of the spans the face covers, and a B-spline lies within their
+   * hull; for an offset of such a surface it widens that box by the offset,
+   * which is how far an offset point sits from its base point. Everywhere
+   * else the quick box is sampled — a bare grid for a trimmed Bezier patch
+   * or a B-spline read past its bounds, a sampled box widened by a guess
+   * for a spline curve, and so for every face boxed through its edges. It
+   * held on every shape tried, but nothing says it must; those shapes go
+   * to the exact box, which is costly only for the faces covered here.
+   */
+  static controlHullRaw(shape: TopoDS_Shape): BoundingBox | null {
+    const oc = getOC();
+    if (shape.ShapeType() !== oc.TopAbs_ShapeEnum.TopAbs_FACE) {
+      return null;
+    }
+    const face = oc.TopoDS.Face(shape);
+    const adaptor = new oc.BRepAdaptor_Surface(face, true);
+    const bbox = new oc.Bnd_Box();
+    try {
+      const range = {
+        uMin: adaptor.FirstUParameter(), uMax: adaptor.LastUParameter(),
+        vMin: adaptor.FirstVParameter(), vMax: adaptor.LastVParameter(),
+      };
+      if (!ShapeOps.isBoxedByControlPoints(adaptor, range)) {
+        return null;
+      }
+      oc.BRepBndLib.Add(face, bbox, false);
+      if (adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_BSplineSurface) {
+        // The kernel's gap here is the face's tolerance, which the hull of
+        // the surface does not need. An offset's gap is the offset: kept.
+        bbox.SetGap(0);
+      }
+      return bbox.IsVoid() ? null : ShapeOps.boundingBoxFromBnd(bbox);
+    } finally {
+      bbox.delete();
+      adaptor.delete();
+      face.delete();
+    }
+  }
+
+  /** Whether the kernel's quick box of `surface` over `range` is its control points' hull; see {@link controlHullRaw}. */
+  private static isBoxedByControlPoints(
+    surface: Adaptor3d_Surface,
+    range: { uMin: number; uMax: number; vMin: number; vMax: number },
+  ): boolean {
+    const oc = getOC();
+    const type = surface.GetType();
+    if (type === oc.GeomAbs_SurfaceType.GeomAbs_OffsetSurface) {
+      const basis = surface.BasisSurface();
+      try {
+        return ShapeOps.isBoxedByControlPoints(basis, range);
+      } finally {
+        basis.delete();
+      }
+    }
+    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_BSplineSurface) {
+      return false;
+    }
+    const spline = surface.BSpline();
+    try {
+      const own = spline.Bounds(0, 0, 0, 0);
+      return range.uMin >= own.U1 && range.uMax <= own.U2 && range.vMin >= own.V1 && range.vMax <= own.V2;
+    } finally {
+      spline.delete();
     }
   }
 

@@ -7,7 +7,7 @@ import { FilterBase } from "../filter-base.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
 import { SurfaceClassifier } from "../../oc/surface-classifier.js";
-import { extentDistances } from "../extent.js";
+import { extentDistances, extentSides } from "../extent.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneRefSource, comparePlaneRefs, planeRefSceneObject, resolvePlaneRef } from "../plane-ref.js";
 
@@ -77,11 +77,12 @@ abstract class HalfSpaceFaceFilter extends FilterBase<Face> {
   protected abstract onSide(distance: number): boolean;
 
   /**
-   * Judged by {@link faceSideDistances}: entirely on a side when every
-   * distance is, partly when any is.
+   * Judged by the signs of {@link faceSideDistances}: entirely on a side
+   * when every distance is, partly when any is.
    */
   match(shape: Face): boolean {
-    const distances = faceSideDistances(shape, this.resolvedPlane());
+    const plane = this.resolvedPlane();
+    const distances = isJudgedByVertices(shape) ? boundaryDistances(shape, plane) : extentSides(shape, plane);
     const flags = distances.map(d => this.onSide(d));
     return this.partial ? flags.some(Boolean) : flags.every(Boolean);
   }

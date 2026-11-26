@@ -13,7 +13,12 @@ let importCalls: { workspacePath: string; fileName: string }[];
 /** Per-test failure to throw out of importFile; reset to null. */
 let importError: Error | null;
 /** What importFile reports back; undefined mimics an older engine. */
-let importReport: { solidCount: number; unit: string; sourceUnits: { length: string[]; angle: string[] } } | undefined;
+let importReport: {
+  solidCount: number;
+  contents?: { solids: number; surfaces: number; curves: number };
+  unit: string;
+  sourceUnits: { length: string[]; angle: string[] };
+} | undefined;
 
 const WORKSPACE = '/ws';
 
@@ -79,6 +84,25 @@ describe('import-file route', () => {
       solidCount: 2,
       sourceUnits: { length: ['INCH'], angle: ['DEGREE'] },
     });
+  });
+
+  it('reports what a surface-only file held, and inserts its load call', async () => {
+    importReport = {
+      solidCount: 0,
+      contents: { solids: 0, surfaces: 2, curves: 1 },
+      unit: 'mm',
+      sourceUnits: { length: ['MILLIMETRE'], angle: ['RADIAN'] },
+    };
+    const { status, body } = await postImport({ fileName: 'hull.step', data: 'AAAA' });
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      success: true,
+      fileName: 'hull',
+      solidCount: 0,
+      contents: { solids: 0, surfaces: 2, curves: 1 },
+      sourceUnits: { length: ['MILLIMETRE'], angle: ['RADIAN'] },
+    });
+    expect(relayed).toEqual([{ type: 'insert-load', filePath: '/ws/model.fluid.js', fileName: 'hull' }]);
   });
 
   it('tells the editor to insert the load call for the active file', async () => {

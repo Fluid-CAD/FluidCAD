@@ -15,6 +15,8 @@ let exportCalls: Record<string, unknown>[];
 let selections: unknown[];
 /** What the fake engine answers a shapes export with. */
 let shapesOutcome: unknown;
+/** What the fake engine throws out of a shapes export instead; reset to null. */
+let shapesError: Error | null;
 /** (options, livePoses) each exportAssembly call received. */
 let assemblyCalls: { options: Record<string, unknown>; livePoses: unknown }[];
 /** What the fake engine answers an assembly export with. */
@@ -24,6 +26,9 @@ const fakeServer = {
   exportShapes: (selection: unknown, options: Record<string, unknown>) => {
     selections.push(selection);
     exportCalls.push(options);
+    if (shapesError) {
+      throw shapesError;
+    }
     return shapesOutcome;
   },
   exportAssembly: (options: Record<string, unknown>, livePoses: unknown) => {
@@ -79,6 +84,7 @@ describe('export route', () => {
     exportCalls = [];
     selections = [];
     shapesOutcome = { data: 'solid', fileName: 'export.stl' };
+    shapesError = null;
     assemblyCalls = [];
     assemblyOutcome = { ok: true, data: 'ISO-10303-21;', fileName: 'rig.step', posesSource: 'live' };
   });
@@ -191,10 +197,36 @@ describe('export route', () => {
     expect(refused.status).toBe(400);
     expect(refused.body).toEqual({ error: "Configuration 'Default' does not build Solid 2 (Boss).", missing });
 
-    shapesOutcome = { status: 422, reason: 'The scene has no solids to export.' };
+    shapesOutcome = { status: 422, reason: 'The scene has no solids or surfaces to export.' };
     const empty = await postExport({ format: 'step', shapeIds: 'all' });
     expect(empty.status).toBe(422);
-    expect(empty.body).toEqual({ error: 'The scene has no solids to export.' });
+    expect(empty.body).toEqual({ error: 'The scene has no solids or surfaces to export.' });
+  });
+
+  it('carries the surfaces an STL left out in the warnings header', async () => {
+    shapesOutcome = { data: 'solid', fileName: 'export.stl', warnings: ['1 surface left out: a surface encloses no volume.'] };
+    const res = await fetch(`${baseUrl}/api/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ format: 'stl', shapeIds: 'all' }),
+    });
+    expect(res.status).toBe(200);
+    const header = res.headers.get('x-fluidcad-export-warnings');
+    expect(JSON.parse(decodeURIComponent(header!))).toEqual(['1 surface left out: a surface encloses no volume.']);
+  });
+
+  it('answers an engine build error (surfaces alone as STL) with a 422 and its message, any other failure with a 500', async () => {
+    const refusal = new Error('STL cannot hold a surface: a surface encloses no volume.\nHint: Export surfaces as STEP.');
+    refusal.name = 'BuildError';
+    shapesError = refusal;
+    const refused = await postExport({ format: 'stl', shapeIds: ['sheet-1'] });
+    expect(refused.status).toBe(422);
+    expect(refused.body.error).toMatch(/Export surfaces as STEP/);
+
+    shapesError = new Error('kernel fault');
+    const failed = await postExport({ format: 'stl', shapeIds: ['sheet-1'] });
+    expect(failed.status).toBe(500);
+    expect(failed.body.error).toBe('kernel fault');
   });
 
   describe('dxf — a drawing of the view on a plane', () => {
@@ -331,10 +363,10 @@ describe('export route', () => {
     });
 
     it('relays a selection refusal as for the 3D formats', async () => {
-      shapesOutcome = { status: 422, reason: 'The scene has no solids to export.' };
+      shapesOutcome = { status: 422, reason: 'The scene has no solids or surfaces to export.' };
       const { status, body } = await postExport({ format: 'dxf', shapeIds: 'all', plane: 'top' });
       expect(status).toBe(422);
-      expect(body).toEqual({ error: 'The scene has no solids to export.' });
+      expect(body).toEqual({ error: 'The scene has no solids or surfaces to export.' });
     });
   });
 

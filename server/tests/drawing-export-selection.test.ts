@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import { setupOC, render } from '../../lib/tests/setup.js';
 import { getSceneManager } from '../../lib/scene-manager.js';
+import { FileExport } from '../../lib/io/file-export.js';
+import { FileImport, setAssetProvider } from '../../lib/io/file-import.js';
+import load from '../../lib/core/load.js';
+import { TestSheets } from '../../lib/tests/helpers/sheets.js';
 import sketch from '../../lib/core/sketch.js';
 import extrude from '../../lib/core/extrude.js';
 import cut from '../../lib/core/cut.js';
@@ -85,5 +92,56 @@ describe('a drawing export of every solid', () => {
     // full rectangle closes the notch again — a different drawing.
     const withConsumed = manager.exportShapes(scene, everyAddedSolid(scene), { format: 'dxf', plane: 'top' });
     expect(withConsumed.data).not.toBe(final.data);
+  });
+});
+
+describe('a shapes export of a scene holding a surface', () => {
+  setupOC();
+
+  let workspace: string;
+
+  beforeAll(() => {
+    workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'fluidcad-surface-export-'));
+    setAssetProvider((rel) => {
+      const file = path.join(workspace, rel);
+      return fs.existsSync(file) ? fs.readFileSync(file) : null;
+    });
+  });
+
+  afterAll(() => {
+    setAssetProvider(null);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it('imports a surface-only file, takes the surface into "all", and writes it to STEP beside the solid', () => {
+    const hull = TestSheets.openBox(10, 10, 10);
+    const step = FileExport.exportShapes([{ body: hull, colors: [] }], { format: 'step' }).data as string;
+    hull.dispose();
+
+    const manager = getSceneManager();
+    const report = manager.importFile(workspace, 'hull.step', new TextEncoder().encode(step));
+    expect(report.solidCount).toBe(0);
+    expect(report.contents).toEqual({ solids: 0, surfaces: 1, curves: 0 });
+
+    sketch('xy', () => {
+      testRect(5, 5, { at: [50, 0] });
+    });
+    extrude(5);
+    load('hull');
+    const scene = render();
+
+    const resolved = ShapeExportSelection.resolve(scene, ShapeExportSelection.ALL);
+    expect('shapeIds' in resolved).toBe(true);
+    const { shapeIds } = resolved as { shapeIds: string[] };
+    expect(shapeIds).toHaveLength(2);
+
+    const written = manager.exportShapes(scene, shapeIds, { format: 'step' });
+    expect(written.warnings).toBeUndefined();
+    const back = FileImport.importFile(workspace, 'back.step', new TextEncoder().encode(written.data as string));
+    expect(back.contents).toEqual({ solids: 1, surfaces: 1, curves: 0 });
+
+    // The mesh takes the solid and names the surface it left out.
+    const mesh = manager.exportShapes(scene, shapeIds, { format: 'stl' });
+    expect(mesh.warnings).toEqual(['1 surface left out: a surface encloses no volume.']);
   });
 });

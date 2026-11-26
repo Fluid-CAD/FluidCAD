@@ -47,6 +47,9 @@ type ExportConfig = {
 };
 let exportConfig: ExportConfig = {};
 
+/** Extra fields the fake `/api/import-file` reports beside `success` and `fileName`. */
+let importReply: Record<string, unknown> = {};
+
 /** What the fake `/api/pack` answers: the archive, or a refusal. */
 let packReply: { status: number; body: Buffer; headers: Record<string, string> } | null = null;
 
@@ -102,7 +105,7 @@ function startFakeServer(): Promise<number> {
         if (url === '/api/import-file') {
           const parsed = JSON.parse(body);
           res.writeHead(200, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ success: true, fileName: parsed.fileName?.replace(/\.(step|stp)$/i, '') }));
+          res.end(JSON.stringify({ success: true, fileName: parsed.fileName?.replace(/\.(step|stp)$/i, ''), ...importReply }));
           return;
         }
 
@@ -165,6 +168,7 @@ beforeEach(async () => {
   workspace = fs.realpathSync(workspace);
   requests = [];
   exportConfig = {};
+  importReply = {};
   renderReport = { state: 'rendered', objectErrors: [] };
   fakePort = await startFakeServer();
   writeRegistry([entry()]);
@@ -301,6 +305,17 @@ describe('import_step', () => {
     expect(Buffer.from(parsed.data, 'base64').equals(stepBytes)).toBe(true);
   });
 
+  it('relays what a surface-only file held', async () => {
+    const stepFile = path.join(workspace, 'hull.step');
+    fs.writeFileSync(stepFile, 'ISO-10303-21;\nDATA;\nEND-ISO-10303-21;\n');
+    importReply = { solidCount: 0, contents: { solids: 0, surfaces: 2, curves: 1 } };
+
+    const result = await importStep({ path: stepFile });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data).toMatchObject({ success: true, fileName: 'hull', solidCount: 0, contents: { solids: 0, surfaces: 2, curves: 1 } });
+  });
+
   it('returns invalid-input for a missing file', async () => {
     const result = await importStep({ path: path.join(workspace, 'missing.step') });
     expect(result.ok).toBe(false);
@@ -350,6 +365,25 @@ describe('export', () => {
     expect(result.ok).toBe(true);
     expect(exportConfig.lastBody.resolution).toBe('fine');
     expect(exportConfig.lastBody.includeColors).toBe(true);
+  });
+
+  it('passes on the surfaces an STL left out', async () => {
+    exportConfig.warnings = ['1 surface left out: a surface encloses no volume.'];
+    const result = await exportShapes({ format: 'stl', shapeIds: ['sh-1', 'sheet-1'] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect((result.data as { warnings?: string[] }).warnings).toEqual(['1 surface left out: a surface encloses no volume.']);
+  });
+
+  it('relays the refusal to mesh surfaces alone', async () => {
+    exportConfig.status = 422;
+    exportConfig.contentType = 'application/json';
+    exportConfig.body = Buffer.from(JSON.stringify({ error: 'STL cannot hold a surface: a surface encloses no volume.\nHint: Export surfaces as STEP.' }));
+    const result = await exportShapes({ format: 'stl', shapeIds: ['sheet-1'] });
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('http-error');
+    expect(result.message).toMatch(/HTTP 422: .*Export surfaces as STEP/);
   });
 
   it('rejects an empty shapeIds array', async () => {

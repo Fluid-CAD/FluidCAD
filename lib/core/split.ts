@@ -102,7 +102,7 @@ function validateOptions(options: unknown): SplitOptions {
 
 /**
  * The cut a split's first argument names. A sketched edge seeds what it
- * would sweep out of its sketch — a line its plane, a curve its sheet;
+ * would sweep out of its sketch — a line its plane, a curve its surface;
  * anything else is a plane the same way `mirror(plane, …)` reads one.
  */
 function resolveCutter(arg: unknown, context: SceneParserContext): PlaneObjectBase | CutterFromSketchEdge {

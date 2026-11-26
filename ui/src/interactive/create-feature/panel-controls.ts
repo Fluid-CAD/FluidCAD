@@ -113,6 +113,8 @@ export class ThinControl {
   private input2: HTMLInputElement;
   private field: ExpressionField;
   private field2: ExpressionField;
+  /** Why the toggle is blocked, by who blocks it: the dialog's own rule, or the result kind. */
+  private readonly blocks = new Map<string, string>();
 
   constructor(container: HTMLElement) {
     const toggle = document.createElement('label');
@@ -169,15 +171,23 @@ export class ThinControl {
   /**
    * Block the toggle while the feature's current inputs exclude thin mode
    * (loft guides). Blocking unchecks — a checked-but-ignored toggle would
-   * lie about the statement being written.
+   * lie about the statement being written. Each `source` blocks on its own
+   * (the dialog's rule, {@link ResultKindEffect}): the toggle stays blocked
+   * while any does, its tooltip the latest blocker's reason.
    */
-  setBlocked(blocked: boolean, reason: string): void {
-    this.checkbox.disabled = blocked;
-    this.toggle.title = blocked ? reason : '';
-    this.toggle.classList.toggle('opacity-50', blocked);
-    this.toggle.classList.toggle('cursor-not-allowed', blocked);
-    this.toggle.classList.toggle('cursor-pointer', !blocked);
-    if (blocked && this.checkbox.checked) {
+  setBlocked(blocked: boolean, reason: string, source = 'dialog'): void {
+    if (blocked) {
+      this.blocks.set(source, reason);
+    } else {
+      this.blocks.delete(source);
+    }
+    const anyBlock = this.blocks.size > 0;
+    this.checkbox.disabled = anyBlock;
+    this.toggle.title = anyBlock ? [...this.blocks.values()].at(-1)! : '';
+    this.toggle.classList.toggle('opacity-50', anyBlock);
+    this.toggle.classList.toggle('cursor-not-allowed', anyBlock);
+    this.toggle.classList.toggle('cursor-pointer', !anyBlock);
+    if (anyBlock && this.checkbox.checked) {
       this.checkbox.checked = false;
       this.sync();
     }
@@ -236,6 +246,70 @@ export class ThinControl {
     const on = this.checkbox.checked;
     this.valuesRow.classList.toggle('hidden', !on);
     this.valuesRow.classList.toggle('flex', on);
+  }
+}
+
+/** What a profile dialog makes: a solid, or a surface (`.surface()`). */
+export type ResultKind = 'solid' | 'surface';
+
+/**
+ * The Solid / Surface row of a profile dialog (extrude, revolve, sweep,
+ * loft), above its operation row. Renders into `host`, a
+ * `<div data-role="kind-tabs" class="join w-full">`.
+ */
+export class ResultKindTabs extends ChoiceTabs<ResultKind> {
+  constructor(host: HTMLElement) {
+    super(host, [
+      { key: 'solid', label: 'Solid', title: 'Make a solid' },
+      { key: 'surface', label: 'Surface', title: "Make a surface: the profile's curves swept without filling them — .surface()" },
+    ], 'solid');
+  }
+
+  get kind(): ResultKind {
+    return this.value;
+  }
+
+  /** Programmatic tab choice (edit-mode prefill); no change event fires. */
+  setKind(kind: ResultKind): void {
+    this.setValue(kind);
+  }
+}
+
+/** Why a surface's thin-wall toggle is blocked. */
+const SURFACE_THIN_REASON = 'A surface has no walls to thicken';
+
+/**
+ * What a profile dialog shows for each result kind. A surface is a standalone
+ * body with no thickness: the operation row, the scope row and the thin-wall
+ * control do not apply.
+ *
+ * The dialog calls {@link apply} from its `syncControls()`, after its own
+ * rules for the scope row and the thin control and before anything reads
+ * them back. A surface hides the operation row and `solidOnly` (over
+ * whatever the dialog's own rules show), hides the scope row, and blocks the
+ * thin control as a blocker of its own. A solid lifts all of that and
+ * leaves the dialog's own rules standing: a face profile still blocks thin,
+ * and the scope row is as the dialog's rule just left it (New hides it).
+ */
+export class ResultKindEffect {
+  constructor(private readonly parts: {
+    opTabsHost: HTMLElement;
+    thin?: ThinControl;
+    scope?: { setVisible(visible: boolean): void };
+    /** Controls of one dialog that make no sense for a surface (extrude: drill, through-all). */
+    solidOnly?: HTMLElement[];
+  }) {}
+
+  apply(kind: ResultKind): void {
+    const surface = kind === 'surface';
+    // Inline, so the dialog's own `hidden` toggles keep working underneath.
+    for (const el of [this.parts.opTabsHost, ...(this.parts.solidOnly ?? [])]) {
+      el.style.display = surface ? 'none' : '';
+    }
+    this.parts.thin?.setBlocked(surface, SURFACE_THIN_REASON, 'result-kind');
+    if (surface) {
+      this.parts.scope?.setVisible(false);
+    }
   }
 }
 

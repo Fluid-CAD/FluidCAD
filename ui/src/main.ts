@@ -2684,48 +2684,6 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
 // The dialogs dock at top-[196px] right-4: the sketch dialog steps aside
 // while a 2D op dialog (fillet, offset) is open and returns when it closes.
 sketchService.onOpDialogToggle = (open) => modifyService.setSketchPanelSuspended(open);
-// The Curves and Surfaces dropdowns sit right after the create group, ahead
-// of the modify group (`… Hole | Curves ▾ | Surfaces ▾ | Fillet …`). Each tool
-// in them is a hand-wired dialog service opened from the cell its menu's
-// `add()` returns, with the cell's label, tip, icon and order written there.
-const curvesMenu = new ToolMenu(navbar, {
-  group: 'curves',
-  before: 'modify',
-  label: 'Curves',
-  icon: 'curves',
-  tip: 'Curve tools',
-  tool: 'curves',
-  bench: 'Curves',
-  quickFindPrefix: 'part',
-  emptyText: 'No tools yet',
-});
-const surfacesMenu = new ToolMenu(navbar, {
-  group: 'surfaces',
-  before: 'modify',
-  label: 'Surfaces',
-  icon: 'surfaces',
-  tip: 'Surface tools',
-  tool: 'surfaces',
-  bench: 'Surfaces',
-  quickFindPrefix: 'part',
-  emptyText: 'No tools yet',
-});
-const helixService = new HelixFeatureService(container, viewer, navbar,
-  curvesMenu.add({
-    id: 'helix',
-    label: 'Helix',
-    iconSrc: iconUrl('helix'),
-    tip: 'Build a helix around an axis or on a cylindrical face',
-    order: 0,
-  }),
-  {
-    onEnter: () => {
-      enterPartDialog('helix');
-    },
-    onActiveChange: syncSketchButtonBlocked,
-    onSuspendSketchUI: suspendSketchForFeature,
-    onResumeSketchUI: resumeSketchForFeature,
-  });
 // Constructed after the modify service so its solo navbar group registers
 // after every other tool group — the Repeat button renders last, behind the
 // separator the navbar draws between visible groups.
@@ -2816,6 +2774,50 @@ const splitService = new SplitFeatureService(container, viewer, navbar, {
   onResumeSketchUI: resumeSketchForFeature,
   filePath: () => currentSceneAbsPath,
 });
+// The Curves and Surfaces dropdowns sit after the repeat group, ahead of the
+// transform group (`… Repeat, Copy | Curves ▾ | Surfaces ▾ | Mirror …`).
+// Constructed after the transform services so `before: 'transform'` finds
+// its group. Each tool in them is a hand-wired dialog service opened from
+// the cell its menu's `add()` returns, with the cell's label, tip, icon and
+// order written there.
+const curvesMenu = new ToolMenu(navbar, {
+  group: 'curves',
+  before: 'transform',
+  label: 'Curves',
+  icon: 'curves',
+  tip: 'Curve tools',
+  tool: 'curves',
+  bench: 'Curves',
+  quickFindPrefix: 'part',
+  emptyText: 'No tools yet',
+});
+const surfacesMenu = new ToolMenu(navbar, {
+  group: 'surfaces',
+  before: 'transform',
+  label: 'Surfaces',
+  icon: 'surfaces',
+  tip: 'Surface tools',
+  tool: 'surfaces',
+  bench: 'Surfaces',
+  quickFindPrefix: 'part',
+  emptyText: 'No tools yet',
+});
+const helixService = new HelixFeatureService(container, viewer, navbar,
+  curvesMenu.add({
+    id: 'helix',
+    label: 'Helix',
+    iconSrc: iconUrl('helix'),
+    tip: 'Build a helix around an axis or on a cylindrical face',
+    order: 0,
+  }),
+  {
+    onEnter: () => {
+      enterPartDialog('helix');
+    },
+    onActiveChange: syncSketchButtonBlocked,
+    onSuspendSketchUI: suspendSketchForFeature,
+    onResumeSketchUI: resumeSketchForFeature,
+  });
 // Constructed after the transform services so its own navbar group registers
 // after theirs (…, | Mirror, Translate, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {

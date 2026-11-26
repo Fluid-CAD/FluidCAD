@@ -4,7 +4,7 @@ import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 import { requireShapes } from "../common/operand-check.js";
-import { liveOperandShapes } from "../helpers/live-solids.js";
+import { transformTargets } from "../helpers/transform-targets.js";
 
 export class Rotate extends SceneObject {
   private _targetObjects: SceneObject[] | null = null;
@@ -39,27 +39,18 @@ export class Rotate extends SceneObject {
 
   build(context: BuildSceneObjectContext) {
     let objects: SceneObject[];
-    let targetObjects = this.targetObjects;
-    let parent: SceneObject | null = null;
 
     if (this.parentId) {
-      parent = this.getParent();
-      objects = parent.getPreviousSiblings(this);
+      objects = this.getParent().getPreviousSiblings(this);
     }
     else {
       objects = context.getSceneObjects();
     }
 
-    if (this.targetObjects && this.targetObjects.length > 0) {
-      targetObjects = objects.filter(obj => this.targetObjects.includes(obj));
-    }
-    else {
-      targetObjects = objects;
-    }
-
-    if (this._excludedObjects.length > 0) {
-      targetObjects = targetObjects.filter(obj => !this._excludedObjects.includes(obj));
-    }
+    const named = this.targetObjects && this.targetObjects.length > 0
+      ? objects.filter(obj => this.targetObjects.includes(obj))
+      : null;
+    const exclude = (list: SceneObject[]) => list.filter(obj => !this._excludedObjects.includes(obj));
 
     this.axis.removeShapes(this)
 
@@ -67,21 +58,19 @@ export class Rotate extends SceneObject {
     const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(this.angle));
 
     // A named target's body is turned from wherever the features since left
-    // it (liveOperandShapes): the holder loses it, not the variable's object.
-    for (const obj of targetObjects) {
-      for (const { holder, shape } of liveOperandShapes(obj)) {
-        const colors = holder.getFaceColors(shape);
-        try {
-          const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
-          transformed.setMeshSource(shape, matrix);
-          this.addShape(transformed);
-          this.recordCarriedColors(carried);
-          if (!this.copy) {
-            holder.removeShape(shape, this, [transformed]);
-          }
-        } finally {
-          colors.delete();
+    // it: the holder loses it, not the variable's object.
+    for (const { holder, shape } of transformTargets("rotate", named && exclude(named), exclude(objects), context.getSceneObjects())) {
+      const colors = holder.getFaceColors(shape);
+      try {
+        const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
+        transformed.setMeshSource(shape, matrix);
+        this.addShape(transformed);
+        this.recordCarriedColors(carried);
+        if (!this.copy) {
+          holder.removeShape(shape, this, [transformed]);
         }
+      } finally {
+        colors.delete();
       }
     }
   }

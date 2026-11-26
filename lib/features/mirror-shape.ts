@@ -7,7 +7,7 @@ import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import type { CarriedColor } from "../oc/color-transfer.js";
 import { requireShapes } from "../common/operand-check.js";
-import { liveOperandShapes } from "../helpers/live-solids.js";
+import { transformTargets } from "../helpers/transform-targets.js";
 
 export class MirrorShape extends SceneObject {
   private _excludedObjects: SceneObject[] = [];
@@ -35,64 +35,63 @@ export class MirrorShape extends SceneObject {
 
   build(context: BuildSceneObjectContext) {
     let objects: SceneObject[];
-    let targetObjects = this.targetObjects;
-    let parent: SceneObject | null = null;
     let plane: Plane;
 
     const allSceneObjects = context.getSceneObjects();
     const lastObj = context.getLastObject();
 
     if (this.parentId) {
-      parent = this.getParent();
-      objects = parent.getPreviousSiblings(this);
+      objects = this.getParent().getPreviousSiblings(this);
     }
     else {
       objects = allSceneObjects;
     }
 
-    if (this.targetObjects && this.targetObjects.length > 0) {
-      targetObjects = objects.filter(obj => this.targetObjects.includes(obj));
-    }
-    else {
-      targetObjects = lastObj ? [lastObj] : objects;
-    }
-
-    if (this._excludedObjects.length > 0) {
-      targetObjects = targetObjects.filter(obj => !this._excludedObjects.includes(obj));
-    }
+    const named = this.targetObjects && this.targetObjects.length > 0
+      ? objects.filter(obj => this.targetObjects.includes(obj))
+      : null;
+    const exclude = (list: SceneObject[]) => list.filter(obj => !this._excludedObjects.includes(obj));
+    // Without targets a mirror reflects the last statement's bodies, not the whole scope.
+    const scope = lastObj ? [lastObj] : objects;
 
     if (this.plane) {
       this.plane.removeShapes(this)
     }
 
     plane = this.plane.getPlane();
-
-    const shapesMap: Map<Shape, SceneObject> = new Map();
-    for (const obj of allSceneObjects) {
-      const shapes = obj.getShapes({ excludeMeta: false }, 'solid');
-      for (const shape of shapes) {
-        shapesMap.set(shape, obj);
-      }
-    }
+    const matrix = Matrix4.mirrorPlane(plane.normal, plane.origin);
 
     const transformedShapes: Shape[] = [];
     const mirroredColors: CarriedColor[] = [];
+    // A surface or a curve has no material to join: its image is a body of
+    // its own whatever the operation mode.
+    const standalone: Shape[] = [];
+    const standaloneColors: CarriedColor[] = [];
 
-    // A named target's body is read wherever the features since left it
-    // (liveOperandShapes); the mirror never takes it, so no holder to update.
-    for (const obj of targetObjects) {
-      for (const { holder, shape } of liveOperandShapes(obj, { excludeMeta: false }, 'solid')) {
-        const matrix = Matrix4.mirrorPlane(plane.normal, plane.origin);
-        const colors = holder.getFaceColors(shape);
-        try {
-          const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
-          transformed.setMeshSource(shape, matrix);
+    // A named target's body is read wherever the features since left it;
+    // the mirror never takes it, so no holder to update.
+    for (const { holder, shape } of transformTargets("mirror", named && exclude(named), exclude(scope), allSceneObjects)) {
+      const colors = holder.getFaceColors(shape);
+      try {
+        const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
+        transformed.setMeshSource(shape, matrix);
+        if (shape.isSolid()) {
           transformedShapes.push(transformed);
           mirroredColors.push(...carried);
-        } finally {
-          colors.delete();
+        } else {
+          standalone.push(transformed);
+          standaloneColors.push(...carried);
         }
+      } finally {
+        colors.delete();
       }
+    }
+
+    this.addShapes(standalone);
+    this.recordCarriedColors(standaloneColors);
+
+    if (transformedShapes.length === 0) {
+      return;
     }
 
     const stock = this.resolveFusionStock(allSceneObjects);

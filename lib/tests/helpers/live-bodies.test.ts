@@ -3,6 +3,7 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import rotate from "../../core/rotate.js";
+import translate from "../../core/translate.js";
 import remove from "../../core/remove.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Sheet } from "../../common/sheet.js";
@@ -36,9 +37,9 @@ describe("body lineage over surfaces", () => {
     expect(built[0]).toBeInstanceOf(Sheet);
   });
 
-  it("follows a surface through two rotates to where it is now", () => {
+  it("follows a surface through translate then rotate to where it is now", () => {
     const l = asObject(loadShapes([TestSheets.plate(10, 10)]));
-    const first = asObject(rotate("z", 90, l));
+    const first = asObject(translate(0, 0, 5, l));
     const second = asObject(rotate("x", 90, l));
     render();
 
@@ -48,9 +49,11 @@ describe("body lineage over surfaces", () => {
     expect(live.length).toBe(1);
     expect(live[0].holder).toBe(second);
     expect(live[0].body).toBeInstanceOf(Sheet);
-    // The plate lay on XY over [0, 10]²; z turned it onto [-10, 0] × [0, 10], x stood it up.
+    // The plate lay on XY over [0, 10]²; the translate lifted it to z = 5,
+    // and x stood it up: y = 5 went to z = 5, z = 5 to y = -5.
     const box = ShapeOps.getBoundingBox(live[0].body);
-    expect(box.centerX).toBeCloseTo(-5, 6);
+    expect(box.centerX).toBeCloseTo(5, 6);
+    expect(box.centerY).toBeCloseTo(-5, 6);
     expect(box.centerZ).toBeCloseTo(5, 6);
 
     expect(liveOperandShapes(l).map(entry => entry.shape)).toEqual([live[0].body]);

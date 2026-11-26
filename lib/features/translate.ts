@@ -3,7 +3,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { requireShapes } from "../common/operand-check.js";
-import { liveOperandShapes } from "../helpers/live-solids.js";
+import { transformTargets } from "../helpers/transform-targets.js";
 import { PointResolver } from "./point-resolver.js";
 
 export class Translate extends SceneObject {
@@ -34,35 +34,25 @@ export class Translate extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
-    let objects = this.targetObjects || context.getSceneObjects()
-
-    if (this._excludedObjects.length > 0) {
-      objects = objects.filter(obj => !this._excludedObjects.includes(obj));
-    }
+    const exclude = (objects: SceneObject[]) => objects.filter(obj => !this._excludedObjects.includes(obj));
+    const targets = this.targetObjects ? exclude(this.targetObjects) : null;
+    const amount = PointResolver.toWorldVector(this.amount);
+    const matrix = Matrix4.fromTranslation(amount.x, amount.y, amount.z);
 
     // A named target's body is moved from wherever the features since left
-    // it (liveOperandShapes): the holder loses it, not the variable's object.
-    for (const obj of objects) {
-      for (const { holder, shape } of liveOperandShapes(obj)) {
-        if (!shape.isSolid()) {
-          continue;
+    // it: the holder loses it, not the variable's object.
+    for (const { holder, shape } of transformTargets("translate", targets, exclude(context.getSceneObjects()), context.getSceneObjects())) {
+      const colors = holder.getFaceColors(shape);
+      try {
+        const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
+        transformed.setMeshSource(shape, matrix);
+        this.addShape(transformed);
+        this.recordCarriedColors(carried);
+        if (!this.copy) {
+          holder.removeShape(shape, this, [transformed]);
         }
-
-        const amount = PointResolver.toWorldVector(this.amount);
-
-        const matrix = Matrix4.fromTranslation(amount.x, amount.y, amount.z);
-        const colors = holder.getFaceColors(shape);
-        try {
-          const { shape: transformed, colors: carried } = ShapeOps.transformColored({ shape, colors }, matrix);
-          transformed.setMeshSource(shape, matrix);
-          this.addShape(transformed);
-          this.recordCarriedColors(carried);
-          if (!this.copy) {
-            holder.removeShape(shape, this, [transformed]);
-          }
-        } finally {
-          colors.delete();
-        }
+      } finally {
+        colors.delete();
       }
     }
   }

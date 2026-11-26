@@ -85,14 +85,18 @@ edge().verticalTo("xy")        // edges perpendicular to the XY plane
 edge().parallelTo("xz")        // edges parallel to the XZ plane
 ```
 
+A curved edge other than a circle or an arc — an ellipse, a spline — is parallel to a plane when it lies in a plane parallel to it. A curve that winds through space, such as a helix, lies in no plane and is parallel to none, and no curve is `verticalTo()` a plane: only a straight edge can be.
+
 ### By position
 
 ```js
 edge().onPlane("xy", 30)                   // edges that lie on the XY plane at height 30
 edge().onPlane("yz", { offset: 50, bothDirections: true }) // edges on YZ plane at offset ±50
 edge().above("xy", 10)                     // edges entirely above z = 10
-edge().below("xz", { partial: true })      // edges with at least one end on the −y side of XZ
+edge().below("xz", { partial: true })      // edges at least partly below XZ: on its +y side, as XZ's normal points along −y
 ```
+
+`onPlane()` keeps an ellipse or a spline when the one plane it lies in is that plane. `above()` and `below()` judge a line, a circle or an arc by its two ends, and any other edge by how far it really reaches, so a spline that sags below the plane between its ends is not above it.
 
 ### Relative to another feature
 
@@ -140,7 +144,7 @@ edge().ellipse()               // elliptical edges, full or arcs
 edge().ellipse().open()        // elliptical arcs only
 edge().spline()                // free-form edges: a sketch spline, a loft's free-form rim, a helix
 edge().closed()                // edges that return to their start: full circles, ellipses, closed splines
-edge().spline().planar()       // splines that lie in one plane (a helix does not)
+edge().spline().planar()       // splines that lie in one plane, within a millionth of a millimetre (a helix does not)
 ```
 
 Shapes are told by geometry, not by how the kernel stores the curve: the straight and round edges a loft or an imported STEP file stores as B-splines are still lines, arcs, circles and ellipses. Only an edge that is none of those is a `spline()`.
@@ -206,11 +210,13 @@ import { face, edge } from 'fluidcad/filters';
 ```js
 face().parallelTo("xy")        // faces parallel to the XY plane (top/bottom faces)
 face().parallelTo("xz")        // faces parallel to the XZ plane (front/back faces)
-face().facing("z")             // faces whose outward normal points within 45° of up
-face().facing("-x", 10)        // faces pointing nearly straight along −x
+face().facing("z")             // faces that face within 45° of up
+face().facing("-x", 10)        // faces that face nearly straight along −x
 ```
 
-`facing()` reads the outward normal at the face's centre, so it works on curved and free-form faces too — `face().facing("z")` is the top of a dome as well as the top of a box.
+`facing()` judges a face as a whole, by the mean of its outward normals over its surface, so it works on curved and free-form faces too: a dome faces straight out of its pole and a slot's half-round end faces its middle, and `face().facing("z")` is the top of a dome as well as the top of a box.
+
+A face whose normals cancel out faces nowhere — a bore, the wall of a round boss, a whole sphere. `facing()` never keeps one and `notFacing()` always does; name such a face by its shape instead. The direction is an axis name, a vector or an axis: a plane name such as `"xy"` is not a direction, and `facing("xy")` throws.
 
 ### By position
 
@@ -219,6 +225,8 @@ face().onPlane("xy", 30)       // faces on the XY plane at height 30
 face().above("xy", 10)         // faces entirely above z = 10
 face().below(base.endFaces())  // faces entirely below the plane of a feature's face group
 ```
+
+Only a flat face is `onPlane()`, including a flat wall that a loft or an imported file stores as a B-spline surface. `above()` and `below()` judge a face on a plane, cylinder, cone, sphere or torus bounded by lines and circular edges by the vertices of its boundary, and any other face by how far it really reaches, so a free-form face that bulges below the plane between its corners is not above it.
 
 ### By rank and extremes
 
@@ -235,7 +243,7 @@ Rank filters evaluate over whatever the chain has kept so far: `face().planar().
 ### By shape
 
 ```js
-face().circle()                // circular (flat round) faces
+face().circle()                // round flat faces: the outer boundary is one full circle (a washer counts)
 face().cylinder()              // cylindrical faces
 face().cone()                  // conical faces
 face().sphere(20)              // spherical faces of diameter 20

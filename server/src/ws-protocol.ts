@@ -332,6 +332,8 @@ export type ImportCompleteMessage = {
   success: boolean;
   /** Solids the import produced (absent from older servers). */
   solidCount?: number;
+  /** Solids, surfaces and curves the import produced (absent from older engines). */
+  contents?: { solids: number; surfaces: number; curves: number };
   /** Unit names the source file declared (absent from older servers). */
   sourceUnits?: { length: string[]; angle: string[] };
 };

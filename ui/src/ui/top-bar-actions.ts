@@ -13,11 +13,11 @@ import {
   ICON_SUN,
 } from './icons';
 
-/** One exportable solid, as the Export list names it — see {@link TopBarActions.collectExportables}. */
-export type ExportableSolid = { shapeId: string; name: string };
+/** One exportable body (a solid or a surface), as the Export list names it — see {@link TopBarActions.collectExportables}. */
+export type ExportableBody = { shapeId: string; name: string };
 
 /**
- * A part that holds several solids, as its "Whole part" row exports it — see
+ * A part that holds several bodies, as its "Whole part" row exports it — see
  * {@link TopBarActions.collectExportables}.
  */
 export type ExportablePart = {
@@ -25,16 +25,16 @@ export type ExportablePart = {
   key: string;
   /** "Whole part", with the part in brackets when the list has to tell parts apart. */
   label: string;
-  /** The part's solids, in timeline order. */
+  /** The part's solids and surfaces, in timeline order. */
   shapeIds: string[];
-  /** The part's solids are every solid of a part scene: the export is the file's whole output. */
+  /** The part's bodies are every body of a part scene: the export is the file's whole output. */
   everySolid: boolean;
 };
 
 export interface TopBarExportHandlers {
-  /** Open the export flow on the picked solid. */
+  /** Open the export flow on the picked body. */
   onExport(shapeId: string): void;
-  /** A small transparent PNG of that solid alone — the row's thumbnail. */
+  /** A small transparent PNG of that body alone — the row's thumbnail. */
   captureThumbnail(shapeId: string): Promise<Blob>;
   /**
    * Open the export flow on the whole assembly — every instance where it
@@ -45,14 +45,14 @@ export interface TopBarExportHandlers {
   /** A small transparent PNG of the whole scene — that row's thumbnail. Absent: an icon stands in. */
   captureAssemblyThumbnail?(): Promise<Blob>;
   /**
-   * Open the export flow on a whole part — its solids together, in one file.
-   * `everySolid` says they are every solid of a part scene, so the host can
+   * Open the export flow on a whole part — its bodies together, in one file.
+   * `everySolid` says they are every body of a part scene, so the host can
    * export the file's output rather than the ids on screen (another
    * configuration row then exports its own set of bodies). Absent: the list
    * never offers a "Whole part" row.
    */
   onExportPart?(shapeIds: string[], everySolid: boolean): void;
-  /** A small transparent PNG of those solids together — that row's thumbnail. Absent: an icon stands in. */
+  /** A small transparent PNG of those bodies together — that row's thumbnail. Absent: an icon stands in. */
   capturePartThumbnail?(shapeIds: string[]): Promise<Blob>;
 }
 
@@ -142,10 +142,10 @@ const LIGHT_THEME = 'fluidcad-light';
  * only theme control (it used to hang off the viewport settings dial, buried
  * under the gizmo) and every host that mounts a top bar wants it.
  *
- * Export lists the scene's solids with a rendered thumbnail apiece rather than
+ * Export lists the scene's solids and surfaces with a rendered thumbnail apiece rather than
  * exporting the whole scene blind, so picking the right one is a matter of
  * recognising it. Ahead of them sit the rows that export several at once: the
- * whole assembly, and each part that holds more than one solid. On a window narrower than {@link COLLAPSE_QUERY} the buttons
+ * whole assembly, and each part that holds more than one body. On a window narrower than {@link COLLAPSE_QUERY} the buttons
  * give the tabs their width back and become rows of one menu, where that same
  * list opens in place under an Export row.
  */
@@ -160,8 +160,8 @@ export class TopBarActions {
   private readonly collapseQuery: MediaQueryList | null;
   /** What the host added through {@link addAction}, with its bar button, so the menu can list it too and {@link setAction} can find it. */
   private readonly hostActions: { action: TopBarAction; button: HTMLButtonElement }[] = [];
-  private solids: ExportableSolid[] = [];
-  /** The parts holding several solids: each gets a "Whole part" row ahead of the solids. */
+  private solids: ExportableBody[] = [];
+  /** The parts holding several bodies: each gets a "Whole part" row ahead of the bodies. */
   private parts: ExportablePart[] = [];
   /** An assembly scene with at least one inserted part: the list leads with "Whole assembly". */
   private wholeAssembly = false;
@@ -195,7 +195,7 @@ export class TopBarActions {
     }
 
     if (handlers.export) {
-      this.exportBtn = this.addButton(this.inline, ICON_DOWNLOAD, 'Export a solid', true);
+      this.exportBtn = this.addButton(this.inline, ICON_DOWNLOAD, 'Export a solid or surface', true);
       this.exportBtn.addEventListener('click', () => this.togglePanel('export'));
     }
 
@@ -512,7 +512,7 @@ export class TopBarActions {
   private buildEmpty(): HTMLDivElement {
     const empty = document.createElement('div');
     empty.className = PANEL_EMPTY;
-    empty.textContent = 'No solids in the scene';
+    empty.textContent = 'No solids or surfaces in the scene';
     return empty;
   }
 
@@ -530,7 +530,7 @@ export class TopBarActions {
     return row;
   }
 
-  private buildSolidRow(solid: ExportableSolid): HTMLButtonElement {
+  private buildSolidRow(solid: ExportableBody): HTMLButtonElement {
     return this.buildThumbRow(solid.shapeId, solid.name, () => this.handlers.export?.onExport(solid.shapeId));
   }
 
@@ -675,14 +675,15 @@ export class TopBarActions {
   /**
    * The Export rows of `objects`.
    *
-   * `solids`, in timeline order: a solid whose holder the user named reads as
-   * that name; any other reads the way the Shapes panel lists it — `<Type>
-   * <n>`, numbered per part — with its part in brackets so two parts' first
-   * solids stay apart.
+   * `solids`, in timeline order: every solid and surface (a curve is never
+   * exported). One whose holder the user named reads as that name; any
+   * other reads the way the Shapes panel lists it — `<Type> <n>`, numbered
+   * per part — with its part in brackets so two parts' first bodies stay
+   * apart.
    *
-   * `parts`: one entry per part that holds more than one of those solids,
-   * grouped as the Shapes panel groups them (solids no part holds count as
-   * one part, its "Model"), in order of each part's first solid. A lone
+   * `parts`: one entry per part that holds more than one of those bodies,
+   * grouped as the Shapes panel groups them (bodies no part holds count as
+   * one part, its "Model"), in order of each part's first body. A lone
    * such part in a part scene reads "Whole part"; where the list has other
    * parts beside it, or the whole assembly above it (`assemblyScene`), it
    * names its part in brackets. In an assembly a part is a template among
@@ -691,14 +692,14 @@ export class TopBarActions {
   private static collectExportables(
     objects: SceneObjectRender[],
     assemblyScene: boolean,
-  ): { solids: ExportableSolid[]; parts: ExportablePart[] } {
-    const solids: ExportableSolid[] = [];
+  ): { solids: ExportableBody[]; parts: ExportablePart[] } {
+    const solids: ExportableBody[] = [];
     const seen = new Set<string>();
     const labels = ShapeLabels.labelsFor(objects);
     const groups = new Map<SceneObjectRender | null, string[]>();
     for (const object of objects) {
       for (const shape of object.sceneShapes ?? []) {
-        if (shape.shapeType !== 'solid' || shape.isMetaShape || shape.isGuide) {
+        if ((shape.shapeType !== 'solid' && shape.shapeType !== 'sheet') || shape.isMetaShape || shape.isGuide) {
           continue;
         }
         if (shape.shapeId === undefined || seen.has(shape.shapeId)) {

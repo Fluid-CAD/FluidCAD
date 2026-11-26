@@ -125,7 +125,11 @@ export function createSketchEditsRouter(
 
     // Older engines return nothing from importFile; the report fields are
     // then simply absent from the response.
-    let report: { solidCount?: number; sourceUnits?: { length: string[]; angle: string[] } } | undefined;
+    let report: {
+      solidCount?: number;
+      contents?: { solids: number; surfaces: number; curves: number };
+      sourceUnits?: { length: string[]; angle: string[] };
+    } | undefined;
     try {
       report = (await fluidCadServer.importFile(workspacePath, fileName, data)) as typeof report;
     } catch (err: any) {
@@ -143,6 +147,7 @@ export function createSketchEditsRouter(
       success: true,
       fileName: loadName,
       ...(report?.solidCount !== undefined ? { solidCount: report.solidCount } : {}),
+      ...(report?.contents ? { contents: report.contents } : {}),
       ...(report?.sourceUnits ? { sourceUnits: report.sourceUnits } : {}),
     });
   });

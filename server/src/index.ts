@@ -857,6 +857,7 @@ async function handleExtensionMessage(msg: any) {
             type: 'import-complete',
             success: true,
             ...(report ? { solidCount: report.solidCount, sourceUnits: report.sourceUnits } : {}),
+            ...(report && report.contents ? { contents: report.contents } : {}),
           });
         } catch (err: any) {
           sendToExtension({ type: 'error', message: describeOcException(err) });

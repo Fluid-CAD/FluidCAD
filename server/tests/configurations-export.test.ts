@@ -492,7 +492,7 @@ describe('POST /api/export — every solid of the row, and listed solids the row
     await renderOn();
     const res = await post(`${app.url}/api/export`, { format: 'step', shapeIds: 'all', configuration: 'Empty' });
     expect(res.status).toBe(422);
-    expect(res.body.error).toBe("Configuration 'Empty' builds no solids to export.");
+    expect(res.body.error).toBe("Configuration 'Empty' builds no solids or surfaces to export.");
     expect(manager.exported).toEqual([]);
     expect(manager.disposed).toHaveLength(1);
   });
@@ -503,7 +503,7 @@ describe('POST /api/export — every solid of the row, and listed solids the row
     expect(res.status).toBe(400);
     expect(res.body.error).toBe(
       "Configuration 'Default' does not build Solid 2 (Boss), which the configuration on screen does. "
-        + 'Export every solid instead, or pick shapes that configuration builds.',
+        + 'Export every body instead, or pick shapes that configuration builds.',
     );
     expect(res.body.missing).toEqual([{ shapeId: `b${live.no}`, label: 'Solid 2 (Boss)' }]);
     expect(manager.exported).toEqual([]);

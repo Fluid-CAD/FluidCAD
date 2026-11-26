@@ -8,13 +8,13 @@ import { basename, dirname, extname, resolve } from 'path';
 
 export const DEFAULT_CONFIGURATION = 'Default';
 
-/** `shapeIds: "all"` — every solid of the scene the server exports (a row's own render when it is not on screen). */
+/** `shapeIds: "all"` — every solid and surface of the scene the server exports (a row's own render when it is not on screen). */
 export const EVERY_SOLID = 'all';
 
 /**
  * What a `fluidcad export step|stl` request selects when `--shapes` is not
  * given: an assembly file exports whole (`{ assembly: {} }`); any other file
- * every solid of the scene exported (`{ shapeIds: "all" }`), so each
+ * every solid and surface of the scene exported (`{ shapeIds: "all" }`), so each
  * configuration row writes its own bodies — one a row adds included, one it
  * drops left out. With `--shapes` (`requested` non-null) this is null: the
  * tokens resolve to ids of the scene on screen, which the server maps onto

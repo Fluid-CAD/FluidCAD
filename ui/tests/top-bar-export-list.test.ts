@@ -86,7 +86,7 @@ function mount() {
       capturePartThumbnail: () => Promise.reject(new Error('no WebGL here')),
     },
   });
-  const exportBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Export a solid"]')!;
+  const exportBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Export a solid or surface"]')!;
   const openPanel = (): HTMLElement => {
     exportBtn.click();
     return container.querySelector<HTMLElement>('[data-panel="export"]')!;
@@ -151,7 +151,7 @@ describe('top bar Export list', () => {
     bar.updateSolids(objects, assemblyOf());
     const panel = openPanel();
     expect(rowLabels(panel)).toEqual([]);
-    expect(panel.textContent).toContain('No solids in the scene');
+    expect(panel.textContent).toContain('No solids or surfaces in the scene');
   });
 
   it('switching from an assembly back to a part scene drops the whole-assembly row', () => {
@@ -254,7 +254,7 @@ describe('top bar Export list', () => {
       export: { onExport: () => undefined, captureThumbnail: () => Promise.reject(new Error('none')) },
     });
     without.updateSolids(partOf('p-box', 'Box', 's-body', 's-lid'));
-    container.querySelector<HTMLButtonElement>('button[aria-label="Export a solid"]')!.click();
+    container.querySelector<HTMLButtonElement>('button[aria-label="Export a solid or surface"]')!.click();
     expect(container.querySelector('[data-whole-part]')).toBeNull();
     expect([...container.querySelectorAll('[data-thumb]')]).toHaveLength(2);
 
@@ -268,7 +268,7 @@ describe('top bar Export list', () => {
       },
     });
     iconOnly.updateSolids(partOf('p-box', 'Box', 's-body', 's-lid'));
-    iconHost.querySelector<HTMLButtonElement>('button[aria-label="Export a solid"]')!.click();
+    iconHost.querySelector<HTMLButtonElement>('button[aria-label="Export a solid or surface"]')!.click();
     vi.runAllTimers();
     const thumb = iconHost.querySelector<HTMLElement>('[data-whole-part] [data-thumb]')!;
     expect(thumb.querySelector('svg')).not.toBeNull();
@@ -281,7 +281,7 @@ describe('top bar Export list', () => {
       export: { onExport: () => undefined, captureThumbnail: () => Promise.reject(new Error('none')) },
     });
     bar.updateSolids(objects, assemblyOf('p-housing'));
-    container.querySelector<HTMLButtonElement>('button[aria-label="Export a solid"]')!.click();
+    container.querySelector<HTMLButtonElement>('button[aria-label="Export a solid or surface"]')!.click();
     const panel = container.querySelector<HTMLElement>('[data-panel="export"]')!;
     expect(panel.querySelector('[data-whole-assembly]')).toBeNull();
     expect([...panel.querySelectorAll('[data-thumb]')]).toHaveLength(1);

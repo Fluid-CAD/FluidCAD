@@ -160,11 +160,14 @@ function parseAssemblyPoses(assembly: unknown): AssemblyExportPose[] | undefined
  * `X-FluidCAD-Assembly-Poses`.
  * A name the file does not declare is a 400 listing the declared names.
  *
- * `shapeIds: "all"` exports every solid of the scene exported — the row's
- * own render when it is not on screen, so a row that adds or drops a body
- * exports its own set. Listed ids are the scene on screen's; one the row
- * does not build is a 400 naming the solid and the row (`missing`), never
- * some other body (`ShapeExportSelection`).
+ * `shapeIds: "all"` exports every solid and surface of the scene exported
+ * — the row's own render when it is not on screen, so a row that adds or
+ * drops a body exports its own set. Listed ids are the scene on screen's;
+ * one the row does not build is a 400 naming the body and the row
+ * (`missing`), never some other body (`ShapeExportSelection`). STEP writes
+ * solids and surfaces; STL, DXF and SVG write the solids and list the
+ * surfaces they left out in the warnings, and a selection of surfaces alone
+ * is a 422 that points to STEP. Curves are never exported.
  *
  * `format: "dxf"` or `"svg"` writes a 2D drawing instead of the solids:
  * their view on the standard plane `plane` names (required — `top`,
@@ -216,11 +219,11 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
     const hasShapeIds = shapeIds !== undefined;
     const hasAssembly = assembly !== undefined;
     if (hasShapeIds === hasAssembly) {
-      res.status(400).json({ error: 'Pass exactly one of shapeIds (solids to export) or assembly (the whole assembly).' });
+      res.status(400).json({ error: 'Pass exactly one of shapeIds (solids and surfaces to export) or assembly (the whole assembly).' });
       return;
     }
     if (hasShapeIds && !ShapeExportSelection.isSelection(shapeIds)) {
-      res.status(400).json({ error: 'shapeIds must be a non-empty array of shape ids, or "all" (every solid of the scene exported).' });
+      res.status(400).json({ error: 'shapeIds must be a non-empty array of shape ids, or "all" (every solid and surface of the scene exported).' });
       return;
     }
     let livePoses: AssemblyExportPose[] | undefined;
@@ -382,7 +385,10 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
       }
       res.send(bytes);
     } catch (err: any) {
-      res.status(500).json({ error: err.message || String(err) });
+      // A build error is the request asking for what the format cannot hold
+      // (surfaces alone as STL): the user's to fix, not the server's fault.
+      const status = err?.name === 'BuildError' ? 422 : 500;
+      res.status(status).json({ error: err.message || String(err) });
     } finally {
       scratch?.dispose();
     }

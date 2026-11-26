@@ -207,6 +207,8 @@ export type ImportStepOutput = {
   fileName: string;
   /** Solids the file produced (absent from older servers). */
   solidCount?: number;
+  /** Solids, surfaces and curves the file produced (absent from older engines). */
+  contents?: { solids: number; surfaces: number; curves: number };
   /** Unit names the STEP file declared; the cache is always mm (absent from older servers). */
   sourceUnits?: { length: string[]; angle: string[] };
 };
@@ -458,7 +460,7 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
     return err('invalid-input', '`assembly` must be a boolean when provided.');
   }
   if (wholeAssembly === (input?.shapeIds !== undefined)) {
-    return err('invalid-input', 'Pass exactly one of `shapeIds` (solids to export) or `assembly: true` (the whole assembly).');
+    return err('invalid-input', 'Pass exactly one of `shapeIds` (solids and surfaces to export) or `assembly: true` (the whole assembly).');
   }
   if (!wholeAssembly) {
     if (!Array.isArray(input.shapeIds) || input.shapeIds.length === 0) {

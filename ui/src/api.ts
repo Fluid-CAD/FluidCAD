@@ -128,6 +128,8 @@ export type ImportResult = {
   error?: string;
   /** Solids the import produced (absent from older servers). */
   solidCount?: number;
+  /** Solids, surfaces and curves the import produced (absent from older engines). */
+  contents?: { solids: number; surfaces: number; curves: number };
   /** Unit names the STEP file declared (absent from older servers). */
   sourceUnits?: { length: string[]; angle: string[] };
 };
@@ -210,7 +212,7 @@ export function parseExportWarnings(header: string | null): string[] {
   }
 }
 
-/** `shapeIds: "all"` — every solid of the scene the export comes from (a configuration's own render when it is not on screen). */
+/** `shapeIds: "all"` — every solid and surface of the scene the export comes from (a configuration's own render when it is not on screen). */
 export const EVERY_SOLID = 'all' as const;
 
 /** A shapes export's selector: ids of the scene on screen, or {@link EVERY_SOLID}. */
@@ -218,9 +220,9 @@ export type ShapeSelection = string[] | typeof EVERY_SOLID;
 
 /**
  * The body of `POST /api/export`. Exactly one selector: `shapeIds` exports
- * the listed solids each in its own frame (a part template, a solid of a
- * part scene), or with {@link EVERY_SOLID} every solid of the scene
- * exported — so a configuration row that adds or drops a body exports its
+ * the listed bodies each in its own frame (a part template, a solid or a
+ * surface of a part scene), or with {@link EVERY_SOLID} every solid and
+ * surface of the scene exported — so a configuration row that adds or drops a body exports its
  * own set, where listed ids it does not build are refused; `assembly`
  * exports every instance of the current assembly where it sits. `poses` must
  * cover every instance — they are this viewer's live world poses, the parts

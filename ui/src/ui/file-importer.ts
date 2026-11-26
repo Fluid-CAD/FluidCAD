@@ -1,4 +1,5 @@
 import { importFile } from '../api';
+import { describeImportContents } from '../../../lib/io/import-contents.js';
 
 export class FileImporter {
   private importToast: HTMLDivElement;
@@ -67,11 +68,14 @@ export class FileImporter {
       const result = await importFile(file.name, base64);
       if (!result.success) {
         this.showToast(`Import failed: ${result.error || 'Unknown error'}`);
+      } else if (result.contents && describeImportContents(result.contents) === null) {
+        // An empty scene is no feedback: say the file held nothing to import.
+        this.showToast(`Imported ${result.fileName ?? file.name}: the file holds no solid, surface or curve`);
       } else if (result.sourceUnits && result.sourceUnits.length.length > 0) {
         // The one thing the scene cannot show: which unit the file was in.
-        const count = result.solidCount ?? 0;
-        const solids = `${count} solid${count === 1 ? '' : 's'}`;
-        this.showToast(`Imported ${result.fileName ?? file.name}: ${solids}, file unit ${result.sourceUnits.length.join(', ')}`);
+        const contents = result.contents ?? { solids: result.solidCount ?? 0, surfaces: 0, curves: 0 };
+        const what = describeImportContents(contents) ?? '0 solids';
+        this.showToast(`Imported ${result.fileName ?? file.name}: ${what}, file unit ${result.sourceUnits.length.join(', ')}`);
       }
     } catch (_err) {
       this.showToast('Import failed: network error');

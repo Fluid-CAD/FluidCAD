@@ -198,8 +198,8 @@ describe('inspection tools (unit)', () => {
       }),
       '/api/shape-properties': () => ({ status: 200, body: { volumeMm3: 150000, unit: 'in' } }),
       '/api/part-properties': () => ({ status: 200, body: { partId: 'part-1', volumeMm3: 4000, massG: 10.8, unit: 'mm' } }),
-      '/api/face-properties': () => ({ status: 200, body: { areaMm2: 5000, unit: 'in' } }),
-      '/api/edge-properties': () => ({ status: 200, body: { length: 100, unit: 'in' } }),
+      '/api/face-properties': () => ({ status: 200, body: { surfaceType: 'freeform', recovered: false, areaMm2: 5000, unit: 'in' } }),
+      '/api/edge-properties': () => ({ status: 200, body: { curveType: 'spline', closed: false, planar: true, length: 100, unit: 'in' } }),
       '/api/hit-test': () => ({ status: 200, body: { type: 'face', index: 3 } }),
       '/api/measure': (_req, body) => {
         const entities = JSON.parse(body).entities as any[];
@@ -643,6 +643,7 @@ describe('inspection tools (unit)', () => {
     const result = await getFaceProperties({ shapeId: 'sh-2', faceIndex: 4 });
     expect(result.ok).toBe(true);
     expect(lastRequest?.url).toBe('/api/face-properties?shapeId=sh-2&faceIndex=4');
+    expect(result.ok && result.data).toMatchObject({ surfaceType: 'freeform', recovered: false });
   });
 
   it('get_face_properties rejects negative faceIndex', async () => {
@@ -658,6 +659,7 @@ describe('inspection tools (unit)', () => {
     const result = await getEdgeProperties({ shapeId: 'sh-2', edgeIndex: 7 });
     expect(result.ok).toBe(true);
     expect(lastRequest?.url).toBe('/api/edge-properties?shapeId=sh-2&edgeIndex=7');
+    expect(result.ok && result.data).toMatchObject({ curveType: 'spline', closed: false, planar: true });
   });
 
   it('hit_test posts ray data and defaults edgeThreshold to 0', async () => {

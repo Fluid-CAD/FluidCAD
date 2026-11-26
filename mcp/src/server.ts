@@ -687,7 +687,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of a face',
       description:
-        'Returns the surface kind and size of a single face of a solid or a surface, as `surfaceType` plus that kind\'s fields: plane (`areaMm2`); circle, a flat face bounded only by circular edges (`radius`, no area); cylinder (`radius`, and `closed` — true when it wraps fully around its axis like a bore or a boss wall, false for a fillet or a partial wall); sphere (`radius`); torus (`majorRadius`, `minorRadius`); cone (`halfAngleDeg`); other (`areaMm2`). On a face of a surface, `owner` is `{ kind: "surface", area }`, the whole surface\'s area. It returns no normal, center or axis, and no area for a circle or a curved analytic face: resolve_selection with `picks: [{ shapeId, kind: "face", index: faceIndex }]` summarizes the face with its center, normal (a planar face\'s points out of its solid) or axis, and area. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
+        'Returns the surface kind and size of a single face of a solid or a surface, as `surfaceType` plus that kind\'s fields: plane (`areaMm2`); circle, a flat face bounded only by circular edges (`radius`, no area); cylinder (`radius`, and `closed` — true when it wraps fully around its axis like a bore or a boss wall, false for a fillet or a partial wall); sphere (`radius`); torus (`majorRadius`, `minorRadius`); cone (`halfAngleDeg`); revolved, a surface turned around an axis that is none of those; extruded, one swept along a straight line that is no plane or cylinder; freeform, any other surface such as a loft or a sculpted import (each with `areaMm2`). `recovered` is true when the kind was recognised on a surface stored as a B-spline (a flat or round face of a loft or an import): face().planar(), cylinder() and the other predicates match it like a native one. On a face of a surface, `owner` is `{ kind: "surface", area }`, the whole surface\'s area. It returns no normal, center or axis, and no area for a circle or a curved analytic face: resolve_selection with `picks: [{ shapeId, kind: "face", index: faceIndex }]` summarizes the face with its center, normal (a planar face\'s points out of its solid) or axis, and area. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,
@@ -703,7 +703,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of an edge',
       description:
-        'Returns the curve kind and size of a single edge of a solid, a surface or a curve: `curveType` (line, circle, arc, ellipse, other), ' +
+        'Returns the curve kind and size of a single edge of a solid, a surface or a curve: `curveType` (line, circle, arc, ellipse — a full ellipse or an arc of one, ' +
+        'spline — a free-form curve, other — a hyperbola, parabola or offset curve), `closed` (the edge returns to its start: a full circle, a full ellipse, a closed spline), ' +
+        '`planar` (the edge lies in one plane; false for a helix), ' +
         '`length` (absent on a full circle and an ellipse), `radius` for circles and arcs, `majorRadius`/`minorRadius` for ellipses, and its ' +
         'endpoints `start` and `end` { x, y, z } in the edge\'s own direction (equal on a closed edge). On an edge of a surface or a curve, `owner` measures ' +
         'that whole: `{ kind: "surface", area }` or `{ kind: "curve", length }`. Lengths are in the document unit, returned as `unit`.',
@@ -757,7 +759,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Two inputs, one of them: `expression` — a filter expression evaluated with exactly the candidate set a select() statement ' +
         'would see at the given scope; or `picks` — explicit face/edge/vertex refs (from hit_test, the rendered topology, or an earlier ' +
         'match). Returns every match with its shapeId/kind/index (faces/edges are usable in measure and hit_test), `bodyKind` — `surface` or ' +
-        '`curve` when the face/edge is part of one, absent on a solid\'s — owning sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
+        '`curve` when the face/edge is part of one, absent on a solid\'s — owning sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve; ' +
+        'a `surface` form carries `kind` revolved/extruded/freeform and a `curve` form `kind` spline/other, the words face().revolved(), edge().spline() and the other filters use), ' +
         'center [x,y,z], normal (a planar face\'s points out of its solid) or axis, area or length, diameter for ' +
         'cylinders/spheres/circles. Lengths are in the document unit ' +
         '(returned as `unit`), rounded to its meaningful precision. Vertex summaries have form vertex and a world-space center; ' +

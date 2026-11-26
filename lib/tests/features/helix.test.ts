@@ -4,12 +4,17 @@ import sketch from "../../core/sketch.js";
 import helix from "../../core/helix.js";
 import sweep from "../../core/sweep.js";
 import cylinder from "../../core/cylinder.js";
+import loft from "../../core/loft.js";
+import plane from "../../core/plane.js";
 import select from "../../core/select.js";
 import { face } from "../../filters/index.js";
 import { circle, line } from "../../core/2d/index.js";
 import { Helix } from "../../features/helix.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
+import { Solid } from "../../common/solid.js";
+import { SceneObject } from "../../common/scene-object.js";
+import { SurfaceClassifier } from "../../oc/surface-classifier.js";
 import { getOC } from "../../oc/init.js";
 import { horizontal } from "../../core/constraints/index.js";
 
@@ -246,6 +251,30 @@ describe("helix", () => {
       expect(bbox.minZ).toBeLessThanOrEqual(-10 + MESH_TOL);
       expect(bbox.maxZ).toBeGreaterThanOrEqual(70 - MESH_TOL);
       expect(bbox.maxZ).toBeLessThanOrEqual(70 + MESH_TOL);
+    });
+  });
+
+  describe("cylindrical face stored as a B-spline", () => {
+    it("coils around a lofted wall over the height the wall spans", () => {
+      const base = sketch(plane("xy", 5), () => {
+        circle([0, 0], 30);
+      });
+      const top = sketch(plane("xy", 45), () => {
+        circle([0, 0], 30);
+      });
+      const lofted = loft(base, top) as unknown as SceneObject;
+      const h = helix(select(face().cylinder())).turns(4) as Helix;
+      render();
+
+      const walls = (lofted.getShapes()[0] as Solid).getFaces().filter(f => SurfaceClassifier.classify(f).recovered);
+      expect(walls.map(f => SurfaceClassifier.classify(f).kind)).toEqual(["cylinder"]);
+      const bbox = ShapeOps.getBoundingBox(h.getShapes()[0]);
+      expect(bbox.maxX - bbox.minX).toBeGreaterThanOrEqual(30 - MESH_TOL);
+      expect(bbox.maxX - bbox.minX).toBeLessThanOrEqual(30 + MESH_TOL);
+      expect(bbox.minZ).toBeGreaterThanOrEqual(5 - MESH_TOL);
+      expect(bbox.minZ).toBeLessThanOrEqual(5 + MESH_TOL);
+      expect(bbox.maxZ).toBeGreaterThanOrEqual(45 - MESH_TOL);
+      expect(bbox.maxZ).toBeLessThanOrEqual(45 + MESH_TOL);
     });
   });
 

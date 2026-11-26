@@ -1,7 +1,7 @@
 ---
 id: api/edge-filter
 title: edge() — edge filter builder
-summary: Chainable predicate builder for selecting edges by shape, orientation, position, parent face/object, or the kind of body they belong to. Like `face()`, chained calls AND together and `.notX()` negates.
+summary: Chainable predicate builder for selecting edges by shape (line, arc, circle, ellipse, spline, closed, planar), orientation, position, parent face/object, or the kind of body they belong to. Like `face()`, chained calls AND together and `.notX()` negates.
 tags: [api, selection, filter]
 symbols: [edge]
 seeAlso: [api/face-filter, api/select]
@@ -22,18 +22,35 @@ Returns a chainable edge filter. Chained predicates AND together.
 - `.line(length?)` / `.notLine(...)` — straight edges
 - `.circle(diameter?)` / `.notCircle(...)` — full circles (a hole or boss rim)
 - `.arc(radius?)` / `.notArc(...)` — circular arcs (a fillet's edge, a rounded corner)
+- `.ellipse()` / `.notEllipse()` — elliptical edges, a full ellipse or an
+  arc of one (the rim of a cylinder cut at a slant)
+- `.spline()` / `.notSpline()` — free-form edges: a sketch spline's edge, a
+  loft's or sweep's free-form rim, a helix
+- `.closed()` / `.notClosed()` — edges that return to their start: a full
+  circle, a full ellipse, a closed spline
+- `.open()` / `.notOpen()` — edges whose ends are apart; the complement of
+  `closed()`, so `edge().ellipse().open()` is the elliptical arcs
+- `.planar()` / `.notPlanar()` — edges that lie in one plane. Every line,
+  arc, circle and ellipse does; next to `spline()` it tells a spline drawn
+  in a sketch from a helix or a curve winding through space
 
 Shape predicates classify by geometry, not by how the kernel stores the
 curve. A loft or sweep rebuilds its section edges as B-splines — the straight
 segments and rounded corners of a lofted rounded rectangle included — and an
-imported STEP file often does the same; `line()`, `arc(r)` and `circle(d)`
-still recognise them (within 1e-3 mm). An edge that is neither straight nor
-circular (an ellipse's arcs, a free-form spline) matches none of the three.
+imported STEP file often does the same; `line()`, `arc(r)`, `circle(d)` and
+`ellipse()` still recognise them (within 1e-3 mm). Only an edge that traces
+none of those is a `spline()`.
 
 ## By orientation
 
 - `.parallelTo(plane)` / `.notParallelTo(...)`
 - `.verticalTo(plane)` / `.notVerticalTo(...)` — perpendicular to the plane
+
+A line or a circular edge is judged at a few points, which describe it
+exactly. Any other edge is judged along its whole length: `parallelTo(P)`
+holds when every tangent along it is perpendicular to the plane's normal (the
+edge lies in a plane parallel to `P`), and `verticalTo(P)` never holds for a
+curve, since only a straight edge can be perpendicular to a plane.
 
 ## By position
 
@@ -42,6 +59,12 @@ circular (an ellipse's arcs, a free-form spline) matches none of the three.
 - `.below(plane, offset?)`
 - `.intersectsWith(sceneObject)` — edges that cross another scene
   object's edges
+
+`onPlane` checks a line or an arc at its ends and middle, and any other
+edge at 16 points along it. `above` / `below` judge a line or an arc by its
+two end vertices, and any other edge by how far it reaches along the plane's
+normal, so a spline that sags below the plane between its ends is not
+`above` it.
 
 ## By parent
 

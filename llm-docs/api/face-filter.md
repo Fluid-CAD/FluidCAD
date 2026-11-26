@@ -31,15 +31,44 @@ Returns a chainable filter builder. Chain calls narrow the candidate set
 bore — pick by whether the face closes on itself, not by its radius.
 - `.cone()` / `.notCone()`
 - `.torus(majorRadius?, minorRadius?)`
+- `.sphere(diameter?)` / `.notSphere(...)` — a ball, a domed cap
 - `.circle(diameter?)` — flat disc faces
+- `.revolved()` / `.notRevolved()` — a spline profile turned around an
+  axis, when it is no plane, cylinder, cone, sphere or torus
+- `.extruded()` / `.notExtruded()` — the wall a spline or an ellipse sweeps
+  when pushed along a straight line, when it is no plane or cylinder
+- `.freeform()` / `.notFreeform()` — everything else: a loft between unlike
+  sections, a sweep along a winding path, a sculpted imported surface
+
+Shape predicates classify by geometry, not by how the kernel stores the
+surface. A loft, a sweep or an imported STEP file often stores flat walls
+and round bores as B-spline surfaces; `planar()`, `cylinder()`,
+`cylinderCurve()`, `cone()`, `sphere()` and `torus()` still recognise them
+(within 1e-3 mm), so `face().planar()` keeps the flat walls of a lofted
+rounded rectangle. Only a face that traces none of those is `freeform()`.
 
 ## By orientation & position
 
 - `.onPlane(plane, offset?)` / `.notOnPlane(...)`
 - `.parallelTo(plane)` / `.notParallelTo(...)`
+- `.facing(direction, within = 45)` / `.notFacing(...)` — the outward
+  normal at the face's centre is within `within` degrees of `direction`
+  (`'x'` … `'-z'`, a vector, or an axis)
 - `.above(plane, offset?)` — entirely above
 - `.below(plane, offset?)`
 - `.intersectsWith(plane)` — faces that cross the plane
+
+`facing()` works on every kind of face, which makes it the way to say "the
+top of this free-form shape": `face().facing("z")` keeps a box's top and a
+dome's upper faces and leaves out the walls; `face().facing("z", 10)` keeps
+only what points nearly straight up. A surface's faces face the way the
+surface is oriented. Under a repeat or a mirror the direction moves with the
+copy.
+
+`above` / `below` judge a face on a plane, cylinder, cone, sphere or torus
+bounded by lines and circular edges by its boundary vertices. Any other face
+is judged by how far it reaches along the plane's normal, so a free-form
+face that bulges below the plane between its corners is not `above` it.
 
 ## By topology
 

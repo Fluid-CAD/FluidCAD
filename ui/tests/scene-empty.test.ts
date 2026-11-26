@@ -66,6 +66,7 @@ describe('blank-document toolbar coverage', () => {
     'interactive/create-feature/plane-service.ts': 'always visible',
     'interactive/create-feature/schema/schema-feature-service.ts': 'always visible',
     'interactive/create-feature/schema/custom-features-menu.ts': 'follows installed packages, not the scene',
+    'interactive/create-feature/tool-menu.ts': 'a toolbar dropdown follows sketch mode; its tools grey on the scene themselves',
   };
 
   function sourceFiles(dir: string): string[] {

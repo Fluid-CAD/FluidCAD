@@ -172,6 +172,29 @@ export type GhostPathRef =
   | { kind: 'wire'; filePath: string; line: number }
   | { kind: 'edges'; entities: { shapeId: string; index: number }[] };
 
+/**
+ * One pick of a curve or surface operand on the wire, as the dialog's row
+ * holds it: a whole object by its statement's call site — a sketch, a curve
+ * object, an object holding a surface — or an edge or a face of a body by
+ * its viewport address. A kept chip the client could not address never
+ * travels.
+ */
+export type GhostOperandRef =
+  | { kind: 'statement'; filePath: string; line: number }
+  | { kind: 'edge' | 'face'; shapeId: string; index: number };
+
+/**
+ * A direction slot on the wire: the axis forms of {@link GhostAxisRef} — a
+ * world axis, an `axis()` statement, a connector, a picked straight edge —
+ * plus the plane forms, each standing for its normal: an origin plane, a
+ * `plane()` statement, a picked planar face.
+ */
+export type GhostDirectionRef =
+  | GhostAxisRef
+  | { kind: 'standard-plane'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'plane'; filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
+
 export type LoftGhostRequest = {
   feature: 'loft';
   op: 'add' | 'remove' | 'new';
@@ -617,8 +640,12 @@ export type KernelGhostRequest = Exclude<FeatureGhostRequest, CustomGhostRequest
  */
 export type GhostSolid = {
   meshes: any[];
-  /** `wire` draws the meshes as lines: a curve a move or a copy carries along with the bodies. */
-  kind?: 'add' | 'remove' | 'wire';
+  /**
+   * `wire` draws the meshes as lines: a curve tool's result, or a curve a
+   * move or a copy carries along with the bodies. `surface` draws a surface
+   * tool's result: a body with no inside, seen from both sides.
+   */
+  kind?: 'add' | 'remove' | 'wire' | 'surface';
   /** Loft side-edge polylines, packed xyz. */
   matchLines?: number[][];
   plane?: { normal: { x: number; y: number; z: number }; center: { x: number; y: number; z: number } };

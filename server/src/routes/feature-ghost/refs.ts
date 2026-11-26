@@ -2,10 +2,12 @@
 
 import type {
   GhostAxisRef,
+  GhostDirectionRef,
   GhostEntityRef,
   GhostExtrudeTargetRef,
   GhostFaceRef,
   GhostHelixSourceRef,
+  GhostOperandRef,
   GhostPathRef,
   GhostPlaneBaseRef,
   GhostPlaneRef,
@@ -66,6 +68,63 @@ function parseConnectorAxis(value: unknown): { kind: 'connector'; filePath: stri
   return ref.slot === undefined
     ? { kind: 'connector', filePath: ref.filePath, line: ref.line }
     : { kind: 'connector', filePath: ref.filePath, line: ref.line, slot: ref.slot as number };
+}
+
+/**
+ * A direction slot (a tool's `.direction(…)`): every form of {@link parseAxis}
+ * — a world axis, an `axis()` statement, a picked edge, a connector — plus
+ * the planes that stand for their normal: an origin plane, a `plane()`
+ * statement, a picked face. As with the axis slot, anything else is a bad
+ * request, not a silent fall back to a world axis.
+ */
+export function parseDirection(value: unknown): GhostDirectionRef | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const direction = value as { kind?: unknown; plane?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
+  if (direction.kind === 'standard-plane') {
+    return typeof direction.plane === 'string' && STANDARD_PLANES.includes(direction.plane)
+      ? { kind: 'standard-plane', plane: direction.plane as 'xy' | 'xz' | 'yz' }
+      : null;
+  }
+  if (direction.kind === 'plane') {
+    return typeof direction.filePath === 'string' && typeof direction.line === 'number'
+      ? { kind: 'plane', filePath: direction.filePath, line: direction.line }
+      : null;
+  }
+  if (direction.kind === 'face') {
+    return typeof direction.shapeId === 'string' && typeof direction.index === 'number'
+      ? { kind: 'face', shapeId: direction.shapeId, index: direction.index }
+      : null;
+  }
+  return parseAxis(value as GhostBody['axis']);
+}
+
+/**
+ * The picks of a curve or surface operand row, in pick order: a whole object
+ * by its statement's call site, an edge (a curve row) or a face (a surface
+ * row) of a body by its viewport address. An empty list is a row nothing was
+ * picked in, which the caller refuses or takes as it needs; an entry of the
+ * other kind, or one the client could not resolve, is a malformed request.
+ */
+export function parseOperandRefs(value: unknown, kind: 'curve' | 'surface'): GhostOperandRef[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const entity = kind === 'curve' ? 'edge' : 'face';
+  const refs: GhostOperandRef[] = [];
+  for (const raw of value) {
+    const ref = raw as { kind?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
+    if (ref?.kind === 'statement' && typeof ref.filePath === 'string' && typeof ref.line === 'number') {
+      refs.push({ kind: 'statement', filePath: ref.filePath, line: ref.line });
+    } else if (ref?.kind === entity && typeof ref.shapeId === 'string'
+      && Number.isSafeInteger(ref.index) && (ref.index as number) >= 0) {
+      refs.push({ kind: entity, shapeId: ref.shapeId, index: ref.index as number });
+    } else {
+      return null;
+    }
+  }
+  return refs;
 }
 
 /**

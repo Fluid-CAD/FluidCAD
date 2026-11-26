@@ -223,12 +223,11 @@ export function instantiateEdgeAtoms(
       atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
     }
   }
-  if (curveClass === null || curveClass === 'ellipse' || curveClass === 'other') {
-    // No positive curve-class atom covers these picks (mixed classes, or a
-    // class with no predicate — a fillet transition spline that recovers to
-    // no line or circle probes as 'other'). A negated class can still
-    // separate them: e.g. a rim of arcs plus such splines needs
-    // `.notCircle()` to shed a coplanar bore circle.
+  if (curveClass === null || curveClass === 'ellipse' || curveClass === 'spline' || curveClass === 'other') {
+    // No line, arc or circle atom covers these picks (mixed classes, or a
+    // fillet transition spline that recovers to no line or circle). A
+    // negated class can still separate them: e.g. a rim of arcs plus such
+    // splines needs `.notCircle()` to shed a coplanar bore circle.
     atoms.push({ code: '.notLine()', addTo: b => b.notLine(), weight: 28, constants: 0, needsScope: false });
     atoms.push({ code: '.notCircle()', addTo: b => b.notCircle(), weight: 28, constants: 0, needsScope: false });
     atoms.push({ code: '.notArc()', addTo: b => b.notArc(), weight: 28, constants: 0, needsScope: false });
@@ -339,10 +338,11 @@ export function instantiateFaceAtoms(
   if (surfaceClass === 'cone') {
     atoms.push({ code: '.cone()', addTo: b => b.cone(), weight: 30, constants: 0, needsScope: false });
   }
-  if (surfaceClass === null || surfaceClass === 'sphere' || surfaceClass === 'other') {
-    // Same rationale as the negated edge classes: picks with no positive
-    // surface-class atom (mixed classes, or sphere/freeform) can still be
-    // separated from a same-plane intruder by what they are not.
+  if (surfaceClass === null || !ELEMENTARY_FACE_TYPES.has(surfaceClass)) {
+    // Same rationale as the negated edge classes: picks with no plane,
+    // cylinder or circle atom (mixed classes, or a sphere, revolved,
+    // extruded or free-form face) can still be separated from a same-plane
+    // intruder by what they are not.
     atoms.push({ code: '.notPlanar()', addTo: b => b.notPlanar(), weight: 28, constants: 0, needsScope: false });
     atoms.push({ code: '.notCylinder()', addTo: b => b.notCylinder(), weight: 28, constants: 0, needsScope: false });
     atoms.push({ code: '.notCircle()', addTo: b => b.notCircle(), weight: 28, constants: 0, needsScope: false });
@@ -853,6 +853,9 @@ export function niceValueInGap(lo: number, hi: number): number | null {
   }
   return mid;
 }
+
+/** The face types the negated face classes are not offered for: a plane, a cylinder, a cone, a torus, a round flat face. */
+const ELEMENTARY_FACE_TYPES: ReadonlySet<FaceProperties['surfaceType']> = new Set(['plane', 'circle', 'cylinder', 'cone', 'torus']);
 
 type CylinderFilterName = typeof CYLINDER_FILTERS[number];
 const CYLINDER_FILTERS = ['cylinder', 'cylinderCurve'] as const;

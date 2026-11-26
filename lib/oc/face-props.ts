@@ -6,7 +6,9 @@ import { CurveClassifier } from "./curve-classifier.js";
 import { SurfaceClass, SurfaceClassifier } from "./surface-classifier.js";
 
 export interface FaceProperties {
-  surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'other';
+  surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'revolved' | 'extruded' | 'freeform';
+  /** True when the kind was recovered from a non-analytic surface: a flat or round face a loft or an import stores as a B-spline. */
+  recovered: boolean;
   areaMm2?: number;
   radius?: number;
   /**
@@ -26,8 +28,7 @@ export class FaceProps {
    * The face's kind and sizes, read off its {@link SurfaceClassifier} class
    * — the classification the face filters read too, so a probe and the
    * predicate it instantiates agree on every face. A plane bounded by
-   * circles and arcs, one of them full, is a `circle`; a revolved, extruded
-   * or free-form surface is `other`.
+   * circles and arcs, one of them full, is a `circle`.
    */
   static getProperties(face: TopoDS_Shape): FaceProperties {
     return FaceProps.fromClass(SurfaceClassifier.classifyRaw(face), face);
@@ -35,24 +36,25 @@ export class FaceProps {
 
   /** A surface class as the properties shown for `face`. */
   static fromClass(surface: SurfaceClass, face: TopoDS_Shape): FaceProperties {
+    const recovered = surface.recovered;
     switch (surface.kind) {
       case 'plane': {
         const rim = FaceProps.circularRim(face);
         if (rim !== null) {
-          return { surfaceType: 'circle', radius: rim };
+          return { surfaceType: 'circle', recovered, radius: rim };
         }
-        return { surfaceType: 'plane', areaMm2: surface.areaMm2 };
+        return { surfaceType: 'plane', recovered, areaMm2: surface.areaMm2 };
       }
       case 'cylinder':
-        return { surfaceType: 'cylinder', radius: surface.radius, closed: FaceQuery.hasClosedCircularRimRaw(face) };
+        return { surfaceType: 'cylinder', recovered, radius: surface.radius, closed: FaceQuery.hasClosedCircularRimRaw(face) };
       case 'sphere':
-        return { surfaceType: 'sphere', radius: surface.radius };
+        return { surfaceType: 'sphere', recovered, radius: surface.radius };
       case 'torus':
-        return { surfaceType: 'torus', majorRadius: surface.majorRadius, minorRadius: surface.minorRadius };
+        return { surfaceType: 'torus', recovered, majorRadius: surface.majorRadius, minorRadius: surface.minorRadius };
       case 'cone':
-        return { surfaceType: 'cone', halfAngleDeg: (surface.semiAngle ?? 0) * (180 / Math.PI) };
+        return { surfaceType: 'cone', recovered, halfAngleDeg: (surface.semiAngle ?? 0) * (180 / Math.PI) };
       default:
-        return { surfaceType: 'other', areaMm2: surface.areaMm2 };
+        return { surfaceType: surface.kind, recovered, areaMm2: surface.areaMm2 };
     }
   }
 

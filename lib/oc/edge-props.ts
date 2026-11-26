@@ -3,7 +3,12 @@ import { getOC } from "./init.js";
 import { CurveClass, CurveClassifier } from "./curve-classifier.js";
 
 export interface EdgeProperties {
-  curveType: 'line' | 'circle' | 'arc' | 'ellipse' | 'other';
+  /** The curve's kind; `other` is a hyperbola, a parabola or an offset curve. */
+  curveType: 'line' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'other';
+  /** The edge returns to its start: a full circle, a full ellipse, a closed spline. */
+  closed: boolean;
+  /** The edge lies in one plane. */
+  planar: boolean;
   length?: number;
   radius?: number;
   majorRadius?: number;
@@ -45,7 +50,7 @@ export class EdgeProps {
   /**
    * The edge's kind and sizes, read off its {@link CurveClassifier} class —
    * the classification the edge filters read too, so a probe and the
-   * predicate it instantiates agree on every edge. A spline is `other`.
+   * predicate it instantiates agree on every edge.
    */
   static getProperties(edge: TopoDS_Shape): EdgeProperties {
     return EdgeProps.fromClass(CurveClassifier.classifyRaw(edge));
@@ -53,17 +58,18 @@ export class EdgeProps {
 
   /** A curve class as the properties shown for the edge. */
   static fromClass(curve: CurveClass): EdgeProperties {
+    const shape = { closed: curve.closed, planar: curve.planar };
     switch (curve.kind) {
       case 'line':
-        return { curveType: 'line', length: curve.length };
+        return { curveType: 'line', ...shape, length: curve.length };
       case 'circle':
-        return { curveType: 'circle', radius: curve.radius };
+        return { curveType: 'circle', ...shape, radius: curve.radius };
       case 'arc':
-        return { curveType: 'arc', radius: curve.radius, length: curve.length };
+        return { curveType: 'arc', ...shape, radius: curve.radius, length: curve.length };
       case 'ellipse':
-        return { curveType: 'ellipse', majorRadius: curve.majorRadius, minorRadius: curve.minorRadius };
+        return { curveType: 'ellipse', ...shape, majorRadius: curve.majorRadius, minorRadius: curve.minorRadius };
       default:
-        return { curveType: 'other', length: curve.length };
+        return { curveType: curve.kind, ...shape, length: curve.length };
     }
   }
 }

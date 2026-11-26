@@ -20,9 +20,10 @@ import { SelectSceneObject } from "../../features/select.js";
 /**
  * The filters, the properties and measure read a face's or an edge's kind
  * from one classifier each, so on every face and edge of a body they agree.
- * Each speaks its own vocabulary; the kinds a reader has no word for yet
- * (a sphere for the face filters, an ellipse for the edge filters, a spline
- * for any of them) are its "other".
+ * The properties name every kind the classifiers do; measure and the filter
+ * checks below each speak their own vocabulary, and the kinds one has no
+ * word for (a sphere for these face checks, an ellipse for these edge
+ * checks, a spline or a free-form face for measure) are its "other".
  */
 describe("classifier agreement", () => {
   setupOC();
@@ -120,7 +121,8 @@ describe("classifier agreement", () => {
       const kind = SurfaceClassifier.isAnalytic(surface.kind) ? surface.kind : "other";
 
       const props = FaceProps.getProperties(f.getShape());
-      expect(props.surfaceType === "circle" ? "plane" : props.surfaceType).toBe(kind);
+      expect(props.surfaceType === "circle" ? "plane" : props.surfaceType).toBe(surface.kind);
+      expect(props.recovered).toBe(surface.recovered);
 
       const measured = classifyFace(f.getShape()).form;
       expect(measured === "surface" ? "other" : measured).toBe(kind);
@@ -145,7 +147,10 @@ describe("classifier agreement", () => {
       seen.add(curve.kind);
       const kind = curve.kind === "spline" ? "other" : curve.kind;
 
-      expect(EdgeProps.getProperties(e.getShape()).curveType).toBe(kind);
+      const props = EdgeProps.getProperties(e.getShape());
+      expect(props.curveType).toBe(curve.kind);
+      expect(props.closed).toBe(curve.closed);
+      expect(props.planar).toBe(curve.planar);
 
       const measured = classifyEdge(e.getShape()).form;
       expect(measured === "curve" ? "other" : measured).toBe(kind);

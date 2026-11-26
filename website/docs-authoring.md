@@ -282,9 +282,9 @@ document unit / mm / in / *Same as project*.
 
 **Feature toolbar** (part mode) — **Sketch** (pick a face or plane), the
 create tools **Extrude**, **Revolve**, **Sweep**, **Loft**, **Wrap**,
-**Rib**, the **Curves** menu (**Helix**) and the **Surfaces** menu (no tools
-yet), the pick tools **Fillet**, **Chamfer**, **Shell**,
-**Offset** (face outline), then **Plane**, **Repeat**, **Copy**, **Mirror**,
+**Rib**, the pick tools **Fillet**, **Chamfer**, **Shell**,
+**Offset** (face outline), then **Plane**, **Repeat**, **Copy**, the
+**Curves** menu (**Helix**) and the **Surfaces** menu (no tools yet), **Mirror**,
 **Rotate**, **Boolean** (Fuse / Subtract / Common), and the structure tools
 **Part** (appends `part('Part N', () => {})`) and **Connector**. The pick
 tools show a small panel with one value (**Radius** / **Distance** /

@@ -4,7 +4,9 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import select from "../../core/select.js";
 import repeat from "../../core/repeat.js";
-import { line } from "../../core/2d/index.js";
+import helix from "../../core/helix.js";
+import sweep from "../../core/sweep.js";
+import { circle, line } from "../../core/2d/index.js";
 import { edge } from "../../filters/index.js";
 import { getCurrentScene } from "../../scene-manager.js";
 import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
@@ -13,6 +15,7 @@ import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { CurveObject } from "../../features/curve-object.js";
 import { Extrude } from "../../features/extrude.js";
+import { Helix } from "../../features/helix.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { AnchoredLazyVertex } from "../../features/anchored-vertex.js";
 import { LazyVertex } from "../../features/lazy-vertex.js";
@@ -242,6 +245,34 @@ describe("CurveObject", () => {
 
       expect(c.getError()).toBeNull();
       expect(rim.getShapes()).toEqual([]);
+    });
+  });
+
+  describe("a helix", () => {
+    it("answers its edge and its two ends", () => {
+      const coil = helix("z").radius(10).pitch(5).turns(2) as unknown as Helix;
+      const all = asObject(coil.edges());
+      addToScene(all);
+      const start = coil.start();
+      const end = coil.end();
+      render();
+
+      expect(all.getShapes()).toEqual(coil.getShapes());
+      expect(at(start)[2]).toBe(0);
+      expect(at(end)[2]).toBe(10);
+    });
+
+    it("is hidden by a sweep along it and read again by the next", () => {
+      const coil = helix("z").radius(10).pitch(5).turns(2) as unknown as Helix;
+      const first = asObject(sweep(coil, sketch("xz", () => {
+        circle([10, 0], 2);
+      })));
+      const second = asObject(chord([0, 0, 0], [1, 0, 0]).along(coil));
+      const scene = render();
+
+      expect(first.getError()).toBeNull();
+      expect(second.getError()).toBeNull();
+      expectDisplayConsumed(scene, coil);
     });
   });
 

@@ -47,6 +47,9 @@ export class ShapeLabels {
   /** The group title of the shapes no part holds. */
   static readonly MODEL_LABEL = 'Model';
 
+  /** Shape types that users know by another word. */
+  private static readonly USER_WORDS: Readonly<Record<string, string>> = { sheet: 'surface', wire: 'curve' };
+
   /**
    * One entry per drawn shape of `rendered` (timeline order of the holder,
    * then the holder's order), keyed by shape id. A shape without an id has
@@ -88,9 +91,14 @@ export class ShapeLabels {
     return labels;
   }
 
-  /** The capitalised shape type a label starts with. */
+  /**
+   * The word a label starts with: the capitalised shape type, except for
+   * the types users know by another name — a sheet is a surface and a
+   * standalone wire a curve.
+   */
   static typeLabel(shapeType: string): string {
-    return shapeType.charAt(0).toUpperCase() + shapeType.slice(1);
+    const word = ShapeLabels.USER_WORDS[shapeType] ?? shapeType;
+    return word.charAt(0).toUpperCase() + word.slice(1);
   }
 
   /**

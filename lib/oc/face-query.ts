@@ -619,12 +619,12 @@ export class FaceQuery {
     return FaceQuery.isSphereOf(SurfaceClassifier.classifyRaw(face), diameter);
   }
 
-  /** A sphere whose diameter matches a requested one within {@link SurfaceClassifier.tolerance}. */
+  /** A sphere of the given diameter, if one is asked for, its radius matched as {@link isCylinderOf} matches a cylinder's. */
   private static isSphereOf(surface: SurfaceClass, diameter?: number): boolean {
     if (surface.kind !== 'sphere' || surface.radius === undefined) {
       return false;
     }
-    return diameter === undefined || Math.abs(surface.radius * 2 - diameter) <= SurfaceClassifier.tolerance();
+    return diameter === undefined || Math.abs(surface.radius - diameter / 2) <= FaceQuery.sizeTolerance(surface);
   }
 
   static isTorusFaceRaw(face: TopoDS_Shape, majorRadius?: number, minorRadius?: number): boolean {

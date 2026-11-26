@@ -75,6 +75,16 @@ describe("face kind predicates", () => {
     expect(count(notSized)).toBe(1);
   });
 
+  it("sphere(d) holds a native sphere to OCCT's precision, as cylinder(d) holds a cylinder", () => {
+    const ball = sphere(10) as unknown as SceneObject;
+    render();
+    const [surface] = ball.getShapes()[0].getSubShapes("face") as Face[];
+    expect(FaceQuery.isSphereFace(surface, 20)).toBe(true);
+    // Half a micron off the diameter: within the tolerance a recovered sphere gets, not a native one.
+    expect(FaceQuery.isSphereFace(surface, 20.0005)).toBe(false);
+    expect(FaceQuery.isSphereFace(surface, 20 + 1e-8)).toBe(true);
+  });
+
   it("freeform() keeps a loft's free-form wall, notFreeform() its flat ends", () => {
     circleToEllipse();
     const freeform = select(face().freeform()) as SelectSceneObject;

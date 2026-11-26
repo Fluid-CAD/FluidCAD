@@ -43,6 +43,22 @@ export const FreeformBodies = {
     loft(base, top);
   },
 
+  /**
+   * A loft between two 22 × 16 rectangles with corners rounded by 4, 20
+   * apart and centred on (`x`, 0): its four flat walls are stored as
+   * B-spline surfaces, between two native flat ends.
+   */
+  roundedLoft(x = 0): void {
+    const rounded = (z: number) => sketch(plane("xy", z), () => {
+      const b = line([x - 11, -8], [x + 11, -8]);
+      const r = line([x + 11, -8], [x + 11, 8]);
+      const t = line([x + 11, 8], [x - 11, 8]);
+      const l = line([x - 11, 8], [x - 11, -8]);
+      fillet(4, b, r, t, l);
+    });
+    loft(rounded(0), rounded(20));
+  },
+
   /** A spline profile `offset` from the z axis turned 100° about it: one revolved wall. */
   revolvedSpline(offset = 100): void {
     sketch("xz", () => {

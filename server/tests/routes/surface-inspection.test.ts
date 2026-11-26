@@ -18,6 +18,7 @@ import type { SceneObject } from '../../../lib/common/scene-object.ts';
 import { FluidCadServer } from '../../src/fluidcad-server/index.ts';
 import { createSceneRouter } from '../../src/routes/scene.ts';
 import { createPropertiesRouter } from '../../src/routes/properties.ts';
+import { createResolveSelectionRouter } from '../../src/routes/resolve-selection.ts';
 
 const FIXTURE_FILE = '/tmp/fluidcad-surface-inspection.fluid.js';
 
@@ -41,6 +42,8 @@ describe('surface and curve inspection routes', () => {
     const app = express();
     app.use('/api', createSceneRouter(fluidCadServer));
     app.use('/api', createPropertiesRouter(fluidCadServer, { loadGlobalMaterials: async () => ({}) }));
+    app.use(express.json());
+    app.use('/api', createResolveSelectionRouter(fluidCadServer));
     server = http.createServer(app);
     await new Promise<void>((resolve) => {
       server.listen(0, '127.0.0.1', () => resolve());
@@ -179,5 +182,30 @@ describe('surface and curve inspection routes', () => {
     const rim = edges.findIndex(e => CurveClassifier.classify(e).kind === 'line');
     const lineEdge = await (await fetch(`${baseUrl}/api/edge-properties?shapeId=${slabShape.id}&edgeIndex=${rim}`)).json() as any;
     expect(lineEdge).toMatchObject({ curveType: 'line', closed: false, planar: true });
+
+    // resolve-selection summarizes the same picks in the property routes' words:
+    // the match's `kind` is face / edge, the surface's or curve's kind `surfaceType` / `curveType`.
+    const resolve = await fetch(`${baseUrl}/api/resolve-selection`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        picks: [
+          { shapeId: loftShape.id, kind: 'face', index: wall },
+          { shapeId: slabShape.id, kind: 'edge', index: splineEdge },
+          { shapeId: slabShape.id, kind: 'edge', index: rim },
+        ],
+      }),
+    });
+    expect(resolve.status).toBe(200);
+    const { matches } = await resolve.json() as any;
+    expect(matches.map((m: any) => m.kind)).toEqual(['face', 'edge', 'edge']);
+    expect(matches[0].summary).toMatchObject({ form: 'surface', surfaceType: face.surfaceType });
+    expect(matches[0].summary.recovered).toBeUndefined();
+    expect(matches[1].summary).toMatchObject({ form: 'curve', curveType: edge.curveType, closed: edge.closed, planar: edge.planar });
+    expect(matches[2].summary.form).toBe('line');
+    for (const field of ['kind', 'surfaceType', 'curveType', 'closed', 'planar', 'recovered']) {
+      expect(matches[2].summary[field]).toBeUndefined();
+    }
+    expect(matches[0].summary.kind).toBeUndefined();
   });
 });

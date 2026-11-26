@@ -760,9 +760,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'would see at the given scope; or `picks` — explicit face/edge/vertex refs (from hit_test, the rendered topology, or an earlier ' +
         'match). Returns every match with its shapeId/kind/index (faces/edges are usable in measure and hit_test), `bodyKind` — `surface` or ' +
         '`curve` when the face/edge is part of one, absent on a solid\'s — owning sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve; ' +
-        'a `surface` form carries `kind` revolved/extruded/freeform and a `curve` form `kind` spline/other, the words face().revolved(), edge().spline() and the other filters use), ' +
+        'a `surface` form carries `surfaceType` revolved/extruded/freeform and a `curve` form `curveType` spline/other, the fields and words get_face_properties and get_edge_properties give ' +
+        'and face().revolved(), edge().spline() and the other filters use; a match\'s own `kind` is always face/edge/vertex), ' +
         'center [x,y,z], normal (a planar face\'s points out of its solid) or axis, area or length, diameter for ' +
-        'cylinders/spheres/circles. Lengths are in the document unit ' +
+        'cylinders/spheres/circles. An `ellipse` or `curve` form carries `closed` (true for a full ellipse or a closed spline, false for an ' +
+        'elliptical arc or an open curve; a line, an arc and a circle say it by their form), a `curve` form `planar` (it lies in one plane, as ' +
+        'every other edge form does), and a face `recovered: true` when its form was recognised on a surface stored as a B-spline (a flat or ' +
+        'round face of a loft or an import; absent on a native surface). Lengths are in the document unit ' +
         '(returned as `unit`), rounded to its meaningful precision. Vertex summaries have form vertex and a world-space center; ' +
         'vertex source synthesis is not yet available. Zero matches is a normal result with count 0 — check it before ' +
         'writing a fillet/chamfer/color on that filter, which would silently do nothing.\n\n' +
@@ -1099,7 +1103,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Each entity is either an index reference { shapeId, kind, index, instanceId? } or a filter { expression, scope? } as in ' +
         'resolve_selection; a filter must resolve to exactly one face/edge — several matches are refused with the candidates listed, ' +
         'none is an error — and the measured entity reports the expression, sceneObjectId and part it resolved to. Every measured entity ' +
-        'carries the same compact `summary` (form, center, normal/axis, area/length, diameter) resolve_selection returns, and `bodyKind`: ' +
+        'carries the same compact `summary` (form, `surfaceType`/`curveType` on a surface/curve form, center, normal/axis, area/length, diameter, ' +
+        '`closed`, `planar`, `recovered`) resolve_selection returns, and `bodyKind`: ' +
         'whether the face/edge is part of a solid, a surface or a curve. ' +
         'Pass `image` to get a picture of the measurement as well.',
       inputSchema: {

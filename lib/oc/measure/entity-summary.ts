@@ -1,5 +1,5 @@
 import type { LengthUnit } from "../../units/units.js";
-import type { ClassifiedEntity, EdgeForm, FaceForm, FreeKind } from "./classify.js";
+import type { ClassifiedEntity, EdgeForm, FaceForm, FreeCurveType, FreeSurfaceType } from "./classify.js";
 
 /** A rounded world-space vector, compact for tool payloads. */
 export type SummaryVec = [number, number, number];
@@ -14,11 +14,30 @@ export type EntitySummary = {
   /** Surface kind for a face, curve kind for an edge. */
   form: FaceForm | EdgeForm | 'vertex';
   /**
-   * What a `surface` or `curve` form is: a revolved, extruded or free-form
-   * face, a spline or another curve — the words of `face().revolved()`,
-   * `edge().spline()` and the other kind filters.
+   * What a `surface` form is: a revolved, extruded or free-form face — the
+   * `surfaceType` the face properties give it, and the words of
+   * `face().revolved()` and the other kind filters.
    */
-  kind?: FreeKind;
+  surfaceType?: FreeSurfaceType;
+  /**
+   * What a `curve` form is: a spline or another curve — the `curveType` the
+   * edge properties give it, `edge().spline()`'s word.
+   */
+  curveType?: FreeCurveType;
+  /**
+   * Faces: the form was recognised on a surface stored as a B-spline (a flat
+   * or round face of a loft or an import), which the kind filters match
+   * like a native one. Absent on a native surface.
+   */
+  recovered?: true;
+  /**
+   * An `ellipse` or `curve` form: whether the edge returns to its start — a
+   * full ellipse against an elliptical arc, a closed spline. A line, an arc
+   * and a circle say it by their form.
+   */
+  closed?: boolean;
+  /** A `curve` form: whether the edge lies in one plane. Every other edge form does. */
+  planar?: boolean;
   /** The entity's center, else its area centroid / midpoint. */
   center: SummaryVec;
   /**
@@ -80,8 +99,18 @@ export class EntitySummaryBuilder {
       form: entity.form,
       center: EntitySummaryBuilder.roundVec(entity.center ?? entity.anchor, decimals),
     };
-    if (entity.freeKind) {
-      summary.kind = entity.freeKind;
+    if (entity.surfaceType) {
+      summary.surfaceType = entity.surfaceType;
+    }
+    if (entity.recovered) {
+      summary.recovered = true;
+    }
+    if (entity.curveType) {
+      summary.curveType = entity.curveType;
+      summary.planar = entity.planar;
+    }
+    if ((entity.form === 'ellipse' || entity.form === 'curve') && entity.closed !== undefined) {
+      summary.closed = entity.closed;
     }
     if (entity.dir && entity.dirKind === 'normal') {
       summary.normal = EntitySummaryBuilder.roundVec(entity.dir, EntitySummaryBuilder.DIRECTION_DECIMALS);

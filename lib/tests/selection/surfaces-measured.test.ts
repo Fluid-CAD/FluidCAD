@@ -11,10 +11,12 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import loft from "../../core/loft.js";
 import plane from "../../core/plane.js";
-import { circle, ellipse, line, spline } from "../../core/2d/index.js";
+import { circle, eArc, ellipse, line, spline } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import { testRect } from "../helpers/profiles.js";
 import { TestSheets } from "../helpers/sheets.js";
 import { TestCurves } from "../helpers/curves.js";
+import { FreeformBodies } from "../helpers/freeform-bodies.js";
 import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
 import { SelectionResolver } from "../../selection/resolve-selection.js";
 import type { ResolveSelectionResult } from "../../selection/resolve-selection.js";
@@ -207,16 +209,50 @@ describe("surfaces and curves measured and addressed", () => {
 
     const walls = resolved(SelectionResolver.resolve(scene, { expression: "face().freeform()" }));
     expect(walls.matches).toHaveLength(1);
-    expect(walls.matches[0].summary).toMatchObject({ form: "surface", kind: "freeform" });
+    expect(walls.matches[0].summary).toMatchObject({ form: "surface", surfaceType: "freeform" });
+    // The match's own `kind` is what it is in the topology, never the surface's kind.
+    expect(walls.matches[0].kind).toBe("face");
 
     const splines = resolved(SelectionResolver.resolve(scene, { expression: "edge().spline()" }));
     expect(splines.matches).toHaveLength(2);
     expect(splines.matches.map(m => m.summary)).toEqual([
-      expect.objectContaining({ form: "curve", kind: "spline" }),
-      expect.objectContaining({ form: "curve", kind: "spline" }),
+      expect.objectContaining({ form: "curve", curveType: "spline", closed: false, planar: true }),
+      expect.objectContaining({ form: "curve", curveType: "spline", closed: false, planar: true }),
     ]);
 
+    // A form that says it all carries none of the extra fields.
     const lines = resolved(SelectionResolver.resolve(scene, { expression: "edge().line()" }));
-    expect(lines.matches.every(m => m.summary.kind === undefined)).toBe(true);
+    for (const field of ["surfaceType", "curveType", "closed", "planar", "recovered"] as const) {
+      expect(lines.matches.every(m => m.summary[field] === undefined)).toBe(true);
+    }
+    const flat = resolved(SelectionResolver.resolve(scene, { expression: "face().planar()" }));
+    expect(flat.matches.every(m => m.summary.surfaceType === undefined)).toBe(true);
+  });
+
+  it("resolve_selection tells a full ellipse from an elliptical arc, and a face recovered from a B-spline from a native one", () => {
+    // A half ellipse closed by its long axis, extruded: two elliptical arcs. Beside it, a whole ellipse: two full ones.
+    sketch("xy", () => {
+      const arc = eArc([40, 0], [-40, 0], [0, 0], 40, 20);
+      const chord = line([-40, 0], [40, 0]);
+      coincident(arc.end(), chord.start());
+      coincident(chord.end(), arc.start());
+      ellipse([200, 0], 12, 6);
+    });
+    extrude(10);
+    FreeformBodies.roundedLoft(400);
+    const scene = render();
+    expect(scene.getRenderedObjects().filter(r => r.hasError).map(r => r.errorMessage)).toEqual([]);
+
+    const ellipses = resolved(SelectionResolver.resolve(scene, { expression: "edge().ellipse()" }));
+    expect(ellipses.matches.every(m => m.summary.form === "ellipse" && m.summary.planar === undefined)).toBe(true);
+    expect(ellipses.matches.map(m => m.summary.closed).sort()).toEqual([false, false, true, true]);
+    // closed() and open() split them as the summary reads them.
+    const full = resolved(SelectionResolver.resolve(scene, { expression: "edge().ellipse().closed()" }));
+    expect(full.matches.map(m => m.summary.closed)).toEqual([true, true]);
+
+    const planar = resolved(SelectionResolver.resolve(scene, { expression: "face().planar()" }));
+    // The loft's four flat walls are B-splines read as planes; every native plane leaves the field out.
+    expect(planar.matches.filter(m => m.summary.recovered === true).map(m => m.summary.form)).toEqual(["plane", "plane", "plane", "plane"]);
+    expect(planar.matches.filter(m => m.summary.recovered !== true).every(m => !("recovered" in m.summary))).toBe(true);
   });
 });

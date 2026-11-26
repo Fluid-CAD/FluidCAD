@@ -10,8 +10,11 @@ import { dot, projectPointOnLine, scale } from "./vec.js";
 export type FaceForm = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'surface';
 export type EdgeForm = 'line' | 'circle' | 'arc' | 'ellipse' | 'curve';
 
-/** What a `surface` or `curve` form is, in the classifiers' words: the kind no measure form names. */
-export type FreeKind = 'revolved' | 'extruded' | 'freeform' | 'spline' | 'other';
+/** What a `surface` form is, in the face properties' words (`surfaceType`): the kinds no measure form names. */
+export type FreeSurfaceType = 'revolved' | 'extruded' | 'freeform';
+
+/** What a `curve` form is, in the edge properties' words (`curveType`). */
+export type FreeCurveType = 'spline' | 'other';
 
 /**
  * Geometric summary of a selected face or edge, in plain JS values so all the
@@ -48,8 +51,16 @@ export interface ClassifiedEntity {
   radius?: number;
   area?: number;
   length?: number;
-  /** For a `surface` or `curve` form: the classifier's kind. */
-  freeKind?: FreeKind;
+  /** For a `surface` form: the classifier's kind. */
+  surfaceType?: FreeSurfaceType;
+  /** For a `curve` form: the classifier's kind. */
+  curveType?: FreeCurveType;
+  /** A face whose form was recognised on a surface stored as a B-spline. */
+  recovered?: boolean;
+  /** An edge that returns to its start: a full circle, a full ellipse, a closed spline. */
+  closed?: boolean;
+  /** For a `curve` form: whether the edge lies in one plane, as every other edge form does. */
+  planar?: boolean;
   shape: TopoDS_Shape;
 }
 
@@ -139,8 +150,9 @@ export function classifyFace(shape: TopoDS_Shape, surface: SurfaceClass = Surfac
   }
 
   if (result.form === 'surface' && !SurfaceClassifier.isAnalytic(surface.kind)) {
-    result.freeKind = surface.kind as FreeKind;
+    result.surfaceType = surface.kind as FreeSurfaceType;
   }
+  result.recovered = surface.recovered;
 
   if (result.form === 'plane' && result.dir) {
     const outward = FaceOps.outwardNormalRaw(face);
@@ -204,8 +216,10 @@ export function classifyEdge(shape: TopoDS_Shape): ClassifiedEntity {
     result.dirKind = 'normal';
   }
 
+  result.closed = curve.closed;
   if (result.form === 'curve' && (curve.kind === 'spline' || curve.kind === 'other')) {
-    result.freeKind = curve.kind;
+    result.curveType = curve.kind;
+    result.planar = curve.planar;
   }
 
   adaptor.delete();

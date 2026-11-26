@@ -24,12 +24,22 @@ export type SelectedEntityLike = { shapeId: string; sub: { type: string; index: 
 /** `EntitySummary` (lib/oc/measure/entity-summary.ts): what a reference keeps of each entity. */
 export type ReferenceGeometry = {
   form: string;
+  /** A `surface` form's kind: revolved, extruded or freeform. */
+  surfaceType?: string;
+  /** A `curve` form's kind: spline or other. */
+  curveType?: string;
+  /** A face whose form was recognised on a surface stored as a B-spline. */
+  recovered?: true;
   center: [number, number, number];
   normal?: [number, number, number];
   axis?: [number, number, number];
   area?: number;
   length?: number;
   diameter?: number;
+  /** An `ellipse` or `curve` form: whether the edge returns to its start. */
+  closed?: boolean;
+  /** A `curve` form: whether the edge lies in one plane. */
+  planar?: boolean;
 };
 
 /** The fields of `POST api/resolve-selection`'s 200 answer a reference reads. */
@@ -175,7 +185,7 @@ export function buildSceneReference(
 /** Only the summary's own fields, so nothing else a match carries rides along. */
 function copyGeometry(summary: ReferenceGeometry): ReferenceGeometry {
   const out: ReferenceGeometry = { form: summary.form, center: summary.center };
-  for (const key of ['normal', 'axis', 'area', 'length', 'diameter'] as const) {
+  for (const key of ['surfaceType', 'curveType', 'recovered', 'normal', 'axis', 'area', 'length', 'diameter', 'closed', 'planar'] as const) {
     if (summary[key] !== undefined) {
       (out as Record<string, unknown>)[key] = summary[key];
     }

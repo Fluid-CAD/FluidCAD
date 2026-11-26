@@ -58,6 +58,25 @@ describe('buildSceneReference', () => {
     });
   });
 
+  it('keeps what a summary says of a free-form face, a spline and a recovered plane, and still not the match\'s own kind', () => {
+    const summaries = [
+      { form: 'surface', surfaceType: 'freeform', center: [0, 0, 15], area: 2400.5 },
+      { form: 'curve', curveType: 'spline', center: [120, 22, 10], length: 41.2, closed: false, planar: true },
+      { form: 'ellipse', center: [0, 0, 30], normal: [0, 0, 1], length: 44.9, closed: true },
+      { form: 'plane', recovered: true, center: [0, -8, 10], normal: [0, -1, 0], area: 280 },
+    ];
+    const answer = {
+      ...(rimEdges as ResolveSelectionAnswer),
+      matches: summaries.map((summary, index) => ({
+        ...rimEdges.matches[0], kind: index === 0 || index === 3 ? 'face' : 'edge', summary,
+      })),
+      count: summaries.length,
+    } as ResolveSelectionAnswer;
+
+    const built = buildSceneReference(answer, SLOT);
+    expect(built.ok && built.reference.geometry).toEqual(summaries);
+  });
+
   it('serializes without any shape id, index, scene-object id or $obj form', () => {
     for (const answer of [rimEdges, topFace, faceAndEdge]) {
       const built = buildSceneReference(answer as ResolveSelectionAnswer, SLOT);

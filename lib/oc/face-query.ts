@@ -76,6 +76,11 @@ export class FaceQuery {
     return facts.closedRim;
   }
 
+  /** {@link isSphereFaceRaw}, answered from the wrapper's cached class. */
+  static isSphereFace(face: Shape, diameter?: number): boolean {
+    return FaceQuery.isSphereOf(FaceQuery.classOf(face), diameter);
+  }
+
   /** {@link isTorusFaceRaw}, answered from the wrapper's cached class. */
   static isTorusFace(face: Shape, majorRadius?: number, minorRadius?: number): boolean {
     return FaceQuery.isTorusOf(FaceQuery.classOf(face), majorRadius, minorRadius);
@@ -398,6 +403,19 @@ export class FaceQuery {
       return false;
     }
     return !FaceQuery.hasClosedCircularRimRaw(face);
+  }
+
+  /** A spherical face (native or recovered), optionally of the given diameter. */
+  static isSphereFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
+    return FaceQuery.isSphereOf(SurfaceClassifier.classifyRaw(face), diameter);
+  }
+
+  /** A sphere whose diameter matches a requested one within {@link SurfaceClassifier.tolerance}. */
+  private static isSphereOf(surface: SurfaceClass, diameter?: number): boolean {
+    if (surface.kind !== 'sphere' || surface.radius === undefined) {
+      return false;
+    }
+    return diameter === undefined || Math.abs(surface.radius * 2 - diameter) <= SurfaceClassifier.tolerance();
   }
 
   static isTorusFaceRaw(face: TopoDS_Shape, majorRadius?: number, minorRadius?: number): boolean {

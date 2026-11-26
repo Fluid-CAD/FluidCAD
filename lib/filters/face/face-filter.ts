@@ -9,6 +9,10 @@ import { CylinderCurveFilter, NotCylinderCurveFilter } from "./cylinder-curve.js
 import { CylinderFilter, NotCylinderFilter } from "./cylinder.js";
 import { TorusFilter, NotTorusFilter } from "./torus-filter.js";
 import { PlanarFilter, NotPlanarFilter } from "./planar-filter.js";
+import { SphereFilter, NotSphereFilter } from "./sphere-filter.js";
+import { FreeformFilter, NotFreeformFilter } from "./freeform-filter.js";
+import { RevolvedFilter, NotRevolvedFilter } from "./revolved-filter.js";
+import { ExtrudedFilter, NotExtrudedFilter } from "./extruded-filter.js";
 import { NotOnPlaneFilter, OnPlaneFilter } from "./on-plane.js";
 import { NotParallelFilter, ParallelFilter } from "./parallel.js";
 import { PlaneObject } from "../../features/plane.js";
@@ -285,6 +289,76 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   notCone() {
     const filter = new NotConeFilter();
     this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects spherical faces — a ball, a domed cap, a ball-end fillet's
+   * corner — optionally matching a specific diameter. A B-spline face that
+   * traces a sphere counts as one.
+   * @param diameter - Optional diameter to match.
+   */
+  sphere(diameter?: number) {
+    this.filters.push(new SphereFilter(diameter));
+    return this;
+  }
+
+  /**
+   * Excludes spherical faces, optionally matching a specific diameter.
+   * @param diameter - Optional diameter to exclude.
+   */
+  notSphere(diameter?: number) {
+    this.filters.push(new NotSphereFilter(diameter));
+    return this;
+  }
+
+  /**
+   * Selects free-form faces — a loft between unlike sections, a sweep along
+   * a winding path, an imported sculpted surface — that are no plane,
+   * cylinder, cone, sphere or torus, and no {@link revolved} or
+   * {@link extruded} surface. A B-spline face that traces one of the
+   * elementary shapes is that shape, not free-form.
+   */
+  freeform() {
+    this.filters.push(new FreeformFilter());
+    return this;
+  }
+
+  /** Excludes free-form faces. */
+  notFreeform() {
+    this.filters.push(new NotFreeformFilter());
+    return this;
+  }
+
+  /**
+   * Selects revolved faces — a spline profile turned around an axis, a
+   * vase's wall — that are no plane, cylinder, cone, sphere or torus (those
+   * have their own predicates).
+   */
+  revolved() {
+    this.filters.push(new RevolvedFilter());
+    return this;
+  }
+
+  /** Excludes revolved faces. */
+  notRevolved() {
+    this.filters.push(new NotRevolvedFilter());
+    return this;
+  }
+
+  /**
+   * Selects extruded faces — the wall a spline or an ellipse sweeps when
+   * pushed along a straight line — that are no plane or cylinder (those
+   * have their own predicates).
+   */
+  extruded() {
+    this.filters.push(new ExtrudedFilter());
+    return this;
+  }
+
+  /** Excludes extruded faces. */
+  notExtruded() {
+    this.filters.push(new NotExtrudedFilter());
     return this;
   }
 

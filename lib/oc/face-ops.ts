@@ -143,6 +143,86 @@ export class FaceOps {
   }
 
   /**
+   * The direction the face faces as a whole: the mean of its outward unit
+   * normals, each weighted by the area around it, as a unit vector — or
+   * null when the face faces nowhere, its normals cancelling to a mean
+   * shorter than {@link FACES_NOWHERE_BELOW}. A flat face faces along its
+   * normal, a half cylinder its middle, a dome its pole; a bore, a boss
+   * wall and a whole sphere face nowhere. One point cannot say this for a
+   * face that wraps: the middle of its parameters is only the meridian
+   * opposite wherever the kernel put the seam.
+   *
+   * The mean is read on a grid over the face's UV bounds, whatever part of
+   * them the face's boundary trims away. Like {@link outwardNormalRaw}, it
+   * needs the face's orientation in its body.
+   */
+  static meanOutwardNormalRaw(face: TopoDS_Face): Vector3d | null {
+    const oc = getOC();
+    const rawFace = oc.TopoDS.Face(face);
+    const adaptor = new oc.BRepAdaptor_Surface(rawFace, true);
+    const point = new oc.gp_Pnt();
+    const alongU = new oc.gp_Vec();
+    const alongV = new oc.gp_Vec();
+    try {
+      if (adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+        // One normal everywhere: read it once, exactly.
+        return FaceOps.outwardNormalRaw(rawFace);
+      }
+      const uMin = adaptor.FirstUParameter();
+      const vMin = adaptor.FirstVParameter();
+      const uStep = (adaptor.LastUParameter() - uMin) / FaceOps.MEAN_NORMAL_GRID;
+      const vStep = (adaptor.LastVParameter() - vMin) / FaceOps.MEAN_NORMAL_GRID;
+      if (!Number.isFinite(uStep) || !Number.isFinite(vStep)) {
+        return null;
+      }
+      // dS/du × dS/dv is the normal scaled by the area its cell covers, so
+      // the sum over the cells is the area-weighted sum of unit normals, and
+      // a degenerate point (a pole, an apex) adds nothing to it.
+      let sum = new Vector3d(0, 0, 0);
+      let area = 0;
+      for (let i = 0; i < FaceOps.MEAN_NORMAL_GRID; i++) {
+        for (let j = 0; j < FaceOps.MEAN_NORMAL_GRID; j++) {
+          adaptor.D1(uMin + (i + 0.5) * uStep, vMin + (j + 0.5) * vStep, point, alongU, alongV);
+          const scaled = new Vector3d(alongU.X(), alongU.Y(), alongU.Z())
+            .cross(new Vector3d(alongV.X(), alongV.Y(), alongV.Z()));
+          sum = sum.add(scaled);
+          area += scaled.length();
+        }
+      }
+      if (!(area > 0) || sum.length() < FaceOps.FACES_NOWHERE_BELOW * area) {
+        return null;
+      }
+      const mean = sum.normalize();
+      return rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED ? mean.negate() : mean;
+    } finally {
+      alongV.delete();
+      alongU.delete();
+      point.delete();
+      adaptor.delete();
+      rawFace.delete();
+    }
+  }
+
+  /**
+   * How long the mean of a face's unit normals must be for the face to
+   * face anywhere — unit: dimensionless. A flat face's is 1, a half
+   * cylinder's 0.64, a hemisphere's 0.5; a cylinder open by a 20° slit
+   * comes to 0.06 and a full wall with 5° of draft to 0.09, and neither
+   * faces a way a person would name.
+   */
+  static readonly FACES_NOWHERE_BELOW = 0.1;
+
+  /**
+   * Cells each way in the grid {@link meanOutwardNormalRaw} reads, at their
+   * middles. Eight equal steps cancel exactly round a full turn, as any
+   * even count does, and the cell middles stay off the seam, the poles and
+   * an apex; on a half cylinder they put the mean's length within 1% and
+   * its direction on the bisector. 64 evaluations cost about a tenth of a
+   * millisecond per face, once.
+   */
+  private static readonly MEAN_NORMAL_GRID = 8;
+
+  /**
    * The centre of the face's UV bounds, where {@link outwardNormalRaw}
    * probes by default. A caller that pairs that normal with the surface
    * point passes this to both, so they come from one parameter.

@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import {
-  sketch, line, arc, spline, circle, ellipse, fillet, extrude, revolve, loft, sphere, select, plane, repeat,
+  sketch, line, arc, spline, circle, ellipse, fillet, extrude, cut, revolve, loft, sphere, select, plane, repeat,
 } from "../../core/index.js";
+import { Extrude } from "../../features/extrude.js";
 import { face } from "../../filters/index.js";
 import { FaceFilterBuilder } from "../../filters/face/face-filter.js";
 import { FacingFilter } from "../../filters/face/facing.js";
@@ -45,8 +46,7 @@ function circleToEllipse() {
 
 /**
  * A spherical cap on a disc: the profile's arc is centred 10 below the base,
- * so the cap rises from 45° to the pole and its centre normal leans 22.5°
- * off the z axis.
+ * so the cap rises from 45° at its rim to the pole.
  */
 function dome() {
   sketch("xz", () => {
@@ -179,34 +179,112 @@ describe("face kind predicates", () => {
       expect(count(vector)).toBe(1);
     });
 
-    it("keeps a dome's cap, and leaves it out when within is tighter than its lean", () => {
+    it("keeps a dome's cap straight up, however tight within is", () => {
       dome();
       const up = select(face().facing("z")) as SelectSceneObject;
-      const tight = select(face().facing("z", 20)) as SelectSceneObject;
-      const loose = select(face().facing("z", 25)) as SelectSceneObject;
+      const tight = select(face().facing("z", 0.001)) as SelectSceneObject;
+      const sideways = select(face().facing("x", 89)) as SelectSceneObject;
       const down = select(face().facing("-z")) as SelectSceneObject;
       render();
+      // The cap rises from 45° at its rim to the pole all the way round the
+      // z axis: as a whole it faces +z, wherever its seam lies.
       expect(kinds(up)).toEqual(["sphere"]);
-      expect(count(tight)).toBe(0);
-      expect(kinds(loose)).toEqual(["sphere"]);
+      expect(kinds(tight)).toEqual(["sphere"]);
+      expect(count(sideways)).toBe(0);
       expect(kinds(down)).toEqual(["plane"]);
     });
 
     it("works on a free-form face", () => {
       circleToEllipse();
-      const upward = select(face().facing("z", 89)) as SelectSceneObject;
-      const top = select(face().facing("z", 1)) as SelectSceneObject;
+      const upward = select(face().facing("z", 5)) as SelectSceneObject;
+      const sideways = select(face().facing("x", 80)) as SelectSceneObject;
       const downward = select(face().facing("-z", 89)) as SelectSceneObject;
       render();
-      // The loft narrows as it rises, so its wall leans up and out: within
-      // 89° of up, though nowhere near straight up like the top end.
+      // The loft narrows as it rises, so its wall leans up and out all the
+      // way round: as a whole it faces up, like the top end.
       expect(kinds(upward)).toEqual(["freeform", "plane"]);
-      expect(kinds(top)).toEqual(["plane"]);
+      expect(count(sideways)).toBe(0);
       expect(kinds(downward)).toEqual(["plane"]);
       const wall = (upward.getShapes() as Face[]).find(f => SurfaceClassifier.classify(f).kind === "freeform")!;
-      const normal = FaceQuery.centreNormal(wall)!;
-      expect(normal.z).toBeGreaterThan(0);
-      expect(Math.hypot(normal.x, normal.y)).toBeGreaterThan(normal.z);
+      expect(FaceQuery.meanNormal(wall)!.z).toBeGreaterThan(0.999);
+    });
+
+    it("finds no direction for a bore or a boss wall, which notFacing() keeps", () => {
+      sketch("xy", () => {
+        testRect(40, 20);
+      });
+      const plate = extrude(5) as Extrude;
+      sketch(plate.endFaces(), () => {
+        circle([10, 10], 6);
+      });
+      cut();
+      sketch(plate.endFaces(), () => {
+        circle([30, 10], 6);
+      });
+      extrude(8);
+      const all = select(face()) as SelectSceneObject;
+      const alongX = select(face().facing("x")) as SelectSceneObject;
+      const anywhere = (["x", "-x", "y", "-y", "z", "-z"] as const).map(d => select(face().cylinder().facing(d, 90)) as SelectSceneObject);
+      const notAlongX = select(face().cylinder().notFacing("x")) as SelectSceneObject;
+      render();
+      const round = (all.getShapes() as Face[]).filter(f => SurfaceClassifier.classify(f).kind === "cylinder");
+      expect(round).toHaveLength(2);
+      expect(round.map(f => FaceQuery.meanNormal(f))).toEqual([null, null]);
+      // The plate's +x wall alone: neither the bore nor the boss wall faces +x.
+      expect(kinds(alongX)).toEqual(["plane"]);
+      expect((alongX.getShapes()[0] as Face).center().x).toBeCloseTo(40, 6);
+      expect(anywhere.map(count)).toEqual([0, 0, 0, 0, 0, 0]);
+      expect(count(notAlongX)).toBe(2);
+    });
+
+    it("finds no direction for a whole sphere", () => {
+      sphere(10);
+      const anywhere = select(face().facing("z", 180)) as SelectSceneObject;
+      const nowhere = select(face().notFacing("z", 180)) as SelectSceneObject;
+      render();
+      expect(count(anywhere)).toBe(0);
+      expect(kinds(nowhere)).toEqual(["sphere"]);
+    });
+
+    it("keeps a slot's half-round end along the slot, at its middle", () => {
+      sketch("xy", () => {
+        line([-10, -5], [10, -5]);
+        arc([10, -5], [10, 5], [10, 0]);
+        line([10, 5], [-10, 5]);
+        arc([-10, 5], [-10, -5], [-10, 0]);
+      });
+      extrude(4);
+      const far = select(face().facing("x", 1)) as SelectSceneObject;
+      const near = select(face().facing("-x", 1)) as SelectSceneObject;
+      const tilted = select(face().cylinderCurve().facing([1, 1, 0], 44)) as SelectSceneObject;
+      render();
+      expect(kinds(far)).toEqual(["cylinder"]);
+      expect((far.getShapes()[0] as Face).center().x).toBeGreaterThan(10);
+      expect(kinds(near)).toEqual(["cylinder"]);
+      expect((near.getShapes()[0] as Face).center().x).toBeLessThan(-10);
+      // 45° off the end's middle, though the end's own normals reach that far round.
+      expect(count(tilted)).toBe(0);
+      const normal = FaceQuery.meanNormal(far.getShapes()[0] as Face)!;
+      expect([normal.x, normal.y, normal.z].map(v => Math.round(v * 1e9) / 1e9 + 0)).toEqual([1, 0, 0]);
+    });
+
+    it("faces a slot's cut end back into the slot, out of the material", () => {
+      sketch("xy", () => {
+        testRect(60, 30, { at: [-30, -15] });
+      });
+      const plate = extrude(4) as Extrude;
+      sketch(plate.endFaces(), () => {
+        line([-10, -5], [10, -5]);
+        arc([10, -5], [10, 5], [10, 0]);
+        line([10, 5], [-10, 5]);
+        arc([-10, 5], [-10, -5], [-10, 0]);
+      });
+      cut();
+      const backward = select(face().cylinderCurve().facing("-x", 1)) as SelectSceneObject;
+      render();
+      // The end of the slot at x = 10..15 is hollow on its -x side.
+      expect(count(backward)).toBe(1);
+      expect((backward.getShapes()[0] as Face).center().x).toBeGreaterThan(10);
     });
 
     it("turns its direction with a mirrored repeat", () => {

@@ -518,7 +518,7 @@ const PRINCIPAL_DIRECTIONS: { name: PrincipalDirection; vector: Vector3d }[] = [
 ];
 
 /**
- * How far a picked face's centre normal may lean from a principal direction
+ * How far a picked face's mean normal may lean from a principal direction
  * for `facing()` to be offered: 20°, well inside the 45° the predicate
  * allows by default, so the written filter keeps holding after small edits.
  */
@@ -526,14 +526,14 @@ const FACING_OFFER_DEGREES = 20;
 
 /**
  * `facing('z')` … `facing('-y')` — the principal direction every picked
- * face's centre normal points within {@link FACING_OFFER_DEGREES} of. The
+ * face's mean normal points within {@link FACING_OFFER_DEGREES} of. The
  * qualitative way to name the top of a curved or free-form shape. A set of
  * flat picks gets none: the plane atoms (`onPlane`, `farthest`,
  * `parallelTo`) name a flat face exactly, where `facing()` would widen to
  * every face tilted within its angle.
  */
 function facingAtoms(probes: FaceProbe[]): FaceAtom[] {
-  if (probes.length === 0 || probes.some(p => p.centreNormal === null)) {
+  if (probes.length === 0 || probes.some(p => p.meanNormal === null)) {
     return [];
   }
   if (probes.every(p => p.props.surfaceType === 'plane' || p.props.surfaceType === 'circle')) {
@@ -541,7 +541,7 @@ function facingAtoms(probes: FaceProbe[]): FaceAtom[] {
   }
   const cosine = Math.cos((FACING_OFFER_DEGREES * Math.PI) / 180);
   const direction = PRINCIPAL_DIRECTIONS.find(d =>
-    probes.every(p => p.centreNormal!.normalize().dot(d.vector) >= cosine));
+    probes.every(p => p.meanNormal!.normalize().dot(d.vector) >= cosine));
   if (!direction) {
     return [];
   }

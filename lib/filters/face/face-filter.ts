@@ -364,14 +364,21 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects faces that face a direction: the outward normal at the face's
-   * centre lies within `within` degrees of it. Works on every kind of face,
-   * so it is the way to say "the top of this free-form shape":
-   * `face().facing('z')` keeps a box's top and a dome's upper faces, and
-   * leaves out the walls. A surface's faces face the way the surface is
-   * oriented. Under a repeat or a mirror the direction moves with the copy.
-   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
-   * @param within - The largest angle, in degrees, between the normal and the direction (default 45).
+   * Selects faces that face a direction. A face faces along its mean
+   * outward normal — the average of its normals over its whole surface,
+   * weighted by area — and is kept when that lies within `within` degrees
+   * of the direction. A flat face faces along its normal, a half-round end
+   * faces its middle, a dome faces straight out of its pole. It works on
+   * every kind of face, so it is the way to say "the top of this free-form
+   * shape": `face().facing('z')` keeps a box's top and a dome, and leaves
+   * out the walls.
+   *
+   * A face whose normals cancel out faces nowhere and is never kept,
+   * whatever the angle: a bore, the wall of a round boss, a whole sphere
+   * or torus. A surface's faces face the way the surface is oriented. Under
+   * a repeat or a mirror the direction moves with the copy.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. A plane name such as `'xy'` is not a direction and throws.
+   * @param within - The largest angle, in degrees, between the face's mean normal and the direction (default 45).
    */
   facing(direction: DirectionLike, within: number = 45) {
     this.filters.push(new FacingFilter(checkDirection(direction, 'facing(direction, within)'), FaceFilterBuilder.checkWithin(within)));
@@ -379,9 +386,11 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Excludes faces that face a direction (see {@link facing}).
-   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
-   * @param within - The largest angle, in degrees, between the normal and the direction (default 45).
+   * Excludes faces that face a direction (see {@link facing}). A face that
+   * faces nowhere — a bore, a whole sphere — faces no direction, so it is
+   * kept.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. A plane name such as `'xy'` is not a direction and throws.
+   * @param within - The largest angle, in degrees, between the face's mean normal and the direction (default 45).
    */
   notFacing(direction: DirectionLike, within: number = 45) {
     this.filters.push(new NotFacingFilter(checkDirection(direction, 'notFacing(direction, within)'), FaceFilterBuilder.checkWithin(within)));

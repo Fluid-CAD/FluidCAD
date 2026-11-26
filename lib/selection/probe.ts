@@ -52,8 +52,8 @@ export type FaceProbe = {
   props: FaceProperties;
   /** The kind of body the face belongs to, as `ofSolid()` / `ofSurface()` read it. */
   bodyKind: BodyKind | null;
-  /** The outward normal at the face's UV centre, as `facing()` reads it; null at a degenerate apex. */
-  centreNormal: Vector3d | null;
+  /** The face's mean outward normal, as `facing()` reads it; null for a face that faces nowhere. */
+  meanNormal: Vector3d | null;
   edgeProps: EdgeProperties[];
   /** Boundary vertex points — what the face plane-side predicates test. */
   points: Point[];
@@ -117,7 +117,7 @@ export function probeFace(face: Face, owner: Shape | null): FaceProbe {
   return {
     face, props, edgeProps, points, edgeCount: edges.length,
     bodyKind: body ? bodyKindOf(body) : null,
-    centreNormal: FaceQuery.centreNormal(face),
+    meanNormal: FaceQuery.meanNormal(face),
     center: ShapeMeasure.centerOfMass(face),
     size: ShapeMeasure.size(face),
   };

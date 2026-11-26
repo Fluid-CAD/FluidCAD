@@ -22,8 +22,8 @@ import { CurveClass, CurveClassifier } from "./curve-classifier.js";
  * instead; see {@link SurfaceClassifier.derived}.
  */
 type SurfaceFacts = {
-  /** The outward normal at the face's UV centre; null where it is undefined. */
-  centreNormal?: Vector3d | null;
+  /** The mean outward normal; null for a face that faces nowhere. */
+  meanNormal?: Vector3d | null;
 };
 
 const surfaceFacts = new WeakMap<Shape, SurfaceFacts>();
@@ -132,16 +132,17 @@ export class FaceQuery {
   }
 
   /**
-   * The face's outward unit normal at the centre of its UV bounds (see
-   * {@link FaceOps.outwardNormalRaw}), kept per wrapper; null where the
-   * normal is undefined. The face must carry its orientation in its body.
+   * The direction the face faces as a whole — the area-weighted mean of
+   * its outward normals (see {@link FaceOps.meanOutwardNormalRaw}), kept
+   * per wrapper; null for a face that faces nowhere, such as a bore or a
+   * whole sphere. The face must carry its orientation in its body.
    */
-  static centreNormal(face: Shape): Vector3d | null {
+  static meanNormal(face: Shape): Vector3d | null {
     const facts = surfaceFactsOf(face);
-    if (facts.centreNormal === undefined) {
-      facts.centreNormal = FaceOps.outwardNormalRaw(face.getShape() as TopoDS_Face);
+    if (facts.meanNormal === undefined) {
+      facts.meanNormal = FaceOps.meanOutwardNormalRaw(face.getShape() as TopoDS_Face);
     }
-    return facts.centreNormal;
+    return facts.meanNormal;
   }
 
   /** {@link isTorusFaceRaw}, answered from the wrapper's cached class. */

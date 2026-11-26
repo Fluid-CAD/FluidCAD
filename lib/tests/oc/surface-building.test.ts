@@ -115,7 +115,7 @@ describe("building on a recovered surface", () => {
     for (const face of planar) {
       expect(FaceQuery.forBuilding.isPlanar(face)).toBe(true);
       const facePlane = face.getPlane();
-      expect(facePlane.normal.dot(FaceQuery.centreNormal(face)!)).toBeCloseTo(1, 9);
+      expect(facePlane.normal.dot(FaceQuery.meanNormal(face)!)).toBeCloseTo(1, 9);
       expect(FaceOps.tryGetPlane(face)!.normal.dot(facePlane.normal)).toBeCloseTo(1, 12);
     }
     const curved = faces.filter(f => !FaceQuery.isPlanarFace(f));

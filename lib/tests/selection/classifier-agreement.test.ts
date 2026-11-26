@@ -18,6 +18,8 @@ import { CurveClassifier } from "../../oc/curve-classifier.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { resolveHelixEdgeSource } from "../../features/helix-geometry.js";
+import { Plane } from "../../math/plane.js";
+import { getOC } from "../../oc/init.js";
 
 /**
  * The filters, the properties and measure read a face's or an edge's kind
@@ -160,6 +162,113 @@ describe("classifier agreement", () => {
       expect(edgeFilterKind(e)).toBe(kind === "ellipse" ? "other" : kind);
     }
     expect([...seen].sort()).toEqual(["arc", "circle", "ellipse", "line", "spline"]);
+  });
+
+  describe("flat faces bounded by circles", () => {
+    /** The two flat ends of an extruded profile. */
+    function ends(profile: () => void): Face[] {
+      sketch("xy", profile);
+      const body = extrude(5) as unknown as SceneObject;
+      render();
+      return (body.getShapes()[0] as Solid).getFaces().filter(f => FaceQuery.isPlanarFace(f) && FaceQuery.isFaceParallelToPlane(f, Plane.XY()));
+    }
+
+    /** What the filter, the properties and measure each say of one face. */
+    function read(f: Face) {
+      const props = FaceProps.of(f);
+      return {
+        circle: FaceQuery.isCircleFace(f),
+        circle40: FaceQuery.isCircleFace(f, 40),
+        circle16: FaceQuery.isCircleFace(f, 16),
+        props: props.surfaceType,
+        radius: props.radius,
+        measured: classifyFace(f.getShape()).radius,
+      };
+    }
+
+    it("a disc is a circle of its diameter to all three", () => {
+      for (const f of ends(() => { circle([0, 0], 40); })) {
+        expect(read(f)).toEqual({ circle: true, circle40: true, circle16: false, props: "circle", radius: 20, measured: 20 });
+      }
+    });
+
+    it("a washer is a circle of its outer diameter to all three", () => {
+      // The properties once gave the hole's radius, which no circle(d) matched.
+      const faces = ends(() => { circle([0, 0], 40); circle([0, 0], 16); });
+      expect(faces).toHaveLength(2);
+      for (const f of faces) {
+        expect(read(f)).toEqual({ circle: true, circle40: true, circle16: false, props: "circle", radius: 20, measured: 20 });
+        expect(FaceQuery.isCircleFace(f, 2 * FaceProps.of(f).radius!)).toBe(true);
+      }
+    });
+
+    it("a disc with a square hole is a circle too, as circle() has always had it", () => {
+      const faces = ends(() => {
+        circle([0, 0], 40);
+        line([-5, -5], [5, -5]);
+        line([5, -5], [5, 5]);
+        line([5, 5], [-5, 5]);
+        line([-5, 5], [-5, -5]);
+      });
+      expect(faces).toHaveLength(2);
+      for (const f of faces) {
+        expect(read(f)).toEqual({ circle: true, circle40: true, circle16: false, props: "circle", radius: 20, measured: 20 });
+      }
+    });
+
+    it("a plate with a round hole is a plane to all three", () => {
+      const faces = ends(() => {
+        line([-20, -20], [20, -20]);
+        line([20, -20], [20, 20]);
+        line([20, 20], [-20, 20]);
+        line([-20, 20], [-20, -20]);
+        circle([0, 0], 16);
+      });
+      expect(faces).toHaveLength(2);
+      for (const f of faces) {
+        expect(read(f)).toEqual({ circle: false, circle40: false, circle16: false, props: "plane", radius: undefined, measured: undefined });
+      }
+    });
+
+    it("a rim split into arcs leaves the first hole to decide, as circle() has always had it", () => {
+      // The outer boundary is two half circles, so no full circle is met on
+      // it: the filter has always gone on to the hole. Odd, and kept, so the
+      // properties follow the filter; measure reads the outer circle. A
+      // sketch joins such arcs into one circle, so the face is built by hand.
+      const oc = getOC();
+      const owned: { delete(): void }[] = [];
+      const own = <T extends { delete(): void }>(object: T): T => {
+        owned.push(object);
+        return object;
+      };
+      try {
+        const frame = own(new oc.gp_Ax2());
+        const rim = own(new oc.gp_Circ(frame, 20));
+        const halves = [[0, Math.PI], [Math.PI, 2 * Math.PI]].map(([from, to]) =>
+          own(own(new oc.BRepBuilderAPI_MakeEdge(rim, from, to)).Edge()));
+        const outer = own(own(new oc.BRepBuilderAPI_MakeWire(halves[0], halves[1])).Wire());
+        const bore = own(own(new oc.BRepBuilderAPI_MakeEdge(own(new oc.gp_Circ(frame, 8)))).Edge());
+        const hole = own(own(new oc.BRepBuilderAPI_MakeWire(bore)).Wire());
+        const maker = own(new oc.BRepBuilderAPI_MakeFace(outer, true));
+        maker.Add(own(oc.TopoDS.Wire(own(hole.Reversed()))));
+        const f = Face.fromTopoDSFace(own(maker.Face()));
+        expect(f.getOuterWire()!.getEdges()).toHaveLength(2);
+        expect(read(f)).toEqual({ circle: true, circle40: false, circle16: true, props: "circle", radius: 8, measured: 20 });
+        expect(FaceProps.getProperties(f.getShape())).toMatchObject({ surfaceType: "circle", radius: 8 });
+      } finally {
+        for (const object of owned.reverse()) {
+          object.delete();
+        }
+      }
+    });
+
+    it("reads a raw face as it reads its wrapper", () => {
+      for (const f of ends(() => { circle([0, 0], 40); circle([0, 0], 16); })) {
+        expect(FaceProps.getProperties(f.getShape())).toEqual({ ...FaceProps.of(f) });
+        expect(FaceQuery.isCircleFaceRaw(f.getShape(), 40)).toBe(true);
+        expect(FaceQuery.isCircleFaceRaw(f.getShape(), 16)).toBe(false);
+      }
+    });
   });
 
   describe("properties of a wrapper", () => {

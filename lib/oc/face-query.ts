@@ -9,10 +9,11 @@ import { Point } from "../math/point.js";
 import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
+import type { Wire } from "../common/wire.js";
 import { mmTol } from "../units/tolerance.js";
 import { SurfaceFrame, SurfaceFrames } from "./surface-frames.js";
 import { SurfaceClass, SurfaceClassifier } from "./surface-classifier.js";
-import { CurveClassifier } from "./curve-classifier.js";
+import { CurveClass, CurveClassifier } from "./curve-classifier.js";
 
 /**
  * What `facing()` reads off one face, kept per wrapper. A wrapper's OC
@@ -36,6 +37,44 @@ function surfaceFactsOf(face: Shape): SurfaceFacts {
   return facts;
 }
 
+/** A circle bounding a flat face; see {@link FaceCircles}. */
+export type FaceCircle = {
+  center: Point;
+  radius: number;
+  /** True when an edge tracing it is a B-spline recovered as a circle, so its radius holds to the recovery tolerance only. */
+  recovered: boolean;
+};
+
+/**
+ * The circles of a flat face, read once for the `circle()` filter, the
+ * face's properties and measure; see {@link FaceQuery.circlesOf}.
+ */
+export type FaceCircles = {
+  /**
+   * What makes the face a `circle()` face, and the circle that filter's
+   * diameter is matched against: the face's outer boundary when that is one
+   * full circle, whatever its holes (a disc, a washer, a disc with a square
+   * hole). Null for any other flat face — but for one whose outer boundary
+   * is circular arcs only: there the first hole that is not arcs alone
+   * decides, and a full circle makes the face a circle of that hole's size.
+   * That last rule is odd, and kept because it is what `circle()` has
+   * always selected.
+   */
+  disc: FaceCircle | null;
+  /**
+   * The circle the outer boundary traces — one closed edge, or several arcs
+   * sharing centre and radius (a revolve seam or a boolean splits a disc's
+   * rim without changing what it bounds). Null when it traces anything else.
+   */
+  outer: FaceCircle | null;
+};
+
+const NO_CIRCLES: FaceCircles = { disc: null, outer: null };
+
+// Relative part of the match between arcs of one outer circle; the absolute
+// floor is 1 mm read in the active unit.
+const CARRIER_FIT_TOL = 1e-6;
+
 export class FaceQuery {
   // Wrapper methods (public API for external callers). The predicates name
   // a face: they read its class as SurfaceClassifier.classify gives it. A
@@ -44,7 +83,7 @@ export class FaceQuery {
 
   /** {@link isCircleFaceRaw}, answered from the wrapper's cached class. */
   static isCircleFace(face: Shape, diameter?: number): boolean {
-    return FaceQuery.isCircleOf(FaceQuery.classOf(face), face.getShape(), diameter);
+    return FaceQuery.isCircleOf(FaceQuery.circlesOf(face).disc, diameter);
   }
 
   /** {@link isConeFaceRaw}, answered from the wrapper's cached class. */
@@ -402,36 +441,113 @@ export class FaceQuery {
   // kept per wrapper.
 
   /**
-   * A flat, disc-shaped face: planar (see {@link SurfaceClassifier}), its
-   * edges circles or arcs (see {@link CurveClassifier}), one of them a full
-   * circle of the given diameter when one is asked for.
+   * A flat, disc-shaped face: planar (see {@link SurfaceClassifier}) with a
+   * full circle for its outer boundary (see {@link FaceCircles.disc}), of
+   * the given diameter when one is asked for.
    */
   static isCircleFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
-    return FaceQuery.isCircleOf(SurfaceClassifier.classifyRaw(face), face, diameter);
+    return FaceQuery.isCircleOf(FaceQuery.circlesOfRaw(face, SurfaceClassifier.classifyRaw(face)).disc, diameter);
   }
 
-  private static isCircleOf(surface: SurfaceClass, face: TopoDS_Shape, diameter?: number): boolean {
-    if (surface.kind !== 'plane') {
+  /** A disc of the given diameter, if one is asked for: to OCCT's own precision for a native circle, to the recovery tolerance for one recovered from a B-spline. */
+  private static isCircleOf(disc: FaceCircle | null, diameter?: number): boolean {
+    if (!disc) {
       return false;
     }
-    const oc = getOC();
-    // The explorer copies are this read's own.
-    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
-      for (const edge of edges) {
-        const curve = CurveClassifier.classifyRaw(edge);
-        if (curve.kind !== 'circle' && curve.kind !== 'arc') {
-          return false;
-        }
-        if (curve.kind === 'circle') {
-          if (diameter === undefined) {
-            return true;
-          }
-          const tolerance = curve.recovered ? CurveClassifier.tolerance() : oc.Precision.Confusion();
-          return Math.abs((curve.radius ?? 0) - diameter / 2) <= tolerance;
-        }
+    if (diameter === undefined) {
+      return true;
+    }
+    const tolerance = disc.recovered ? CurveClassifier.tolerance() : getOC().Precision.Confusion();
+    return Math.abs(disc.radius - diameter / 2) <= tolerance;
+  }
+
+  /**
+   * The circles of a flat face (see {@link FaceCircles}), read off the
+   * wrapper's wires and their edges' cached classes, and kept with the
+   * face's class. The one reading the `circle()` filter, the face's
+   * properties and measure share, so they name the same circle.
+   */
+  static circlesOf(face: Shape): FaceCircles {
+    return SurfaceClassifier.derived(face as Face, 'circles', () => {
+      if (FaceQuery.classOf(face).kind !== 'plane') {
+        return NO_CIRCLES;
       }
-      return false;
+      const typed = face as Face;
+      const outer = typed.getOuterWire();
+      const classes = (wire: Wire) => wire.getEdges().map(edge => CurveClassifier.classify(edge));
+      return FaceQuery.circlesFrom(outer ? classes(outer) : [], typed.getHoleWires().map(classes));
     });
+  }
+
+  /** {@link circlesOf} for a raw face of class `surface`, asked of OCCT every time. */
+  static circlesOfRaw(face: TopoDS_Shape, surface: SurfaceClass): FaceCircles {
+    if (surface.kind !== 'plane') {
+      return NO_CIRCLES;
+    }
+    const oc = getOC();
+    const typed = oc.TopoDS.Face(face);
+    const outerWire = oc.BRepTools.OuterWire(typed);
+    try {
+      // The explorer copies are this read's own.
+      const classes = (wire: TopoDS_Shape) => Explorer.withShapes(wire, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges =>
+        edges.map(edge => CurveClassifier.classifyRaw(edge)));
+      return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum, wires => FaceQuery.circlesFrom(
+        outerWire.IsNull() ? [] : classes(outerWire),
+        wires.filter(wire => !wire.IsSame(outerWire)).map(classes),
+      ));
+    } finally {
+      outerWire.delete();
+      typed.delete();
+    }
+  }
+
+  /** The circles of a flat face given its loops' edges, the outer loop apart from the holes (in stored order). */
+  private static circlesFrom(outer: CurveClass[], holes: CurveClass[][]): FaceCircles {
+    return { disc: FaceQuery.firstFullCircle([outer, ...holes]), outer: FaceQuery.oneCircle(outer) };
+  }
+
+  /**
+   * The first full circle met walking the loops in order, every edge before
+   * it an arc; null once any other edge is met first, or none is found.
+   */
+  private static firstFullCircle(loops: CurveClass[][]): FaceCircle | null {
+    for (const curve of loops.flat()) {
+      if (curve.kind === 'circle') {
+        return FaceQuery.circleOf(curve);
+      }
+      if (curve.kind !== 'arc') {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /** The circle a loop traces: one closed edge, or arcs sharing centre and radius. */
+  private static oneCircle(loop: CurveClass[]): FaceCircle | null {
+    let found: FaceCircle | null = null;
+    for (const curve of loop) {
+      const rim = FaceQuery.circleOf(curve);
+      if (!rim) {
+        return null;
+      }
+      if (!found) {
+        found = rim;
+        continue;
+      }
+      const tolerance = CARRIER_FIT_TOL * (mmTol(1) + rim.radius);
+      if (rim.center.distanceTo(found.center) > tolerance || Math.abs(rim.radius - found.radius) > tolerance) {
+        return null;
+      }
+      found = { ...found, recovered: found.recovered || rim.recovered };
+    }
+    return found;
+  }
+
+  private static circleOf(curve: CurveClass): FaceCircle | null {
+    if ((curve.kind !== 'circle' && curve.kind !== 'arc') || !curve.center || curve.radius === undefined) {
+      return null;
+    }
+    return { center: curve.center, radius: curve.radius, recovered: curve.recovered };
   }
 
   static isConeFaceRaw(face: TopoDS_Shape): boolean {

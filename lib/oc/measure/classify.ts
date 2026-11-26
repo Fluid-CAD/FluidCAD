@@ -1,12 +1,11 @@
-import type { gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
+import type { gp_Pnt, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
-import { Explorer } from "../explorer.js";
 import { CurveClassifier } from "../curve-classifier.js";
 import { SurfaceClass, SurfaceClassifier } from "../surface-classifier.js";
 import { FaceOps } from "../face-ops.js";
+import { FaceQuery } from "../face-query.js";
 import type { MeasureEntityKind, MeasureVec } from "./measure-types.js";
-import { dist, dot, projectPointOnLine, scale } from "./vec.js";
-import { mmTol } from "../../units/tolerance.js";
+import { dot, projectPointOnLine, scale } from "./vec.js";
 
 export type FaceForm = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'surface';
 export type EdgeForm = 'line' | 'circle' | 'arc' | 'ellipse' | 'curve';
@@ -64,46 +63,6 @@ function vecFromPoint(p: { x: number; y: number; z: number }): MeasureVec {
   return { x: p.x, y: p.y, z: p.z };
 }
 
-// Relative part of the circular-boundary match; the absolute floor is 1 mm
-// read in the active unit.
-const CARRIER_FIT_TOL = 1e-6;
-
-/**
- * The circle bounding a planar face when its outer wire is one circle — a
- * single closed edge or several arcs sharing center and radius (a revolve
- * seam or boolean splits a disc's rim without changing what it bounds).
- */
-function detectCircularBoundary(face: TopoDS_Face): { center: MeasureVec; radius: number } | null {
-  const oc = getOC();
-  const outerWire = oc.BRepTools.OuterWire(face);
-  const edges = Explorer.findShapes(outerWire, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
-  outerWire.delete();
-
-  let found: { center: MeasureVec; radius: number } | null = null;
-  let consistent = true;
-  for (const edgeShape of edges) {
-    if (!consistent) {
-      edgeShape.delete();
-      continue;
-    }
-    // Native circles, and the B-splines a loft's round ends are made of.
-    const curve = CurveClassifier.classifyRaw(edgeShape);
-    const rim = (curve.kind === 'circle' || curve.kind === 'arc') && curve.center && curve.radius !== undefined
-      ? { center: vecFromPoint(curve.center), radius: curve.radius }
-      : null;
-    edgeShape.delete();
-    if (!rim) {
-      consistent = false;
-    } else if (!found) {
-      found = rim;
-    } else {
-      const tol = CARRIER_FIT_TOL * (mmTol(1) + rim.radius);
-      consistent = dist(rim.center, found.center) <= tol && Math.abs(rim.radius - found.radius) <= tol;
-    }
-  }
-  return consistent ? found : null;
-}
-
 /**
  * A face's form, carrier and size, read off its {@link SurfaceClassifier}
  * class — so a flat B-spline measures as the plane `face().planar()` admits.
@@ -144,9 +103,10 @@ export function classifyFace(shape: TopoDS_Shape, surface: SurfaceClass = Surfac
     result.point = vecFromPoint(surface.origin);
     result.dir = vecFromPoint(surface.normal);
     result.dirKind = 'normal';
-    const rim = detectCircularBoundary(face);
+    // The circle the `circle()` filter and the face's properties read too.
+    const rim = FaceQuery.circlesOfRaw(face, surface).outer;
     if (rim) {
-      result.center = rim.center;
+      result.center = vecFromPoint(rim.center);
       result.radius = rim.radius;
     }
   } else if (surface.kind === 'cylinder' && surface.axis) {

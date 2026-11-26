@@ -1,9 +1,6 @@
-import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
+import type { TopoDS_Shape } from "ocjs-fluidcad";
 import type { Face } from "../common/face.js";
-import { getOC } from "./init.js";
-import { Explorer } from "./explorer.js";
-import { FaceQuery } from "./face-query.js";
-import { CurveClassifier } from "./curve-classifier.js";
+import { FaceCircle, FaceQuery } from "./face-query.js";
 import { SurfaceClass, SurfaceClassifier } from "./surface-classifier.js";
 
 export interface FaceProperties {
@@ -28,8 +25,9 @@ export class FaceProps {
   /**
    * The face's kind and sizes, read off its {@link SurfaceClassifier} class
    * — the classification the face filters read too, so a probe and the
-   * predicate it instantiates agree on every face. A plane bounded by
-   * circles and arcs, one of them full, is a `circle`.
+   * predicate it instantiates agree on every face. A flat face with a full
+   * circle for its outer boundary is a `circle` of that circle's radius,
+   * as `face().circle()` has it (see {@link FaceQuery.circlesOf}).
    *
    * Reads the wrapper's kept class, and integrates the area only when it is
    * read.
@@ -37,31 +35,32 @@ export class FaceProps {
   static of(face: Face): FaceProperties {
     return FaceProps.fromClass(
       SurfaceClassifier.classify(face),
-      () => FaceProps.circularRim(face.getShape()),
+      () => FaceQuery.circlesOf(face).disc,
       () => FaceQuery.hasClosedCircularRim(face),
     );
   }
 
   /** {@link of} for a raw face: classified afresh, with every property read at once. */
   static getProperties(face: TopoDS_Shape): FaceProperties {
+    const surface = SurfaceClassifier.classifyRaw(face);
     // Spread out: the properties may outlive the raw face, which a lazy area would still read.
     return {
       ...FaceProps.fromClass(
-        SurfaceClassifier.classifyRaw(face),
-        () => FaceProps.circularRim(face),
+        surface,
+        () => FaceQuery.circlesOfRaw(face, surface).disc,
         () => FaceQuery.hasClosedCircularRimRaw(face),
       ),
     };
   }
 
-  /** A surface class as the properties shown for its face, given the radius of a flat face's circular rim and whether a cylinder closes. */
-  private static fromClass(surface: SurfaceClass, circularRim: () => number | null, closedRim: () => boolean): FaceProperties {
+  /** A surface class as the properties shown for its face, given the face's disc circle and whether a cylinder closes. */
+  private static fromClass(surface: SurfaceClass, disc: () => FaceCircle | null, closedRim: () => boolean): FaceProperties {
     const recovered = surface.recovered;
     switch (surface.kind) {
       case 'plane': {
-        const rim = circularRim();
+        const rim = disc();
         if (rim !== null) {
-          return { surfaceType: 'circle', recovered, radius: rim };
+          return { surfaceType: 'circle', recovered, radius: rim.radius };
         }
         return { surfaceType: 'plane', recovered, get areaMm2() { return surface.areaMm2; } };
       }
@@ -76,27 +75,5 @@ export class FaceProps {
       default:
         return { surfaceType: surface.kind, recovered, get areaMm2() { return surface.areaMm2; } };
     }
-  }
-
-  /**
-   * The radius of the full circle bounding a planar face whose edges are
-   * all circles or arcs (see {@link CurveClassifier}), else null.
-   */
-  private static circularRim(face: TopoDS_Shape): number | null {
-    const oc = getOC();
-    // The explorer copies are this read's own.
-    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
-      let radius: number | null = null;
-      for (const edge of edges) {
-        const curve = CurveClassifier.classifyRaw(edge);
-        if (curve.kind !== 'circle' && curve.kind !== 'arc') {
-          return null;
-        }
-        if (curve.kind === 'circle') {
-          radius = curve.radius ?? null;
-        }
-      }
-      return radius;
-    });
   }
 }

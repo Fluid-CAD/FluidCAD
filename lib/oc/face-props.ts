@@ -1,7 +1,9 @@
-import type { TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
+import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceQuery } from "./face-query.js";
+import { CurveClassifier } from "./curve-classifier.js";
+import { SurfaceClass, SurfaceClassifier } from "./surface-classifier.js";
 
 export interface FaceProperties {
   surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'other';
@@ -20,108 +22,59 @@ export interface FaceProperties {
 }
 
 export class FaceProps {
+  /**
+   * The face's kind and sizes, read off its {@link SurfaceClassifier} class
+   * — the classification the face filters read too, so a probe and the
+   * predicate it instantiates agree on every face. A plane bounded by
+   * circles and arcs, one of them full, is a `circle`; a revolved, extruded
+   * or free-form surface is `other`.
+   */
   static getProperties(face: TopoDS_Shape): FaceProperties {
-    const oc = getOC();
-    // The typed copy only serves this read.
-    const ocFace = oc.TopoDS.Face(face);
-    try {
-      return FaceProps.read(ocFace);
-    } finally {
-      ocFace.delete();
+    return FaceProps.fromClass(SurfaceClassifier.classifyRaw(face), face);
+  }
+
+  /** A surface class as the properties shown for `face`. */
+  static fromClass(surface: SurfaceClass, face: TopoDS_Shape): FaceProperties {
+    switch (surface.kind) {
+      case 'plane': {
+        const rim = FaceProps.circularRim(face);
+        if (rim !== null) {
+          return { surfaceType: 'circle', radius: rim };
+        }
+        return { surfaceType: 'plane', areaMm2: surface.areaMm2 };
+      }
+      case 'cylinder':
+        return { surfaceType: 'cylinder', radius: surface.radius, closed: FaceQuery.hasClosedCircularRimRaw(face) };
+      case 'sphere':
+        return { surfaceType: 'sphere', radius: surface.radius };
+      case 'torus':
+        return { surfaceType: 'torus', majorRadius: surface.majorRadius, minorRadius: surface.minorRadius };
+      case 'cone':
+        return { surfaceType: 'cone', halfAngleDeg: (surface.semiAngle ?? 0) * (180 / Math.PI) };
+      default:
+        return { surfaceType: 'other', areaMm2: surface.areaMm2 };
     }
   }
 
-  private static read(ocFace: TopoDS_Face): FaceProperties {
+  /**
+   * The radius of the full circle bounding a planar face whose edges are
+   * all circles or arcs (see {@link CurveClassifier}), else null.
+   */
+  private static circularRim(face: TopoDS_Shape): number | null {
     const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    const type = adaptor.GetType();
-
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      adaptor.delete();
-      // Check if it's a circular face (plane with a single closed circular edge)
-      let isCircle = false;
-      let circleRadius = 0;
-
-      // The explorer copies and the typed casts are this read's own.
-      Explorer.withShapes(ocFace, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
-        if (edges.length === 0) {
-          return;
+    // The explorer copies are this read's own.
+    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
+      let radius: number | null = null;
+      for (const edge of edges) {
+        const curve = CurveClassifier.classifyRaw(edge);
+        if (curve.kind !== 'circle' && curve.kind !== 'arc') {
+          return null;
         }
-        let allCircular = true;
-        let closedCircleFound = false;
-
-        for (const e of edges) {
-          const typed = oc.TopoDS.Edge(e);
-          const curveAdaptor = new oc.BRepAdaptor_Curve(typed);
-          typed.delete();
-          const curveType = curveAdaptor.GetType();
-          if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Circle) {
-            allCircular = false;
-            curveAdaptor.delete();
-            break;
-          }
-          if (curveAdaptor.IsClosed()) {
-            const circle = curveAdaptor.Circle();
-            circleRadius = circle.Radius();
-            circle.delete();
-            closedCircleFound = true;
-          }
-          curveAdaptor.delete();
+        if (curve.kind === 'circle') {
+          radius = curve.radius ?? null;
         }
-
-        isCircle = allCircular && closedCircleFound;
-      });
-
-      if (isCircle) {
-        return { surfaceType: 'circle', radius: circleRadius };
       }
-
-      const surfaceProps = new oc.GProp_GProps();
-      oc.BRepGProp.SurfaceProperties(ocFace, surfaceProps, false, false);
-      const areaMm2 = surfaceProps.Mass();
-      surfaceProps.delete();
-      return { surfaceType: 'plane', areaMm2 };
-    }
-
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
-      const cylinder = adaptor.Cylinder();
-      const radius = cylinder.Radius();
-      cylinder.delete();
-      adaptor.delete();
-      return { surfaceType: 'cylinder', radius, closed: FaceQuery.hasClosedCircularRimRaw(ocFace) };
-    }
-
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Sphere) {
-      const sphere = adaptor.Sphere();
-      const radius = sphere.Radius();
-      sphere.delete();
-      adaptor.delete();
-      return { surfaceType: 'sphere', radius };
-    }
-
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Torus) {
-      const torus = adaptor.Torus();
-      const majorRadius = torus.MajorRadius();
-      const minorRadius = torus.MinorRadius();
-      torus.delete();
-      adaptor.delete();
-      return { surfaceType: 'torus', majorRadius, minorRadius };
-    }
-
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
-      const cone = adaptor.Cone();
-      const halfAngleDeg = cone.SemiAngle() * (180 / Math.PI);
-      cone.delete();
-      adaptor.delete();
-      return { surfaceType: 'cone', halfAngleDeg };
-    }
-
-    adaptor.delete();
-
-    const surfaceProps = new oc.GProp_GProps();
-    oc.BRepGProp.SurfaceProperties(ocFace, surfaceProps, false, false);
-    const areaMm2 = surfaceProps.Mass();
-    surfaceProps.delete();
-    return { surfaceType: 'other', areaMm2 };
+      return radius;
+    });
   }
 }

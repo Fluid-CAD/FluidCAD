@@ -110,6 +110,8 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
 
   /**
    * Selects circular (flat, disc-shaped) faces, optionally matching a specific diameter.
+   * Geometry decides, not the kernel's storage: a B-spline face that lies flat,
+   * bounded by B-spline edges that trace circles, counts as one.
    * @param diameter - Optional diameter to match.
    */
   circle(diameter?: number) {
@@ -132,7 +134,9 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * Selects full cylindrical faces — ones that wrap all the way around their
    * axis and so carry a circular rim: a hole's bore, a boss's wall.
    * A partial cylinder (a fillet face, a bore cut open by a slot) is a
-   * {@link cylinderCurve}.
+   * {@link cylinderCurve}. Geometry decides, not the kernel's storage: a
+   * B-spline face that traces a cylinder — a lofted or swept wall, an
+   * imported STEP face — counts as one.
    * @param diameter - Optional diameter to match.
    */
   cylinder(diameter?: number) {
@@ -155,7 +159,8 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   /**
    * Selects partial cylindrical faces — ones that do not wrap all the way
    * around their axis: a fillet along an edge, a rounded corner of a pad, a
-   * bore cut open by a slot. A full bore is a {@link cylinder}.
+   * bore cut open by a slot. A full bore is a {@link cylinder}. A B-spline
+   * face that traces a cylinder counts, as for {@link cylinder}.
    * @param diameter - Optional diameter to match (a fillet of radius r has diameter 2r).
    */
   cylinderCurve(diameter?: number) {
@@ -176,7 +181,8 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects faces whose normal is parallel to the given plane.
+   * Selects planar faces whose normal is parallel to the given plane. A
+   * B-spline face that lies flat counts as planar, as for {@link planar}.
    * @param plane - The reference plane.
    */
   parallelTo(plane: PlaneLike | PlaneObjectBase) {
@@ -223,6 +229,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
 
   /**
    * Selects toroidal faces, optionally matching major and/or minor radius.
+   * A B-spline face that traces a torus counts as one.
    * @param majorRadius - Optional radius from the torus axis to the tube center.
    * @param minorRadius - Optional radius of the tube itself.
    */
@@ -244,7 +251,9 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects planar (flat) faces.
+   * Selects planar (flat) faces. Geometry decides, not the kernel's storage:
+   * a B-spline face that lies flat — a lofted or swept wall, an imported
+   * STEP face — counts as one.
    */
   planar() {
     const filter = new PlanarFilter();
@@ -262,7 +271,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects conical faces.
+   * Selects conical faces. A B-spline face that traces a cone counts as one.
    */
   cone() {
     const filter = new ConeFilter();

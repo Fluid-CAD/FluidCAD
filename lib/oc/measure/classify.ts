@@ -1,10 +1,11 @@
-import type { BRepAdaptor_Curve, BRepAdaptor_Surface, gp_Ax1, gp_Dir, gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
+import type { gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { Explorer } from "../explorer.js";
-import { EdgeQuery } from "../edge-query.js";
+import { CurveClassifier } from "../curve-classifier.js";
+import { SurfaceClassifier } from "../surface-classifier.js";
 import { FaceOps } from "../face-ops.js";
 import type { MeasureEntityKind, MeasureVec } from "./measure-types.js";
-import { cross, dist, dot, len, projectPointOnLine, scale, sub } from "./vec.js";
+import { dist, dot, projectPointOnLine, scale } from "./vec.js";
 import { mmTol } from "../../units/tolerance.js";
 
 export type FaceForm = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'surface';
@@ -58,113 +59,9 @@ function vecFromPoint(p: { x: number; y: number; z: number }): MeasureVec {
   return { x: p.x, y: p.y, z: p.z };
 }
 
-function vecFromDir(d: gp_Dir): MeasureVec {
-  const v = { x: d.X(), y: d.Y(), z: d.Z() };
-  d.delete();
-  return v;
-}
-
-function axisData(axis: gp_Ax1): { point: MeasureVec; dir: MeasureVec } {
-  const data = { point: vecFromPnt(axis.Location()), dir: vecFromDir(axis.Direction()) };
-  axis.delete();
-  return data;
-}
-
-// Booleans, text outlines, wraps and lofts often carry geometrically planar
-// faces / straight edges on fitted B-spline (or extruded-curve) geometry, so
-// the adaptor type alone misses them. These sampling fallbacks recover the
-// carrier plane/line numerically. (OCCT's GeomLib_IsPlanarSurface would do the
-// face check natively but is not in the current ocjs binding.)
-// Relative part of the carrier fit; the absolute floors below are 1 mm /
-// 1e-6 mm read in the active unit.
+// Relative part of the circular-boundary match; the absolute floor is 1 mm
+// read in the active unit.
 const CARRIER_FIT_TOL = 1e-6;
-const PLANAR_GRID_STEPS = 5;
-const STRAIGHT_EDGE_STEPS = 8;
-
-function detectPlanarSurface(adaptor: BRepAdaptor_Surface): { point: MeasureVec; dir: MeasureVec } | null {
-  const u1 = adaptor.FirstUParameter();
-  const u2 = adaptor.LastUParameter();
-  const v1 = adaptor.FirstVParameter();
-  const v2 = adaptor.LastVParameter();
-  if (!isFinite(u1) || !isFinite(u2) || !isFinite(v1) || !isFinite(v2)) {
-    return null;
-  }
-
-  const points: MeasureVec[] = [];
-  for (let i = 0; i <= PLANAR_GRID_STEPS; i++) {
-    for (let j = 0; j <= PLANAR_GRID_STEPS; j++) {
-      const p = adaptor.Value(u1 + ((u2 - u1) * i) / PLANAR_GRID_STEPS, v1 + ((v2 - v1) * j) / PLANAR_GRID_STEPS);
-      points.push({ x: p.X(), y: p.Y(), z: p.Z() });
-      p.delete();
-    }
-  }
-
-  const origin = points[0];
-  let span = points[0];
-  let spanDist = 0;
-  for (const p of points) {
-    const d = len(sub(p, origin));
-    if (d > spanDist) {
-      spanDist = d;
-      span = p;
-    }
-  }
-  if (spanDist < mmTol(1e-6)) {
-    return null;
-  }
-
-  const e1 = scale(sub(span, origin), 1 / spanDist);
-  let normal: MeasureVec | null = null;
-  let normalLen = 0;
-  for (const p of points) {
-    const n = cross(e1, sub(p, origin));
-    const nLen = len(n);
-    if (nLen > normalLen) {
-      normalLen = nLen;
-      normal = n;
-    }
-  }
-  if (!normal || normalLen < CARRIER_FIT_TOL * spanDist) {
-    return null;
-  }
-
-  const dir = scale(normal, 1 / normalLen);
-  const tol = CARRIER_FIT_TOL * (mmTol(1) + spanDist);
-  for (const p of points) {
-    if (Math.abs(dot(sub(p, origin), dir)) > tol) {
-      return null;
-    }
-  }
-  return { point: origin, dir };
-}
-
-function detectStraightCurve(
-  adaptor: BRepAdaptor_Curve,
-  first: number,
-  last: number,
-): { point: MeasureVec; dir: MeasureVec } | null {
-  const points: MeasureVec[] = [];
-  for (let i = 0; i <= STRAIGHT_EDGE_STEPS; i++) {
-    const p = adaptor.Value(first + ((last - first) * i) / STRAIGHT_EDGE_STEPS);
-    points.push({ x: p.X(), y: p.Y(), z: p.Z() });
-    p.delete();
-  }
-
-  const chord = sub(points[points.length - 1], points[0]);
-  const chordLen = len(chord);
-  if (chordLen < mmTol(1e-6)) {
-    return null;
-  }
-
-  const dir = scale(chord, 1 / chordLen);
-  const tol = CARRIER_FIT_TOL * (mmTol(1) + chordLen);
-  for (const p of points) {
-    if (len(cross(sub(p, points[0]), dir)) > tol) {
-      return null;
-    }
-  }
-  return { point: points[0], dir };
-}
 
 /**
  * The circle bounding a planar face when its outer wire is one circle — a
@@ -185,9 +82,9 @@ function detectCircularBoundary(face: TopoDS_Face): { center: MeasureVec; radius
       continue;
     }
     // Native circles, and the B-splines a loft's round ends are made of.
-    const geometry = EdgeQuery.getEdgeGeometryRaw(edgeShape);
-    const rim = geometry.kind === 'circle'
-      ? { center: vecFromPoint(geometry.center), radius: geometry.radius }
+    const curve = CurveClassifier.classifyRaw(edgeShape);
+    const rim = (curve.kind === 'circle' || curve.kind === 'arc') && curve.center && curve.radius !== undefined
+      ? { center: vecFromPoint(curve.center), radius: curve.radius }
       : null;
     edgeShape.delete();
     if (!rim) {
@@ -203,9 +100,11 @@ function detectCircularBoundary(face: TopoDS_Face): { center: MeasureVec; radius
 }
 
 /**
- * A face's form, carrier and size. A planar face's normal is its OUTWARD
- * normal: the carrier plane's axis (or the fitted normal of a flat B-spline)
- * carries whatever sign the surface was built with, so it is signed by
+ * A face's form, carrier and size, read off its {@link SurfaceClassifier}
+ * class — so a flat B-spline measures as the plane `face().planar()` admits.
+ * A planar face's normal is its OUTWARD normal: the carrier plane's axis
+ * (native or recovered) carries whatever sign the surface was built with,
+ * so it is signed by
  * {@link FaceOps.outwardNormalRaw} — which reads the face's orientation, so
  * `shape` must be the face as its solid's explorer gives it.
  */
@@ -231,68 +130,46 @@ export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
     shape,
   };
 
-  const adaptor = new oc.BRepAdaptor_Surface(face, true);
-  const type = adaptor.GetType();
-
-  if (type === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-    const plane = adaptor.Plane();
-    const { point, dir } = axisData(plane.Axis());
-    plane.delete();
+  const surface = SurfaceClassifier.classifyRaw(face);
+  if (surface.kind === 'plane' && surface.origin && surface.normal) {
     result.form = 'plane';
-    result.point = point;
-    result.dir = dir;
+    result.point = vecFromPoint(surface.origin);
+    result.dir = vecFromPoint(surface.normal);
     result.dirKind = 'normal';
     const rim = detectCircularBoundary(face);
     if (rim) {
       result.center = rim.center;
       result.radius = rim.radius;
     }
-  } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
-    const cylinder = adaptor.Cylinder();
-    const { point, dir } = axisData(cylinder.Axis());
-    result.radius = cylinder.Radius();
-    cylinder.delete();
+  } else if (surface.kind === 'cylinder' && surface.axis) {
+    const point = vecFromPoint(surface.axis.origin);
+    const dir = vecFromPoint(surface.axis.direction);
+    result.radius = surface.radius;
     result.form = 'cylinder';
     result.point = point;
     result.center = projectPointOnLine(anchor, point, dir);
     result.dir = dir;
     result.dirKind = 'axis';
-  } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
-    const cone = adaptor.Cone();
-    const { point, dir } = axisData(cone.Axis());
-    cone.delete();
+  } else if (surface.kind === 'cone' && surface.axis) {
     result.form = 'cone';
-    result.point = point;
-    result.dir = dir;
+    result.point = vecFromPoint(surface.axis.origin);
+    result.dir = vecFromPoint(surface.axis.direction);
     result.dirKind = 'axis';
-  } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Sphere) {
-    const sphere = adaptor.Sphere();
-    const center = vecFromPnt(sphere.Location());
-    result.radius = sphere.Radius();
-    sphere.delete();
+  } else if (surface.kind === 'sphere' && surface.center) {
+    const center = vecFromPoint(surface.center);
+    result.radius = surface.radius;
     result.form = 'sphere';
     result.point = center;
     result.center = center;
-  } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Torus) {
-    const torus = adaptor.Torus();
-    const { point, dir } = axisData(torus.Axis());
-    torus.delete();
+  } else if (surface.kind === 'torus' && surface.axis) {
+    const point = vecFromPoint(surface.axis.origin);
     result.form = 'torus';
     result.point = point;
     result.center = point;
-    result.dir = dir;
+    result.dir = vecFromPoint(surface.axis.direction);
     result.dirKind = 'normal';
-  } else {
-    const planar = detectPlanarSurface(adaptor);
-    if (planar) {
-      result.form = 'plane';
-      result.point = planar.point;
-      result.dir = planar.dir;
-      result.dirKind = 'normal';
-    }
   }
 
-  adaptor.delete();
   if (result.form === 'plane' && result.dir) {
     const outward = FaceOps.outwardNormalRaw(face);
     if (outward && dot(result.dir, outward) < 0) {
@@ -304,6 +181,11 @@ export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
   return result;
 }
 
+/**
+ * An edge's form, carrier and size, read off its {@link CurveClassifier}
+ * class — so a straight or circular B-spline measures as the line or circle
+ * the edge filters admit.
+ */
 export function classifyEdge(shape: TopoDS_Shape): ClassifiedEntity {
   const oc = getOC();
   const edge = oc.TopoDS.Edge(shape);
@@ -330,59 +212,24 @@ export function classifyEdge(shape: TopoDS_Shape): ClassifiedEntity {
     shape,
   };
 
-  const type = adaptor.GetType();
-
-  if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
-    const line = adaptor.Line();
-    const point = vecFromPnt(line.Location());
-    const dir = vecFromDir(line.Direction());
-    line.delete();
+  const curve = CurveClassifier.classifyRaw(edge);
+  if (curve.kind === 'line' && curve.origin && curve.direction) {
     result.form = 'line';
-    result.point = point;
-    result.dir = dir;
+    result.point = vecFromPoint(curve.origin);
+    result.dir = vecFromPoint(curve.direction);
     result.dirKind = 'axis';
-  } else if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-    const circle = adaptor.Circle();
-    const center = vecFromPnt(circle.Location());
-    const { dir } = axisData(circle.Axis());
-    result.radius = circle.Radius();
-    circle.delete();
-    result.form = adaptor.IsClosed() ? 'circle' : 'arc';
-    result.point = center;
-    result.center = center;
-    result.dir = dir;
-    result.dirKind = 'normal';
-  } else if (type === oc.GeomAbs_CurveType.GeomAbs_Ellipse) {
-    const ellipse = adaptor.Ellipse();
-    const center = vecFromPnt(ellipse.Location());
-    const { dir } = axisData(ellipse.Axis());
-    ellipse.delete();
-    result.form = 'ellipse';
-    result.point = center;
-    result.center = center;
-    result.dir = dir;
-    result.dirKind = 'normal';
-  } else {
-    const straight = detectStraightCurve(adaptor, first, last);
-    if (straight) {
-      result.form = 'line';
-      result.point = straight.point;
-      result.dir = straight.dir;
-      result.dirKind = 'axis';
-    } else {
-      // A B-spline standing for a circle or an arc of one: the rim of a
-      // loft's round end measures like the circle it was sketched as.
-      const geometry = EdgeQuery.getEdgeGeometryRaw(edge);
-      if (geometry.kind === 'circle') {
-        const center = vecFromPoint(geometry.center);
-        result.form = geometry.closed ? 'circle' : 'arc';
-        result.radius = geometry.radius;
-        result.point = center;
-        result.center = center;
-        result.dir = { x: geometry.axisDirection.x, y: geometry.axisDirection.y, z: geometry.axisDirection.z };
-        result.dirKind = 'normal';
-      }
+  } else if ((curve.kind === 'circle' || curve.kind === 'arc' || curve.kind === 'ellipse') && curve.center && curve.axisDirection) {
+    // A B-spline standing for a circle or an arc of one measures like the
+    // circle it was sketched as: the rim of a loft's round end.
+    const center = vecFromPoint(curve.center);
+    result.form = curve.kind;
+    if (curve.kind !== 'ellipse') {
+      result.radius = curve.radius;
     }
+    result.point = center;
+    result.center = center;
+    result.dir = vecFromPoint(curve.axisDirection);
+    result.dirKind = 'normal';
   }
 
   adaptor.delete();

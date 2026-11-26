@@ -1,4 +1,4 @@
-import type { gp_Ax1, gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
+import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
@@ -9,21 +9,18 @@ import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { mmTol } from "../units/tolerance.js";
-import { SurfaceFrames } from "./surface-frames.js";
+import { SurfaceFrame, SurfaceFrames } from "./surface-frames.js";
+import { SurfaceClass, SurfaceClassifier } from "./surface-classifier.js";
+import { CurveClassifier } from "./curve-classifier.js";
 
 /**
- * What the surface-class filters (`planar()`, `cylinder()`,
- * `cylinderCurve()`) read off one face, kept per wrapper. A wrapper's OC
- * shape never changes while it lives, so the answers hold for its lifetime
- * — and selector synthesis asks them of the same scene faces once per
- * candidate atom, per request (every edge's adjacent faces, for each
- * `belongsToFace(face()…)` atom). Fields fill lazily: the rim walk only
- * runs for cylinders.
+ * What the cylinder filters (`cylinder()`, `cylinderCurve()`) read off one
+ * face beyond its {@link SurfaceClassifier} class, kept per wrapper. A
+ * wrapper's OC shape never changes while it lives, so the answer holds for
+ * its lifetime — and selector synthesis asks it of the same scene faces once
+ * per candidate atom, per request. The rim walk only runs for cylinders.
  */
 type SurfaceFacts = {
-  planar?: boolean;
-  /** The cylinder's radius, null when the face is not a cylinder. */
-  cylinderRadius?: number | null;
   closedRim?: boolean;
 };
 
@@ -40,38 +37,35 @@ function surfaceFactsOf(face: Shape): SurfaceFacts {
 
 export class FaceQuery {
   // Wrapper methods (public API for external callers)
+  /** {@link isCircleFaceRaw}, answered from the wrapper's cached class. */
   static isCircleFace(face: Shape, diameter?: number): boolean {
-    return FaceQuery.isCircleFaceRaw(face.getShape(), diameter);
+    return FaceQuery.isCircleOf(FaceQuery.classOf(face), face.getShape(), diameter);
   }
 
+  /** {@link isConeFaceRaw}, answered from the wrapper's cached class. */
   static isConeFace(face: Shape): boolean {
-    return FaceQuery.isConeFaceRaw(face.getShape());
+    return FaceQuery.classOf(face).kind === 'cone';
   }
 
-  /** {@link isCylinderFaceRaw}, answered from the wrapper's cached surface facts. */
+  /** {@link isCylinderFaceRaw}, answered from the wrapper's cached class and rim. */
   static isCylinderFace(face: Shape, diameter?: number): boolean {
-    const radius = FaceQuery.cachedCylinderRadius(face);
-    if (radius === null || !FaceQuery.cylinderRadiusMatches(radius, diameter)) {
+    if (!FaceQuery.isCylinderOf(FaceQuery.classOf(face), diameter)) {
       return false;
     }
     return FaceQuery.cachedClosedRim(face);
   }
 
-  /** {@link isCylinderCurveFaceRaw}, answered from the wrapper's cached surface facts. */
+  /** {@link isCylinderCurveFaceRaw}, answered from the wrapper's cached class and rim. */
   static isCylinderCurveFace(face: Shape, diameter?: number): boolean {
-    const radius = FaceQuery.cachedCylinderRadius(face);
-    if (radius === null || !FaceQuery.cylinderRadiusMatches(radius, diameter)) {
+    if (!FaceQuery.isCylinderOf(FaceQuery.classOf(face), diameter)) {
       return false;
     }
     return !FaceQuery.cachedClosedRim(face);
   }
 
-  private static cachedCylinderRadius(face: Shape): number | null {
-    const facts = surfaceFactsOf(face);
-    if (facts.cylinderRadius === undefined) {
-      facts.cylinderRadius = FaceQuery.cylinderRadiusRaw(face.getShape());
-    }
-    return facts.cylinderRadius;
+  /** The wrapper's {@link SurfaceClassifier} class, kept per wrapper there. */
+  private static classOf(face: Shape): SurfaceClass {
+    return SurfaceClassifier.classify(face as Face);
   }
 
   private static cachedClosedRim(face: Shape): boolean {
@@ -82,8 +76,9 @@ export class FaceQuery {
     return facts.closedRim;
   }
 
+  /** {@link isTorusFaceRaw}, answered from the wrapper's cached class. */
   static isTorusFace(face: Shape, majorRadius?: number, minorRadius?: number): boolean {
-    return FaceQuery.isTorusFaceRaw(face.getShape(), majorRadius, minorRadius);
+    return FaceQuery.isTorusOf(FaceQuery.classOf(face), majorRadius, minorRadius);
   }
 
   static isFaceOnPlane(face: Shape, plane: Plane): boolean {
@@ -114,24 +109,22 @@ export class FaceQuery {
     return result;
   }
 
+  /** {@link isFaceParallelToPlaneRaw}, answered from the wrapper's cached class. */
   static isFaceParallelToPlane(face: Shape, plane: Plane): boolean {
     const [gpPln, dispose] = Convert.toGpPln(plane);
-    const result = FaceQuery.isFaceParallelToPlaneRaw(face.getShape(), gpPln);
+    const result = FaceQuery.isParallelOf(FaceQuery.classOf(face), gpPln);
     dispose();
     return result;
   }
 
-  /** {@link isPlanarFaceRaw}, answered from the wrapper's cached surface facts. */
+  /** {@link isPlanarFaceRaw}, answered from the wrapper's cached class. */
   static isPlanarFace(face: Shape): boolean {
-    const facts = surfaceFactsOf(face);
-    if (facts.planar === undefined) {
-      facts.planar = FaceQuery.isPlanarFaceRaw(face.getShape());
-    }
-    return facts.planar;
+    return FaceQuery.classOf(face).kind === 'plane';
   }
 
+  /** {@link getSurfaceTypeRaw}, answered from the wrapper's cached class. */
   static getSurfaceType(face: Shape): string {
-    return FaceQuery.getSurfaceTypeRaw(face.getShape());
+    return FaceQuery.surfaceTypeOf(FaceQuery.classOf(face));
   }
 
   static getSurfacePlane(face: Shape): Plane {
@@ -152,78 +145,99 @@ export class FaceQuery {
 
   /**
    * True when both faces lie on the same underlying surface — coplanar
-   * planes, coaxial equal-radius cylinders, or coaxial cones sharing apex
-   * and semi-angle. Trim and orientation differences are ignored: this is
-   * surface identity, for consumers that resolve the infinite surface
-   * rather than the bounded face.
+   * planes, coaxial equal-radius cylinders, coaxial cones sharing apex and
+   * semi-angle, or the same sphere or torus. Trim and orientation
+   * differences are ignored: this is surface identity, for consumers that
+   * resolve the infinite surface rather than the bounded face. A surface
+   * recovered from a B-spline (see {@link SurfaceClassifier}) compares like
+   * a native one, within the tolerance it was recovered at; free-form faces
+   * are never the same surface as another face.
    */
   static isSameSurface(face1: Shape, face2: Shape): boolean {
-    const type = FaceQuery.getSurfaceTypeRaw(face1.getShape());
-    if (type !== FaceQuery.getSurfaceTypeRaw(face2.getShape())) {
+    const a = FaceQuery.classOf(face1);
+    const b = FaceQuery.classOf(face2);
+    if (a.kind !== b.kind || !SurfaceClassifier.isAnalytic(a.kind)) {
       return false;
     }
     // Distances (plane offset, radius, apex, axis offset): 1e-7 mm in the
-    // active unit. The angular half of the coplanar test is unit-free.
-    const tolerance = mmTol(1e-7);
-    if (type === 'plane') {
-      return FaceQuery.getSurfacePlane(face1)
-        .isCoplanarWith(FaceQuery.getSurfacePlane(face2), tolerance, 1e-7);
+    // active unit between native surfaces, the recovery tolerance once
+    // either was recovered. The angular bounds are unit-free.
+    const recovered = a.recovered || b.recovered;
+    const tolerance = recovered ? SurfaceClassifier.tolerance() : mmTol(1e-7);
+    const angular = recovered ? FaceQuery.RECOVERED_ANGULAR_TOLERANCE : 1e-7;
+    const axisAngular = recovered ? FaceQuery.RECOVERED_ANGULAR_TOLERANCE : 1e-9;
+    if (a.kind === 'plane') {
+      if (!a.origin || !a.normal || !b.origin || !b.normal) {
+        return false;
+      }
+      return a.normal.isParallelTo(b.normal, angular)
+        && Math.abs(b.origin.subtract(a.origin).toVector3d().dot(a.normal.normalize())) <= tolerance;
     }
-    if (type === 'cylinder') {
-      const c1 = FaceQuery.getSurfaceAdaptorCylinderRaw(face1.getShape());
-      const c2 = FaceQuery.getSurfaceAdaptorCylinderRaw(face2.getShape());
-      const axis1 = FaceQuery.extractAxisFrame(c1.Axis());
-      const axis2 = FaceQuery.extractAxisFrame(c2.Axis());
-      const sameRadius = Math.abs(c1.Radius() - c2.Radius()) < tolerance;
-      c1.delete();
-      c2.delete();
-      return sameRadius && FaceQuery.areAxesCollinear(axis1, axis2, tolerance);
+    if (a.kind === 'cylinder') {
+      if (a.radius === undefined || b.radius === undefined || !a.axis || !b.axis) {
+        return false;
+      }
+      return Math.abs(a.radius - b.radius) < tolerance
+        && FaceQuery.areAxesCollinear(a.axis, b.axis, tolerance, axisAngular);
     }
-    if (type === 'cone') {
-      const c1 = FaceQuery.getSurfaceAdaptorConeRaw(face1.getShape());
-      const c2 = FaceQuery.getSurfaceAdaptorConeRaw(face2.getShape());
-      const axis1 = FaceQuery.extractAxisFrame(c1.Axis());
-      const axis2 = FaceQuery.extractAxisFrame(c2.Axis());
-      const apex1 = Convert.toPoint(c1.Apex(), true);
-      const apex2 = Convert.toPoint(c2.Apex(), true);
-      const sameShape = Math.abs(Math.abs(c1.SemiAngle()) - Math.abs(c2.SemiAngle())) < 1e-9
-        && apex1.distanceTo(apex2) < tolerance;
-      c1.delete();
-      c2.delete();
-      return sameShape && FaceQuery.areAxesCollinear(axis1, axis2, tolerance);
+    if (a.kind === 'cone') {
+      if (a.semiAngle === undefined || b.semiAngle === undefined || !a.apex || !b.apex || !a.axis || !b.axis) {
+        return false;
+      }
+      return Math.abs(Math.abs(a.semiAngle) - Math.abs(b.semiAngle)) < (recovered ? angular : 1e-9)
+        && a.apex.distanceTo(b.apex) < tolerance
+        && FaceQuery.areAxesCollinear(a.axis, b.axis, tolerance, axisAngular);
     }
-    if (type === 'sphere' || type === 'torus') {
-      // A sphere's frame is only a parametrization — two faces of one sphere
-      // may carry any pole axis (a rotated copy, a mirrored half) — and a
-      // torus is its axis and two radii: compare the geometry the frames
-      // define, handedness aside.
-      const a = SurfaceFrames.of(face1.getShape());
-      const b = SurfaceFrames.of(face2.getShape());
-      return a !== null && b !== null && SurfaceFrames.same(a, b, { lin: tolerance, ang: 1e-7 });
-    }
-    return false;
+    // A sphere's frame is only a parametrization — two faces of one sphere
+    // may carry any pole axis (a rotated copy, a mirrored half) — and a
+    // torus is its axis and two radii: compare the geometry the frames
+    // define, handedness aside.
+    const frameA = FaceQuery.frameOf(a);
+    const frameB = FaceQuery.frameOf(b);
+    return frameA !== null && frameB !== null
+      && SurfaceFrames.same(frameA, frameB, { lin: tolerance, ang: angular });
   }
 
-  private static extractAxisFrame(axis: gp_Ax1): { origin: Point; dir: Vector3d } {
-    const frame = {
-      origin: Convert.toPoint(axis.Location(), true),
-      dir: Convert.toVector3dFromGpDir(axis.Direction(), true),
-    };
-    axis.delete();
-    return frame;
+  /**
+   * How far apart the directions of two recovered surfaces may be and still
+   * be one surface: recovery fits the frame to the B-spline's poles, which
+   * lands it within a few 1e-15 of the original on the models measured.
+   */
+  private static readonly RECOVERED_ANGULAR_TOLERANCE = 1e-6;
+
+  /** The frame a sphere or torus class defines, in the form {@link SurfaceFrames.same} compares. */
+  private static frameOf(surface: SurfaceClass): SurfaceFrame | null {
+    if (surface.kind === 'sphere' && surface.center && surface.radius !== undefined) {
+      const { x, y, z } = surface.center;
+      return { type: 'sphere', direct: true, loc: [x, y, z], xdir: [1, 0, 0], radius: surface.radius, extra: 0 };
+    }
+    if (surface.kind === 'torus' && surface.axis && surface.majorRadius !== undefined && surface.minorRadius !== undefined) {
+      const { origin, direction } = surface.axis;
+      return {
+        type: 'torus',
+        direct: true,
+        loc: [origin.x, origin.y, origin.z],
+        dir: [direction.x, direction.y, direction.z],
+        xdir: [1, 0, 0],
+        radius: surface.majorRadius,
+        extra: surface.minorRadius,
+      };
+    }
+    return null;
   }
 
   /** Collinear = parallel directions (either sense) with origins on one line. */
   private static areAxesCollinear(
-    a: { origin: Point; dir: Vector3d },
-    b: { origin: Point; dir: Vector3d },
+    a: { origin: Point; direction: Vector3d },
+    b: { origin: Point; direction: Vector3d },
     tolerance: number,
+    angular: number,
   ): boolean {
-    if (!a.dir.isParallelTo(b.dir, 1e-9)) {
+    if (!a.direction.isParallelTo(b.direction, angular)) {
       return false;
     }
     const offset = b.origin.subtract(a.origin).toVector3d();
-    return offset.cross(a.dir).length() < tolerance;
+    return offset.cross(a.direction.normalize()).length() < tolerance;
   }
 
   static getSignedPlaneDistance(startFace: Shape, targetFace: Shape): number {
@@ -285,65 +299,51 @@ export class FaceQuery {
     return Face.fromTopoDSFace(rawFace);
   }
 
-  // Raw methods (for oc-internal and common/ use)
-  static isCircleFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    const type = faceAdaptor.GetType();
-    faceAdaptor.delete();
+  // Raw methods (for oc-internal and common/ use). Each classifies the face
+  // afresh through SurfaceClassifier; the wrapper forms above read the class
+  // kept per wrapper.
 
-    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
+  /**
+   * A flat, disc-shaped face: planar (see {@link SurfaceClassifier}), its
+   * edges circles or arcs (see {@link CurveClassifier}), one of them a full
+   * circle of the given diameter when one is asked for.
+   */
+  static isCircleFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
+    return FaceQuery.isCircleOf(SurfaceClassifier.classifyRaw(face), face, diameter);
+  }
+
+  private static isCircleOf(surface: SurfaceClass, face: TopoDS_Shape, diameter?: number): boolean {
+    if (surface.kind !== 'plane') {
       return false;
     }
-
-    // The explorer copies and the typed casts are this read's own.
+    const oc = getOC();
+    // The explorer copies are this read's own.
     return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
-      for (const e of edges) {
-        const edge = oc.TopoDS.Edge(e);
-        const curveAdaptor = new oc.BRepAdaptor_Curve(edge);
-        edge.delete();
-
-        const curveType = curveAdaptor.GetType();
-        if (curveType !== oc.GeomAbs_CurveType.GeomAbs_Circle) {
-          curveAdaptor.delete();
+      for (const edge of edges) {
+        const curve = CurveClassifier.classifyRaw(edge);
+        if (curve.kind !== 'circle' && curve.kind !== 'arc') {
           return false;
         }
-
-        if (curveAdaptor.IsClosed()) {
+        if (curve.kind === 'circle') {
           if (diameter === undefined) {
-            curveAdaptor.delete();
             return true;
           }
-
-          const circle = curveAdaptor.Circle();
-          const r = circle.Radius();
-          circle.delete();
-          curveAdaptor.delete();
-          return Math.abs(r - diameter / 2) <= oc.Precision.Confusion();
+          const tolerance = curve.recovered ? CurveClassifier.tolerance() : oc.Precision.Confusion();
+          return Math.abs((curve.radius ?? 0) - diameter / 2) <= tolerance;
         }
-
-        curveAdaptor.delete();
       }
-
       return false;
     });
   }
 
   static isConeFaceRaw(face: TopoDS_Shape): boolean {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    const type = faceAdaptor.GetType();
-    faceAdaptor.delete();
-    return type === oc.GeomAbs_SurfaceType.GeomAbs_Cone;
+    return SurfaceClassifier.classifyRaw(face).kind === 'cone';
   }
 
   /**
    * Whether a cylindrical face wraps all the way around its axis: it then
-   * carries at least one closed circular edge (a rim). Partial wraps — a
+   * carries at least one closed circular edge (a rim; see
+   * {@link CurveClassifier}, so a B-spline rim counts). Partial wraps — a
    * fillet, a rounded pad corner, a bore cut open by a slot — have none;
    * their bounding edges are lines, arcs, ellipses or B-splines depending
    * on the adjacent geometry. This is the one rule that splits
@@ -352,54 +352,41 @@ export class FaceQuery {
    */
   static hasClosedCircularRimRaw(face: TopoDS_Shape): boolean {
     const oc = getOC();
-    // The explorer copies and the typed casts are this read's own.
-    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
-      for (const edge of edges) {
-        const typed = oc.TopoDS.Edge(edge);
-        const curveAdaptor = new oc.BRepAdaptor_Curve(typed);
-        typed.delete();
-        const isClosedCircle = curveAdaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle && curveAdaptor.IsClosed();
-        curveAdaptor.delete();
-        if (isClosedCircle) {
-          return true;
-        }
-      }
-      return false;
-    });
+    // The explorer copies are this read's own.
+    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges =>
+      edges.some(edge => CurveClassifier.classifyRaw(edge).kind === 'circle'));
   }
 
   /**
-   * The radius of a cylindrical face's surface, or null when the face is not
-   * a cylinder. Reads the surface itself, so a partial wrap with no circular
-   * rim still reports its radius.
+   * The radius of a cylindrical face's surface (native or recovered), or
+   * null when the face is not a cylinder. Reads the surface itself, so a
+   * partial wrap with no circular rim still reports its radius.
    */
   static cylinderRadiusRaw(face: TopoDS_Shape): number | null {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    // The adaptor holds its own reference to the face; the typed copy goes.
-    ocFace.delete();
-    const type = faceAdaptor.GetType();
-    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
-      faceAdaptor.delete();
-      return null;
-    }
-    const cylinder = faceAdaptor.Cylinder();
-    const radius = cylinder.Radius();
-    cylinder.delete();
-    faceAdaptor.delete();
-    return radius;
+    const surface = SurfaceClassifier.classifyRaw(face);
+    return surface.kind === 'cylinder' ? surface.radius ?? null : null;
   }
 
-  private static cylinderRadiusMatches(radius: number, diameter?: number): boolean {
-    const oc = getOC();
-    return diameter === undefined || Math.abs(radius - diameter / 2) <= oc.Precision.Confusion();
+  /**
+   * A cylinder of the given diameter, if one is asked for: to OCCT's own
+   * precision for a native cylinder, to the recovery tolerance for one
+   * recovered from a B-spline.
+   */
+  private static isCylinderOf(surface: SurfaceClass, diameter?: number): boolean {
+    if (surface.kind !== 'cylinder' || surface.radius === undefined) {
+      return false;
+    }
+    return diameter === undefined || Math.abs(surface.radius - diameter / 2) <= FaceQuery.sizeTolerance(surface);
+  }
+
+  /** How closely a face's radius must match a requested one; see {@link isCylinderOf}. */
+  private static sizeTolerance(surface: SurfaceClass): number {
+    return surface.recovered ? SurfaceClassifier.tolerance() : getOC().Precision.Confusion();
   }
 
   /** A full cylindrical face (see {@link hasClosedCircularRimRaw}), optionally of the given diameter. */
   static isCylinderFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
-    const radius = FaceQuery.cylinderRadiusRaw(face);
-    if (radius === null || !FaceQuery.cylinderRadiusMatches(radius, diameter)) {
+    if (!FaceQuery.isCylinderOf(SurfaceClassifier.classifyRaw(face), diameter)) {
       return false;
     }
     return FaceQuery.hasClosedCircularRimRaw(face);
@@ -407,41 +394,25 @@ export class FaceQuery {
 
   /** A partial cylindrical face (see {@link hasClosedCircularRimRaw}), optionally of the given diameter. */
   static isCylinderCurveFaceRaw(face: TopoDS_Shape, diameter?: number): boolean {
-    const radius = FaceQuery.cylinderRadiusRaw(face);
-    if (radius === null || !FaceQuery.cylinderRadiusMatches(radius, diameter)) {
+    if (!FaceQuery.isCylinderOf(SurfaceClassifier.classifyRaw(face), diameter)) {
       return false;
     }
     return !FaceQuery.hasClosedCircularRimRaw(face);
   }
 
   static isTorusFaceRaw(face: TopoDS_Shape, majorRadius?: number, minorRadius?: number): boolean {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    const type = faceAdaptor.GetType();
+    return FaceQuery.isTorusOf(SurfaceClassifier.classifyRaw(face), majorRadius, minorRadius);
+  }
 
-    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Torus) {
-      faceAdaptor.delete();
+  private static isTorusOf(surface: SurfaceClass, majorRadius?: number, minorRadius?: number): boolean {
+    if (surface.kind !== 'torus') {
       return false;
     }
-
-    if (majorRadius === undefined && minorRadius === undefined) {
-      faceAdaptor.delete();
-      return true;
-    }
-
-    const torus = faceAdaptor.Torus();
-    const actualMajor = torus.MajorRadius();
-    const actualMinor = torus.MinorRadius();
-    torus.delete();
-    faceAdaptor.delete();
-
-    const tol = oc.Precision.Confusion();
-    if (majorRadius !== undefined && Math.abs(actualMajor - majorRadius) > tol) {
+    const tolerance = FaceQuery.sizeTolerance(surface);
+    if (majorRadius !== undefined && Math.abs((surface.majorRadius ?? 0) - majorRadius) > tolerance) {
       return false;
     }
-    if (minorRadius !== undefined && Math.abs(actualMinor - minorRadius) > tol) {
+    if (minorRadius !== undefined && Math.abs((surface.minorRadius ?? 0) - minorRadius) > tolerance) {
       return false;
     }
     return true;
@@ -457,114 +428,114 @@ export class FaceQuery {
     }
   }
 
-  // In each adaptor read below the adaptor holds its own reference to the
-  // face, so the typed copy it was built from goes as soon as it exists.
+  /** A planar face (native or recovered) whose normal is parallel to `plane`'s. Curved faces never are. */
   static isFaceParallelToPlaneRaw(face: TopoDS_Shape, plane: gp_Pln): boolean {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const faceAdaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    // Plane() raises Standard_NoSuchObject on any other surface — a wasm
-    // exception per cylinder per evaluation. A non-planar face is not
-    // parallel to a plane; say so without asking the adaptor for one.
-    if (faceAdaptor.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      faceAdaptor.delete();
+    return FaceQuery.isParallelOf(SurfaceClassifier.classifyRaw(face), plane);
+  }
+
+  private static isParallelOf(surface: SurfaceClass, plane: gp_Pln): boolean {
+    if (surface.kind !== 'plane' || !surface.normal) {
       return false;
     }
-
-    const facePlane = faceAdaptor.Plane();
-    const faceAxis = facePlane.Axis();
+    const oc = getOC();
+    const { x, y, z } = surface.normal;
+    const faceNormal = new oc.gp_Dir(x, y, z);
     const targetAxis = plane.Axis();
-    const faceNormal = faceAxis.Direction();
     const targetNormal = targetAxis.Direction();
-
     const result = faceNormal.IsParallel(targetNormal, oc.Precision.Angular());
-
-    faceNormal.delete();
     targetNormal.delete();
-    faceAxis.delete();
     targetAxis.delete();
-    facePlane.delete();
-    faceAdaptor.delete();
-
+    faceNormal.delete();
     return result;
   }
 
   static isPlanarFaceRaw(face: TopoDS_Shape): boolean {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    const result = adaptor.GetType() === oc.GeomAbs_SurfaceType.GeomAbs_Plane;
-    adaptor.delete();
-    return result;
+    return SurfaceClassifier.classifyRaw(face).kind === 'plane';
   }
 
+  /**
+   * The face's surface kind (see {@link SurfaceClassifier}): `plane`,
+   * `cylinder`, `cone`, `sphere` or `torus` — native or recovered from a
+   * B-spline — else `other`.
+   */
   static getSurfaceTypeRaw(face: TopoDS_Shape): string {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    const type = adaptor.GetType();
-    adaptor.delete();
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Plane) return "plane";
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) return "cylinder";
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cone) return "cone";
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Sphere) return "sphere";
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Torus) return "torus";
-    return "other";
+    return FaceQuery.surfaceTypeOf(SurfaceClassifier.classifyRaw(face));
   }
+
+  private static surfaceTypeOf(surface: SurfaceClass): string {
+    return SurfaceClassifier.isAnalytic(surface.kind) ? surface.kind : 'other';
+  }
+
+  // The three reads below answer for a surface recovered from a B-spline as
+  // for a native one, so a caller that branched on getSurfaceType reads the
+  // plane, cylinder or cone it was told of.
 
   static getSurfaceAdaptorPlaneRaw(face: TopoDS_Shape): gp_Pln {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    try {
-      return adaptor.Plane();
-    } finally {
-      adaptor.delete();
-    }
+    return SurfaceClassifier.withAnalyticSurface(face, surface => surface.Plane());
   }
 
   static getSurfaceAdaptorCylinderRaw(face: TopoDS_Shape): gp_Cylinder {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    try {
-      return adaptor.Cylinder();
-    } finally {
-      adaptor.delete();
-    }
+    return SurfaceClassifier.withAnalyticSurface(face, surface => surface.Cylinder());
   }
 
   static getSurfaceAdaptorConeRaw(face: TopoDS_Shape): gp_Cone {
-    const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    try {
-      return adaptor.Cone();
-    } finally {
-      adaptor.delete();
-    }
+    return SurfaceClassifier.withAnalyticSurface(face, surface => surface.Cone());
   }
 
   /**
    * Returns the parametric V-bounds of `face`'s underlying surface. For a
    * cylindrical surface V is the axial coordinate; for a conical surface V is
    * along the slant (caller multiplies by `cos(semiAngle)` to get axial Z).
+   * A cylinder or cone recovered from a B-spline reports the V-bounds its
+   * boundary spans on the recovered surface.
    */
   static getSurfaceVBoundsRaw(face: TopoDS_Shape): { vMin: number; vMax: number } {
     const oc = getOC();
-    const ocFace = oc.TopoDS.Face(face);
-    const adaptor = new oc.BRepAdaptor_Surface(ocFace, true);
-    ocFace.delete();
-    const vMin = adaptor.FirstVParameter();
-    const vMax = adaptor.LastVParameter();
-    adaptor.delete();
-    return { vMin, vMax };
+    return SurfaceClassifier.withAnalyticSurface(face, (surface, recovered) => {
+      if (!recovered) {
+        return { vMin: surface.FirstVParameter(), vMax: surface.LastVParameter() };
+      }
+      const type = surface.GetType();
+      if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Cylinder && type !== oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
+        return { vMin: surface.FirstVParameter(), vMax: surface.LastVParameter() };
+      }
+      const frame = type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder ? surface.Cylinder() : surface.Cone();
+      const slant = type === oc.GeomAbs_SurfaceType.GeomAbs_Cone ? Math.cos((frame as gp_Cone).SemiAngle()) : 1;
+      const axis = frame.Axis();
+      const origin = Convert.toPoint(axis.Location(), true);
+      const direction = Convert.toVector3dFromGpDir(axis.Direction(), true);
+      axis.delete();
+      frame.delete();
+      let vMin = Infinity;
+      let vMax = -Infinity;
+      for (const point of FaceQuery.boundarySamples(face)) {
+        const v = point.subtract(origin).toVector3d().dot(direction) / slant;
+        vMin = Math.min(vMin, v);
+        vMax = Math.max(vMax, v);
+      }
+      return { vMin, vMax };
+    });
+  }
+
+  /** Points along every boundary edge of a face, its vertices included. */
+  private static boundarySamples(face: TopoDS_Shape): Point[] {
+    const oc = getOC();
+    const steps = 8;
+    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
+      const points: Point[] = [];
+      for (const edge of edges) {
+        const typed = oc.TopoDS.Edge(edge);
+        const adaptor = new oc.BRepAdaptor_Curve(typed);
+        typed.delete();
+        const first = adaptor.FirstParameter();
+        const last = adaptor.LastParameter();
+        for (let i = 0; i <= steps; i++) {
+          points.push(Convert.toPoint(adaptor.Value(first + ((last - first) * i) / steps), true));
+        }
+        adaptor.delete();
+      }
+      return points;
+    });
   }
 
   static findFarthestCornerDistanceRaw(face: TopoDS_Shape, plane: gp_Pln): number {

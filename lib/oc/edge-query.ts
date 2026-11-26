@@ -1,4 +1,4 @@
-import type { gp_Circ, gp_Pln, gp_Vec, TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
+import type { gp_Pln, gp_Vec, TopoDS_Edge, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { FaceOps } from "./face-ops.js";
@@ -7,7 +7,7 @@ import { Vector3d } from "../math/vector3d.js";
 import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
-import { mmTol } from "../units/tolerance.js";
+import { CurveClass, CurveClassifier } from "./curve-classifier.js";
 
 /** An edge's geometry independent of its kernel representation; see {@link EdgeQuery.getEdgeGeometryRaw}. */
 export type EdgeGeometry =
@@ -23,8 +23,6 @@ export type EdgeGeometry =
  * candidate atom, per pick. Plane questions are keyed by the exact plane.
  */
 type EdgeFacts = {
-  /** The recovered geometry, with the tolerance it was recovered at (unit-dependent). */
-  geometry?: { tolerance: number; value: EdgeGeometry };
   onPlane?: Map<string, boolean>;
   parallelTo?: Map<string, boolean>;
   alignedWith?: Map<string, boolean>;
@@ -56,9 +54,6 @@ function remembered(answers: Map<string, boolean>, key: string, compute: () => b
 }
 
 export class EdgeQuery {
-
-  /** See {@link EdgeQuery.geometryTolerance}. */
-  private static readonly GEOMETRY_TOLERANCE_MM = 1e-3;
 
   // Wrapper methods (public API for external callers). The predicates below
   // answer from the wrapper's cached facts; the Raw forms always ask OCCT.
@@ -107,14 +102,9 @@ export class EdgeQuery {
     });
   }
 
-  /** {@link getEdgeGeometryRaw}, kept per wrapper for the tolerance it was recovered at. */
+  /** The wrapper's geometry, read off its {@link CurveClassifier} class (kept per wrapper there). */
   private static cachedGeometry(edge: Shape): EdgeGeometry {
-    const facts = edgeFactsOf(edge);
-    const tolerance = EdgeQuery.geometryTolerance();
-    if (facts.geometry?.tolerance !== tolerance) {
-      facts.geometry = { tolerance, value: EdgeQuery.getEdgeGeometryRaw(edge.getShape()) };
-    }
-    return facts.geometry.value;
+    return EdgeQuery.geometryOf(CurveClassifier.classify(edge as Edge));
   }
 
   static isEdgeClosedCurve(edge: Edge): boolean {
@@ -185,101 +175,36 @@ export class EdgeQuery {
   }
 
   /**
-   * The edge's geometry, regardless of how the kernel stores it. A native
-   * line or circle reads straight off the curve adaptor. A B-spline or
-   * Bezier edge — what lofts, sweeps and STEP imports carry even for
-   * straight segments and circular arcs — is handed to OCC's analytical
-   * converter, which recovers the line or circle it approximates within
-   * {@link GEOMETRY_TOLERANCE_MM}; anything it cannot recover stays `other`.
+   * The edge's geometry, regardless of how the kernel stores it: its
+   * {@link CurveClassifier} class, as a line, a circle (closed or an arc) or
+   * `other`. A B-spline or Bezier edge — what lofts, sweeps and STEP imports
+   * carry even for straight segments and circular arcs — is a line or a
+   * circle when the classifier recovers one from it.
    */
   static getEdgeGeometryRaw(edge: TopoDS_Shape): EdgeGeometry {
-    const oc = getOC();
-    const ocEdge = oc.TopoDS.Edge(edge);
-    const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
-    try {
-      const type = adaptor.GetType();
-      if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
-        return { kind: 'line', length: Math.abs(adaptor.LastParameter() - adaptor.FirstParameter()) };
-      }
-      if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-        const circle = adaptor.Circle();
-        const geometry = EdgeQuery.circleGeometry(circle, adaptor.IsClosed());
-        circle.delete();
-        return geometry;
-      }
-      if (type === oc.GeomAbs_CurveType.GeomAbs_BSplineCurve || type === oc.GeomAbs_CurveType.GeomAbs_BezierCurve) {
-        return EdgeQuery.recoverAnalyticalGeometry(ocEdge, adaptor.IsClosed());
-      }
-      return { kind: 'other' };
-    } finally {
-      adaptor.delete();
-      // The adaptor held its own reference; the typed copy goes with it.
-      ocEdge.delete();
+    return EdgeQuery.geometryOf(CurveClassifier.classifyRaw(edge));
+  }
+
+  /** A curve class as the line / circle / other geometry the edge filters read. */
+  private static geometryOf(curve: CurveClass): EdgeGeometry {
+    if (curve.kind === 'line') {
+      return { kind: 'line', length: curve.length };
     }
-  }
-
-  private static recoverAnalyticalGeometry(edge: TopoDS_Edge, closed: boolean): EdgeGeometry {
-    const oc = getOC();
-    const curve = oc.BRep_Tool.Curve(edge, 0, 1);
-    const converter = new oc.GeomConvert_CurveToAnaCurve(curve.returnValue);
-    converter.SetConvType(oc.GeomConvert_ConvType.GeomConvert_Simplest);
-    const converted = converter.ConvertToAnalytical(EdgeQuery.geometryTolerance(), curve.First, curve.Last);
-    try {
-      if (!converted.returnValue) {
-        return { kind: 'other' };
-      }
-      const analytical = new oc.GeomAdaptor_Curve(converted.theResultCurve);
-      try {
-        const type = analytical.GetType();
-        if (type === oc.GeomAbs_CurveType.GeomAbs_Line) {
-          return { kind: 'line', length: Math.abs(converted.newL - converted.newF) };
-        }
-        if (type === oc.GeomAbs_CurveType.GeomAbs_Circle) {
-          const circle = analytical.Circle();
-          const geometry = EdgeQuery.circleGeometry(circle, closed);
-          circle.delete();
-          return geometry;
-        }
-        return { kind: 'other' };
-      } finally {
-        analytical.delete();
-      }
-    } finally {
-      converted[Symbol.dispose]();
-      converter.delete();
-      curve[Symbol.dispose]();
+    if ((curve.kind === 'circle' || curve.kind === 'arc') && curve.radius !== undefined && curve.center && curve.axisDirection) {
+      return {
+        kind: 'circle',
+        radius: curve.radius,
+        closed: curve.kind === 'circle',
+        center: curve.center,
+        axisDirection: curve.axisDirection,
+      };
     }
+    return { kind: 'other' };
   }
 
-  private static circleGeometry(circle: gp_Circ, closed: boolean): EdgeGeometry {
-    const location = circle.Location();
-    const axis = circle.Axis();
-    const dir = axis.Direction();
-    const geometry: EdgeGeometry = {
-      kind: 'circle',
-      radius: circle.Radius(),
-      closed,
-      center: new Point(location.X(), location.Y(), location.Z()),
-      axisDirection: new Vector3d(dir.X(), dir.Y(), dir.Z()),
-    };
-    dir.delete();
-    axis.delete();
-    location.delete();
-    return geometry;
-  }
-
-  /**
-   * How far a B-spline may stray from the line or circle it stands for, and
-   * how closely a measured length or radius must match a requested one. A
-   * loft approximates its section arcs to a few 1e-5 mm, so 1e-3 mm keeps
-   * them recognisable while staying far below any feature size.
-   */
-  private static geometryTolerance(): number {
-    return mmTol(EdgeQuery.GEOMETRY_TOLERANCE_MM);
-  }
-
+  /** How closely a measured length or radius must match a requested one; see {@link CurveClassifier.tolerance}. */
   private static sameLength(measured: number, requested: number): boolean {
-    return Math.abs(measured - requested) <= EdgeQuery.geometryTolerance();
+    return Math.abs(measured - requested) <= CurveClassifier.tolerance();
   }
 
   static isEdgeOnPlaneRaw(edge: TopoDS_Shape, plane: gp_Pln): boolean {

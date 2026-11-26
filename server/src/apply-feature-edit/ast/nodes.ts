@@ -95,6 +95,27 @@ export function enclosingFunctionScope(node: TSNode): TSNode {
   return scope;
 }
 
+/**
+ * Whether `node` sits in the body callback of a `sketch(…)` call — a callee
+ * that means one thing inside a sketch and another outside it (`offset`,
+ * `project`, `intersect`) is read by this. A call in the sketch's own target
+ * argument (`sketch(plane(…), () => {…})`) is outside it; one in a function
+ * nested in the callback is inside.
+ */
+export function insideSketchCallback(node: TSNode): boolean {
+  for (let cur: TSNode | null = node; cur; cur = cur.parent) {
+    if (!FUNCTION_NODE_TYPES.has(cur.type)) {
+      continue;
+    }
+    const call = cur.parent?.type === 'arguments' ? cur.parent.parent : null;
+    const fn = call?.type === 'call_expression' ? call.childForFieldName('function') : null;
+    if (fn?.type === 'identifier' && fn.text === 'sketch') {
+      return true;
+    }
+  }
+  return false;
+}
+
 export const LOOP_NODE_TYPES = new Set([
   'for_statement', 'for_in_statement', 'while_statement', 'do_statement',
 ]);

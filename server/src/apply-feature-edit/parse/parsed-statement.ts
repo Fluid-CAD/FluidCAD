@@ -1,5 +1,8 @@
 // The parsed shape of an editable feature statement and the callees/chain members that make one.
 
+import type { TSNode } from '../../code-editor/index.ts';
+import { decomposeChain, type ChainSegment } from '../ast/chain.ts';
+import { insideSketchCallback } from '../ast/nodes.ts';
 import type { BooleanKind } from '../features/boolean.ts';
 import type { ConnectorOffsetSpec, ConnectorRotateSpec } from '../features/connector.ts';
 import type { ExtrudeTargetKind } from '../features/extrude.ts';
@@ -459,7 +462,11 @@ export type ParsedFeatureStatement =
     targetRefs: ({ line: number; column: number } | null)[];
   };
 
-export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
+/**
+ * The dialog kind a callee names. Read through {@link editableKindOf}, which
+ * also knows the callees whose kind depends on where the call sits.
+ */
+const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   extrude: 'extrude',
   cut: 'extrude',
   rib: 'rib',
@@ -496,6 +503,65 @@ export const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   intersect: 'project',
   connector: 'connector',
 };
+
+/** A call chain as {@link editableKindOf} reads it: the root call and its chained members. */
+type KindChain = { root: ChainSegment; members: ChainSegment[] };
+
+/**
+ * The callees that mean one thing in the body callback of a `sketch(…)` and
+ * another outside it. `sketch` is the kind of the form inside a sketch;
+ * `part` reads the kind of the form outside one off its chain (an `offset`
+ * by its trailing `{ on }` argument), and is absent until that form has a
+ * dialog: the call then keeps the kind its callee names.
+ */
+const PLACED_CALLEES: Record<string, {
+  sketch: EditableFeatureKind;
+  part?: (chain: KindChain) => EditableFeatureKind | null;
+}> = {
+  offset: { sketch: 'offset' },
+  project: { sketch: 'project' },
+  intersect: { sketch: 'project' },
+};
+
+/**
+ * The dialog kind of a call: by its callee, by whether it sits inside a
+ * `sketch(…)` callback, and for `offset` by a trailing `{ on }` argument.
+ * Null for a call no dialog edits. Every reader that needs a statement's
+ * kind asks here, so a callee shared by a sketch tool and a part-scope tool
+ * is told apart in one place.
+ */
+export function editableKindOf(chain: KindChain, call: TSNode): EditableFeatureKind | null {
+  const callee = chain.root.name;
+  // A table row is an own property: `constructor(…)` names no callee.
+  const placed = Object.hasOwn(PLACED_CALLEES, callee) ? PLACED_CALLEES[callee] : undefined;
+  if (placed) {
+    const kind = insideSketchCallback(call) ? placed.sketch : placed.part?.(chain) ?? null;
+    if (kind !== null) {
+      return kind;
+    }
+  }
+  return Object.hasOwn(EDITABLE_CALLEES, callee) ? EDITABLE_CALLEES[callee] : null;
+}
+
+/**
+ * The dialog kinds whose statement leaves a curve of its own whatever else
+ * the model holds: what a wire slot may name by the reading of the call
+ * alone. Everything else that leaves a curve — an imported one, a repeat of
+ * one, a custom feature's — is the scene's to answer (`FeatureCallees`).
+ */
+const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix']);
+
+/** Whether the statement `call` is read, with no scene to ask, as leaving a curve of its own. */
+export function readsAsCurve(call: TSNode): boolean {
+  const chain = decomposeChain(call);
+  const kind = chain ? editableKindOf(chain, call) : null;
+  return kind !== null && CURVE_KINDS.has(kind);
+}
+
+/** The callees a statement is read as leaving a curve by, as a refusal names them. */
+export function curveCallees(): string[] {
+  return Object.keys(EDITABLE_CALLEES).filter(callee => CURVE_KINDS.has(EDITABLE_CALLEES[callee]));
+}
 
 /**
  * The lib's `getDisplayType()` per callee the create path writes — the

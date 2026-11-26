@@ -30,7 +30,7 @@ import { parseHoleChain } from '../features/hole.ts';
 import { CustomFeatureStatement } from '../features/custom.ts';
 import { FeatureCallees } from '../producers/callees.ts';
 import {
-  EDITABLE_CALLEES,
+  editableKindOf,
   OPTION_MEMBERS,
   type ChainParse,
   type ParsedRegionChain,
@@ -95,7 +95,7 @@ export function parseFeatureChain(
     }
     return CustomFeatureStatement.parse(chain, call, bindings, { id: custom.id, shape: custom.shape });
   }
-  const feature = EDITABLE_CALLEES[chain.root.name];
+  const feature = editableKindOf(chain, call);
   if (!feature) {
     return { error: `${chain.root.name}() is not an editable feature statement` };
   }

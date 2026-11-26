@@ -79,6 +79,48 @@ export function anyValueArg(node: TSNode): ValueExpr | null {
   return isExpressionText(node.text) ? node.text : null;
 }
 
+/**
+ * Read an option that names one of a fixed set of words (`.mode('normal')`,
+ * `.keep('all')`): the word, when the argument is a plain string literal
+ * spelling one of `choices`. Null for anything else — another word, a
+ * variable, an expression — which the dialog has no choice to show for.
+ */
+export function choiceArgValue<T extends string>(node: TSNode, choices: readonly T[]): T | null {
+  const value = stringArgValue(node);
+  return value !== null && (choices as readonly string[]).includes(value) ? value as T : null;
+}
+
+/**
+ * A list of operands read back from a statement: each one's text, verbatim,
+ * and the statement a bare variable among them names (the bound call's own
+ * position, what its timeline row reports), or null for any other
+ * expression. Both lists have one entry per operand, in the order written.
+ */
+export type OperandList = {
+  texts: string[];
+  refs: ({ line: number; column: number } | null)[];
+};
+
+/** The expressions that can name a scene object: a variable, a selector or builder call, a property read. */
+const OPERAND_EXPRESSIONS = new Set(['identifier', 'call_expression', 'member_expression']);
+
+/**
+ * Read an option that takes scene objects, one per argument
+ * (`.adjacent(a, e.sideFaces(0))`, `.guides(c, p)`), as its operands. Null
+ * when an argument cannot name a scene object — a literal, a spread, a
+ * list, a function — and for a call with no argument at all: the dialog
+ * shows one chip per operand, so it must be able to count them.
+ */
+export function operandListArgs(args: TSNode[], statementStart: number): OperandList | null {
+  if (args.length === 0 || !args.every(arg => OPERAND_EXPRESSIONS.has(arg.type))) {
+    return null;
+  }
+  return {
+    texts: args.map(arg => arg.text),
+    refs: args.map(arg => resolveRepeatTargetRef(arg, statementStart)),
+  };
+}
+
 /** Boolean literal value of an argument node, or null when it is anything else. */
 export function booleanArgValue(node: TSNode): boolean | null {
   if (node.type === 'true') {

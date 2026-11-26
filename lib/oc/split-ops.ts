@@ -8,6 +8,7 @@ import { BooleanBuilders } from "./boolean-builders.js";
 import { ShapeProps } from "./props.js";
 import { ColorTransfer, type CarriedColor, type SourceColors } from "./color-transfer.js";
 import { RenderSeams } from "./render-seams.js";
+import { SheetOps } from "./sheet-ops.js";
 import { Solid } from "../common/solid.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import type { BoundingBox } from "../helpers/types.js";
@@ -238,21 +239,14 @@ export class SplitOps {
     if (faces.length === 1) {
       return faces[0];
     }
-    const sewing = new oc.BRepBuilderAPI_Sewing(mmTol(1e-5), true, true, true, false);
-    const progress = new oc.Message_ProgressRange();
     try {
-      for (const face of faces) {
-        sewing.Add(face);
-      }
-      sewing.Perform(progress);
-      const sewn = sewing.SewedShape();
+      const { sewn } = SheetOps.sewRaw(faces, mmTol(1e-5));
       if (!sewn.IsNull()) {
         return sewn;
       }
+      sewn.delete();
       return ShapeOps.makeCompoundRaw(faces);
     } finally {
-      progress.delete();
-      sewing.delete();
       for (const face of faces) {
         face.delete();
       }

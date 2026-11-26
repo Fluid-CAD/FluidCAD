@@ -9,6 +9,7 @@ import { SectionCompatibility, CompatibleSections, CompatibleSection } from "./s
 import { CurveData } from "./curve-data.js";
 import { TakeoffField } from "./takeoff-field.js";
 import { mmTol } from "../../units/tolerance.js";
+import { SheetOps } from "../sheet-ops.js";
 
 /** How a loft leaves (or arrives at) an end profile. */
 export type LoftConditionKind = "normal" | "tangent";
@@ -433,21 +434,11 @@ export class Skinning {
 
   /** Sews faces into a watertight shell and wraps it into a solid. */
   static sewSolid(faces: TopoDS_Shape[]): Solid {
-    const oc = getOC();
-    const sewing = new oc.BRepBuilderAPI_Sewing(Skinning.SEWING_TOLERANCE, true, true, true, false);
-    for (const face of faces) {
-      sewing.Add(face);
-    }
-    const progress = new oc.Message_ProgressRange();
-    sewing.Perform(progress);
-    progress.delete();
-
-    if (sewing.NbFreeEdges() > 0) {
-      sewing.delete();
+    const { sewn, freeEdges } = SheetOps.sewRaw(faces, Skinning.SEWING_TOLERANCE);
+    if (freeEdges > 0) {
+      sewn.delete();
       throw new Error("Loft surface and caps did not close into a watertight shell.");
     }
-    const sewn = sewing.SewedShape();
-    sewing.delete();
 
     try {
       return Skinning.solidFromShell(sewn);

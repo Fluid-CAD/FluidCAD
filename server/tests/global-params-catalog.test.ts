@@ -215,7 +215,7 @@ describe('lintFluidJs on a params file', () => {
   it('reports the §2.2 rules as diagnostics beside the missing imports', async () => {
     const { lintFluidJs } = await import('../src/lint-fluid-js.ts');
     const result = await lintFluidJs(`export const wall = param('Wall', 3);\nunit('mm');\n`, { filePath: '/ws/p.params.js' });
-    expect(result.missing.map((m) => m.symbol)).toEqual(['unit']);
+    expect(result.missing.map((m) => m.symbol)).toEqual(['param', 'unit']);
     expect(result.diagnostics).toEqual([
       { line: 1, column: 0, message: 'unit() is not allowed in a params file — its numbers are in the project unit' },
     ]);

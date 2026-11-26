@@ -34,22 +34,25 @@ type TSNode = {
 // `lib/core/index.ts`, `lib/core/2d/index.ts`, `lib/filters/index.ts`, and
 // `lib/features/2d/constraints/geometry-qualifier.ts`. If a new public symbol
 // is added there, add it here too — the import lint is the wall the LLM
-// hits, so keep it accurate.
+// hits, so keep it accurate. A test compares the core list with the exports
+// of `lib/core/index.ts`.
 const CORE_SYMBOLS = new Set<string>([
   'axis', 'plane', 'sketch', 'fuse', 'subtract', 'common',
   'cut', 'revolve', 'extrude', 'sphere', 'cylinder', 'select', 'shell',
   'chamfer', 'fillet', 'translate', 'rotate', 'mirror', 'copy', 'repeat',
-  'load', 'loft', 'sweep', 'rib', 'hole', 'color', 'draft', 'remove',
+  'load', 'loft', 'sweep', 'rib', 'hole', 'wrap', 'helix', 'color', 'draft', 'remove',
   'part', 'assembly', 'breakpoint', 'connector', 'expose', 'property', 'insert', 'mate', 'replicate', 'relation', 'section', 'split',
   'configurations',
   'line', 'circle', 'ellipse', 'arc', 'eArc', 'offset', 'project', 'intersect',
-  'bezier', 'spline', 'point',
+  'bezier', 'spline', 'point', 'text', 'image',
   // Sketch datum accessors (origin + axes, constraint sketches).
   'origin', 'xAxis', 'yAxis',
   // Region declarations inside a sketch and their far-side wrapper.
   'region', 'far',
   // Document unit declaration — metadata, not a feature (unit-lint.ts).
   'unit',
+  // A value declaration: it builds nothing, so it may precede unit().
+  'param',
 ]);
 
 /**
@@ -107,13 +110,13 @@ for (const s of SDK_SYMBOLS) {
 
 /**
  * Statements that start geometry for the unit-order rule: every engine
- * statement except the unit declaration itself and `breakpoint()`, which
- * builds nothing. Sketch-only symbols are included — they can't legally
+ * statement except the unit declaration itself, and `breakpoint()` and
+ * `param()`, which build nothing. Sketch-only symbols are included — they can't legally
  * precede `unit()` either.
  */
 const GEOMETRY_CALLEES = new Set<string>(
   [...CORE_SYMBOLS, ...FILTER_SYMBOLS, ...CONSTRAINT_SYMBOLS, ...SHAPE_SYMBOLS]
-    .filter((s) => s !== 'unit' && s !== 'breakpoint'),
+    .filter((s) => s !== 'unit' && s !== 'breakpoint' && s !== 'param'),
 );
 
 /**

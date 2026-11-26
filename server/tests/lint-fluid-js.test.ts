@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIGURATIONS_AFTER_PARAM_MESSAGE, lintFluidJs } from '../src/lint-fluid-js.ts';
+import { CONFIGURATIONS_AFTER_PARAM_MESSAGE, lintFluidJs, listEngineSymbols } from '../src/lint-fluid-js.ts';
 import { CONFIGURATIONS_IN_PARAMS_FILE_MESSAGE } from '../src/global-params/lint.ts';
 import { PartRules } from '../../lib/dist/index.js';
+import * as core from '../../lib/dist/core/index.js';
 
 describe('lintFluidJs', () => {
   it('reports every FluidCAD symbol used without an import', async () => {
@@ -466,5 +467,30 @@ describe('lintFluidJs — generated definitions', () => {
       ['Generator', 'fluidcad/sdk'],
     ]);
     expect(result.suggestion).toBe('import { defineAssembly, definePart, Generator } from "fluidcad/sdk";');
+  });
+});
+
+describe('lintFluidJs — the core symbol list', () => {
+  /** Exports of fluidcad/core that are engine helpers, not statements a model calls. */
+  const ENGINE_HELPERS = new Set(['resolveParam', 'isNumberParam', 'isBooleanParam']);
+
+  it('lists every public export of lib/core/index.ts, and nothing else', () => {
+    const exported = Object.keys(core).filter((name) => !ENGINE_HELPERS.has(name)).sort();
+    const listed = listEngineSymbols()
+      .filter((symbol) => symbol.module === 'fluidcad/core')
+      .map((symbol) => symbol.name)
+      .sort();
+    expect(listed).toEqual(exported);
+  });
+
+  it('asks for the import of helix, wrap and text', async () => {
+    const result = await lintFluidJs('helix("z", 10, 2);\nwrap(1);\nsketch("xy", () => text("A"));\n');
+    expect(result.missing.map((m) => m.symbol).sort()).toEqual(['helix', 'sketch', 'text', 'wrap']);
+  });
+
+  it('asks for the import of param, and still lets it precede unit()', async () => {
+    const result = await lintFluidJs("const w = param('w', 4);\nunit('in');\n");
+    expect(result.missing.map((m) => m.symbol).sort()).toEqual(['param', 'unit']);
+    expect(result.diagnostics ?? []).toEqual([]);
   });
 });

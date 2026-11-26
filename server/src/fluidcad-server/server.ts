@@ -2241,6 +2241,26 @@ export class FluidCadServer {
   }
 
   /**
+   * What the statement at `loc` left in the rendered scene: a curve of its
+   * own (what a wire slot may name whole), a surface (what a surface slot
+   * may). Null when there is no scene, the scene built nothing at that
+   * site, or the workspace kernel predates the question — the code-writing
+   * layer then reads the call itself.
+   */
+  statementProduct(
+    loc: { filePath: string; line: number; column?: number },
+  ): { curve: boolean; surface: boolean } | null {
+    if (!this.sceneManager || !this.sceneManager.resolveStatementProduct) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.resolveStatementProduct(scene, loc) ?? null;
+  }
+
+  /**
    * Whether the part at `from` builds from the part at `to`: the chain of
    * part names between them (`from` first, `to` last), or null when it does
    * not — also when there is no scene, either site is not a rendered part,

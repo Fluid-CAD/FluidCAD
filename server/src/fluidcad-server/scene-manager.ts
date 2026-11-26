@@ -130,6 +130,12 @@ export type SceneManager = {
     scene: any,
     loc: { filePath: string; line: number; column?: number },
   ): any;
+  // Optional: may predate the curve and surface questions. What the
+  // statement at a call site left: a curve of its own, a surface.
+  resolveStatementProduct?(
+    scene: any,
+    loc: { filePath: string; line: number; column?: number },
+  ): { curve: boolean; surface: boolean } | null;
   // Optional: may predate the cross-part dependency-loop guard.
   resolvePartDependency?(
     scene: any,

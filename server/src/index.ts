@@ -66,6 +66,7 @@ import { createWorkspaceWatcher, type WorkspaceWatcher } from './files/workspace
 import { RenderInputChanges } from './files/render-input-changes.ts';
 import { ParamsDiskEdits } from './files/params-disk-edits.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
+import { SceneCallees } from './scene-callees.ts';
 import { HostRegistry } from './host-registry.ts';
 import { attachEditorHostTransport, broadcastEditorCapabilities } from './editor-host-transport.ts';
 import { normalizePath } from './normalize-path.ts';
@@ -209,6 +210,12 @@ const featureCatalog = new FeatureCatalog({
   hasLiveBuffer: (absPath) => fluidCadServer.hasLiveBuffer(absPath),
 });
 
+// What the code-writing layer binds a statement as: the catalog's callees
+// read over the rendered scene, so a wire input names any statement the last
+// render holds a curve of. The dispatcher's dry run, the apply-feature
+// previews and the editor's round trip share it.
+const sceneCallees = new SceneCallees(featureCatalog, fluidCadServer);
+
 // Whether the engine can still be trusted: a trap of the OpenCascade kernel
 // (most likely a custom feature's raw OpenCascade code) may have corrupted
 // its heap. Every page hears of it and is offered the restart this host
@@ -235,7 +242,7 @@ const globalParamCatalog = new GlobalParamCatalog({
 // memory (an assembly preview) with the callees and globals the apply-feature
 // router's `/code/apply-feature` applies them with.
 const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost, {
-  callees: featureCatalog, packages: packageEdits, globals: globalParamCatalog,
+  callees: sceneCallees, packages: packageEdits, globals: globalParamCatalog,
 });
 
 // The assembly dialogs' live preview (G4): the file on screen rendered with
@@ -333,7 +340,7 @@ app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, 
 }));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH, editDispatcher, globalParamCatalog));
 app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, {
-  dispatcher: editDispatcher, callees: featureCatalog, catalog: featureCatalog, globals: globalParamCatalog,
+  dispatcher: editDispatcher, callees: sceneCallees, catalog: featureCatalog, globals: globalParamCatalog,
 }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createShareRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));

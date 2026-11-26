@@ -230,6 +230,8 @@ export {
   FeatureCallees,
   type CustomFeatureCallee,
   type FeatureCalleeSource,
+  type StatementProduct,
+  type StatementProducts,
 } from './producers/callees.ts';
 export { GlobalImports } from './global-imports.ts';
 export { SketchExports } from './sketch-exports.ts';

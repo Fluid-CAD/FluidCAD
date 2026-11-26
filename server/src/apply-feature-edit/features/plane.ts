@@ -1,6 +1,6 @@
 // plane(): option types, statement and base-expression rendering, chain parsing and the edit renderer.
 
-import { chainRootCallee, type LexicalBindings, type TSNode } from '../../code-editor/index.ts';
+import type { LexicalBindings, TSNode } from '../../code-editor/index.ts';
 import {
   anyValueArg,
   numericValueArg,
@@ -11,6 +11,7 @@ import {
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { SelectorText } from '../parse/selector-text.ts';
 import type { ForeignExposureRef } from './expose.ts';
+import { FeatureCallees } from '../producers/callees.ts';
 import { isPlaneProducer, isWireProducer } from '../producers/predicates.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
@@ -242,14 +243,14 @@ const PLANE_OPTION_MEMBERS = [...PLANE_NUMERIC_MEMBERS, 'rotationAxes'] as const
  * Which form a plane base's text reads as (see {@link ParsedPlaneBase}). A
  * `plane(…)` call and an origin-plane literal are plane-likes; an edge filter
  * or any edge bucket's accessor ({@link SelectorText}) is an edge source, as
- * is an identifier bound to a `helix(…)` or a `sketch(…)` (both draw wires,
- * never a face to take a plane from); every other identifier reads as a plane
- * variable, and anything left is a face selector. A misread costs one dropdown
- * change to correct.
+ * is an identifier bound to a statement that left a curve (`drawsCurve`: a
+ * sketch, a helix, any other curve — never a face to take a plane from);
+ * every other identifier reads as a plane variable, and anything left is a
+ * face selector. A misread costs one dropdown change to correct.
  */
-function classifyPlaneBase(node: TSNode, boundCallee: string | null): ParsedPlaneBase['kind'] {
+function classifyPlaneBase(node: TSNode, drawsCurve: boolean): ParsedPlaneBase['kind'] {
   if (node.type === 'identifier') {
-    return boundCallee === 'helix' || boundCallee === 'sketch' ? 'edge' : 'plane';
+    return drawsCurve ? 'edge' : 'plane';
   }
   const text = node.text.trim();
   if (standardPlaneLiteral(node) !== null || /^plane\s*\(/.test(text)) {
@@ -259,13 +260,14 @@ function classifyPlaneBase(node: TSNode, boundCallee: string | null): ParsedPlan
 }
 
 /** Read one plane base argument into its dialog-editable reading. */
-function readPlaneBase(node: TSNode, statementStart: number): ParsedPlaneBase {
+function readPlaneBase(node: TSNode, statementStart: number, callees: FeatureCallees): ParsedPlaneBase {
   const call = resolveIdentifierCall(node, statementStart);
+  const ref = call ? { line: call.startPosition.row + 1, column: call.startPosition.column } : null;
   return {
     text: node.text,
-    kind: classifyPlaneBase(node, call ? chainRootCallee(call) : null),
+    kind: classifyPlaneBase(node, call !== null && ref !== null && callees.binds({ featureType: 'wire', ...ref }, call)),
     standard: standardPlaneLiteral(node),
-    ref: call ? { line: call.startPosition.row + 1, column: call.startPosition.column } : null,
+    ref,
   };
 }
 
@@ -284,6 +286,7 @@ export function parsePlaneChain(
   start: number,
   end: number,
   bindings: LexicalBindings,
+  callees: FeatureCallees = FeatureCallees.BUILT_IN,
 ): ChainParse {
   if (args.length === 0) {
     return { error: 'the plane() call has no arguments' };
@@ -291,7 +294,7 @@ export function parsePlaneChain(
   if (args.length > 3) {
     return { error: 'the plane has more arguments than the dialog understands' };
   }
-  const bases = [readPlaneBase(args[0], start)];
+  const bases = [readPlaneBase(args[0], start, callees)];
   let optionsNode: TSNode | null = null;
   /** The bare second argument: an offset, or an edge position. */
   let value: ValueExpr | null = null;
@@ -311,7 +314,7 @@ export function parsePlaneChain(
       value = position;
       namedPosition = true;
     } else {
-      bases.push(readPlaneBase(second, start));
+      bases.push(readPlaneBase(second, start, callees));
     }
     if (args.length === 3) {
       if (bases.length !== 2 || args[2].type !== 'object') {

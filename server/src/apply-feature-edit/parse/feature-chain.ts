@@ -299,7 +299,7 @@ export function parseFeatureChain(
   }
 
   if (feature === 'plane') {
-    return parsePlaneChain(args, start, end, bindings);
+    return parsePlaneChain(args, start, end, bindings, callees);
   }
 
   const isCut = chain.root.name === 'cut';

@@ -1,7 +1,9 @@
 // Which callees can produce each kind of feature input (sketches, wires, planes, axes, repeat targets).
 
+import { chainRootCallee, type TSNode } from '../../code-editor/index.ts';
 import { listEngineSymbols } from '../../lint-fluid-js.ts';
 import type { CustomFeatureShape } from '../features/custom.ts';
+import { curveCallees, readsAsCurve } from '../parse/parsed-statement.ts';
 
 /**
  * Chain-root callees this transform will bind a variable to. Guards against a
@@ -102,10 +104,11 @@ export function producerCallees(featureType: string): Set<string> {
 
 /**
  * Producer feature types whose source line must hold exactly one of these
- * calls — sketch, plane, axis and wire inputs are referenced by identity, so
- * any other callee at the line means the file is out of sync. A 'wire' input
- * (a sweep path, a loft guide) is either a sketch or a helix. Null falls
- * back to the general `PRODUCER_CALLEES` allowlist.
+ * calls — sketch, plane and axis inputs are referenced by identity, so any
+ * other callee at the line means the file is out of sync. Null for every
+ * other type: a wire or a surface input is decided by what its statement
+ * left ({@link FeatureCallees.identityOf}), the rest by the callees their
+ * type accepts.
  */
 export function requiredChainRoots(featureType: string): string[] | null {
   if (featureType === 'sketch') {
@@ -117,11 +120,35 @@ export function requiredChainRoots(featureType: string): string[] | null {
   if (featureType === 'axis') {
     return ['axis'];
   }
-  if (featureType === 'wire') {
-    return ['sketch', 'helix'];
-  }
   return null;
 }
+
+/**
+ * Whether producers of `featureType` are identity inputs: a statement the
+ * consumer names whole, by its variable — a sketch, a plane, an axis, a
+ * wire (a sweep path, a loft guide, an edge plane's base) or a surface.
+ */
+export function namesWholeStatement(featureType: string): boolean {
+  return requiredChainRoots(featureType) !== null || featureType === 'wire' || featureType === 'surface';
+}
+
+/**
+ * What the rendered scene says the statement at a call site left: a curve of
+ * its own, a surface (the engine's `Producers`).
+ */
+export type StatementProduct = { curve: boolean; surface: boolean };
+
+/**
+ * The rendered scene's answers about one file's statements. Null where it
+ * has none: nothing rendered, a line the scene built nothing at, an engine
+ * that predates the question.
+ */
+export interface StatementProducts {
+  at(site: { line: number; column?: number }): StatementProduct | null;
+}
+
+/** A producer as the binding gate reads it: its type and its statement's site. */
+export type ProducerSite = { featureType?: string; line: number; column?: number };
 
 /**
  * Chain-root callees whose call creates or mutates scene state when the
@@ -142,6 +169,11 @@ const FEATURE_ROOT_CALLEES: Set<string> = (() => {
   out.delete('configurations');
   return out;
 })();
+
+/** `a sketch() or helix() call`: the calls a refusal expected, by callee. */
+function callsNamed(callees: string[]): string {
+  return `a ${callees.map(callee => `${callee}()`).join(' or ')} call`;
+}
 
 /** A custom feature a file reaches through one of its imports. */
 export type CustomFeatureCallee = {
@@ -180,7 +212,20 @@ export class FeatureCallees {
     calleesFor: async () => FeatureCallees.BUILT_IN,
   };
 
-  constructor(private readonly custom: ReadonlyMap<string, CustomFeatureCallee>) {}
+  constructor(
+    private readonly custom: ReadonlyMap<string, CustomFeatureCallee>,
+    private readonly scene: StatementProducts | null = null,
+  ) {}
+
+  /**
+   * These callees read over the rendered scene: a wire or a surface input
+   * may then name any statement the scene holds a curve or a surface of —
+   * an imported one, a repeat of one, a tool's result — and not only the
+   * calls a file is read as drawing a curve by.
+   */
+  over(scene: StatementProducts): FeatureCallees {
+    return new FeatureCallees(this.custom, scene);
+  }
 
   /** The custom feature a call to `callee` builds, or null for any other callee. */
   feature(callee: string): CustomFeatureCallee | null {
@@ -188,14 +233,23 @@ export class FeatureCallees {
   }
 
   /**
-   * The producer-binding gate: whether the call whose chain root is
-   * `callee` may be bound as a producer of `featureType`. Sketch, plane,
-   * axis and wire inputs name their own call ({@link requiredChainRoots});
-   * everything else takes the callees its type accepts.
+   * The producer-binding gate by callee: whether the call whose chain root
+   * is `callee` may be bound as a producer of `featureType`. Sketch, plane
+   * and axis inputs name their own call ({@link requiredChainRoots});
+   * everything else takes the callees its type accepts. A wire or a surface
+   * input is decided by its statement, not its callee — {@link binds} asks
+   * the scene — so here a wire takes the callees a file is read as drawing a
+   * curve by, and a surface any feature statement.
    */
   produces(featureType: string, callee: string | null): boolean {
     if (callee === null) {
       return false;
+    }
+    if (featureType === 'wire') {
+      return curveCallees().includes(callee);
+    }
+    if (featureType === 'surface') {
+      return this.produces('feature', callee);
     }
     const required = requiredChainRoots(featureType);
     if (required) {
@@ -209,6 +263,63 @@ export class FeatureCallees {
       return false;
     }
     return featureType === 'feature' || custom.id === featureType;
+  }
+
+  /**
+   * The producer-binding gate: whether `call`, the statement at
+   * `producer`'s site, may be bound as that producer. A wire input is a
+   * statement that left a curve of its own and a surface input one that
+   * holds a surface, as the scene answers; every other type is decided by
+   * the call's callee ({@link produces}).
+   */
+  binds(producer: ProducerSite, call: TSNode): boolean {
+    if (producer.featureType === 'wire') {
+      return this.leftCurve(producer, call);
+    }
+    if (producer.featureType === 'surface') {
+      return this.holdsSurface(producer, call);
+    }
+    return this.produces(producer.featureType ?? '', chainRootCallee(call));
+  }
+
+  /**
+   * What the statement at an identity input's site was expected to be, when
+   * `call` is not it — `a sketch() call` — or null when it is, and for a
+   * producer that names no identity input. A stale line pointing at some
+   * other call would consume the wrong input, so the caller refuses.
+   */
+  identityOf(producer: ProducerSite, call: TSNode): string | null {
+    const required = requiredChainRoots(producer.featureType ?? '');
+    if (required) {
+      const callee = chainRootCallee(call);
+      return callee !== null && required.includes(callee) ? null : callsNamed(required);
+    }
+    if (producer.featureType === 'wire') {
+      return this.leftCurve(producer, call) ? null : callsNamed(curveCallees());
+    }
+    if (producer.featureType === 'surface') {
+      return this.holdsSurface(producer, call) ? null : 'a statement that holds a surface';
+    }
+    return null;
+  }
+
+  /**
+   * Whether the statement left a curve of its own: by the reading of the
+   * call alone (a `sketch()`, a `helix()`), or by the scene's answer for
+   * its site.
+   */
+  private leftCurve(producer: ProducerSite, call: TSNode): boolean {
+    return readsAsCurve(call) || this.scene?.at(producer)?.curve === true;
+  }
+
+  /**
+   * Whether the statement holds a surface, as the scene answers. Nothing in
+   * a call's text tells a surface from a solid, so without an answer any
+   * feature statement qualifies, as it does for a repeat target.
+   */
+  private holdsSurface(producer: ProducerSite, call: TSNode): boolean {
+    const product = this.scene?.at(producer) ?? null;
+    return product ? product.surface : this.produces('feature', chainRootCallee(call));
   }
 
   /** Whether a call to `callee` creates or mutates scene state when its statement evaluates. */

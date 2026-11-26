@@ -9,7 +9,7 @@ import {
   type TSTree,
 } from '../../code-editor/index.ts';
 import { bindingNameHint, resolveStatement, type ProducerStatement } from './bindings.ts';
-import { FeatureCallees } from './callees.ts';
+import { FeatureCallees, type ProducerSite } from './callees.ts';
 
 /**
  * Build a synchronous producer→name lookup over `code` for the synthesis
@@ -72,17 +72,17 @@ export async function makeProducerNamer(
 function resolveBindableStatementAt(
   tree: TSTree,
   lines: string[],
-  producer: { line: number; featureType?: string },
+  producer: ProducerSite,
   callees: FeatureCallees,
 ): ProducerStatement | null {
   const call = findEditableCallAt(tree, lines, producer.line);
   if (!call) {
     return null;
   }
-  // Sketch/plane/wire producers must name their own call — the pick
+  // Sketch/plane/wire producers must name their own statement — the pick
   // features never attribute to one, so the looser callee stays scoped
   // by type.
-  if (!callees.produces(producer.featureType ?? '', chainRootCallee(call))) {
+  if (!callees.binds(producer, call)) {
     return null;
   }
   const resolved = resolveStatement(call);

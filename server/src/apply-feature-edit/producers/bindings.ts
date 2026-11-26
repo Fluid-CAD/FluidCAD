@@ -11,7 +11,7 @@ import { stringArgValue } from '../ast/args.ts';
 import { decomposeChain } from '../ast/chain.ts';
 import { CONNECTOR_NAME } from '../features/connector.ts';
 import { enclosingFunctionScope, enclosingScope, enclosingStatement, sameNode } from '../ast/nodes.ts';
-import { FeatureCallees, requiredChainRoots } from './callees.ts';
+import { FeatureCallees } from './callees.ts';
 import { isIdentityInput } from './predicates.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 
@@ -148,18 +148,16 @@ export function resolveProducerBindings(
       return { error: `no call found at line ${producer.line} — is the file in sync with the last render?` };
     }
 
-    // Sketch, plane and wire producers (profiles, paths, plane bases) must
-    // anchor their own call in both modes — a stale line pointing at some
-    // other call would consume the wrong input.
-    const requiredRoots = requiredChainRoots(producer.featureType);
-    if (requiredRoots) {
+    // Sketch, plane, wire and surface producers (profiles, paths, plane
+    // bases) must anchor their own statement in both modes — a stale line
+    // pointing at some other call would consume the wrong input.
+    const expected = callees.identityOf(producer, call);
+    if (expected !== null) {
       const root = chainRootCallee(call);
-      if (root === null || !requiredRoots.includes(root)) {
-        return {
-          error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
-            + `expected a ${requiredRoots.map(r => `${r}()`).join(' or ')} call — is the file in sync with the last render?`,
-        };
-      }
+      return {
+        error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
+          + `expected ${expected} — is the file in sync with the last render?`,
+      };
     }
 
     if (!producer.bind) {
@@ -177,7 +175,7 @@ export function resolveProducerBindings(
     }
 
     const root = chainRootCallee(call);
-    if (!callees.produces(producer.featureType, root)) {
+    if (!callees.binds(producer, call)) {
       return {
         error: `the call at line ${producer.line} is ${root ? `${root}()` : 'not a feature call'}, `
           + `expected a ${producer.featureType}()-producing call`,

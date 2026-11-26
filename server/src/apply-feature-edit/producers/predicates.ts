@@ -1,6 +1,6 @@
 // Spec-level predicates classifying a producer slot by the feature that consumes it.
 
-import { requiredChainRoots, SKETCH_PRODUCER_CALLEES } from './callees.ts';
+import { namesWholeStatement, SKETCH_PRODUCER_CALLEES } from './callees.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 
 /** Whether producer index `i` is a valid sketch producer of `spec`. */
@@ -10,13 +10,23 @@ export function isSketchProducer(spec: ApplyFeatureEditSpec, i: number): boolean
 }
 
 /**
- * Whether producer index `i` is a valid wire producer of `spec` — a sketch
- * or a helix, for the slots that consume a bare wire (a sweep path, a loft
+ * Whether producer index `i` is a valid wire producer of `spec` — a
+ * statement that left a curve of its own (a sketch, a helix, any other
+ * curve), for the slots that consume a bare wire (a sweep path, a loft
  * guide). Plain 'sketch' is accepted too: it is a strictly narrower claim.
  */
 export function isWireProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
   return Number.isInteger(i) && i >= 0 && i < spec.producers.length
     && (spec.producers[i].featureType === 'wire' || spec.producers[i].featureType === 'sketch');
+}
+
+/**
+ * Whether producer index `i` is a valid surface producer of `spec` — a
+ * statement that holds a surface, for the slots that take a surface whole.
+ */
+export function isSurfaceProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  return Number.isInteger(i) && i >= 0 && i < spec.producers.length
+    && spec.producers[i].featureType === 'surface';
 }
 
 /** Whether producer index `i` is a valid plane producer of `spec`. */
@@ -61,7 +71,7 @@ export function isScopeTargetProducer(spec: ApplyFeatureEditSpec, i: number): bo
   }
   const producer = spec.producers[i];
   return producer.bind !== false
-    && requiredChainRoots(producer.featureType) === null
+    && !namesWholeStatement(producer.featureType)
     && producer.featureType !== 'offset'
     && producer.featureType !== 'connector'
     && SKETCH_PRODUCER_CALLEES[producer.featureType] === undefined;
@@ -80,7 +90,7 @@ export function isIdentityInput(spec: ApplyFeatureEditSpec, i: number): boolean 
   }
   const producer = spec.producers[i];
   return producer.bind
-    && (requiredChainRoots(producer.featureType) !== null || producer.featureType === 'offset')
+    && (namesWholeStatement(producer.featureType) || producer.featureType === 'offset')
     && !spec.parts.some(part => part.producer === i || (part.refs ?? []).includes(i));
 }
 

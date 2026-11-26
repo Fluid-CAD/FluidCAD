@@ -23,9 +23,10 @@ export class BucketDefs {
 
   /**
    * Edge buckets in attribution-preference order. The specific positional
-   * buckets come first; `section-edges` (a cut's superset of all its new edges)
-   * is the fallback so a pocket-bottom edge reads as `c.endEdges(...)` rather
-   * than `c.edges(...)`.
+   * buckets come first; `section-edges` (a cut's superset of all its new
+   * edges, a curve's or a surface's every edge) is the fallback so a
+   * pocket-bottom edge reads as `c.endEdges(...)` rather than `c.edges(...)`,
+   * and a surface's rim edge as `s.boundaryEdges(...)`.
    */
   static readonly EDGES: readonly BucketDef[] = [
     { key: 'end-edges', accessor: 'endEdges', kind: 'edge', label: 'End Edges', deriveFromFaceKey: 'end-faces' },
@@ -33,15 +34,21 @@ export class BucketDefs {
     { key: 'side-edges', accessor: 'sideEdges', kind: 'edge', label: 'Side Edges', deriveFromFaceKey: null },
     { key: 'cap-edges', accessor: 'capEdges', kind: 'edge', label: 'Cap Edges', deriveFromFaceKey: 'cap-faces' },
     { key: 'internal-edges', accessor: 'internalEdges', kind: 'edge', label: 'Internal Edges', deriveFromFaceKey: 'internal-faces' },
+    { key: 'boundary-edges', accessor: 'boundaryEdges', kind: 'edge', label: 'Boundary Edges', deriveFromFaceKey: null },
     { key: 'section-edges', accessor: 'edges', kind: 'edge', label: 'Edges', deriveFromFaceKey: null },
   ];
 
+  /**
+   * Face buckets in attribution-preference order. `faces` (a surface's every
+   * face) is the fallback, as `section-edges` is for edges.
+   */
   static readonly FACES: readonly BucketDef[] = [
     { key: 'end-faces', accessor: 'endFaces', kind: 'face', label: 'End Faces', deriveFromFaceKey: null },
     { key: 'start-faces', accessor: 'startFaces', kind: 'face', label: 'Start Faces', deriveFromFaceKey: null },
     { key: 'side-faces', accessor: 'sideFaces', kind: 'face', label: 'Side Faces', deriveFromFaceKey: null },
     { key: 'cap-faces', accessor: 'capFaces', kind: 'face', label: 'Cap Faces', deriveFromFaceKey: null },
     { key: 'internal-faces', accessor: 'internalFaces', kind: 'face', label: 'Internal Faces', deriveFromFaceKey: null },
+    { key: 'faces', accessor: 'faces', kind: 'face', label: 'Faces', deriveFromFaceKey: null },
   ];
 
   /** `endEdges` → `End Edges`, `edges` → `Edges`, `tipFaces` → `Tip Faces`. */

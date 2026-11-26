@@ -179,7 +179,11 @@ export function globalContext(
  * `from(c)` and induction describes the picks among the curve's own edges.
  * `from(c)` keeps nothing but those edges, so evaluating over them alone is
  * what the emitted statement resolves; scope and `from()` membership are
- * injected as a `select()` injects them.
+ * injected as a `select()` injects them. The one stage that looks past them
+ * is `.withTangents()`, which grows its chain over everything the
+ * `select()` holds: such a candidate is evaluated over the bodies' edges
+ * and the curve's together, so a chain that would run on into a body is
+ * seen to.
  */
 export function curveContext(
   scene: SelectionScene,
@@ -213,15 +217,20 @@ export function curveContext(
     ref: curve, wholeRef: true, scope: true,
   };
 
+  let selected: Shape[] | null = null;
+  /** Every edge the emitted `select()` holds: the bodies' and, by `from(c)`, the curve's. */
+  const selectUniverse = () => selected ??= [...bodies.flatMap(body => body.getSubShapes('edge')), ...universe];
+
   return {
     universeKeys,
     universe,
     kindFn: 'edge',
-    evaluate: (builders, shapes = universe) => {
+    evaluate: (builders, shapes) => {
       injectFilterScope(builders, () => ({ bodies, extraFaces: [] }));
       const releaseFrom = injectFromMembership(builders, scope);
       try {
-        return new ShapeFilter(shapes, ...builders).apply();
+        const over = shapes ?? (builders.some(b => b.hasTangentExpansion()) ? selectUniverse() : universe);
+        return new ShapeFilter(over, ...builders).apply();
       } finally {
         releaseFrom();
       }

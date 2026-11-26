@@ -19,6 +19,8 @@ import {
   induceFilterArgs,
   induceFilterCandidates,
   resolvesExactly,
+  InducedFilter,
+  InductionContext,
 } from "./filter-search.js";
 import { mmTol } from "../units/tolerance.js";
 
@@ -912,36 +914,80 @@ function synthesizeGlobalCandidates(
   }
   return {
     ok: true,
-    candidates: induced.map(candidate => ({
-      producer: null,
-      accessor: 'select',
-      indices: null,
-      filterArgs: candidate.filterArgs,
-      refs: candidate.refs,
-      wholeRefs: candidate.wholeRefs,
-      bakedConstants: candidate.bakedConstants,
-      tier: 3,
-    })),
+    candidates: induced.map(candidate => selectPart(candidate)),
   };
 }
 
 /**
  * Whether a pick is an edge of a curve standing on its own — a helix, a
- * curve tool's result, a loaded curve — rather than of a solid or a surface.
+ * curve tool's result, a loaded curve: the shape it was made on is an edge
+ * or a wire, which is what `select(edge().from(c))` takes of an object and
+ * {@link curveContext} searches. The one test that sends a pick, free or a
+ * chain's seed, down the curve routes.
  */
 export function isCurveEdgePick(attr: PickAttribution): boolean {
   return attr.ref.sub.type === 'edge' && attr.solidOwner !== null
-    && attr.solidShape !== null && !attr.solidShape.isBody();
+    && attr.solidShape !== null && (attr.solidShape.isEdge() || attr.solidShape.isWire());
+}
+
+/** A scene-wide or curve-wide `select()` form of an induced filter; `suffix` is chained after it. */
+function selectPart(induced: InducedFilter, suffix = ''): SelectorPart {
+  return {
+    producer: null,
+    accessor: 'select',
+    indices: null,
+    filterArgs: `${induced.filterArgs}${suffix}`,
+    refs: induced.refs,
+    wholeRefs: induced.wholeRefs,
+    bakedConstants: induced.bakedConstants,
+    tier: 3,
+  };
 }
 
 /**
  * Candidates for picks on one curve object's edges, in route order: the
- * object's `edges` bucket (`c.edges(2)`) when its statement binds for an
- * accessor, then a `select(edge().from(c)…)` that names the curve whole and
- * describes the picks among its edges. A curve is never in the scene-wide
- * universe, so no bare `select()` is tried. A repeat's copy of a curve has
- * no variable of its own to name in `from()`.
+ * forms over the object's `edges` bucket (`c.edges(2)`), found by the caller
+ * when its statement binds for an accessor, then the `select(edge().from(c)…)`
+ * forms `selectForms` finds among the curve's own edges, which name the
+ * curve whole. A curve is never in the scene-wide universe, so no bare
+ * `select()` is tried. A repeat's copy of a curve has no variable of its own
+ * to name in `from()`. `unresolved` is the refusal when the curve can be
+ * named and no form resolves.
  */
+function synthesizeCurveRoutes(
+  scene: SelectionScene,
+  index: SelectionIndex,
+  curve: SceneObject,
+  attrs: PickAttribution[],
+  params: ParameterLink[],
+  bucketForms: SelectorPart[],
+  selectForms: (ctx: InductionContext) => SelectorPart[],
+  unresolved: string,
+  stmtBindable?: StatementBindable,
+): GroupResult {
+  const candidates = [...bucketForms];
+  const named = !curve.getCloneSource() && canBindProducer(index, curve, stmtBindable, true);
+  if (named) {
+    const scope = resolvePartScope(scene, attrs);
+    if (scope.ok === false) {
+      return scope;
+    }
+    candidates.push(...selectForms(curveContext(scene, index, curve, params, scope.part)));
+  }
+
+  if (candidates.length === 0) {
+    return {
+      ok: false,
+      reason: named ? unresolved
+        : `the picked edges belong to a ${curve.getType()}() curve, which a selection names through its variable `
+          + `(its edges(), or select(edge().from(…))) — that statement cannot be bound to one`,
+      pick: attrs[0].ref,
+    };
+  }
+  return { ok: true, candidates };
+}
+
+/** {@link synthesizeCurveRoutes} for free picks on one curve object's edges. */
 function synthesizeCurveCandidates(
   scene: SelectionScene,
   index: SelectionIndex,
@@ -951,55 +997,132 @@ function synthesizeCurveCandidates(
   preferIndices: boolean,
   stmtBindable?: StatementBindable,
 ): GroupResult {
-  const candidates: SelectorPart[] = [];
+  const bucketForms: SelectorPart[] = [];
   const bucket = attrs[0].producer ? attrs[0].producer.bucket : null;
   if (bucket && attrs.every(a => a.producer?.bucket === bucket)
     && canBindProducer(index, bucket.feature, stmtBindable)) {
     const result = synthesizeBucketCandidates(index, bucket, attrs, params, preferIndices);
     if (result.ok) {
-      candidates.push(...result.candidates);
+      bucketForms.push(...result.candidates);
     }
   }
 
-  if (!curve.getCloneSource() && canBindProducer(index, curve, stmtBindable, true)) {
-    const scope = resolvePartScope(scene, attrs);
-    if (scope.ok === false) {
-      return scope;
+  const pickKeys = new Set(attrs.map(a => a.pickedKey!));
+  return synthesizeCurveRoutes(
+    scene, index, curve, attrs, params, bucketForms,
+    ctx => induceFilterCandidates(index, ctx, attrs, pickKeys).map(induced => selectPart(induced)),
+    `no geometric filter distinguishes the picked edges from the rest of the ${curve.getType()}() curve — `
+      + `select them in code instead`,
+    stmtBindable,
+  );
+}
+
+/**
+ * A chain's forms over one bucket, when every member classifies into one
+ * bindable bucket: tier 0 if the chain covers it exactly, then a
+ * seed-isolating filter with `.withTangents()` (the runtime `ShapeFilter`
+ * expands tangency over the same bucket array), then a plain member
+ * conjunction, then indices. Empty when the members share no such bucket,
+ * or the chain crosses what the bucket can express.
+ */
+function bucketChainForms(
+  index: SelectionIndex,
+  chain: SelectorChain,
+  params: ParameterLink[],
+  stmtBindable?: StatementBindable,
+): SelectorPart[] {
+  const members = chain.members;
+  const memberKeys = new Set(members.map(a => a.pickedKey!));
+  const buckets = members.map(a => a.producer ? a.producer.bucket : null);
+  const bucket = buckets[0];
+  if (!bucket || !buckets.every(b => b === bucket) || !canBindProducer(index, bucket.feature, stmtBindable)) {
+    return [];
+  }
+
+  const candidates: SelectorPart[] = [];
+  const { producer: feature, accessorPrefix } = producerBinding(bucket.feature);
+  const accessor = `${accessorPrefix}${bucket.def.accessor}`;
+  const args = BucketArguments.of(index, bucket);
+
+  const wholeBucket = bucket.memberKeys.length === memberKeys.size
+    && bucket.memberKeys.every(k => memberKeys.has(k));
+  if (wholeBucket && resolvesExactly(index, new ShapeFilter(bucket.members).apply(), memberKeys)) {
+    candidates.push({
+      producer: feature, accessor, indices: null, filterArgs: null, tier: 0,
+    });
+  }
+
+  const ctx = bucketContext(bucket, false, params);
+  const seedInduced = induceFilterArgs(index, ctx, [chain.seed], new Set([chain.seed.pickedKey!]));
+  if (seedInduced) {
+    for (const builder of seedInduced.builders) {
+      builder.withTangents();
     }
-    const pickKeys = new Set(attrs.map(a => a.pickedKey!));
-    for (const induced of induceFilterCandidates(index, curveContext(scene, index, curve, params, scope.part), attrs, pickKeys)) {
+    if (resolvesExactly(index, ctx.evaluate(seedInduced.builders), memberKeys) && args.verifies(seedInduced.builders, memberKeys)) {
       candidates.push({
-        producer: null,
-        accessor: 'select',
+        producer: feature,
+        accessor,
         indices: null,
-        filterArgs: induced.filterArgs,
-        refs: induced.refs,
-        wholeRefs: induced.wholeRefs,
-        bakedConstants: induced.bakedConstants,
-        tier: 3,
+        filterArgs: `${seedInduced.filterArgs}.withTangents()`,
+        tier: seedInduced.constants === 0 ? 1 : 2,
       });
     }
   }
 
-  if (candidates.length === 0) {
-    return {
-      ok: false,
-      reason: `the picked edges belong to a ${curve.getType()}() curve, which a selection names through its variable `
-        + `(its edges(), or select(edge().from(…))) — that statement cannot be bound to one`,
-      pick: attrs[0].ref,
-    };
+  if (!wholeBucket) {
+    const plain = induceFilterArgs(index, ctx, members, memberKeys);
+    if (plain && args.verifies(plain.builders, memberKeys)) {
+      candidates.push({
+        producer: feature,
+        accessor,
+        indices: null,
+        filterArgs: plain.filterArgs,
+        tier: plain.constants === 0 ? 1 : 2,
+      });
+    }
   }
-  return { ok: true, candidates };
+
+  const indices = args.indicesFor(members, memberKeys);
+  if (indices) {
+    candidates.push({
+      producer: feature, accessor, indices, filterArgs: null, tier: 4,
+    });
+  }
+  return candidates;
 }
 
 /**
- * Tangent-chain candidates. When every member classifies into one bindable
- * bucket: tier 0 if the chain covers it exactly, then a seed-isolating filter
- * with `.withTangents()` (the runtime `ShapeFilter` expands tangency over the
- * same bucket array), then a plain member conjunction, then indices.
- * Otherwise the same ladder runs over the scene-wide `select()` universe.
- * Every `.withTangents()` candidate is verified by running the real filter —
- * expansion included — and requiring it to resolve to exactly the chain.
+ * A chain's `select()` forms over one universe: a seed-isolating filter with
+ * `.withTangents()`, kept when running the real filter — expansion included
+ * — resolves to exactly the chain, then a plain conjunction over the members.
+ */
+function selectChainForms(index: SelectionIndex, ctx: InductionContext, chain: SelectorChain): SelectorPart[] {
+  const memberKeys = new Set(chain.members.map(a => a.pickedKey!));
+  const candidates: SelectorPart[] = [];
+
+  const seedInduced = induceFilterArgs(index, ctx, [chain.seed], new Set([chain.seed.pickedKey!]));
+  if (seedInduced) {
+    for (const builder of seedInduced.builders) {
+      builder.withTangents();
+    }
+    if (resolvesExactly(index, ctx.evaluate(seedInduced.builders), memberKeys)) {
+      candidates.push(selectPart(seedInduced, '.withTangents()'));
+    }
+  }
+
+  const plain = induceFilterArgs(index, ctx, chain.members, memberKeys);
+  if (plain) {
+    candidates.push(selectPart(plain));
+  }
+  return candidates;
+}
+
+/**
+ * Tangent-chain candidates: the chain's forms over its members' bucket
+ * ({@link bucketChainForms}), else the same ladder over the scene-wide
+ * `select()` universe ({@link selectChainForms}). A chain whose seed is a
+ * curve's edge takes the curve routes, as free picks on it do: the bucket
+ * forms, then the ladder over `select(edge().from(c)…)`.
  */
 function synthesizeChainCandidates(
   scene: SelectionScene,
@@ -1013,133 +1136,38 @@ function synthesizeChainCandidates(
   if (kind === 'vertex') {
     return { ok: false, reason: 'Tangent chains require faces or edges.', pick: chain.seed.ref };
   }
-  const members = chain.members;
-  const memberKeys = new Set(members.map(a => a.pickedKey!));
-  const seedKeys = new Set([chain.seed.pickedKey!]);
+  const unresolved = `no geometric filter isolates the tangent chain's seed ${kind} — `
+    + `select the chain in code with a geometric filter and .withTangents()`;
 
-  const buckets = members.map(a => a.producer ? a.producer.bucket : null);
-  const bucket = buckets[0];
-  const sameBindableBucket = bucket !== null
-    && buckets.every(b => b === bucket)
-    && canBindProducer(index, bucket.feature, stmtBindable);
-
-  if (sameBindableBucket) {
-    const candidates: SelectorPart[] = [];
-    const { producer: feature, accessorPrefix } = producerBinding(bucket.feature);
-    const accessor = `${accessorPrefix}${bucket.def.accessor}`;
-    const args = BucketArguments.of(index, bucket);
-
-    const wholeBucket = bucket.memberKeys.length === memberKeys.size
-      && bucket.memberKeys.every(k => memberKeys.has(k));
-    if (wholeBucket && resolvesExactly(index, new ShapeFilter(bucket.members).apply(), memberKeys)) {
-      candidates.push({
-        producer: feature, accessor, indices: null, filterArgs: null, tier: 0,
-      });
-    }
-
-    const ctx = bucketContext(bucket, false, params);
-    const seedInduced = induceFilterArgs(index, ctx, [chain.seed], seedKeys);
-    if (seedInduced) {
-      for (const builder of seedInduced.builders) {
-        builder.withTangents();
-      }
-      if (resolvesExactly(index, ctx.evaluate(seedInduced.builders), memberKeys) && args.verifies(seedInduced.builders, memberKeys)) {
-        candidates.push({
-          producer: feature,
-          accessor,
-          indices: null,
-          filterArgs: `${seedInduced.filterArgs}.withTangents()`,
-          tier: seedInduced.constants === 0 ? 1 : 2,
-        });
-      }
-    }
-
-    if (!wholeBucket) {
-      const plain = induceFilterArgs(index, ctx, members, memberKeys);
-      if (plain && args.verifies(plain.builders, memberKeys)) {
-        candidates.push({
-          producer: feature,
-          accessor,
-          indices: null,
-          filterArgs: plain.filterArgs,
-          tier: plain.constants === 0 ? 1 : 2,
-        });
-      }
-    }
-
-    const indices = args.indicesFor(members, memberKeys);
-    if (indices) {
-      candidates.push({
-        producer: feature, accessor, indices, filterArgs: null, tier: 4,
-      });
-    }
-
-    if (candidates.length > 0) {
-      return { ok: true, candidates };
-    }
-    // The chain crosses what the bucket can express — fall through to the
-    // scene-wide universe.
+  const bucketForms = bucketChainForms(index, chain, params, stmtBindable);
+  if (isCurveEdgePick(chain.seed)) {
+    return synthesizeCurveRoutes(
+      scene, index, chain.seed.solidOwner!, [chain.seed, ...chain.members], params, bucketForms,
+      ctx => selectChainForms(index, ctx, chain), unresolved, stmtBindable,
+    );
+  }
+  if (bucketForms.length > 0) {
+    return { ok: true, candidates: bucketForms };
   }
 
+  // The chain crosses what a bucket can express: the scene-wide universe.
   const scope = resolvePartScope(scene, [chain.seed]);
   if (scope.ok === false) {
     return scope;
   }
-
-  const globalCandidates = (scopeByOwner: boolean): SelectorPart[] => {
-    const globalCtx = globalContext(
-      scene, index, kind, params, scope.part, faceSources,
-      fromSources(index, [chain.seed, ...members], scopeByOwner, stmtBindable),
-    );
-    const candidates: SelectorPart[] = [];
-
-    const seedInduced = induceFilterArgs(index, globalCtx, [chain.seed], seedKeys);
-    if (seedInduced) {
-      for (const builder of seedInduced.builders) {
-        builder.withTangents();
-      }
-      if (resolvesExactly(index, globalCtx.evaluate(seedInduced.builders), memberKeys)) {
-        candidates.push({
-          producer: null,
-          accessor: 'select',
-          indices: null,
-          filterArgs: `${seedInduced.filterArgs}.withTangents()`,
-          refs: seedInduced.refs,
-          wholeRefs: seedInduced.wholeRefs,
-          tier: 3,
-        });
-      }
-    }
-
-    const plain = induceFilterArgs(index, globalCtx, members, memberKeys);
-    if (plain) {
-      candidates.push({
-        producer: null,
-        accessor: 'select',
-        indices: null,
-        filterArgs: plain.filterArgs,
-        refs: plain.refs,
-        wholeRefs: plain.wholeRefs,
-        tier: 3,
-      });
-    }
-    return candidates;
-  };
+  const globalForms = (scopeByOwner: boolean): SelectorPart[] => selectChainForms(index, globalContext(
+    scene, index, kind, params, scope.part, faceSources,
+    fromSources(index, [chain.seed, ...chain.members], scopeByOwner, stmtBindable),
+  ), chain);
 
   // Owner scopes only as a last resort, exactly as for free picks (see
   // `synthesizeSelectors`).
-  let candidates = globalCandidates(false);
+  let candidates = globalForms(false);
   if (candidates.length === 0) {
-    candidates = globalCandidates(true);
+    candidates = globalForms(true);
   }
-
   if (candidates.length === 0) {
-    return {
-      ok: false,
-      reason: `no geometric filter isolates the tangent chain's seed ${kind} — `
-        + `select the chain in code with a geometric filter and .withTangents()`,
-      pick: chain.seed.ref,
-    };
+    return { ok: false, reason: unresolved, pick: chain.seed.ref };
   }
   return { ok: true, candidates };
 }

@@ -11,7 +11,8 @@ import { FaceProps } from "../../oc/face-props.js";
 import { FaceQuery } from "../../oc/face-query.js";
 import { SelectionIndex } from "../../selection/selection-index.js";
 import { attributePick } from "../../selection/attribution.js";
-import { synthesizeSelectors, SelectorPart } from "../../selection/synthesis.js";
+import { isCurveEdgePick, synthesizeSelectors, SelectorPart } from "../../selection/synthesis.js";
+import { listSelectionGroups } from "../../selection/selection-groups.js";
 import { globalContext, induceFilterCandidates, InductionContext } from "../../selection/filter-search.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import type { PickRef } from "../../selection/types.js";
@@ -46,6 +47,25 @@ class TestPath extends CurveObject {
 const path = registerBuilder((context: SceneParserContext) => {
   return function path(): TestPath {
     const result = new TestPath();
+    context.addSceneObject(result);
+    return result;
+  };
+});
+
+/** A curve tool that leaves {@link TestCurves.lineIntoArcThenCorner}: a line running tangentially into an arc, then a line at a corner. */
+class TestCorneredPath extends TestPath {
+  protected override buildCurves(_context: BuildSceneObjectContext): Shape[] {
+    return [TestCurves.lineIntoArcThenCorner()];
+  }
+
+  override createCopy(): SceneObject {
+    return new TestCorneredPath();
+  }
+}
+
+const corneredPath = registerBuilder((context: SceneParserContext) => {
+  return function corneredPath(): TestCorneredPath {
+    const result = new TestCorneredPath();
     context.addSceneObject(result);
     return result;
   };
@@ -352,6 +372,117 @@ describe("synthesis over the kind predicates", () => {
       if (refused.ok === false) {
         expect(refused.reason).toContain("test-path() curve");
       }
+    } finally {
+      index.dispose();
+    }
+  });
+
+  /** The tangent chain a right-click on `seed` offers, synthesized: the ranked selector texts, or the refusal. */
+  function synthesizedChain(scene: Scene, seed: PickRef, bindable?: (feature: SceneObject, whole?: boolean) => boolean): string[] | string {
+    const tangent = listSelectionGroups(scene, seed);
+    expect(tangent.ok).toBe(true);
+    const group = tangent.ok ? tangent.groups.find(g => g.kind === "tangent") : undefined;
+    expect(group?.label).toBe("Tangent Edges");
+    const index = new SelectionIndex(scene);
+    try {
+      const chain = {
+        seed: attributePick(scene, index, seed),
+        members: group!.members.map(ref => attributePick(scene, index, ref)),
+      };
+      const result = synthesizeSelectors(scene, index, [], [chain], [], false, bindable);
+      if (result.ok === false) {
+        return result.reason;
+      }
+      expect(result.groups).toHaveLength(1);
+      return [result.groups[0].winner, ...result.groups[0].alternatives].map(partText);
+    } finally {
+      index.dispose();
+    }
+  }
+
+  it("names a tangent chain on a curve object through its edges() bucket, then select(edge().from(c))", () => {
+    sketch("xy", () => {
+      testRect(20, 10, { at: [100, 0] });
+    });
+    extrude(5);
+    const c = corneredPath() as unknown as SceneObject;
+    setLocation(c, 4);
+    const scene = render();
+    const arc = edgesWhere(c.getShapes()[0], type => type === "arc");
+    expect(arc).toHaveLength(1);
+
+    expect(synthesizedChain(scene, arc[0])).toEqual([
+      "edges(edge().arc().withTangents())",
+      "edges(edge().below('yz', 25))",
+      "edges(0, 1)",
+      "select(edge().from({{r0}}).arc().withTangents())",
+      "select(edge().from({{r0}}).below('yz', 25))",
+    ]);
+  });
+
+  it("names a tangent chain on a curve object by select(edge().from(c)) when its statement cannot bind an accessor", () => {
+    sketch("xy", () => {
+      testRect(20, 10, { at: [100, 0] });
+    });
+    extrude(5);
+    const c = corneredPath() as unknown as SceneObject;
+    setLocation(c, 4);
+    const scene = render();
+    const arc = edgesWhere(c.getShapes()[0], type => type === "arc");
+
+    const texts = synthesizedChain(scene, arc[0], (_feature, whole) => whole === true);
+    expect(texts).toEqual([
+      "select(edge().from({{r0}}).arc().withTangents())",
+      "select(edge().from({{r0}}).below('yz', 25))",
+    ]);
+  });
+
+  it("names a tangent chain on a loaded curve, which has no edges() bucket, by select(edge().from(l))", () => {
+    sketch("xy", () => {
+      testRect(20, 10, { at: [100, 0] });
+    });
+    extrude(5);
+    const l = loadShapes([TestCurves.lineIntoArcThenCorner()]) as unknown as SceneObject;
+    setLocation(l, 4);
+    const scene = render();
+    const arc = edgesWhere(l.getShapes()[0], type => type === "arc");
+    expect(arc).toHaveLength(1);
+
+    const texts = synthesizedChain(scene, arc[0]);
+    expect(texts[0]).toBe("select(edge().from({{r0}}).arc().withTangents())");
+    // The same edges as free picks take the same route.
+    const lineAndArc = edgesWhere(l.getShapes()[0], (_type, index) => index < 2);
+    expect(synthesized(scene, lineAndArc)[0]).toMatch(/^select\(edge\(\)\.from\(\{\{r0\}\}\)/);
+  });
+
+  it("refuses a tangent chain on a curve whose statement cannot be named, in the curve's own words", () => {
+    const c = corneredPath() as unknown as SceneObject;
+    setLocation(c, 2);
+    const scene = render();
+    const arc = edgesWhere(c.getShapes()[0], type => type === "arc");
+
+    expect(synthesizedChain(scene, arc[0], () => false)).toContain("test-path() curve");
+  });
+
+  it("reads a pick as a curve's edge when the shape it was made on is an edge or a wire", () => {
+    sketch("xy", () => {
+      testRect(20, 10, { at: [100, 0] });
+    });
+    extrude(5);
+    const c = path() as unknown as SceneObject;
+    const l = loadShapes([TestSheets.openBox(10, 10, 10)]) as unknown as SceneObject;
+    const scene = render();
+    const index = new SelectionIndex(scene);
+    try {
+      const edgeOf = (shape: Shape) => attributePick(scene, index, { shapeId: shape.id, sub: { type: "edge", index: 0 } });
+      const onCurve = edgeOf(c.getShapes()[0]);
+      expect(isCurveEdgePick(onCurve)).toBe(true);
+      expect(isCurveEdgePick(edgeOf(findSolid(scene)))).toBe(false);
+      expect(isCurveEdgePick(edgeOf(l.getShapes()[0]))).toBe(false);
+      // A shape that is no body is not thereby a curve: a bare face's edge is not one.
+      const bareFace = l.getShapes()[0].getSubShapes("face")[0];
+      expect(bareFace.isBody()).toBe(false);
+      expect(isCurveEdgePick({ ...onCurve, solidShape: bareFace })).toBe(false);
     } finally {
       index.dispose();
     }

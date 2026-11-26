@@ -43,6 +43,22 @@ export const TestCurves = {
     }
     return wireOf([EdgeOps.makeLineEdge(new Point(0, 0, 0), new Point(10, 0, 0)), arcEdge]);
   },
+
+  /** {@link lineIntoArc} followed by a line from (20, 10) to (30, 10): a corner, so the tangent chain stops at the arc. */
+  lineIntoArcThenCorner(): Wire {
+    const arc = Geometry.makeArcFromTangent(new Point(10, 0, 0), new Point(20, 10, 0), new Vector3d(1, 0, 0));
+    let arcEdge: Edge;
+    try {
+      arcEdge = Geometry.makeEdgeFromCurve(arc);
+    } finally {
+      arc.delete();
+    }
+    return wireOf([
+      EdgeOps.makeLineEdge(new Point(0, 0, 0), new Point(10, 0, 0)),
+      arcEdge,
+      EdgeOps.makeLineEdge(new Point(20, 10, 0), new Point(30, 10, 0)),
+    ]);
+  },
 };
 
 function wireOf(edges: Edge[]): Wire {

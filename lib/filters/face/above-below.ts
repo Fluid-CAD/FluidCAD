@@ -19,7 +19,7 @@ import { PlaneRefSource, comparePlaneRefs, planeRefSceneObject, resolvePlaneRef 
  * sphere, is judged by its extent. Kept with the face's class, which it is
  * read from.
  */
-function isJudgedByVertices(face: Face): boolean {
+export function isJudgedByVertices(face: Face): boolean {
   return SurfaceClassifier.derived(face, 'sideByVertices', () => {
     const edges = face.getEdges();
     return edges.length > 0

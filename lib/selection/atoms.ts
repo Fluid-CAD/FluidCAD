@@ -7,6 +7,7 @@ import { Plane, toPlane } from "../math/plane.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeProbe, FaceProbe } from "./probe.js";
+import { EdgeProperties } from "../oc/edge-props.js";
 import { FaceProperties } from "../oc/face-props.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { mmTol } from "../units/tolerance.js";
@@ -14,7 +15,7 @@ import { Shape } from "../common/shape.js";
 import { ShapeMeasure } from "../oc/shape-measure.js";
 import { groupLayers } from "../filters/rank/extremal.js";
 import { edgeSideDistances } from "../filters/edge/above-below.js";
-import { faceSideDistances, faceSideDistancesPastSpan } from "../filters/face/above-below.js";
+import { faceSideDistances, faceSideDistancesPastSpan, isJudgedByVertices } from "../filters/face/above-below.js";
 import type { BodyKind } from "../filters/body-kind.js";
 import { CurveClassifier } from "../oc/curve-classifier.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -287,7 +288,8 @@ export function instantiateEdgeAtoms(
 
   atoms.push(...rankAtoms<EdgeFilterBuilder>(probes, universe));
 
-  atoms.push(...thresholdAtoms<EdgeFilterBuilder, Edge>(probes.map(p => p.edge), universe, edgeSideDistances, edgeSideDistances,
+  atoms.push(...thresholdAtoms<EdgeFilterBuilder, Edge>(
+    plane => probes.flatMap(p => edgeSideDistances(p.edge, plane)), universe, edgeSideDistances,
     (b, plane, offset) => offset === 0 ? b.above(plane) : b.above(plane, offset),
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
@@ -301,15 +303,20 @@ export function instantiateEdgeAtoms(
   return atoms;
 }
 
+/** The curve kinds whose class leaves open whether the edge returns to its start. */
+const CLOSABLE_CURVE_TYPES: ReadonlySet<EdgeProperties['curveType']> = new Set(['ellipse', 'spline', 'other']);
+
 /**
  * `closed()` / `open()` — whether the picked curves return to their start
- * (a full circle, a full ellipse, a closed spline), offered when the picks
- * agree and the universe holds both: a closed loop among open edges, or the
- * open edges around one.
+ * (a full ellipse, a closed spline), offered when the picks agree, the
+ * universe holds both, and a pick is an ellipse, a spline or another curve.
+ * A line, an arc and a circle say it by their class already, so picks of
+ * those alone get neither: `circle()` names a rim as it always has.
  */
 function closedAtoms(probes: EdgeProbe[], universe: Edge[]): EdgeAtom[] {
   const closed = sharedBoolean(probes.map(p => p.props.closed));
-  if (closed === null || universe.every(e => CurveClassifier.classify(e).closed === closed)) {
+  if (closed === null || !probes.some(p => CLOSABLE_CURVE_TYPES.has(p.props.curveType))
+    || universe.every(e => CurveClassifier.classify(e).closed === closed)) {
     return [];
   }
   return [{
@@ -499,7 +506,8 @@ export function instantiateFaceAtoms(
 
   atoms.push(...rankAtoms<FaceFilterBuilder>(probes, universe));
 
-  atoms.push(...thresholdAtoms<FaceFilterBuilder, Face>(probes.map(p => p.face), universe, faceSideDistances, faceSideDistancesPastSpan,
+  atoms.push(...thresholdAtoms<FaceFilterBuilder, Face>(
+    plane => probes.flatMap(p => pickedFaceDistances(p, plane)), universe, faceSideDistancesPastSpan,
     (b, plane, offset) => offset === 0 ? b.above(plane) : b.above(plane, offset),
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
@@ -524,19 +532,25 @@ const PRINCIPAL_DIRECTIONS: { name: PrincipalDirection; vector: Vector3d }[] = [
  */
 const FACING_OFFER_DEGREES = 20;
 
+/** The face kinds no class atom places: before `facing()` nothing said "the top one" of these. */
+const FACING_FACE_TYPES: ReadonlySet<FaceProperties['surfaceType']> = new Set(['freeform', 'revolved', 'extruded']);
+
 /**
  * `facing('z')` … `facing('-y')` — the principal direction every picked
  * face's mean normal points within {@link FACING_OFFER_DEGREES} of. The
- * qualitative way to name the top of a curved or free-form shape. A set of
- * flat picks gets none: the plane atoms (`onPlane`, `farthest`,
- * `parallelTo`) name a flat face exactly, where `facing()` would widen to
- * every face tilted within its angle.
+ * qualitative way to name the top of a free-form shape, so it is offered
+ * only when a pick is a free-form, revolved or extruded face. Picks on
+ * planes, cylinders, cones, spheres and tori get none: their own atoms
+ * (`onPlane`, `above`, `farthest`, the classes) name them more tightly,
+ * where `facing()` would widen to every face tilted within its angle and,
+ * closing a conjunction first, change the code an ordinary solid's picks
+ * have always written.
  */
 function facingAtoms(probes: FaceProbe[]): FaceAtom[] {
   if (probes.length === 0 || probes.some(p => p.meanNormal === null)) {
     return [];
   }
-  if (probes.every(p => p.props.surfaceType === 'plane' || p.props.surfaceType === 'circle')) {
+  if (!probes.some(p => FACING_FACE_TYPES.has(p.props.surfaceType))) {
     return [];
   }
   const cosine = Math.cos((FACING_OFFER_DEGREES * Math.PI) / 180);
@@ -895,13 +909,12 @@ function rankAtoms<B extends RankBuilder>(probes: RankProbe[], universe: Shape[]
  * "nice" number placed in the gap between the picked shapes' extent and the
  * nearest universe shape beyond it — the classic decision-stump cut, and the
  * separator that distinguishes repeat instances from their twins. All cuts
- * are computed in normal-signed distances from the principal plane, read by
- * `sideDistances` — the very distances the predicates judge a shape's side
- * by (end vertices, or a curved shape's extent): `above(P, o)` keeps shapes
- * whose distances along P's normal all exceed `o`. The picks are read by
- * `sideDistances`; a universe shape is read by `distancesPastSpan`, which
- * may answer with cheaper stand-ins that lie on the same side of the picks'
- * span and no farther from it.
+ * are computed in normal-signed distances from the principal plane:
+ * `above(P, o)` keeps shapes whose distances along P's normal all exceed
+ * `o`. The picks' span comes from `targetDistances`; a universe shape is
+ * read by `distancesPastSpan` — the distances the predicates judge its side
+ * by (end vertices, or a curved shape's extent), or cheaper stand-ins that
+ * lie on the same side of the picks' span and no farther from it.
  *
  * A cut that lands exactly at 0 is not a synthetic gap number but the datum
  * plane itself: the picks straddle a principal plane, and the rendered form
@@ -911,9 +924,8 @@ function rankAtoms<B extends RankBuilder>(probes: RankProbe[], universe: Shape[]
  * forms. Synthetic mid-gap cuts keep the low threshold weight.
  */
 function thresholdAtoms<B, S extends Shape>(
-  targets: S[],
+  targetDistances: (plane: Plane) => number[],
   universe: S[],
-  sideDistances: (shape: S, plane: Plane) => number[],
   distancesPastSpan: (shape: S, plane: Plane, lo: number, hi: number) => number[],
   above: (b: B, plane: 'xy' | 'xz' | 'yz', offset: number) => unknown,
   below: (b: B, plane: 'xy' | 'xz' | 'yz', offset: number) => unknown,
@@ -921,7 +933,7 @@ function thresholdAtoms<B, S extends Shape>(
   const atoms: Atom<B>[] = [];
   for (const plane of PRINCIPAL_PLANES) {
     const datum = toPlane(plane.name);
-    const targetCoords = targets.flatMap(shape => sideDistances(shape, datum));
+    const targetCoords = targetDistances(datum);
     const targetLo = Math.min(...targetCoords);
     const targetHi = Math.max(...targetCoords);
     const universeCoords = universe.flatMap(shape =>
@@ -960,6 +972,20 @@ function thresholdAtoms<B, S extends Shape>(
     }
   }
   return atoms;
+}
+
+/**
+ * The distances from `plane` a picked face's `above` / `below` cuts are
+ * placed clear of. A face judged by its extent spans exactly that. A face
+ * judged by its boundary vertices can bulge past them — a half-round pocket
+ * end past its two straight edges — so its boundary edges' midpoints count
+ * too: a cut then falls beyond the bulge where the vertices alone would
+ * let it pass through the picked face.
+ */
+function pickedFaceDistances(probe: FaceProbe, plane: Plane): number[] {
+  return isJudgedByVertices(probe.face)
+    ? probe.points.map(point => plane.signedDistanceToPoint(point))
+    : faceSideDistances(probe.face, plane);
 }
 
 /**

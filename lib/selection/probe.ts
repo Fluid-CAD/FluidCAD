@@ -55,7 +55,7 @@ export type FaceProbe = {
   /** The face's mean outward normal, as `facing()` reads it; null for a face that faces nowhere. */
   meanNormal: Vector3d | null;
   edgeProps: EdgeProperties[];
-  /** Boundary vertex points — what the face plane-side predicates test. */
+  /** The boundary edges' end vertices and midpoints: what shared-plane atoms and the `above` / `below` cuts read a face by. */
   points: Point[];
   edgeCount: number;
   /** Center of mass — what the rank filters project onto a direction. */

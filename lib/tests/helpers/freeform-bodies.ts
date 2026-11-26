@@ -20,6 +20,11 @@ export const FreeformBodies = {
     return slab;
   },
 
+  /** {@link filletedSlab} before its fillets: a flat wall facing -y and three extruded ones facing +x, +y and -x. */
+  splineSlab(at: [number, number] = [0, 0]): Extrude {
+    return splineSlab(at);
+  },
+
   /** {@link filletedSlab} without its bottom fillets, hollowed from below: the inside of each top fillet is an offset surface. */
   shelledSlab(): void {
     const slab = splineSlab([0, 0]);

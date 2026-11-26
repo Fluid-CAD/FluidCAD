@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
-import { sketch, line, spline, circle, ellipse, extrude, loft, plane, helix } from "../../core/index.js";
+import { sketch, line, arc, spline, circle, ellipse, extrude, revolve, loft, plane, helix } from "../../core/index.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
 import { Shape } from "../../common/shape.js";
@@ -8,6 +8,7 @@ import { CurveObject } from "../../features/curve-object.js";
 import { Explorer } from "../../oc/explorer.js";
 import { EdgeProps } from "../../oc/edge-props.js";
 import { FaceProps } from "../../oc/face-props.js";
+import { FaceQuery } from "../../oc/face-query.js";
 import { SelectionIndex } from "../../selection/selection-index.js";
 import { attributePick } from "../../selection/attribution.js";
 import { synthesizeSelectors, SelectorPart } from "../../selection/synthesis.js";
@@ -89,6 +90,17 @@ function verifiedGlobalCandidates(scene: Scene, refs: PickRef[], kind: "edge" | 
       expect(resolved, candidate.filterArgs).toEqual(pickKeys);
     }
     return candidates.map(c => c.filterArgs);
+  } finally {
+    index.dispose();
+  }
+}
+
+/** The code of every atom the scene-wide search is offered for the picks. */
+function offeredAtoms(scene: Scene, refs: PickRef[], kind: "edge" | "face"): string[] {
+  const index = new SelectionIndex(scene);
+  try {
+    const attrs = refs.map(ref => attributePick(scene, index, ref));
+    return globalContext(scene, index, kind).instantiate(attrs).map(atom => atom.code);
   } finally {
     index.dispose();
   }
@@ -192,6 +204,62 @@ describe("synthesis over the kind predicates", () => {
     } finally {
       measured.mockRestore();
     }
+  });
+
+  it("offers facing() for an extruded wall, and names the one facing +y among three with it", () => {
+    FreeformBodies.splineSlab();
+    const scene = render();
+    const solid = findSolid(scene);
+    const walls = facesWhere(solid, type => type === "extruded");
+    expect(walls).toHaveLength(3);
+    const faces = Explorer.findFacesWrapped(solid);
+    const far = walls.filter(ref => faces[ref.sub.index].center().y > 15);
+    expect(far).toHaveLength(1);
+
+    expect(offeredAtoms(scene, far, "face")).toContain(".facing('y')");
+    expect(verifiedGlobalCandidates(scene, far, "face")[0]).toBe("face().facing('y')");
+  });
+
+  it("offers no facing() for picks on planes, cylinders, cones, spheres and tori", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [40, 0] });
+    });
+    extrude(10);
+    sketch("xz", () => {
+      line([0, 0], [8, 0]);
+      arc([8, 0], [0, 8], [0, 0]);
+      line([0, 8], [0, 0]);
+    });
+    revolve("z", 360);
+    const scene = render();
+    const [box, dome] = findSolids(scene);
+    // The box's top faces +z and so does the dome, half a sphere whose mean normal is its pole.
+    const top = facesWhere(box, () => true).filter(ref => Explorer.findFacesWrapped(box)[ref.sub.index].center().z > 9);
+    const cap = facesWhere(dome, type => type === "sphere");
+    expect([top.length, cap.length]).toEqual([1, 1]);
+    expect(FaceQuery.meanNormal(Explorer.findFacesWrapped(dome)[cap[0].sub.index])?.z).toBeCloseTo(1, 6);
+
+    for (const picks of [top, cap, [...top, ...cap]]) {
+      expect(offeredAtoms(scene, picks, "face").filter(code => code.startsWith(".facing("))).toEqual([]);
+    }
+  });
+
+  it("offers closed() for a full ellipse among open edges, and none for a circle, which circle() already says", () => {
+    sketch("xy", () => {
+      ellipse([0, 0], 12, 6);
+      circle([40, 0], 10);
+      testRect(10, 10, { at: [60, 0] });
+    });
+    extrude(5);
+    const scene = render();
+    const solids = findSolids(scene);
+    const rimOf = (type: string) => solids.flatMap(solid => edgesWhere(solid, t => t === type)).slice(0, 1);
+    const [ellipseRim, circleRim] = [rimOf("ellipse"), rimOf("circle")];
+    expect([ellipseRim.length, circleRim.length]).toEqual([1, 1]);
+
+    expect(offeredAtoms(scene, ellipseRim, "edge")).toContain(".closed()");
+    expect(offeredAtoms(scene, circleRim, "edge").filter(code => code === ".closed()" || code === ".open()")).toEqual([]);
+    expect(offeredAtoms(scene, [...ellipseRim, ...circleRim], "edge")).toContain(".closed()");
   });
 
   it("names the free-form wall of a loft with freeform()", () => {

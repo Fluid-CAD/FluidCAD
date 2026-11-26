@@ -20,6 +20,7 @@ import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { Plane } from "../../math/plane.js";
 import { withUnit } from "../../units/registry.js";
+import { extentDistances } from "../../filters/extent.js";
 import { edgeSideDistances } from "../../filters/edge/above-below.js";
 
 function bezier(poles: number[][]): Edge {
@@ -237,6 +238,23 @@ describe("sampled predicates on curved edges", () => {
       expect(EdgeOps.endPoints(rising).map(p => [p.x, p.y, p.z])).toEqual([[0, 0, 1], [10, 0, 3]]);
     });
 
+    it.each(["in", "m"] as const)("treats a spline lying in the plane as on neither side in a document in %s", unit => {
+      // The kernel pads a free-form bound by 1e-7 of the document's unit,
+      // which a snap of a thousandth of a micron would not cover here.
+      withUnit(unit, () => {
+        const flat = bezier([[0, 0, 0], [5, 6, 0], [10, -4, 0], [15, 0, 0]]);
+        expect(extentDistances(flat, XY)).toEqual([0, 0]);
+        expect(matches(flat, edge().above("xy", { partial: true }))).toBe(false);
+        expect(matches(flat, edge().below("xy", { partial: true }))).toBe(false);
+
+        // A hump that rises to the plane from 1 below and touches it.
+        const touching = bezier([[0, 0, -1], [4, 0, 1], [8, 0, -1]]);
+        expect(matches(touching, edge().above("xy", { partial: true }))).toBe(false);
+        expect(matches(touching, edge().below("xy", { partial: true }))).toBe(true);
+        expect(matches(touching, edge().below("xy"))).toBe(false);
+      });
+    });
+
     it("leaves out a solid's sagging spline edges", () => {
       sagSlab();
       const above = select(edge().above("xy")) as SelectSceneObject;
@@ -269,6 +287,38 @@ describe("sampled predicates on curved edges", () => {
       expect(aboveFaces.every(f => f.getEdges().every(e => CurveClassifier.classify(e).kind === "line"))).toBe(true);
       const belowKinds = (partlyBelow.getShapes() as Face[]).map(f => SurfaceClassifier.classify(f).kind).sort();
       expect(belowKinds).toEqual(["extruded", "plane", "plane"]);
+    });
+
+    it.each(["in", "m"] as const)("treats a flat B-spline face lying in the plane as on neither side in a document in %s", unit => {
+      withUnit(unit, () => {
+        const oc = getOC();
+        const poles = new oc.NCollection_Array2_gp_Pnt(1, 3, 1, 3);
+        const owned: { delete(): void }[] = [poles];
+        // A patch in the xy plane with one side bowed outwards: flat, and no plane to the kernel.
+        for (let i = 0; i < 3; i++) {
+          for (let j = 0; j < 3; j++) {
+            const pole = new oc.gp_Pnt(i * 5, j * 5 - (i === 1 && j === 0 ? 4 : 0), 0);
+            owned.push(pole);
+            poles.SetValue(i + 1, j + 1, pole);
+          }
+        }
+        const surface = new oc.Geom_BezierSurface(poles) as unknown as Geom_Surface;
+        const maker = new oc.BRepBuilderAPI_MakeFace(surface, 1e-6);
+        const raw = maker.Face();
+        owned.push(surface, maker, raw);
+        try {
+          const flat = Face.fromTopoDSFace(raw);
+          // Its bounding edges are curved Beziers, so it is judged by its extent.
+          expect(flat.getEdges().some(e => CurveClassifier.classify(e).kind === "spline")).toBe(true);
+          expect(extentDistances(flat, XY)).toEqual([0, 0]);
+          expect(matches(flat, face().above("xy", { partial: true }))).toBe(false);
+          expect(matches(flat, face().below("xy", { partial: true }))).toBe(false);
+        } finally {
+          for (const object of owned.reverse()) {
+            object.delete();
+          }
+        }
+      });
     });
 
     it("judges a face by its vertices or by its extent as its class stands in the document's unit", () => {

@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import cut from "../../core/cut.js";
 import fillet from "../../core/fillet.js";
 import shell from "../../core/shell.js";
 import select from "../../core/select.js";
@@ -27,24 +26,12 @@ function sceneSolid(scene: Scene): Solid {
 }
 
 /**
- * A 20 × 10 pocket 10 deep in the top of the 25-high block: its floor faces
- * up too, so `facing('z')` no longer names the top face alone.
- */
-function pocket() {
-  sketch(plane("xy", 25), () => {
-    testRect(20, 10, { at: [-10, -5] });
-  });
-  cut(10);
-}
-
-/**
  * A fillet reshapes the extrude's top face, so the pick classifies into no
  * bucket and synthesis falls back to a scene-wide select(). The end face
  * still names the plane the pick lies on — `onPlane(e.endFaces())` reads the
  * plane off the recorded as-built face even though the solid was consumed —
  * and unlike `onPlane('xy', 25)` it survives a change of the extrusion
- * distance. Where the top is the only face that faces up, `facing('z')`
- * names it ahead of any plane.
+ * distance.
  */
 describe("plane-reference selectors", () => {
   setupOC();
@@ -56,7 +43,6 @@ describe("plane-reference selectors", () => {
     const e = extrude(25) as Extrude;
     setLocation(e, 6);
     fillet(10, e.sideEdges());
-    pocket();
 
     const scene = render();
     const solid = findSolid(scene);
@@ -86,7 +72,7 @@ describe("plane-reference selectors", () => {
     // reassigned after the call (`let body; body = extrude(...); body =
     // shell(...)`). The server reports that through the `bindable` probe;
     // synthesis must then skip the plane reference — which would bind the
-    // variable — and emit a form that binds nothing (the face facing up).
+    // variable — and emit a form that binds nothing (the topmost face).
     sketch("xy", () => {
       testRect(123.28, 56.07, { at: [-61.64, -28.035] });
     });
@@ -105,7 +91,7 @@ describe("plane-reference selectors", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("shell(-2, select(face().facing('z')))");
+      expect(result.preview).toBe("shell(-2, select(face().farthest('z')))");
       expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
     }
   });
@@ -131,12 +117,12 @@ describe("plane-reference selectors", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("shell(-2, select(face().facing('z')))");
+      expect(result.preview).toBe("shell(-2, select(face().farthest('z')))");
       expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
     }
   });
 
-  it("prefers the bare datum plane to a plane reference when the pick lies on one", () => {
+  it("still prefers the bare datum plane when the pick lies on one", () => {
     sketch("xy", () => {
         testRect(123.28, 56.07, { at: [-61.64, -28.035] });
       });
@@ -155,10 +141,7 @@ describe("plane-reference selectors", () => {
     const result = synthesizeApplyFeature(scene, refs, 'shell', -2);
     expect(result.ok).toBe(true);
     if (result.ok) {
-      // The bottom is the only face that faces down, so `facing('-z')` leads;
-      // the datum plane runs up, and no plane reference is offered.
-      expect(result.preview).toBe("shell(-2, select(face().facing('-z')))");
-      expect(result.alternatives).toEqual(["select(face().onPlane('xy'))"]);
+      expect(result.preview).toBe("shell(-2, select(face().onPlane('xy')))");
     }
   });
 
@@ -195,7 +178,7 @@ describe("plane-reference selectors", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.preview).toBe("shell(-2, select(face().facing('z')))");
+      expect(result.preview).toBe("shell(-2, select(face().farthest('z')))");
       expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
     }
   });
@@ -208,7 +191,6 @@ describe("plane-reference selectors", () => {
       const e = extrude(25) as Extrude;
       setLocation(e, 3);
       fillet(10, e.sideEdges());
-      pocket();
     });
     setLocation(p, 2);
 

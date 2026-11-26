@@ -527,11 +527,16 @@ const FACING_OFFER_DEGREES = 20;
 /**
  * `facing('z')` … `facing('-y')` — the principal direction every picked
  * face's centre normal points within {@link FACING_OFFER_DEGREES} of. The
- * qualitative way to name the top of a free-form shape; it works on every
- * kind of face.
+ * qualitative way to name the top of a curved or free-form shape. A set of
+ * flat picks gets none: the plane atoms (`onPlane`, `farthest`,
+ * `parallelTo`) name a flat face exactly, where `facing()` would widen to
+ * every face tilted within its angle.
  */
 function facingAtoms(probes: FaceProbe[]): FaceAtom[] {
   if (probes.length === 0 || probes.some(p => p.centreNormal === null)) {
+    return [];
+  }
+  if (probes.every(p => p.props.surfaceType === 'plane' || p.props.surfaceType === 'circle')) {
     return [];
   }
   const cosine = Math.cos((FACING_OFFER_DEGREES * Math.PI) / 180);

@@ -3,13 +3,55 @@ import { Shape, ShapeFilter } from "./shape.js";
 import { BuildError } from "./build-error.js";
 import { liveOperandShapes } from "../helpers/live-solids.js";
 
+/** What an operand can stand for, in the words a user reads: a solid, a surface or a curve. */
+export type OperandKind = 'solid' | 'surface' | 'curve';
+
 interface RequireShapesOpts {
   /** Require exactly this many shapes. */
   count?: number;
   /** Require every shape to be of this type. */
   type?: string;
+  /** Require every shape to be of one of these kinds; a face or anything else is refused too. */
+  kinds?: OperandKind | readonly OperandKind[];
+  /** The hint of a {@link kinds} refusal, when the consumer knows the fix ("thicken it first"). */
+  kindHint?: string;
   /** Shape filter — pass { excludeGuide: false } when the consumer's build also reads guide shapes. */
   filter?: ShapeFilter;
+}
+
+/** The kind a shape stands for as an operand: its body kind, a curve for an edge or a wire, null for anything else. */
+export function operandKindOf(shape: Shape): OperandKind | null {
+  if (shape.isSolid()) {
+    return 'solid';
+  }
+  if (shape.isBody()) {
+    return 'surface';
+  }
+  if (shape.isEdge() || shape.isWire()) {
+    return 'curve';
+  }
+  return null;
+}
+
+/**
+ * The one wording of "this tool needs a solid, you gave a surface", so every
+ * such refusal reads the same and names the operand: "fuse: target is a
+ * surface; fuse works on solids." `given` is the kind found, or the shape
+ * type when it is no operand kind (a face).
+ */
+export function operandKindError(
+  consumerType: string,
+  operandLabel: string,
+  given: string,
+  wanted: OperandKind | readonly OperandKind[],
+  hint?: string,
+): BuildError {
+  const kinds = typeof wanted === 'string' ? [wanted] : wanted;
+  const plural = kinds.map(kind => `${kind}s`).join(' or ');
+  return new BuildError(
+    `${consumerType}: ${operandLabel} is ${/^[aeiou]/.test(given) ? 'an' : 'a'} ${given}; ${consumerType} works on ${plural}.`,
+    hint ?? `Pass ${kinds.map(kind => `a ${kind}`).join(' or ')} as ${operandLabel}.`,
+  );
 }
 
 /**
@@ -59,6 +101,16 @@ export function requireShapes(
     throw new BuildError(
       `${consumerType}: ${operandLabel} has ${shapes.length} shapes, expected ${opts.count}.`,
     );
+  }
+
+  if (opts?.kinds) {
+    const wanted = typeof opts.kinds === 'string' ? [opts.kinds] : opts.kinds;
+    for (const shape of shapes) {
+      const kind = operandKindOf(shape);
+      if (kind === null || !wanted.includes(kind)) {
+        throw operandKindError(consumerType, operandLabel, kind ?? shape.getType(), wanted, opts.kindHint);
+      }
+    }
   }
 
   if (opts?.type) {

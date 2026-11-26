@@ -1,4 +1,4 @@
-import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
+import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
@@ -14,14 +14,17 @@ import { SurfaceClass, SurfaceClassifier } from "./surface-classifier.js";
 import { CurveClassifier } from "./curve-classifier.js";
 
 /**
- * What the cylinder filters (`cylinder()`, `cylinderCurve()`) read off one
- * face beyond its {@link SurfaceClassifier} class, kept per wrapper. A
- * wrapper's OC shape never changes while it lives, so the answer holds for
- * its lifetime — and selector synthesis asks it of the same scene faces once
- * per candidate atom, per request. The rim walk only runs for cylinders.
+ * What the cylinder filters (`cylinder()`, `cylinderCurve()`) and `facing()`
+ * read off one face beyond its {@link SurfaceClassifier} class, kept per
+ * wrapper. A wrapper's OC shape never changes while it lives, so the answer
+ * holds for its lifetime — and selector synthesis asks it of the same scene
+ * faces once per candidate atom, per request. The rim walk only runs for
+ * cylinders.
  */
 type SurfaceFacts = {
   closedRim?: boolean;
+  /** The outward normal at the face's UV centre; null where it is undefined. */
+  centreNormal?: Vector3d | null;
 };
 
 const surfaceFacts = new WeakMap<Shape, SurfaceFacts>();
@@ -79,6 +82,19 @@ export class FaceQuery {
   /** {@link isSphereFaceRaw}, answered from the wrapper's cached class. */
   static isSphereFace(face: Shape, diameter?: number): boolean {
     return FaceQuery.isSphereOf(FaceQuery.classOf(face), diameter);
+  }
+
+  /**
+   * The face's outward unit normal at the centre of its UV bounds (see
+   * {@link FaceOps.outwardNormalRaw}), kept per wrapper; null where the
+   * normal is undefined. The face must carry its orientation in its body.
+   */
+  static centreNormal(face: Shape): Vector3d | null {
+    const facts = surfaceFactsOf(face);
+    if (facts.centreNormal === undefined) {
+      facts.centreNormal = FaceOps.outwardNormalRaw(face.getShape() as TopoDS_Face);
+    }
+    return facts.centreNormal;
   }
 
   /** {@link isTorusFaceRaw}, answered from the wrapper's cached class. */

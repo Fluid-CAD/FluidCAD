@@ -13,6 +13,7 @@ import { SphereFilter, NotSphereFilter } from "./sphere-filter.js";
 import { FreeformFilter, NotFreeformFilter } from "./freeform-filter.js";
 import { RevolvedFilter, NotRevolvedFilter } from "./revolved-filter.js";
 import { ExtrudedFilter, NotExtrudedFilter } from "./extruded-filter.js";
+import { FacingFilter, NotFacingFilter } from "./facing.js";
 import { NotOnPlaneFilter, OnPlaneFilter } from "./on-plane.js";
 import { NotParallelFilter, ParallelFilter } from "./parallel.js";
 import { PlaneObject } from "../../features/plane.js";
@@ -360,6 +361,38 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   notExtruded() {
     this.filters.push(new NotExtrudedFilter());
     return this;
+  }
+
+  /**
+   * Selects faces that face a direction: the outward normal at the face's
+   * centre lies within `within` degrees of it. Works on every kind of face,
+   * so it is the way to say "the top of this free-form shape":
+   * `face().facing('z')` keeps a box's top and a dome's upper faces, and
+   * leaves out the walls. A surface's faces face the way the surface is
+   * oriented. Under a repeat or a mirror the direction moves with the copy.
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   * @param within - The largest angle, in degrees, between the normal and the direction (default 45).
+   */
+  facing(direction: DirectionLike, within: number = 45) {
+    this.filters.push(new FacingFilter(direction, FaceFilterBuilder.checkWithin(within)));
+    return this;
+  }
+
+  /**
+   * Excludes faces that face a direction (see {@link facing}).
+   * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
+   * @param within - The largest angle, in degrees, between the normal and the direction (default 45).
+   */
+  notFacing(direction: DirectionLike, within: number = 45) {
+    this.filters.push(new NotFacingFilter(direction, FaceFilterBuilder.checkWithin(within)));
+    return this;
+  }
+
+  private static checkWithin(within: number): number {
+    if (!Number.isFinite(within) || within < 0 || within > 180) {
+      throw new Error(`facing(direction, within): within must be an angle from 0 to 180 degrees (got ${within})`);
+    }
+    return within;
   }
 
   /**

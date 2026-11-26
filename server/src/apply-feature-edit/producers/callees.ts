@@ -107,7 +107,7 @@ export function producerCallees(featureType: string): Set<string> {
  * calls — sketch, plane and axis inputs are referenced by identity, so any
  * other callee at the line means the file is out of sync. Null for every
  * other type: a wire or a surface input is decided by what its statement
- * left ({@link FeatureCallees.identityOf}), the rest by the callees their
+ * left ({@link FeatureCallees.identityMismatch}), the rest by the callees their
  * type accepts.
  */
 export function requiredChainRoots(featureType: string): string[] | null {
@@ -288,7 +288,7 @@ export class FeatureCallees {
    * producer that names no identity input. A stale line pointing at some
    * other call would consume the wrong input, so the caller refuses.
    */
-  identityOf(producer: ProducerSite, call: TSNode): string | null {
+  identityMismatch(producer: ProducerSite, call: TSNode): string | null {
     const required = requiredChainRoots(producer.featureType ?? '');
     if (required) {
       const callee = chainRootCallee(call);

@@ -151,7 +151,7 @@ export function resolveProducerBindings(
     // Sketch, plane, wire and surface producers (profiles, paths, plane
     // bases) must anchor their own statement in both modes — a stale line
     // pointing at some other call would consume the wrong input.
-    const expected = callees.identityOf(producer, call);
+    const expected = callees.identityMismatch(producer, call);
     if (expected !== null) {
       const root = chainRootCallee(call);
       return {

@@ -118,9 +118,9 @@ describe('a surface input by what the scene says its statement left', () => {
     });
 
     expect(callees.binds({ featureType: 'surface', line: 3 }, await callAt(3))).toBe(true);
-    expect(callees.identityOf({ featureType: 'surface', line: 3 }, await callAt(3))).toBeNull();
+    expect(callees.identityMismatch({ featureType: 'surface', line: 3 }, await callAt(3))).toBeNull();
     expect(callees.binds({ featureType: 'surface', line: 5 }, await callAt(5))).toBe(false);
-    expect(callees.identityOf({ featureType: 'surface', line: 5 }, await callAt(5))).toBe('a statement that holds a surface');
+    expect(callees.identityMismatch({ featureType: 'surface', line: 5 }, await callAt(5))).toBe('a statement that holds a surface');
   });
 
   it('takes any feature statement when no scene answers: a call does not tell a surface from a solid', async () => {

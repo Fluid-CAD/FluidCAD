@@ -37,6 +37,11 @@ import { RenderSeams } from "./render-seams.js";
  * TShapes without recording lineage). In that case remap returns `[face]`
  * for any face the cleanup saw, which is best-effort.
  */
+/** The least and greatest signed distance of a shape from a plane; see {@link ShapeOps.extentAlongRaw}. */
+export type Extent = { min: number; max: number };
+
+const extents = new WeakMap<Shape, Map<string, Extent>>();
+
 export type CleanShapeLineage = {
   shape: Shape;
   remapFace: (face: Face) => Face[] | null;
@@ -180,6 +185,61 @@ export class ShapeOps {
     const out = ShapeOps.boundingBoxFromBnd(bbox);
     bbox.delete();
     return out;
+  }
+
+  /**
+   * {@link extentAlongRaw}, kept per wrapper and plane: a wrapper's OC shape
+   * never changes while it lives, and selector synthesis asks the same
+   * half-space questions of the same candidates many times per pick.
+   */
+  static extentAlong(shape: Shape, plane: Plane): Extent {
+    let byPlane = extents.get(shape);
+    if (!byPlane) {
+      byPlane = new Map();
+      extents.set(shape, byPlane);
+    }
+    const { origin: o, normal: n } = plane;
+    const key = `${o.x},${o.y},${o.z}|${n.x},${n.y},${n.z}`;
+    let extent = byPlane.get(key);
+    if (!extent) {
+      extent = ShapeOps.extentAlongRaw(shape.getShape(), plane);
+      byPlane.set(key, extent);
+    }
+    return extent;
+  }
+
+  /**
+   * How far the shape reaches on either side of `plane`: the least and the
+   * greatest signed distance of its geometry from the plane, along the
+   * plane's normal. Exact, like {@link getExactBoundingBoxRaw}: the shape is
+   * bounded in the plane's own frame, so the box's z extent is the extent
+   * along the normal whatever the plane's tilt.
+   */
+  static extentAlongRaw(shape: TopoDS_Shape, plane: Plane): Extent {
+    const oc = getOC();
+    const [origin, disposeOrigin] = Convert.toGpPnt(plane.origin);
+    const [normal, disposeNormal] = Convert.toGpDir(plane.normal);
+    const frame = new oc.gp_Ax3(origin, normal);
+    const trsf = new oc.gp_Trsf();
+    trsf.SetTransformation(frame);
+    const location = new oc.TopLoc_Location(trsf);
+    const local = shape.Moved(location, false);
+    const bbox = new oc.Bnd_Box();
+    try {
+      oc.BRepBndLib.AddOptimal(local, bbox, false, false);
+      if (bbox.IsVoid()) {
+        throw new Error("Cannot bound a shape with no geometry");
+      }
+      return { min: bbox.GetZMin(), max: bbox.GetZMax() };
+    } finally {
+      bbox.delete();
+      local.delete();
+      location.delete();
+      trsf.delete();
+      frame.delete();
+      disposeNormal();
+      disposeOrigin();
+    }
   }
 
   // The smallest box enclosing every box given. Throws on an empty list —

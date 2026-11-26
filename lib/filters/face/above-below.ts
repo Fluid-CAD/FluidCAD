@@ -6,6 +6,9 @@ import { Face } from "../../common/shapes.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { FilterBase } from "../filter-base.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
+import { EdgeQuery } from "../../oc/edge-query.js";
+import { SurfaceClassifier } from "../../oc/surface-classifier.js";
+import { extentDistances } from "../extent.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneRefSource, comparePlaneRefs, planeRefSceneObject, resolvePlaneRef } from "../plane-ref.js";
 
@@ -31,6 +34,27 @@ function getBoundaryPoints(face: Face): Point[] {
   return points;
 }
 
+const judgedByVertices = new WeakMap<Face, boolean>();
+
+/**
+ * Whether the face's boundary vertices tell its side of a plane: it has
+ * boundary edges, its surface is a plane, cylinder, cone, sphere or torus
+ * (see {@link SurfaceClassifier}), and every boundary edge is a line, a
+ * circle or an arc. A face with no boundary edge to read, such as a whole
+ * sphere, is judged by its extent.
+ */
+function isJudgedByVertices(face: Face): boolean {
+  let judged = judgedByVertices.get(face);
+  if (judged === undefined) {
+    const edges = face.getEdges();
+    judged = edges.length > 0
+      && SurfaceClassifier.isAnalytic(SurfaceClassifier.classify(face).kind)
+      && edges.every(edge => EdgeQuery.isLineOrCircular(edge));
+    judgedByVertices.set(face, judged);
+  }
+  return judged;
+}
+
 /**
  * Half-space test shared by the face `above`/`below` filters. The reference
  * follows the edge filters' contract: a plane, a plane feature, or a scene
@@ -53,12 +77,19 @@ abstract class HalfSpaceFaceFilter extends FilterBase<Face> {
 
   protected abstract onSide(distance: number): boolean;
 
+  /**
+   * A face on an elementary surface bounded by lines and circular edges is
+   * judged by its boundary's end vertices. Any other face can bulge past its
+   * boundary vertices, so it is judged by the two extremes of its extent
+   * along the plane's normal: entirely on a side when both are, partly when
+   * either is.
+   */
   match(shape: Face): boolean {
     const plane = this.resolvedPlane();
-    const flags = getBoundaryPoints(shape).map(p => this.onSide(plane.signedDistanceToPoint(p)));
-    if (flags.length === 0) {
-      return false;
-    }
+    const distances = isJudgedByVertices(shape)
+      ? getBoundaryPoints(shape).map(p => plane.signedDistanceToPoint(p))
+      : extentDistances(shape, plane);
+    const flags = distances.map(d => this.onSide(d));
     return this.partial ? flags.some(Boolean) : flags.every(Boolean);
   }
 

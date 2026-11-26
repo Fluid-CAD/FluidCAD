@@ -8,6 +8,7 @@ import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { CurveClass, CurveClassifier } from "./curve-classifier.js";
+import { EdgeOps } from "./edge-ops.js";
 
 /** An edge's geometry independent of its kernel representation; see {@link EdgeQuery.getEdgeGeometryRaw}. */
 export type EdgeGeometry =
@@ -73,6 +74,9 @@ export class EdgeQuery {
     const facts = edgeFactsOf(edge);
     facts.onPlane ??= new Map();
     return remembered(facts.onPlane, `${vectorKey(plane.origin)}|${vectorKey(plane.normal)}`, () => {
+      if (!EdgeQuery.isLineOrCircular(edge)) {
+        return EdgeQuery.isEdgeOnPlaneSampledRaw(edge.getShape(), plane);
+      }
       const [gpPln, dispose] = Convert.toGpPln(plane);
       const result = EdgeQuery.isEdgeOnPlaneRaw(edge.getShape(), gpPln);
       dispose();
@@ -84,6 +88,9 @@ export class EdgeQuery {
     const facts = edgeFactsOf(edge);
     facts.parallelTo ??= new Map();
     return remembered(facts.parallelTo, vectorKey(planeNormal), () => {
+      if (!EdgeQuery.isLineOrCircular(edge)) {
+        return EdgeQuery.isEdgeParallelToPlaneSampledRaw(edge.getShape(), planeNormal);
+      }
       const [gpVec, dispose] = Convert.toGpVec(planeNormal);
       const result = EdgeQuery.isEdgeParallelToPlaneRaw(edge.getShape(), gpVec);
       dispose();
@@ -95,11 +102,26 @@ export class EdgeQuery {
     const facts = edgeFactsOf(edge);
     facts.alignedWith ??= new Map();
     return remembered(facts.alignedWith, vectorKey(planeNormal), () => {
+      if (!EdgeQuery.isLineOrCircular(edge)) {
+        // Only a straight edge can run along a direction.
+        return false;
+      }
       const [gpVec, dispose] = Convert.toGpVec(planeNormal);
       const result = EdgeQuery.isEdgeAlignedWithNormalRaw(edge.getShape(), gpVec);
       dispose();
       return result;
     });
+  }
+
+  /**
+   * Whether the edge is a line, a circle or an arc (native or recovered;
+   * see {@link CurveClassifier}). A few points describe such an edge
+   * exactly, so the plane predicates test it at those points; any other
+   * curve is sampled along its whole length.
+   */
+  static isLineOrCircular(edge: Shape): boolean {
+    const kind = CurveClassifier.classify(edge as Edge).kind;
+    return kind === 'line' || kind === 'circle' || kind === 'arc';
   }
 
   /** The wrapper's geometry, read off its {@link CurveClassifier} class (kept per wrapper there). */
@@ -236,6 +258,28 @@ export class EdgeQuery {
 
     curveAdaptor.delete();
     return allOnPlane;
+  }
+
+  /**
+   * Whether every one of {@link EdgeOps.SAMPLE_COUNT} samples spread along
+   * the edge lies on `plane`, within OCCT's confusion tolerance.
+   */
+  static isEdgeOnPlaneSampledRaw(edge: TopoDS_Shape, plane: Plane): boolean {
+    const tolerance = getOC().Precision.Confusion();
+    return EdgeOps.sampleEdgeRaw(edge as TopoDS_Edge)
+      .every(sample => Math.abs(plane.signedDistanceToPoint(sample.point)) <= tolerance);
+  }
+
+  /**
+   * Whether the edge lies in a plane parallel to the one with normal
+   * `planeNormal`: every sampled tangent is perpendicular to the normal.
+   */
+  static isEdgeParallelToPlaneSampledRaw(edge: TopoDS_Shape, planeNormal: Vector3d): boolean {
+    const normal = planeNormal.normalize();
+    // unit: dimensionless (dot of unit vectors)
+    const tolerance = 1e-6;
+    return EdgeOps.sampleEdgeRaw(edge as TopoDS_Edge)
+      .every(sample => Math.abs(sample.tangent.dot(normal)) < tolerance);
   }
 
   static isEdgeParallelToPlaneRaw(edge: TopoDS_Shape, planeNormal: gp_Vec): boolean {

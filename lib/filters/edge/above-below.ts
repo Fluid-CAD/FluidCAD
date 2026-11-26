@@ -5,6 +5,8 @@ import { Edge } from "../../common/shapes.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { FilterBase } from "../filter-base.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
+import { EdgeQuery } from "../../oc/edge-query.js";
+import { extentDistances } from "../extent.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneRefSource, comparePlaneRefs, planeRefSceneObject, resolvePlaneRef } from "../plane-ref.js";
 
@@ -31,17 +33,30 @@ abstract class HalfSpaceEdgeFilter extends FilterBase<Edge> {
 
   protected abstract onSide(distance: number): boolean;
 
+  /**
+   * A line or a circular edge is judged by its two end vertices. Any other
+   * curve can bulge past its ends, so it is judged by the two extremes of
+   * its extent along the plane's normal: entirely on a side when both are,
+   * partly when either is.
+   */
   match(shape: Edge): boolean {
     const plane = this.resolvedPlane();
-    const raw = shape.getShape() as TopoDS_Edge;
-    const firstPoint = EdgeOps.getVertexPointRaw(EdgeOps.getFirstVertexRaw(raw));
-    const lastPoint = EdgeOps.getVertexPointRaw(EdgeOps.getLastVertexRaw(raw));
-    const first = this.onSide(plane.signedDistanceToPoint(firstPoint));
-    const last = this.onSide(plane.signedDistanceToPoint(lastPoint));
+    const [near, far] = EdgeQuery.isLineOrCircular(shape)
+      ? this.endDistances(shape, plane)
+      : extentDistances(shape, plane);
+    const first = this.onSide(near);
+    const last = this.onSide(far);
     if (this.partial) {
       return first || last;
     }
     return first && last;
+  }
+
+  private endDistances(shape: Edge, plane: Plane): [number, number] {
+    const raw = shape.getShape() as TopoDS_Edge;
+    const firstPoint = EdgeOps.getVertexPointRaw(EdgeOps.getFirstVertexRaw(raw));
+    const lastPoint = EdgeOps.getVertexPointRaw(EdgeOps.getLastVertexRaw(raw));
+    return [plane.signedDistanceToPoint(firstPoint), plane.signedDistanceToPoint(lastPoint)];
   }
 
   compareTo(other: HalfSpaceEdgeFilter): boolean {

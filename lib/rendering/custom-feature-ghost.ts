@@ -550,10 +550,11 @@ export class CustomFeatureGhost {
   /**
    * One returned shape's meshes, labelled the way the dialog's overlay draws
    * a ghost body — its triangles as `solid-faces`, its outline as
-   * `solid-edges`. A solid comes out of the mesh builder labelled; a lone
-   * face (a modifier's preview of the faces it changes) is meshed as a patch
-   * with its outline, and an edge or a wire as outline alone: unlabelled,
-   * the overlay would skip them.
+   * `solid-edges`. A body (a solid or a surface) comes out of the mesh
+   * builder labelled, through the body renderer; a lone face (a modifier's
+   * preview of the faces it changes) is meshed as a patch with its outline,
+   * and an edge or a wire as outline alone: unlabelled, the overlay would
+   * skip them.
    */
   private static meshesOf(shape: Shape, builder: MeshBuilder): SceneObjectMesh[] {
     if (shape.isFace()) {

@@ -9,14 +9,20 @@ import { EntryFile } from "./entry-file.js";
 import type { LengthUnit } from "../units/units.js";
 
 export type SceneObjectMesh = {
+  /**
+   * `solid-faces` and `solid-edges` mark the faces and edges of any body, a
+   * surface's as well as a solid's. The names are the wire format the UI
+   * splits a body on and mesh keys digest, so they stay as they are.
+   */
   label?: string;
   vertices: number[];
   normals: number[];
   indices: number[];
   color?: string;
   faceMapping?: number[];  // faceMapping[triangleIdx] = OCC face index (solid-faces meshes only)
-  edgeIndex?: number;      // solid-edges meshes only
+  edgeIndex?: number;      // solid-edges meshes and a wire's edge meshes — the edge's explorer index in its shape
   smooth?: boolean;        // solid-edges meshes only — a tangent (G1) junction between two faces (dimmed when dimTangentEdges is on)
+  boundary?: boolean;      // solid-edges meshes only — the edge bounds one face: the open rim of a surface
   faceSides?: number[];    // solid-edges meshes only — per segment, the vectors into the face triangles either side (see oc/edge-face-sides.ts)
 }
 

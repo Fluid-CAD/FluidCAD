@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { setupOC, render } from "../setup.js";
 import { coneSweepModel, coneStockVolume } from "../helpers/cone-sweep.js";
 import { Solid } from "../../common/solid.js";
-import { renderSolid } from "../../rendering/render-solid.js";
+import { renderBody } from "../../rendering/render-body.js";
 import { ShapeValidator } from "../../oc/shape-validator.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { EdgeConvexityOps } from "../../oc/edge-convexity.js";
@@ -24,7 +24,7 @@ function assertLinework(solid: Solid) {
   const volume = ShapeValidator.signedVolume(solid.getShape());
   const raw = solid.getIndexedShapes("edge");
   const seams = solid.getRenderSeams();
-  const drawn = renderSolid(solid).filter(mesh => mesh.label === "solid-edges");
+  const drawn = renderBody(solid).filter(mesh => mesh.label === "solid-edges");
   expect(seams.length).toBeGreaterThan(0);
   expect(drawn.length).toBeGreaterThan(0);
   expect(drawn.filter(mesh => mesh.smooth)).toEqual([]);

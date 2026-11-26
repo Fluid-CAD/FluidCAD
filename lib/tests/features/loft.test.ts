@@ -8,7 +8,7 @@ import { diameter, fix } from "../../core/constraints/index.js";
 import { Solid } from "../../common/solid.js";
 import { Face } from "../../common/face.js";
 import { getOC } from "../../oc/init.js";
-import { renderSolid } from "../../rendering/render-solid.js";
+import { renderBody } from "../../rendering/render-body.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -121,7 +121,7 @@ describe("loft", () => {
 
       // Two rims, each one closed circle; the wall's seam is not drawn.
       const solid = l.getShapes()[0] as Solid;
-      const drawn = renderSolid(solid).filter(m => m.label === "solid-edges");
+      const drawn = renderBody(solid).filter(m => m.label === "solid-edges");
       expect(drawn).toHaveLength(2);
       const rims = solid.getEdges().filter(edge => EdgeQuery.isCircleEdge(edge));
       expect(rims).toHaveLength(2);

@@ -28,8 +28,8 @@ export type MeshKeyParts = {
  * A key names content, not identity: `<geometry>/<form>[/<colours>]`.
  * - **geometry** — a 96-bit digest of the shape's {@link ShapeMeshPieces}
  *   (every face piece's vertices, normals and indices; every plain mesh with
- *   its label, colour, face mapping, edge index, smooth flag and face sides)
- *   and of the topology arrays sent with it. The pieces' part is computed
+ *   its label, colour, face mapping, edge index, smooth and boundary flags
+ *   and face sides) and of the topology arrays sent with it. The pieces' part is computed
  *   once per pieces object (a wrapper's triangulation never changes) and
  *   kept beside it; the topology arrays are digested each render (a few
  *   numbers per vertex). So a shape a compare kept, or a generated template
@@ -108,6 +108,7 @@ export class MeshKeys {
       digest.number(mesh.edgeIndex);
     }
     digest.word(mesh.smooth === undefined ? 2 : mesh.smooth ? 1 : 0);
+    digest.word(mesh.boundary === undefined ? 2 : mesh.boundary ? 1 : 0);
     digest.numbers(mesh.faceSides);
   }
 }

@@ -11,7 +11,7 @@ import { edge, face } from "../filters/index.js";
 import { getOC } from "../oc/init.js";
 import { Explorer } from "../oc/explorer.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
-import { renderSolid } from "../rendering/render-solid.js";
+import { renderBody } from "../rendering/render-body.js";
 import { Extrude } from "../features/extrude.js";
 import { Solid } from "../common/solid.js";
 import { Face } from "../common/face.js";
@@ -29,7 +29,7 @@ describe("hidden edges — seams and degenerated edges", () => {
   setupOC();
 
   function drawnEdges(solid: Solid) {
-    return renderSolid(solid).filter(m => m.label === 'solid-edges');
+    return renderBody(solid).filter(m => m.label === 'solid-edges');
   }
 
   /** Total polyline length of a set of edge meshes. */

@@ -1,64 +1,59 @@
 import type { TopoDS_Face, TopoDS_Shape, TopTools_IndexedMapOfShape } from "ocjs-fluidcad";
 import { Explorer } from "../oc/explorer.js";
-import { Shape } from "../common/shape.js";
-import { Solid } from "../common/solid.js";
+import type { BodyShape } from "../common/body-shape.js";
 import { SceneObjectMesh } from "./scene.js";
 import { Mesh } from "../oc/mesh.js";
 import type { EdgeFace, MeshConfig } from "../oc/mesh.js";
 import { FaceFacets } from "../oc/edge-face-sides.js";
 import { getOC } from "../oc/init.js";
-import { HiddenEdges } from "../oc/hidden-edges.js";
 import { EdgeConvexityOps } from "../oc/edge-convexity.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import type { FaceColorView } from "../common/face-color-view.js";
 import { MeshPieces, type FacePiece, type ShapeMeshPieces } from "./mesh-pieces.js";
 
 /**
- * Meshes a solid for one pass: its faces grouped by colour (one
- * `solid-faces` mesh per colour, `colors` resolving each face — none means
- * unpainted) and its edges.
+ * Meshes a body — a solid or a surface — for one pass: its faces grouped by
+ * colour (one `solid-faces` mesh per colour, `colors` resolving each face —
+ * none means unpainted) and its edges.
  */
-export function renderSolid(shapeObj: Shape, meshConfig?: MeshConfig, colors?: FaceColorView): SceneObjectMesh[] {
-  return MeshPieces.group(renderSolidPieces(shapeObj, meshConfig), colors, shapeObj);
+export function renderBody(body: BodyShape, meshConfig?: MeshConfig, colors?: FaceColorView): SceneObjectMesh[] {
+  return MeshPieces.group(renderBodyPieces(body, meshConfig), colors, body);
 }
 
 /**
- * The scope-free geometry of a solid: one piece per face, in Explorer
+ * The scope-free geometry of a body: one piece per face, in Explorer
  * order, and its edge meshes. Colour is resolved when the pieces are
  * grouped for a pass (`MeshPieces.group`), never here.
  */
-export function renderSolidPieces(shapeObj: Shape, meshConfig?: MeshConfig): ShapeMeshPieces {
-  Mesh.ensureTriangulated(shapeObj.getShape(), meshConfig);
+export function renderBodyPieces(body: BodyShape, meshConfig?: MeshConfig): ShapeMeshPieces {
+  Mesh.ensureTriangulated(body.getShape(), meshConfig);
 
-  const faces = getFacePieces(shapeObj);
-  return { faces, meshes: getEdgesMesh(shapeObj, faces) };
+  const faces = getFacePieces(body);
+  return { faces, meshes: getEdgesMesh(body, faces) };
 }
 
 /**
- * The solid's edge lines, each read on the faces it bounds: the face pieces
+ * The body's edge lines, each read on the faces it bounds: the face pieces
  * already hold every face's triangulation, so an edge's `faceSides` (see
  * `Mesh.discretizeSolidEdge`) cost no second read of it.
  */
-function getEdgesMesh(shapeObj: Shape, facePieces: FacePiece[]): SceneObjectMesh[] {
+function getEdgesMesh(body: BodyShape, facePieces: FacePiece[]): SceneObjectMesh[] {
   const oc = getOC();
   const result: SceneObjectMesh[] = [];
 
-  const edgeToFaces = (shapeObj as Solid).getEdgeToFacesIndex();
-  const facets = new SolidFacets(shapeObj.getShape(), facePieces);
+  const edgeToFaces = body.getEdgeToFacesIndex();
+  const facets = new BodyFacets(body.getShape(), facePieces);
 
-  // Native seams, degenerate edges and recorded sweep construction joins
-  // are not drawn. Raw indexing remains unchanged for explicit lookups.
-  const hidden = shapeObj instanceof Solid ? null : HiddenEdges.collect(shapeObj.getShape());
-  const isHidden = (edge: TopoDS_Shape) => (shapeObj instanceof Solid ? shapeObj.isHiddenEdge(edge) : hidden!.Contains(edge));
-
-  const edges = Explorer.findEdgesWrapped(shapeObj);
-  const spanSeams = shapeObj.getRenderSeams().length
-    ? TopologyIndex.buildShapeSet([...shapeObj.getRenderSeams()]) : null;
+  const edges = Explorer.findEdgesWrapped(body);
+  const spanSeams = body.getRenderSeams().length
+    ? TopologyIndex.buildShapeSet([...body.getRenderSeams()]) : null;
 
   try {
     for (let edgeIdx = 0; edgeIdx < edges.length; edgeIdx++) {
       const edgeShape = edges[edgeIdx].getShape();
-      if (isHidden(edgeShape) || spanSeams?.Contains(edgeShape)) {
+      // Native seams, degenerate edges and recorded sweep construction joins
+      // are not drawn. Raw indexing remains unchanged for explicit lookups.
+      if (body.isHiddenEdge(edgeShape) || spanSeams?.Contains(edgeShape)) {
         continue;
       }
 
@@ -98,6 +93,12 @@ function getEdgesMesh(shapeObj: Shape, facePieces: FacePiece[]): SceneObjectMesh
           label: 'solid-edges',
           edgeIndex: edgeIdx,
         };
+        // An edge only one face bounds is the open rim of a surface: the UI
+        // draws it in the rim style. A closed solid has none, and a seam (its
+        // one face listed twice) is hidden above.
+        if (parents.Size() === 1) {
+          mesh.boundary = true;
+        }
         // A junction where the two faces are tangent (a fillet's boundary, a
         // profile line running into its arc) marks no crease: the UI can draw
         // it dimmed (the dimTangentEdges preference). Non-manifold edges
@@ -120,9 +121,8 @@ function getEdgesMesh(shapeObj: Shape, facePieces: FacePiece[]): SceneObjectMesh
     }
   } finally {
     facets.delete();
-    hidden?.delete();
     spanSeams?.delete();
-    // The explorer wrappers are this pass's temporaries; the solid keeps its
+    // The explorer wrappers are this pass's temporaries; the body keeps its
     // own edge wrappers (`getIndexedShapes`).
     for (const edge of edges) edge.dispose();
   }
@@ -131,11 +131,11 @@ function getEdgesMesh(shapeObj: Shape, facePieces: FacePiece[]): SceneObjectMesh
 }
 
 /**
- * A solid's face triangulations by face, for its edges: the face pieces
+ * A body's face triangulations by face, for its edges: the face pieces
  * (Explorer order) located through a face map built the same way, and each
  * face's {@link FaceFacets} made on first use.
  */
-class SolidFacets {
+class BodyFacets {
   private readonly faceIndex: TopTools_IndexedMapOfShape;
   private readonly pieces = new Map<number, FacePiece>();
   private readonly facets = new Map<number, FaceFacets>();
@@ -184,8 +184,8 @@ class SolidFacets {
   }
 }
 
-function getFacePieces(shapeObj: Shape): FacePiece[] {
-  const faces = Explorer.findFacesWrapped(shapeObj);
+function getFacePieces(body: BodyShape): FacePiece[] {
+  const faces = Explorer.findFacesWrapped(body);
   const pieces: FacePiece[] = [];
 
   try {

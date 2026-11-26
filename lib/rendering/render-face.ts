@@ -20,6 +20,10 @@ export function renderFace(faceObj: Shape, vertexOffset: number = 0, meshConfig?
  * splits its input on those two labels), so a face that has to draw on its own
  * comes through here instead. The outline is what makes a surface patch read
  * as a shape rather than a smear of translucency.
+ *
+ * Only ghosts draw a bare face this way: a bare face in the scene is a
+ * reference or a datum, while a surface body is a `Sheet` and goes through
+ * the body renderer (`renderBody`) with its face mapping and rim flags.
  */
 export function renderFacePatch(faceObj: Shape, meshConfig?: MeshConfig): SceneObjectMesh[] {
   const face = faceObj.getShape();

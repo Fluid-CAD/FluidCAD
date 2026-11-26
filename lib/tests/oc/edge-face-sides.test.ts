@@ -6,7 +6,8 @@ import { Primitives } from "../../oc/primitives.js";
 import { BooleanOps } from "../../oc/boolean-ops.js";
 import { Solid } from "../../common/solid.js";
 import { Shape } from "../../common/shape.js";
-import { renderSolid } from "../../rendering/render-solid.js";
+import type { BodyShape } from "../../common/body-shape.js";
+import { renderBody } from "../../rendering/render-body.js";
 import { transformMeshes } from "../../rendering/mesh-transform.js";
 import { Matrix4 } from "../../math/matrix4.js";
 import type { SceneObjectMesh } from "../../rendering/scene.js";
@@ -33,7 +34,7 @@ function box(dx: number, dy: number, dz: number): Solid {
 }
 
 function edgeMeshes(shape: Shape): SceneObjectMesh[] {
-  return renderSolid(shape).filter(m => m.label === "solid-edges");
+  return renderBody(shape as BodyShape).filter(m => m.label === "solid-edges");
 }
 
 function vertexAt(mesh: SceneObjectMesh, i: number): V3 {

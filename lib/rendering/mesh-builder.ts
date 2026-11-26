@@ -2,7 +2,8 @@ import { Shape } from "../common/shape.js";
 import type { FaceColorView } from "../common/face-color-view.js";
 import { Vertex } from "../common/vertex.js";
 import { Explorer } from "../oc/explorer.js";
-import { renderSolidPieces } from "./render-solid.js";
+import type { BodyShape } from "../common/body-shape.js";
+import { renderBodyPieces } from "./render-body.js";
 import { MeshPieces, type ShapeMeshPieces } from "./mesh-pieces.js";
 import { renderFace } from "./render-face.js";
 import { renderWire } from "./render-wire.js";
@@ -36,8 +37,8 @@ export class MeshBuilder {
 
   /**
    * Meshes `shapeObj` for one pass. `colors` is the face-colour view of a
-   * solid (its holder's `getFaceColors`); without one — ghosts, scratch
-   * shapes — the solid is meshed unpainted.
+   * body (its holder's `getFaceColors`); without one — ghosts, scratch
+   * shapes — the body is meshed unpainted.
    */
   build(shapeObj: Shape, unit: LengthUnit = getActiveUnit(), colors?: FaceColorView): SceneObjectMesh[] | null {
     const pieces = this.buildPieces(shapeObj, unit);
@@ -46,16 +47,17 @@ export class MeshBuilder {
 
   /**
    * The scope-free geometry of `shapeObj` — what the renderer caches on the
-   * wrapper and groups by colour on every pass: a solid's face pieces and
-   * edge meshes; the plain meshes of anything else.
+   * wrapper and groups by colour on every pass: a body's face pieces and
+   * edge meshes; the plain meshes of anything else. Compounds are refused on
+   * purpose: a feature adds its bodies one by one, never as a compound.
    */
   buildPieces(shapeObj: Shape, unit: LengthUnit = getActiveUnit()): ShapeMeshPieces | null {
     const shape = shapeObj.getShape();
 
     let result: SceneObjectMesh[] | SceneObjectMesh | null = null;
 
-    if (Explorer.isSolid(shape)) {
-      return renderSolidPieces(shapeObj, this.resolveConfig(shapeObj, unit));
+    if (Explorer.isSolid(shape) || Explorer.isShell(shape)) {
+      return renderBodyPieces(shapeObj as BodyShape, this.resolveConfig(shapeObj, unit));
     }
     else if (Explorer.isFace(shape)) {
       result = renderFace(shapeObj, 0, this.resolveConfig(shapeObj, unit));
@@ -71,9 +73,6 @@ export class MeshBuilder {
     }
     else if (Explorer.isCompoundSolid(shape)) {
       console.warn("CompSolid shapes are not supported yet.");
-    }
-    else if (Explorer.isShell(shape)) {
-      console.warn("Shell shapes are not supported yet.");
     }
     else if (Explorer.isVertex(shape)) {
       const pt = (shapeObj as Vertex).toPoint();

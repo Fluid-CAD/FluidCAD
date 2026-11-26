@@ -1,43 +1,32 @@
 import { renderEdge } from "./render-edge.js";
 import { Shape } from "../common/shape.js";
-import { Edge } from "../common/edge.js";
 import { Explorer } from "../oc/explorer.js";
 import { Mesh } from "../oc/mesh.js";
 import type { MeshConfig } from "../oc/mesh.js";
+import type { SceneObjectMesh } from "./scene.js";
 
-export function renderWire(shapeObj: Shape, meshConfig?: MeshConfig) {
-  const shape = shapeObj.getShape();
+/**
+ * One line mesh per edge of a wire, each carrying the edge's index in
+ * `getIndexedShapes('edge')` (explorer order, the order the hit test and the
+ * selection resolver count in), so every edge of a curve can be picked and
+ * highlighted on its own.
+ */
+export function renderWire(shapeObj: Shape, meshConfig?: MeshConfig): SceneObjectMesh[] {
+  Mesh.ensureTriangulated(shapeObj.getShape(), meshConfig);
 
-  Mesh.ensureTriangulated(shape, meshConfig);
-
-  const allVertices: number[] = [];
-  const allNormals: number[] = [];
-  const allIndices: number[] = [];
-
-  // The explorer copies and the wrapper each edge is read through are this
-  // mesh's own; nothing keeps them past its tessellation.
-  Explorer.withShapes(shape, Explorer.getOcShapeType("edge"), edges => {
-    for (const current of edges) {
-      const edge = Edge.fromTopoDSEdge(Explorer.toEdge(current));
-      try {
-        const edgeResult = renderEdge(edge);
-        if (edgeResult) {
-          const vertexOffset = allVertices.length / 3;
-          allVertices.push(...edgeResult.vertices);
-          allNormals.push(...edgeResult.normals);
-          for (let i = 0; i < edgeResult.indices.length; i++) {
-            allIndices.push(edgeResult.indices[i] + vertexOffset);
-          }
-        }
-      } finally {
-        edge.dispose();
+  const meshes: SceneObjectMesh[] = [];
+  // The explorer wrappers are this pass's temporaries, walked as
+  // `getIndexedShapes` walks them; the wire keeps its own edge wrappers.
+  const edges = Explorer.findEdgesWrapped(shapeObj);
+  try {
+    edges.forEach((edge, edgeIndex) => {
+      const edgeResult = renderEdge(edge);
+      if (edgeResult && edgeResult.indices.length > 0) {
+        meshes.push({ ...edgeResult, edgeIndex });
       }
-    }
-  });
-
-  return {
-    vertices: allVertices,
-    normals: allNormals,
-    indices: allIndices
+    });
+  } finally {
+    for (const edge of edges) edge.dispose();
   }
+  return meshes;
 }

@@ -2,11 +2,9 @@ import type { SceneObjectMesh } from "./scene.js";
 import type { Matrix4 } from "../math/matrix4.js";
 import type { FaceColorView } from "../common/face-color-view.js";
 import type { Shape } from "../common/shape.js";
-import { Solid } from "../common/solid.js";
-import { Explorer } from "../oc/explorer.js";
 import { transformMeshes } from "./mesh-transform.js";
 
-/** One face's triangulation, in the solid's face (Explorer) order. */
+/** One face's triangulation, in the body's face (Explorer) order. */
 export type FacePiece = {
   faceIdx: number;
   vertices: number[];
@@ -15,9 +13,9 @@ export type FacePiece = {
 };
 
 /**
- * The scope-free geometry cache of one shape: a solid's faces one piece
+ * The scope-free geometry cache of one shape: a body's faces one piece
  * each, to be grouped by colour per render pass, plus the meshes drawn as
- * they are (a solid's edges; every mesh of a face, wire, edge or vertex).
+ * they are (a body's edges; every mesh of a face, wire, edge or vertex).
  * Colour is not baked in: the same wrapper shows in different colours in
  * different passes (a rollback before its paint, between two paints).
  */
@@ -27,7 +25,7 @@ export type ShapeMeshPieces = {
 };
 
 export class MeshPieces {
-  /** Pieces for a shape whose meshes carry no colour (anything but a solid). */
+  /** Pieces for a shape whose meshes carry no colour (anything but a body). */
   static ofMeshes(meshes: SceneObjectMesh[]): ShapeMeshPieces {
     return { faces: [], meshes };
   }
@@ -120,7 +118,7 @@ export class MeshPieces {
     if (!colors || colors.isEmpty() || !shape || pieces.faces.length === 0) {
       return () => undefined;
     }
-    const faces = shape instanceof Solid ? shape.getFaces() : Explorer.findFacesWrapped(shape);
+    const faces = shape.getIndexedShapes('face');
     return faceIdx => {
       const face = faces[faceIdx];
       return face ? colors.get(face.getShape()) : undefined;

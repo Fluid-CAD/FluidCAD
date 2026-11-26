@@ -1,4 +1,4 @@
-import type { TopAbs_ShapeEnum, TopoDS_Face } from "ocjs-fluidcad";
+import type { Geom_Surface, TopAbs_ShapeEnum, TopoDS_Face } from "ocjs-fluidcad";
 import { getOC } from "../../oc/init.js";
 import { Explorer } from "../../oc/explorer.js";
 import { ExtrudeOps } from "../../oc/extrude-ops.js";
@@ -28,6 +28,38 @@ export const TestSheets = {
       face.delete();
       maker.delete();
       plane.delete();
+    }
+  },
+
+  /**
+   * One Bezier face over `[-half, half]²` at height `z`, a parabola across
+   * x: `sag` above `z` along its two x ends and level with it down the
+   * middle, so the plane nearest to it lies `sag / 2` from it. With a `sag`
+   * of 6e-4 it is flat for a filter (within 1e-3 mm) and not flat enough to
+   * build on (1e-4 mm).
+   */
+  shallowPatch(half: number, sag: number, z = 0): Sheet {
+    const oc = getOC();
+    const poles = new oc.NCollection_Array2_gp_Pnt(1, 3, 1, 2);
+    const xs = [-half, 0, half];
+    const zs = [z + sag, z - sag, z + sag];
+    for (let i = 0; i < 3; i++) {
+      for (const [j, y] of [-half, half].entries()) {
+        const point = new oc.gp_Pnt(xs[i], y, zs[i]);
+        poles.SetValue(i + 1, j + 1, point);
+        point.delete();
+      }
+    }
+    const surface = new oc.Geom_BezierSurface(poles);
+    const maker = new oc.BRepBuilderAPI_MakeFace(surface as unknown as Geom_Surface, 1e-6);
+    const face = maker.Face();
+    try {
+      return SheetOps.fromRawFace(face);
+    } finally {
+      face.delete();
+      maker.delete();
+      surface.delete();
+      poles.delete();
     }
   },
 

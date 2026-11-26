@@ -496,6 +496,12 @@ const REHOME_PLANE_TOLERANCE = 1e-6;
  * stand-in candidate ({@link isStandInBucket}) and coplanarity with a
  * same-side normal; anything else keeps the original attribution (and its
  * select() fallback).
+ *
+ * Both planes are read as a build reads them (`FaceOps.tryGetPlane`), not
+ * as a filter names them: the consumer builds on the plane. A pick that is
+ * flat for a filter only has no plane to build on, so it keeps its select()
+ * and the build says why, rather than landing on a neighbour's plane it
+ * only nearly shares.
  */
 export function rehomePlaneFacePick(
   scene: SelectionScene,

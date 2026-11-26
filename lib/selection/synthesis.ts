@@ -384,7 +384,10 @@ const PLANE_SOURCE_TOLERANCE = 1e-7;
  * bucket with its as-built members, plus the members' shared plane when
  * they have one (`onPlane`/`above`/`below` references). The plane is the
  * first member's — exactly what the emitted `onPlane(<var>.<accessor>())`
- * resolves — and requiring the rest coplanar with a same-side normal keeps
+ * resolves, which is the plane a feature may build on (`resolvePlaneRef`
+ * takes `face.getPlane()`), so a group whose faces are flat for a filter
+ * only offers no plane reference: the filter written from it could not
+ * resolve — and requiring the rest coplanar with a same-side normal keeps
  * the reference meaningful under member reordering. Consumption doesn't
  * disqualify a group: a bucket accessor resolves its recorded as-built
  * faces, and a reference only reads them (the same contract sketch-on-face

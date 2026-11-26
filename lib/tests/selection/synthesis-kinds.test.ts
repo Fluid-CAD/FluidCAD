@@ -10,6 +10,8 @@ import { EdgeOps } from "../../oc/edge-ops.js";
 import { EdgeProps } from "../../oc/edge-props.js";
 import { FaceProps } from "../../oc/face-props.js";
 import { FaceQuery } from "../../oc/face-query.js";
+import { FaceOps } from "../../oc/face-ops.js";
+import type { Face } from "../../common/face.js";
 import { SelectionIndex } from "../../selection/selection-index.js";
 import { attributePick } from "../../selection/attribution.js";
 import { isCurveEdgePick, synthesizeSelectors, SelectorPart } from "../../selection/synthesis.js";
@@ -323,6 +325,30 @@ describe("synthesis over the kind predicates", () => {
     expect(edges).toHaveLength(12);
 
     expect(verifiedGlobalCandidates(scene, edges, "edge")[0]).toBe("edge().ofSurface()");
+  });
+
+  it("names a patch that is flat for a filter only with planar(), and leaves a sketch on it to the build, which says why", () => {
+    // A box whose top lies at z = 10, and a patch 0.3 µm from flat in that same plane.
+    sketch("xy", () => {
+      testRect(20, 20, { at: [100, 0] });
+    });
+    setLocation(extrude(10), 2);
+    const l = loadShapes([TestSheets.shallowPatch(0.5, 6e-4, 10 - 3e-4)]) as unknown as SceneObject;
+    setLocation(l, 3);
+    const scene = render();
+    const patch = l.getShapes()[0];
+    const [face] = patch.getSubShapes("face") as Face[];
+    const pick: PickRef = { shapeId: patch.id, sub: { type: "face", index: 0 } };
+    expect(FaceProps.of(face).surfaceType).toBe("plane");
+    expect(FaceOps.tryGetPlane(face)).toBeNull();
+
+    // A filter names it by the plane it is within 1e-3 mm of.
+    expect(offeredAtoms(scene, [pick], "face")).toContain(".planar()");
+    expect(verifiedGlobalCandidates(scene, [pick], "face")[0]).toBe("face().ofSurface()");
+    // A sketch builds on its face: the patch is not re-homed to the box's top, whose plane it only nearly shares.
+    const sketched = synthesizeApplyFeature(scene, [pick], "sketch");
+    expect(sketched.ok && sketched.preview).toMatch(/^sketch\(select\(face\(\)/);
+    expect(() => face.getPlane()).toThrow(/not flat enough to build on/);
   });
 
   it("offers no convex() or concave() for a surface's edges: an open sheet has no outward side", () => {

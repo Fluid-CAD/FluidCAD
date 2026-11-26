@@ -22,7 +22,6 @@ function readAll(source: Element = document.documentElement) {
   themeColors.faceColor.set(readCssVar('--scene-face-color', '#969696'));
   themeColors.edgeColor.set(readCssVar('--scene-edge-color', '#000000'));
   themeColors.surfaceFace.set(readCssVar('--scene-surface-face', '#8f9cab'));
-  themeColors.sheetBoundary.set(readCssVar('--scene-sheet-boundary', '#2297ff'));
   themeColors.gridColor.set(readCssVar('--scene-grid-color', '#6f6f6f'));
   themeColors.metaEdgeColor.set(readCssVar('--scene-meta-edge-color', '#b0b0b0'));
   themeColors.highlightColor.set(readCssVar('--scene-highlight-color', '#ffb433'));
@@ -52,11 +51,9 @@ function readAll(source: Element = document.documentElement) {
 export const themeColors = {
   faceColor: new Color('#969696'),
   edgeColor: new Color('#000000'),
-  // A surface body: faces a cool step off the solid grey, so an open surface
-  // tells itself from a solid at a glance, and its open rim in the blue a
-  // standalone curve wears (STANDALONE_EDGE_STYLE, shape-group.ts).
+  // A surface body's faces: a cool step off the solid grey, so an open
+  // surface tells itself from a solid at a glance.
   surfaceFace: new Color('#8f9cab'),
-  sheetBoundary: new Color('#2297ff'),
   gridColor: new Color('#6f6f6f'),
   metaEdgeColor: new Color('#b0b0b0'),
   highlightColor: new Color('#ffb433'),

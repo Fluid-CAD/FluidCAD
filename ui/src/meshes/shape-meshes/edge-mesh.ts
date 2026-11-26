@@ -36,11 +36,13 @@ export class EdgeMesh extends Group {
         ? meshCache.geometryOf(meshData, () => EdgeMesh.buildGeometry(meshData))
         : EdgeMesh.buildGeometry(meshData);
 
-      // A surface's open rim draws in its own colour, a step wider, unless an
-      // explicit colour (a highlight, a ghost) restyles every line alike.
+      // A surface's open rim draws in the plain edge colour, a step wider:
+      // the width alone marks it, since a colour of its own would read as a
+      // selection. An explicit colour (a highlight, a ghost) restyles every
+      // line alike.
       const rim = meshData.boundary === true && !opts.color;
       const material = createEdgeLineMaterial(geometry, {
-        color: rim ? themeColors.sheetBoundary.getHex() : EdgeMesh.lineColor(meshData.smooth === true, opts.color),
+        color: rim ? EdgeMesh.lineColor(false, opts.color) : EdgeMesh.lineColor(meshData.smooth === true, opts.color),
         linewidth: rim ? opts.lineWidth + BOUNDARY_EXTRA_WIDTH : opts.lineWidth,
         transparent: opts.transparent || opts.opacity < 1,
         opacity: opts.opacity,

@@ -145,7 +145,7 @@ describe('a surface body in the viewport', () => {
     const rim = lines.filter(line => line.userData.boundaryEdge);
     expect(rim.map(line => line.userData.edgeIndex)).toEqual([0, 1, 2, 4, 5, 6]);
     for (const line of rim) {
-      expect(colorOf(line)).toBe(themeColors.sheetBoundary.getHex());
+      expect(colorOf(line)).toBe(themeColors.edgeColor.getHex());
       expect(widthOf(line)).toBe(2);
     }
     const shared = lines.find(line => line.userData.edgeIndex === 3)!;
@@ -222,6 +222,7 @@ describe('a surface body in the viewport', () => {
 
     expect(colorOf(faceMeshesOf(group)[0])).toBe(themeColors.highlightColor.getHex());
     const rim = linesOf(group).find(line => line.userData.boundaryEdge)!;
-    expect(colorOf(rim)).toBe(themeColors.sheetBoundary.getHex());
+    expect(colorOf(rim)).toBe(themeColors.edgeColor.getHex());
+    expect(widthOf(rim)).toBe(2);
   });
 });

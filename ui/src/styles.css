@@ -46,7 +46,6 @@
   --scene-face-color: #969696;
   --scene-edge-color: #000000;
   --scene-surface-face: #8f9cab;
-  --scene-sheet-boundary: #2297ff;
   --scene-vertex-color: #8f969f;
   --scene-vertex-hover: #ffb433;
   --scene-vertex-selected: #11a4ed;
@@ -109,9 +108,6 @@
   --scene-face-color: #b8b8b8;
   --scene-edge-color: #555555;
   --scene-surface-face: #afbdcc;
-  /* The rim keeps the standalone-curve blue in both themes, like the ghost
-     wire below: an open edge reads as a curve, not as a crease. */
-  --scene-sheet-boundary: #2297ff;
   --scene-vertex-color: #626a73;
   --scene-vertex-hover: #ad6900;
   --scene-vertex-selected: #0074aa;

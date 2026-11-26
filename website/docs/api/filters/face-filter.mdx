@@ -55,6 +55,8 @@ as `onPlane`, including a face selection to read the plane from.
 ```
 
 Selects circular (flat, disc-shaped) faces, optionally matching a specific diameter.
+Geometry decides, not the kernel's storage: a B-spline face that lies flat,
+bounded by B-spline edges that trace circles, counts as one.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -83,7 +85,9 @@ Excludes circular (flat, disc-shaped) faces, optionally matching a specific diam
 Selects full cylindrical faces — ones that wrap all the way around their
 axis and so carry a circular rim: a hole's bore, a boss's wall.
 A partial cylinder (a fillet face, a bore cut open by a slot) is a
-`cylinderCurve`.
+`cylinderCurve`. Geometry decides, not the kernel's storage: a
+B-spline face that traces a cylinder — a lofted or swept wall, an
+imported STEP face — counts as one.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -112,7 +116,8 @@ matching a specific diameter.
 
 Selects partial cylindrical faces — ones that do not wrap all the way
 around their axis: a fillet along an edge, a rounded corner of a pad, a
-bore cut open by a slot. A full bore is a `cylinder`.
+bore cut open by a slot. A full bore is a `cylinder`. A B-spline
+face that traces a cylinder counts, as for `cylinder`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -139,7 +144,8 @@ optionally matching a specific diameter.
 .parallelTo(plane: PlaneLike): this
 ```
 
-Selects faces whose normal is parallel to the given plane.
+Selects planar faces whose normal is parallel to the given plane. A
+B-spline face that lies flat counts as planar, as for `planar`.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -166,6 +172,7 @@ Excludes faces whose normal is parallel to the given plane.
 ```
 
 Selects toroidal faces, optionally matching major and/or minor radius.
+A B-spline face that traces a torus counts as one.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -193,7 +200,9 @@ Excludes toroidal faces, optionally matching major and/or minor radius.
 .planar(): this
 ```
 
-Selects planar (flat) faces.
+Selects planar (flat) faces. Geometry decides, not the kernel's storage:
+a B-spline face that lies flat — a lofted or swept wall, an imported
+STEP face — counts as one.
 
 ### .notPlanar()
 
@@ -211,7 +220,7 @@ Excludes planar (flat) faces.
 .cone(): this
 ```
 
-Selects conical faces.
+Selects conical faces. A B-spline face that traces a cone counts as one.
 
 ### .notCone()
 
@@ -220,6 +229,129 @@ Selects conical faces.
 ```
 
 Excludes conical faces.
+
+---
+
+### .sphere()
+
+```ts
+.sphere(diameter?: number): this
+```
+
+Selects spherical faces — a ball, a domed cap, a ball-end fillet's
+corner — optionally matching a specific diameter. A B-spline face that
+traces a sphere counts as one.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to match. *(optional)* |
+
+### .notSphere()
+
+```ts
+.notSphere(diameter?: number): this
+```
+
+Excludes spherical faces, optionally matching a specific diameter.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `diameter` | number | Optional diameter to exclude. *(optional)* |
+
+---
+
+### .freeform()
+
+```ts
+.freeform(): this
+```
+
+Selects free-form faces — a loft between unlike sections, a sweep along
+a winding path, an imported sculpted surface — that are no plane,
+cylinder, cone, sphere or torus, and no `revolved` or
+`extruded` surface. A B-spline face that traces one of the
+elementary shapes is that shape, not free-form.
+
+### .notFreeform()
+
+```ts
+.notFreeform(): this
+```
+
+Excludes free-form faces.
+
+---
+
+### .revolved()
+
+```ts
+.revolved(): this
+```
+
+Selects revolved faces — a spline profile turned around an axis, a
+vase's wall — that are no plane, cylinder, cone, sphere or torus (those
+have their own predicates).
+
+### .notRevolved()
+
+```ts
+.notRevolved(): this
+```
+
+Excludes revolved faces.
+
+---
+
+### .extruded()
+
+```ts
+.extruded(): this
+```
+
+Selects extruded faces — the wall a spline or an ellipse sweeps when
+pushed along a straight line — that are no plane or cylinder (those
+have their own predicates).
+
+### .notExtruded()
+
+```ts
+.notExtruded(): this
+```
+
+Excludes extruded faces.
+
+---
+
+### .facing()
+
+```ts
+.facing(direction: DirectionLike, within?: number): this
+```
+
+Selects faces that face a direction: the outward normal at the face's
+centre lies within `within` degrees of it. Works on every kind of face,
+so it is the way to say "the top of this free-form shape":
+`face().facing('z')` keeps a box's top and a dome's upper faces, and
+leaves out the walls. A surface's faces face the way the surface is
+oriented. Under a repeat or a mirror the direction moves with the copy.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+| `within` | number | The largest angle, in degrees, between the normal and the direction (default 45). *(optional)* |
+
+### .notFacing()
+
+```ts
+.notFacing(direction: DirectionLike, within?: number): this
+```
+
+Excludes faces that face a direction (see `facing`).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
+| `within` | number | The largest angle, in degrees, between the normal and the direction (default 45). *(optional)* |
 
 ---
 

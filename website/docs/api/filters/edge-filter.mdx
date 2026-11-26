@@ -185,6 +185,107 @@ Excludes straight-line edges, optionally matching a specific length.
 
 ---
 
+### .ellipse()
+
+```ts
+.ellipse(): this
+```
+
+Selects elliptical edges — a full ellipse or an arc of one, such as the
+rim of a cylinder cut at a slant. Combine with `closed` or
+`open` to tell the two apart. Geometry decides, not the kernel's
+storage: a B-spline edge that traces an ellipse counts as one.
+
+### .notEllipse()
+
+```ts
+.notEllipse(): this
+```
+
+Excludes elliptical edges, full or arcs.
+
+---
+
+### .spline()
+
+```ts
+.spline(): this
+```
+
+Selects free-form edges — the curve of a sketch spline, a loft's or a
+sweep's free-form rim, a helix — that are no line, arc, circle or
+ellipse. A B-spline edge that traces one of those is that kind, not a
+spline.
+
+### .notSpline()
+
+```ts
+.notSpline(): this
+```
+
+Excludes free-form (spline) edges.
+
+---
+
+### .closed()
+
+```ts
+.closed(): this
+```
+
+Selects closed edges — ones that return to their start: a full circle,
+a full ellipse, a closed spline. The complement of `open`.
+
+### .notClosed()
+
+```ts
+.notClosed(): this
+```
+
+Excludes closed edges; the same as `open`.
+
+---
+
+### .open()
+
+```ts
+.open(): this
+```
+
+Selects open edges — ones whose ends are apart: every line, every arc,
+an open spline. The complement of `closed`.
+
+### .notOpen()
+
+```ts
+.notOpen(): this
+```
+
+Excludes open edges; the same as `closed`.
+
+---
+
+### .planar()
+
+```ts
+.planar(): this
+```
+
+Selects edges that lie in one plane. Every line, arc, circle and ellipse
+does, so it earns its keep next to `spline`: `edge().spline().planar()`
+keeps the splines drawn in a sketch and leaves out a helix or a curve
+that winds through space.
+
+### .notPlanar()
+
+```ts
+.notPlanar(): this
+```
+
+Excludes edges that lie in one plane, keeping the curves that wind through space.
+
+---
+
 ### .belongsToFace()
 
 ```ts

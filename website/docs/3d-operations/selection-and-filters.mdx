@@ -136,7 +136,14 @@ edge().circle()                // circular edges
 edge().arc()                   // arc-shaped edges
 edge().line()                  // straight edges
 edge().line(10)                // straight edges with length 10
+edge().ellipse()               // elliptical edges, full or arcs
+edge().ellipse().open()        // elliptical arcs only
+edge().spline()                // free-form edges: a sketch spline, a loft's free-form rim, a helix
+edge().closed()                // edges that return to their start: full circles, ellipses, closed splines
+edge().spline().planar()       // splines that lie in one plane (a helix does not)
 ```
+
+Shapes are told by geometry, not by how the kernel stores the curve: the straight and round edges a loft or an imported STEP file stores as B-splines are still lines, arcs, circles and ellipses. Only an edge that is none of those is a `spline()`.
 
 ### By parent face
 
@@ -199,7 +206,11 @@ import { face, edge } from 'fluidcad/filters';
 ```js
 face().parallelTo("xy")        // faces parallel to the XY plane (top/bottom faces)
 face().parallelTo("xz")        // faces parallel to the XZ plane (front/back faces)
+face().facing("z")             // faces whose outward normal points within 45° of up
+face().facing("-x", 10)        // faces pointing nearly straight along −x
 ```
+
+`facing()` reads the outward normal at the face's centre, so it works on curved and free-form faces too — `face().facing("z")` is the top of a dome as well as the top of a box.
 
 ### By position
 
@@ -227,7 +238,13 @@ Rank filters evaluate over whatever the chain has kept so far: `face().planar().
 face().circle()                // circular (flat round) faces
 face().cylinder()              // cylindrical faces
 face().cone()                  // conical faces
+face().sphere(20)              // spherical faces of diameter 20
+face().revolved()              // a spline profile turned around an axis
+face().extruded()              // the wall of an extruded spline or ellipse
+face().freeform()              // everything else: a loft between unlike sections, a sculpted surface
 ```
+
+As for edges, shapes are told by geometry: a flat wall a loft stores as a B-spline surface is `planar()`, and a round one is a `cylinder()` or `cylinderCurve()`.
 
 ### By edge properties
 

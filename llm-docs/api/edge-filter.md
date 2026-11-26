@@ -32,7 +32,8 @@ Returns a chainable edge filter. Chained predicates AND together.
   `closed()`, so `edge().ellipse().open()` is the elliptical arcs
 - `.planar()` / `.notPlanar()` — edges that lie in one plane. Every line,
   arc, circle and ellipse does; next to `spline()` it tells a spline drawn
-  in a sketch from a helix or a curve winding through space
+  in a sketch from a helix or a curve winding through space. A spline
+  counts when no point of it strays more than 1e-6 mm from the plane
 
 Shape predicates classify by geometry, not by how the kernel stores the
 curve. A loft or sweep rebuilds its section edges as B-splines — the straight
@@ -46,11 +47,14 @@ none of those is a `spline()`.
 - `.parallelTo(plane)` / `.notParallelTo(...)`
 - `.verticalTo(plane)` / `.notVerticalTo(...)` — perpendicular to the plane
 
-A line or a circular edge is judged at a few points, which describe it
-exactly. Any other edge is judged along its whole length: `parallelTo(P)`
-holds when every tangent along it is perpendicular to the plane's normal (the
-edge lies in a plane parallel to `P`), and `verticalTo(P)` never holds for a
-curve, since only a straight edge can be perpendicular to a plane.
+A line is parallel to a plane when it runs along it, and vertical to it when
+it runs along its normal. A circle or an arc is judged at a few points: its
+tangent at its middle for `parallelTo`, the straight line between its ends
+for `verticalTo`. Any other edge — an ellipse, a spline — is judged by the
+one plane it lies in: `parallelTo(P)` holds when that plane is parallel to
+`P`, and a curve that winds through space (a helix) lies in no plane and is
+parallel to none. `verticalTo(P)` never holds for such a curve, since only a
+straight edge can be perpendicular to a plane.
 
 ## By position
 
@@ -60,11 +64,16 @@ curve, since only a straight edge can be perpendicular to a plane.
 - `.intersectsWith(sceneObject)` — edges that cross another scene
   object's edges
 
-`onPlane` checks a line or an arc at its ends and middle, and any other
-edge at 16 points along it. `above` / `below` judge a line or an arc by its
-two end vertices, and any other edge by how far it reaches along the plane's
-normal, so a spline that sags below the plane between its ends is not
-`above` it.
+`onPlane` checks a line, a circle or an arc at its ends and middle. Any
+other edge — an ellipse, a spline — is on a plane when the one plane it lies
+in is that plane; a curve that lies in no plane is on none. With
+`{ partial: true }` an edge is kept when either of its ends is on the plane.
+
+`above` / `below` judge a line, a circle or an arc by its two end vertices,
+and any other edge by its true extent along the plane's normal, so a spline
+that sags below the plane between its ends is not `above` it. An edge lying
+in the plane is on neither side. With `{ partial: true }` an edge is kept
+when any of it is on that side.
 
 ## By parent
 

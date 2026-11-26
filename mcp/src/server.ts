@@ -585,7 +585,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. `name` is the object\'s display label — the text of its `.name(\'…\')` chain when `hasCustomName` is true, else the default `<Type> <n>` ("Extrude 2") the timeline shows; `.name()` is optional and the UI writes it for statements it creates. `shapes` lists the same shapes as `shapeIds` with `label` + `part` ("Solid 2" of "Bracket", the Shapes panel\'s row; `part` null = the top-level "Model" group) and, for solids and surfaces, `lineageKey` — the body\'s identity across renders, stable through your own edits where `shapeId` is not. A `part` object also carries `material` (the id its `.material()` assigned, or null), `appearance` (the look its `.appearance()` assigned — `oak`, `steel`, `brass`, … — or null; a face painted with color() keeps its colour over it) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. `globalParams` lists the project parameters of every `*.params.js` file as `{ name, label, value, file }` — `name` is the identifier a model imports (`import { name } from "./<file>"`), `file` is workspace-relative, `value` is the declared literal (a derived export\'s evaluated value, or null when it is only computed at render) in the project unit; the list is the whole project\'s, whether or not the open model imports them. A model with a `configurations()` table adds `configurations: { active, names, rows, modified }` — the named value sets of its params (`rows[name]` maps a param label to its value; `active` is the row on screen, "Default" for the param() literals; `modified` = session tweaks on top); switch with select_configuration, or pass `configuration` to export/screenshot. Use this before list_shapes when you need feature-tree context. ' +
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. `name` is the object\'s display label — the text of its `.name(\'…\')` chain when `hasCustomName` is true, else the default `<Type> <n>` ("Extrude 2") the timeline shows; `.name()` is optional and the UI writes it for statements it creates. `shapes` lists the same shapes as `shapeIds` with `kind` (solid, surface or curve; absent on a selected face or a point), `label` + `part` ("Solid 2" of "Bracket", the Shapes panel\'s row; `part` null = the top-level "Model" group) and, for solids and surfaces, `lineageKey` — the body\'s identity across renders, stable through your own edits where `shapeId` is not. A `part` object also carries `material` (the id its `.material()` assigned, or null), `appearance` (the look its `.appearance()` assigned — `oak`, `steel`, `brass`, … — or null; a face painted with color() keeps its colour over it) and, when that id is in neither the built-in nor the project materials table, `warnings: ["Unknown material: <id>"]` — the part still built; only its mass is unknown. `globalParams` lists the project parameters of every `*.params.js` file as `{ name, label, value, file }` — `name` is the identifier a model imports (`import { name } from "./<file>"`), `file` is workspace-relative, `value` is the declared literal (a derived export\'s evaluated value, or null when it is only computed at render) in the project unit; the list is the whole project\'s, whether or not the open model imports them. A model with a `configurations()` table adds `configurations: { active, names, rows, modified }` — the named value sets of its params (`rows[name]` maps a param label to its value; `active` is the row on screen, "Default" for the param() literals; `modified` = session tweaks on top); switch with select_configuration, or pass `configuration` to export/screenshot. Use this before list_shapes when you need feature-tree context. ' +
         'In an assembly file it also returns `instances`, one per inserted instance (sub-assemblies\' included): `instanceId` (what ' +
         'validate, interfere, measure, resolve_selection and the screenshot `hide`/`focus`/`fitTo` take), `name`, `partId`/`partName` ' +
         '(the `part` row it inserts; `partId` feeds get_shape_properties), `owner` (the sub-assembly occurrence path, "" at the root), ' +
@@ -638,7 +638,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'List all shapes in the current scene',
       description:
-        'Returns a flat list of `{ shapeId, type, sceneObjectId, label, part, lineageKey? }`: `label` + `part` is the row the Shapes panel shows ("Solid 2" of "Bracket"; `part` null = the top-level "Model" group; both absent on a meta shape), `lineageKey` (solids and surfaces) stays the same across your own edits where `shapeId` is minted afresh. Cheaper than get_scene_summary when you only need ids — use this before calling shape/face/edge property tools.',
+        'Returns a flat list of `{ shapeId, type, kind?, sceneObjectId, label, part, lineageKey?, area?, length? }`: `kind` is what the shape is — `solid`, `surface` (faces enclosing no volume, e.g. an imported surface) or `curve` (edges standing on their own) — absent on a selected face or a point; `area` (solids and surfaces) and `length` (curves) are the shape\'s size in the document unit, quick figures for telling shapes apart (get_shape_properties gives the exact ones). `label` + `part` is the row the Shapes panel shows ("Solid 2" of "Bracket"; `part` null = the top-level "Model" group; both absent on a meta shape), `lineageKey` (solids and surfaces) stays the same across your own edits where `shapeId` is minted afresh. Cheaper than get_scene_summary when you only need ids — use this before calling shape/face/edge property tools.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await listShapes(target(workspace))),
@@ -671,7 +671,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of a shape or a part',
       description:
-        'With `shapeId`: volume, surface area, and center of mass for a single shape. With `partId` (a `part` object id from get_scene_summary, or an assembly instance\'s `partId`) instead: the same summed over the part\'s final solids (`shapeIds`, `solidCount`, volume-weighted `centroid`), plus `material` (id, name, density, `densityGcm3`, `source` built-in|project) and `massG` in grams when the part\'s `.material(id)` resolves, or `warning: "Unknown material: <id>"` and no mass when it does not; `material` is null for a part without one. Values are in the document unit, returned as `unit` (the `volumeMm3`/`surfaceAreaMm2` field names are historical — an inch document reports in³/in² under them; `massG` is always grams).',
+        'With `shapeId`: one shape measured as what it is — `kind` solid (`volumeMm3`, `surfaceAreaMm2`), surface or face (`surfaceAreaMm2`, no volume: a surface encloses none), curve (`length`) or vertex — with its `centroid` (centre of the volume, area or length) and exact `boundingBox` { min, max }. With `partId` (a `part` object id from get_scene_summary, or an assembly instance\'s `partId`) instead: the same summed over the part\'s final solids (`shapeIds`, `solidCount`, volume-weighted `centroid`), plus `material` (id, name, density, `densityGcm3`, `source` built-in|project) and `massG` in grams when the part\'s `.material(id)` resolves, or `warning: "Unknown material: <id>"` and no mass when it does not; `material` is null for a part without one. Values are in the document unit, returned as `unit` (the `volumeMm3`/`surfaceAreaMm2` field names are historical — an inch document reports in³/in² under them; `massG` is always grams).',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg.optional(),
@@ -687,7 +687,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of a face',
       description:
-        'Returns the surface kind and size of a single face on a shape, as `surfaceType` plus that kind\'s fields: plane (`areaMm2`); circle, a flat face bounded only by circular edges (`radius`, no area); cylinder (`radius`, and `closed` — true when it wraps fully around its axis like a bore or a boss wall, false for a fillet or a partial wall); sphere (`radius`); torus (`majorRadius`, `minorRadius`); cone (`halfAngleDeg`); other (`areaMm2`). It returns no normal, center or axis, and no area for a circle or a curved analytic face: resolve_selection with `picks: [{ shapeId, kind: "face", index: faceIndex }]` summarizes the face with its center, normal (a planar face\'s points out of its solid) or axis, and area. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
+        'Returns the surface kind and size of a single face of a solid or a surface, as `surfaceType` plus that kind\'s fields: plane (`areaMm2`); circle, a flat face bounded only by circular edges (`radius`, no area); cylinder (`radius`, and `closed` — true when it wraps fully around its axis like a bore or a boss wall, false for a fillet or a partial wall); sphere (`radius`); torus (`majorRadius`, `minorRadius`); cone (`halfAngleDeg`); other (`areaMm2`). It returns no normal, center or axis, and no area for a circle or a curved analytic face: resolve_selection with `picks: [{ shapeId, kind: "face", index: faceIndex }]` summarizes the face with its center, normal (a planar face\'s points out of its solid) or axis, and area. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,
@@ -703,7 +703,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of an edge',
       description:
-        'Returns length, curve kind, endpoints, and related measurements for a single edge on a shape. Lengths are in the document unit, returned as `unit`.',
+        'Returns the curve kind and size of a single edge of a solid, a surface or a curve: `curveType` (line, circle, arc, ellipse, other), ' +
+        '`length` (absent on a full circle and an ellipse), `radius` for circles and arcs, `majorRadius`/`minorRadius` for ellipses, and its ' +
+        'endpoints `start` and `end` { x, y, z } in the edge\'s own direction (equal on a closed edge). Lengths are in the document unit, returned as `unit`.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,
@@ -753,8 +755,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       description:
         'Two inputs, one of them: `expression` — a filter expression evaluated with exactly the candidate set a select() statement ' +
         'would see at the given scope; or `picks` — explicit face/edge/vertex refs (from hit_test, the rendered topology, or an earlier ' +
-        'match). Returns every match with its shapeId/kind/index (faces/edges are usable in measure and hit_test), owning ' +
-        'sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
+        'match). Returns every match with its shapeId/kind/index (faces/edges are usable in measure and hit_test), `bodyKind` — `surface` or ' +
+        '`curve` when the face/edge is part of one, absent on a solid\'s — owning sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
         'center [x,y,z], normal (a planar face\'s points out of its solid) or axis, area or length, diameter for ' +
         'cylinders/spheres/circles. Lengths are in the document unit ' +
         '(returned as `unit`), rounded to its meaningful precision. Vertex summaries have form vertex and a world-space center; ' +
@@ -774,8 +776,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         '`before` is the statement boundary: the scene-object `index` (get_scene_summary) of the statement the selection is written ' +
         'before — the statement you are editing, or the one a new statement is inserted in front of. Only objects strictly before it ' +
         'exist then (the world rollback_to(before - 1) renders), so the selector resolves and synthesizes against the geometry that ' +
-        'statement actually sees, with picks addressed on that world\'s solids. Omit it for a statement appended at the end. ' +
-        'A `warning` names selected shapes no solid in the visible world carries (a later feature consumed them): re-select on the ' +
+        'statement actually sees, with picks addressed on that world\'s solids, surfaces and curves. Omit it for a statement appended at the end. ' +
+        'A `warning` names selected shapes no solid, surface or curve in the visible world carries (a later feature consumed them): re-select on the ' +
         'visible geometry. An expression that fails to evaluate, an unknown scope, a part name shared by several variants, an ' +
         'out-of-range boundary or a pick that does not exist in that world is an error naming the problem.',
       inputSchema: {
@@ -809,7 +811,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Check the rendered geometry is sound (closed, oriented, valid topology)',
       description:
-        'Kernel soundness checks on the solids the scene renders. `render.state === "rendered"` is not a geometry claim: an open ' +
+        'Kernel soundness checks on the solids the scene renders — solids only: surfaces and curves are never checked by default (a surface is open by design). `render.state === "rendered"` is not a geometry claim: an open ' +
         'five-face box and an inside-out solid both render and screenshot fine. Run this on every new solid before measuring or ' +
         'screenshotting it. Each finding names the shapeId, the owning sceneObjectId and part, the instance ids it applies to in an ' +
         'assembly, a `kind` and a short message. Kinds: `invalidTopology` (BRepCheck_Analyzer found a defect: a wire that does not ' +
@@ -855,7 +857,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Check whether any two bodies occupy the same space',
       description:
-        'Interference check over the solids the scene renders: every candidate pair is bounds-rejected, then the surviving pairs run ' +
+        'Interference check over the solids the scene renders — solids only: surfaces and curves enclose no volume and are never compared. Every candidate pair is bounds-rejected, then the surviving pairs run ' +
         'a boolean common and report the volume they share. The unit of the verdict is the PART: in an assembly, a pair of bodies from ' +
         'two different instances that share more than `tolerance` is a `clash`; two bodies inside one instance (a multi-solid part) ' +
         'are listed under `intraPart` and never fail. In a part file with several part() blocks the same rule applies per part; with no ' +
@@ -1093,7 +1095,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         'Each entity is either an index reference { shapeId, kind, index, instanceId? } or a filter { expression, scope? } as in ' +
         'resolve_selection; a filter must resolve to exactly one face/edge — several matches are refused with the candidates listed, ' +
         'none is an error — and the measured entity reports the expression, sceneObjectId and part it resolved to. Every measured entity ' +
-        'carries the same compact `summary` (form, center, normal/axis, area/length, diameter) resolve_selection returns. ' +
+        'carries the same compact `summary` (form, center, normal/axis, area/length, diameter) resolve_selection returns, and `bodyKind`: ' +
+        'whether the face/edge is part of a solid, a surface or a curve. ' +
         'Pass `image` to get a picture of the measurement as well.',
       inputSchema: {
         ...workspaceArg,
@@ -1132,7 +1135,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         autoCrop: z.boolean().optional(),
         fitToModel: z.boolean().optional(),
         margin: marginArg,
-        solidsOnly: z.boolean().optional().describe('Render only the model\'s solids: hides sketches, construction planes/axes, connectors and overlays, and lifts sketch-mode ghosting. Fitting frames the solids alone.'),
+        solidsOnly: z.boolean().optional().describe('Render only the model\'s bodies — its solids and its surfaces: hides sketches, curves, construction planes/axes, connectors and overlays, and lifts sketch-mode ghosting. Fitting frames the bodies alone.'),
         showDimensions: z.boolean().optional().describe('Show sketch dimensional-constraint annotations (distance, angle, radius, diameter). Default true; pass false to declutter a sketch capture.'),
         showPositional: z.boolean().optional().describe('Show sketch positional-constraint badges and coincidence dots. Default true.'),
         framePlanes: z.boolean().optional().describe('Include construction-plane quads (plane(…) features) in the bounds that fitting and auto-crop frame. Default false: a plane quad is 200 mm square whatever the model, so it is left out unless the picture is about the planes.'),
@@ -1241,7 +1244,9 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Ray-test a shape',
       description:
-        'Cast a ray against a shape and return the face/edge it hits (if any). `rayOrigin` and `rayDir` are world-space [x, y, z]. `edgeThreshold` is a screen-space tolerance for edge hits.',
+        'Cast a ray against a shape — a solid, a surface or a curve — and return the face/edge it hits (if any) as `{ type, index, bodyKind }`, ' +
+        '`bodyKind` naming what the shape is (solid, surface or curve). A curve has no faces: only an edge hit within `edgeThreshold` finds it. ' +
+        '`rayOrigin` and `rayDir` are world-space [x, y, z]. `edgeThreshold` is a screen-space tolerance for edge hits.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,

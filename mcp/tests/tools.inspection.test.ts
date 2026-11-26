@@ -805,6 +805,14 @@ describe('inspection tools (over MCP)', () => {
       expect(byName.get('list_global_params')).toContain('`projectUnit`');
       expect(byName.get('list_shapes')).toContain('lineageKey');
       expect(byName.get('list_shapes')).toContain('`label`');
+      // Surfaces and curves are listed and measured as what they are; the
+      // volume checks say they stay with solids.
+      expect(byName.get('list_shapes')).toContain('`kind`');
+      expect(byName.get('list_shapes')).toContain('`surface`');
+      expect(byName.get('get_shape_properties')).toContain('no volume');
+      expect(byName.get('get_edge_properties')).toContain('`start`');
+      expect(byName.get('validate')).toContain('solids only');
+      expect(byName.get('interfere')).toContain('solids only');
       const shapeIdSchema = JSON.stringify(tools.tools.find((t) => t.name === 'get_shape_properties')!.inputSchema);
       expect(shapeIdSchema).toContain('lineageKey');
     } finally {

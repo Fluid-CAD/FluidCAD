@@ -31,6 +31,11 @@ import type { SelectionBoundary } from "../../selection/types.js";
 import { edgeRefsWhere, faceRefsWhere, setLocation } from "./pick-helpers.js";
 import { horizontal, vertical } from "../../core/constraints/index.js";
 import { testRect } from "../helpers/profiles.js";
+import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
+import { chord } from "../helpers/result-fixtures.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
+import { Point } from "../../math/point.js";
+import type { SceneObject } from "../../common/scene-object.js";
 
 /** The solid added by the scene's only object of `type`. */
 function solidOf(scene: Scene, type: string): Shape {
@@ -63,6 +68,7 @@ function planeBoundary(scene: Scene, line: number): SelectionBoundary {
 
 describe("feature sources (edit-dialog seeding)", () => {
   setupOC();
+  useLoadedBodies();
 
   it('returns built loft connection points in world coordinates', () => {
     const a = sketch(plane('yz', { offset: 10 }), () => { testRect(20, 20); });
@@ -534,6 +540,115 @@ describe("feature sources (edit-dialog seeding)", () => {
     if (result.ok && result.feature === "sweep") {
       expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 });
       expect(result.path).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 });
+    }
+  });
+
+  it("resolves a loaded curve swept as a path to its call site, in the slot shape of a helix", () => {
+    const spine = loadShapes([EdgeOps.makeLineEdge(new Point(0, 0, 0), new Point(0, 0, 30))]);
+    setLocation(spine, 2);
+    const s = sketch("xy", () => {
+        circle([0, 0], 2);
+      });
+    setLocation(s, 4);
+    const sw = sweep(spine, s).new();
+    setLocation(sw, 7);
+
+    const scene = render();
+    expect((sw as unknown as SceneObject).getError()).toBeNull();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "sweep", 7));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "sweep") {
+      expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 });
+      expect(result.path).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 });
+    }
+  });
+
+  it("resolves a curve tool's result to its call site as a sweep path, a loft guide and an edge plane's base", () => {
+    const spine = chord([0, 0, 0], [0, 0, 30]);
+    setLocation(spine, 2);
+    const s = sketch("xy", () => {
+        circle([0, 0], 2);
+      });
+    setLocation(s, 4);
+    const sw = sweep(spine, s).new();
+    setLocation(sw, 7);
+
+    const rail = chord([10, 0, 0], [10, 0, 40]);
+    setLocation(rail, 9);
+    const a = sketch(plane("xy"), () => { testRect(20, 20); });
+    const b = sketch(plane("xy", { offset: 40 }), () => { testRect(20, 20); });
+    setLocation(a, 11);
+    setLocation(b, 13);
+    const l = loft(a, b).guides(rail).new();
+    setLocation(l, 15);
+
+    const base = chord([50, 0, 0], [50, 0, 30]);
+    setLocation(base, 17);
+    const p = plane(base, 0.5);
+    setLocation(p, 19);
+
+    const scene = render();
+    const swept = resolveFeatureSources(scene, boundaryFor(scene, "sweep", 7));
+    expect(swept).toMatchObject({
+      ok: true, feature: "sweep",
+      path: { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
+    });
+    const lofted = resolveFeatureSources(scene, boundaryFor(scene, "loft", 15));
+    expect(lofted).toMatchObject({
+      ok: true, feature: "loft",
+      guides: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 9, column: 0 }],
+    });
+    const stood = resolveFeatureSources(scene, planeBoundary(scene, 19));
+    expect(stood).toMatchObject({
+      ok: true, feature: "plane",
+      bases: [{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 17, column: 0 }],
+    });
+  });
+
+  it("resolves a helix an earlier sweep hid to its call site when a later sweep runs along it again", () => {
+    const spring = helix("z").radius(30).pitch(10).turns(3);
+    setLocation(spring, 2);
+    const s1 = sketch("xz", () => {
+        circle([30, 0], 2);
+      });
+    setLocation(s1, 4);
+    const first = sweep(spring, s1).new();
+    setLocation(first, 7);
+    const s2 = sketch("xz", () => {
+        circle([30, 0], 4);
+      });
+    setLocation(s2, 9);
+    const second = sweep(spring, s2).new();
+    setLocation(second, 12);
+
+    const scene = render();
+    expect((second as unknown as SceneObject).getError()).toBeNull();
+    const index = scene.getAllSceneObjects().indexOf(second as unknown as SceneObject);
+    const result = resolveFeatureSources(scene, { index, type: "sweep", line: 12, column: 0 });
+
+    expect(result).toMatchObject({
+      ok: true, feature: "sweep",
+      path: { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
+    });
+  });
+
+  it("keeps a selection of a curve's edges as entities: it names the curve, it is not one", () => {
+    sketch("xy", () => { testRect(20, 20); });
+    const box = extrude(10).new() as unknown as Extrude;
+    const s = sketch("xy", () => {
+        circle([0, 0], 2);
+      });
+    setLocation(s, 4);
+    const sw = sweep(box.sideEdges(0), s).new();
+    setLocation(sw, 7);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "sweep", 7));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "sweep") {
+      expect(result.path.kind).not.toBe("sketch");
     }
   });
 

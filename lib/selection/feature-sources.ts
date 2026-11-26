@@ -49,6 +49,7 @@ import { Feature } from "../sdk/feature.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
 } from "./types.js";
+import { Producers } from "./producers.js";
 
 /**
  * One source slot of a feature statement, resolved for edit-dialog seeding:
@@ -449,6 +450,9 @@ export function resolveFeatureSources(
 
 const OPAQUE: SourceSlot = { kind: 'opaque' };
 
+/** The scope that applies no removal: every object reads as holding all it was given. */
+const UNCONSUMED = new Set<SceneObject>();
+
 class SourceResolver {
   private hasher = new ShapeHasher();
   private solids: Shape[] | null = null;
@@ -476,11 +480,22 @@ class SourceResolver {
   }
 
   /**
-   * A wire input (a loft guide), by call site: a sketch or a helix — the two
-   * statements a wire slot can re-target.
+   * A wire input (a loft guide), by call site: a sketch or a curve producer,
+   * the statements a wire slot can re-target.
    */
   wireSlot(obj: SceneObject | null): SourceSlot {
-    return obj instanceof Sketch || obj instanceof Helix ? this.callSiteSlot(obj) : OPAQUE;
+    return obj && this.isWireSource(obj) ? this.callSiteSlot(obj) : OPAQUE;
+  }
+
+  /**
+   * Whether `obj` is a statement a wire slot names whole: a sketch, or a
+   * curve producer — a helix, a curve tool's result, an imported curve. The
+   * question is asked with no removal applied, as the edges are read: the
+   * edited statement took its own path, and a curve an earlier statement
+   * hid is still the one a later statement reads.
+   */
+  private isWireSource(obj: SceneObject): boolean {
+    return obj instanceof Sketch || Producers.isCurveProducer(obj, UNCONSUMED);
   }
 
   /**
@@ -586,12 +601,12 @@ class SourceResolver {
   /**
    * One base of a plane statement — what the plane dialog re-picks in that
    * slot. A base that is itself a statement (another plane, or the sketch or
-   * helix an edge plane stands on) resolves by call site; anything else is a
+   * curve an edge plane stands on) resolves by call site; anything else is a
    * selector, and resolves to the face or edge it named as viewport entities
    * on the pre-statement solids.
    */
   planeBaseSlot(obj: SceneObject): SourceSlot {
-    if (obj instanceof PlaneObjectBase || obj instanceof Sketch || obj instanceof Helix) {
+    if (obj instanceof PlaneObjectBase || this.isWireSource(obj)) {
       return this.callSiteSlot(obj);
     }
     return this.entitiesSlot([obj]);
@@ -632,7 +647,7 @@ class SourceResolver {
    * plane as the geometry it was built from.
    */
   private referenceSlot(obj: SceneObject): SourceSlot {
-    if (obj instanceof Sketch || obj instanceof Helix) {
+    if (this.isWireSource(obj)) {
       return this.callSiteSlot(obj);
     }
     // Locations, the way a hole's placements resolve: a declared connector
@@ -711,9 +726,9 @@ class SourceResolver {
     return { selection, sketches };
   }
 
-  /** A slot holding either a wire statement (sketch/helix) or a geometry selection (loft profile, sweep path). */
+  /** A slot holding either a wire statement (a sketch, a curve producer) or a geometry selection (loft profile, sweep path). */
   mixedSlot(obj: SceneObject | null): SourceSlot {
-    if (obj instanceof Sketch || obj instanceof Helix) {
+    if (obj && this.isWireSource(obj)) {
       return this.callSiteSlot(obj);
     }
     return obj ? this.entitiesSlot([obj]) : OPAQUE;

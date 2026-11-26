@@ -6,6 +6,7 @@ import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.
 import { Shape } from "../../common/shape.js";
 import { CurveObject } from "../../features/curve-object.js";
 import { Explorer } from "../../oc/explorer.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
 import { EdgeProps } from "../../oc/edge-props.js";
 import { FaceProps } from "../../oc/face-props.js";
 import { FaceQuery } from "../../oc/face-query.js";
@@ -322,6 +323,31 @@ describe("synthesis over the kind predicates", () => {
     expect(edges).toHaveLength(12);
 
     expect(verifiedGlobalCandidates(scene, edges, "edge")[0]).toBe("edge().ofSurface()");
+  });
+
+  it("offers no convex() or concave() for a surface's edges: an open sheet has no outward side", () => {
+    sketch("xy", () => {
+      testRect(20, 20, { at: [100, 0] });
+    });
+    extrude(10);
+    const l = loadShapes([TestSheets.openBox(10, 10, 10)]) as unknown as SceneObject;
+    const scene = render();
+    const corner = /^\.(convex|concave|smooth)\(\)$/;
+    // The four upright edges where two walls of the open box meet.
+    const sheet = l.getShapes()[0];
+    const mids = Explorer.findEdgesWrapped(sheet).map(e => EdgeOps.getEdgeMidPoint(e));
+    const upright = edgesWhere(sheet, (_type, index) => mids[index].z > 1 && mids[index].z < 9);
+    expect(upright).toHaveLength(4);
+
+    for (const picks of [upright, [upright[0]]]) {
+      expect(offeredAtoms(scene, picks, "edge").filter(code => corner.test(code))).toEqual([]);
+      for (const candidate of verifiedGlobalCandidates(scene, picks, "edge")) {
+        expect(candidate).not.toMatch(/convex|concave|smooth/);
+      }
+    }
+    // A solid's corner keeps its class.
+    const solidEdge = edgesWhere(findSolid(scene), (_type, index) => index === 0);
+    expect(offeredAtoms(scene, solidEdge, "edge").filter(code => corner.test(code))).toEqual([".convex()"]);
   });
 
   it("names an edge of a curve object through its edges() bucket, then select(edge().from(c))", () => {

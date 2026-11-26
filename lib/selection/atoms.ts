@@ -349,7 +349,8 @@ function bodyKindAtoms<B extends { ofSolid(): unknown; ofSurface(): unknown }>(
 
 /**
  * `convex()` / `concave()` / `smooth()` — the qualitative corner class the
- * picks share within their owning solid. Scope-dependent (the predicate
+ * picks share within their owning solid; a surface's edges have none (see
+ * `EdgeProbe.convexity`). Scope-dependent (the predicate
  * looks up the edge's two faces), constant-free, and the most descriptive
  * predicate a fillet or chamfer pick usually has: "the inner corners" beats
  * any plane the junction happens to sit on.

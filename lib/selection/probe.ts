@@ -42,7 +42,12 @@ export type EdgeProbe = {
   adjacentFaces: FaceProperties[];
   /** The same faces as wrappers, for loop lookups (`outerOf(ref)` / `holeOf(ref)`). */
   owningFaces: Face[];
-  /** Outer corner, inner corner, or tangent transition within the owning body. */
+  /**
+   * Outer corner, inner corner, or tangent transition within the owning
+   * solid. Null on a surface: which side of an open sheet is "outward" is
+   * its faces' own orientation, arbitrary for an import, so a corner there
+   * is neither convex nor concave to anyone but the kernel.
+   */
   convexity: EdgeConvexity | null;
 };
 
@@ -85,7 +90,9 @@ export function probeEdge(edge: Edge, owner: Shape | null): EdgeProbe {
         owningFaces.push(wrapper);
       }
     }
-    convexity = EdgeConvexityOps.classify(edge, body);
+    if (body.isSolid()) {
+      convexity = EdgeConvexityOps.classify(edge, body);
+    }
   }
   return {
     edge,

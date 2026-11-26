@@ -1,24 +1,19 @@
 // helix(): option types, chain rendering and source expressions.
 
 import { SelectorText } from '../parse/selector-text.ts';
-import { renderSelectorPartExpr } from '../render/selectors.ts';
-import { ConnectorAxisSpecs, type ConnectorAxisSpec } from './connector-axis.ts';
+import { Directions, type DirectionSpec } from './direction.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 import { formatValue, type ValueExpr } from '../value-expr.ts';
 
 /**
  * One helix source: a standard world axis (its string literal, no producer),
  * an existing axis statement bound to a variable, a picked edge — the single
- * selector part wrapped in `axis(…)` — a connector ({@link
- * ConnectorAxisSpec}), or a picked cylindrical/conical face, the single
- * selector part on its own.
+ * selector part wrapped in `axis(…)` — a connector, or a picked
+ * cylindrical/conical face, the single selector part on its own. The forms
+ * of a {@link DirectionSpec} that name an axis or a face: a helix winds
+ * around a line or on a face, never along a plane's normal.
  */
-export type HelixSourceSpec =
-  | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
-  | { kind: 'axis'; producer: number }
-  | ConnectorAxisSpec
-  | { kind: 'edge' }
-  | { kind: 'face' };
+export type HelixSourceSpec = Exclude<DirectionSpec, { kind: 'standard-plane' } | { kind: 'plane' }>;
 
 /**
  * How a helix statement is rendered and placed: `helix(<source>)` plus its
@@ -103,18 +98,10 @@ export function renderHelixSourceExpr(
   parts: ApplyFeatureEditSpec['parts'],
   varFor: (producer: number) => string | null,
 ): string {
-  if (source.kind === 'standard') {
-    return `'${source.axis}'`;
-  }
-  if (source.kind === 'axis') {
-    return varFor(source.producer) ?? 'a';
-  }
-  if (source.kind === 'connector') {
-    return ConnectorAxisSpecs.render(source, varFor);
-  }
-  const part = parts[0];
-  const selector = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
-  return source.kind === 'edge' ? `axis(${selector})` : selector;
+  // Every form is written as a direction is; a picked edge alone differs,
+  // named as the axis it gives.
+  const expr = Directions.render(source, parts, varFor);
+  return source.kind === 'edge' ? `axis(${expr})` : expr;
 }
 
 /**

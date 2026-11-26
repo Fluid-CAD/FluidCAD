@@ -14,6 +14,7 @@ import {
 import { renderEditedCopy } from '../features/copy.ts';
 import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { faceProfileRefusal, renderExtrudeStatement, renderFaceTargetExpr, type ExtrudeTargetKind } from '../features/extrude.ts';
+import { Directions } from '../features/direction.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { renderLoftConnections, renderLoftStatement, resolveLoftSources, validEditCondition } from '../features/loft.ts';
 import { renderEditedMirror } from '../features/mirror.ts';
@@ -438,20 +439,17 @@ export function renderEditedStatement(
     }
     let sourceExpr = parsed.sourceText;
     if (opts.source !== undefined) {
-      if (opts.source.kind === 'edge' || opts.source.kind === 'face') {
-        if (spec.parts.length !== 1) {
-          return { error: 'malformed helix edit spec: a re-picked source is exactly one part' };
-        }
-      } else if (opts.source.kind === 'axis'
-        && !isAxisProducer(spec as ApplyFeatureEditSpec, opts.source.producer)) {
-        return { error: 'malformed helix edit spec: the source references a non-axis producer' };
-      } else if (opts.source.kind === 'connector' && !ConnectorAxisSpecs.valid(spec, opts.source)) {
-        return { error: 'malformed helix edit spec: the source references a non-connector producer' };
-      } else if (opts.source.kind === 'standard'
-        && opts.source.axis !== 'x' && opts.source.axis !== 'y' && opts.source.axis !== 'z') {
-        return { error: 'malformed helix edit spec: bad standard axis' };
+      if ((opts.source.kind === 'edge' || opts.source.kind === 'face') && spec.parts.length !== 1) {
+        return { error: 'malformed helix edit spec: a re-picked source is exactly one part' };
       }
-      sourceExpr = renderHelixSourceExpr(opts.source, spec.parts, varFor);
+      const source = Directions.validate(opts.source, spec, 'source');
+      if ('error' in source) {
+        return { error: `malformed helix edit spec: ${source.error}` };
+      }
+      if (source.kind === 'standard-plane' || source.kind === 'plane') {
+        return { error: 'malformed helix edit spec: a helix source is an axis or a face, not a plane' };
+      }
+      sourceExpr = renderHelixSourceExpr(source, spec.parts, varFor);
     } else if (spec.parts.length > 0) {
       return { error: 'malformed helix edit spec: selector parts without a re-sourced source' };
     }

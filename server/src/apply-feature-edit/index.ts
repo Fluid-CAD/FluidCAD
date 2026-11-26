@@ -198,6 +198,7 @@ export {
   type ParsedCustomFeature,
 } from './features/custom.ts';
 export { OperandPicks, type OperandEdit, type OperandPick } from './features/operand-picks.ts';
+export { Directions, type DirectionSpec } from './features/direction.ts';
 export { TypedInKinds, type TypedInExpr, type TypedInKind, type TypedInRef, type TypedInSource, type TypedInSpec, type TypedInValue } from './features/typed-in-kinds.ts';
 export {
   makeProducerBindable,

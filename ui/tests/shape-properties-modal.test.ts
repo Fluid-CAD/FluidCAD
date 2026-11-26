@@ -50,13 +50,17 @@ const SHAPE_PROPS: ShapeProperties = { volumeMm3: 1000, surfaceAreaMm2: 600, cen
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-function mount(opts: { partProps?: (partId: string) => PartProperties | null; noPartProps?: boolean } = {}) {
+function mount(opts: {
+  partProps?: (partId: string) => PartProperties | null;
+  noPartProps?: boolean;
+  shapeProps?: ShapeProperties;
+} = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const getPartProperties = vi.fn(async (partId: string) => opts.partProps ? opts.partProps(partId) : null);
   const client = {
     getMaterials: vi.fn(async () => MATERIALS),
-    getShapeProperties: vi.fn(async () => SHAPE_PROPS),
+    getShapeProperties: vi.fn(async () => opts.shapeProps ?? SHAPE_PROPS),
     ...(opts.noPartProps ? {} : { getPartProperties }),
     editor: null,
   } as unknown as EngineClient;
@@ -166,6 +170,40 @@ describe('shape properties — Solid mode', () => {
     h.modal.setSelectedShape('sC1');
     expect(h.hidden('material-select-block')).toBe(false);
     expect(h.hidden('material-row')).toBe(true);
+  });
+});
+
+describe('shape properties — by what the shape is', () => {
+  it('reads a solid as a solid, with its volume and mass', async () => {
+    const h = mount({ shapeProps: { ...SHAPE_PROPS, kind: 'solid' } });
+    await flush();
+    h.modal.setSelectedShape('sA1');
+    await h.calculate();
+    expect(h.text('kind')).toBe('Solid');
+    expect([h.hidden('vol-row'), h.hidden('area-row'), h.hidden('length-row'), h.hidden('mass-row')])
+      .toEqual([false, false, true, false]);
+  });
+
+  it('reads a surface by its area: no volume, no mass', async () => {
+    const h = mount({ shapeProps: { kind: 'surface', surfaceAreaMm2: 250, centroid: { x: 0, y: 0, z: 0 }, unit: 'mm' } });
+    await flush();
+    h.modal.setSelectedShape('sA1');
+    await h.calculate();
+    expect(h.text('kind')).toBe('Surface');
+    expect(h.text('area')).toBe('250.0000 mm²');
+    expect([h.hidden('vol-row'), h.hidden('area-row'), h.hidden('length-row'), h.hidden('mass-row')])
+      .toEqual([true, false, true, true]);
+  });
+
+  it('reads a curve by its length', async () => {
+    const h = mount({ shapeProps: { kind: 'curve', length: 42, centroid: { x: 0, y: 0, z: 0 }, unit: 'mm' } });
+    await flush();
+    h.modal.setSelectedShape('sTop');
+    await h.calculate();
+    expect(h.text('kind')).toBe('Curve');
+    expect(h.text('length')).toBe('42.0000 mm');
+    expect([h.hidden('vol-row'), h.hidden('area-row'), h.hidden('length-row'), h.hidden('mass-row')])
+      .toEqual([true, true, false, true]);
   });
 });
 
@@ -282,7 +320,7 @@ describe('Shape Properties — Manage materials…', () => {
     document.body.appendChild(container);
     const client = {
       getMaterials: vi.fn(async () => MATERIALS),
-      getShapeProperties: vi.fn(async () => SHAPE_PROPS),
+      getShapeProperties: vi.fn(async () => opts.shapeProps ?? SHAPE_PROPS),
       editor: { setPartMaterial: vi.fn() },
     } as unknown as EngineClient;
     const modal = new ShapePropertiesModal(container, client);

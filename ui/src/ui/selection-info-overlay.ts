@@ -82,16 +82,46 @@ export class SelectionInfoOverlay {
   }
 
   private renderFace(props: FaceProperties): void {
-    const badge = SURFACE_LABELS[props.surfaceType] ?? 'Surface';
-    const rows: { label: string; value: string }[] = [];
+    const shape = SelectionInfoOverlay.faceShapeRows(props);
+    // A face of a surface reads as the surface it belongs to: the material a
+    // surface has is its area, so the whole surface's leads.
+    if (props.owner?.kind === 'surface') {
+      const rows = [{ label: 'Area', value: formatArea(props.owner.area, sceneUnit.current) }];
+      if (props.surfaceType !== 'other') {
+        rows.push({ label: 'Face', value: SURFACE_LABELS[props.surfaceType] });
+      }
+      this.renderPanel('Surface', [...rows, ...shape]);
+      return;
+    }
+    const rows = shape.length > 0 || props.areaMm2 == null
+      ? shape
+      : [{ label: 'Area', value: formatArea(props.areaMm2, sceneUnit.current) }];
+    this.renderPanel(SURFACE_LABELS[props.surfaceType] ?? 'Surface', rows);
+  }
 
-    if (props.surfaceType === 'plane' && props.areaMm2 != null) {
-      rows.push({ label: 'Area', value: formatArea(props.areaMm2, sceneUnit.current) });
-    } else if (props.surfaceType === 'circle' && props.radius != null) {
-      rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
-    } else if (props.surfaceType === 'cylinder' && props.radius != null) {
-      rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
-    } else if (props.surfaceType === 'sphere' && props.radius != null) {
+  private renderEdge(props: EdgeProperties): void {
+    const shape = SelectionInfoOverlay.edgeShapeRows(props);
+    // An edge of a curve reads as the curve it belongs to, by its length.
+    if (props.owner?.kind === 'curve') {
+      const rows = [{ label: 'Length', value: formatLength(props.owner.length, sceneUnit.current) }];
+      if (props.curveType !== 'other') {
+        rows.push({ label: 'Edge', value: CURVE_LABELS[props.curveType] });
+      }
+      this.renderPanel('Curve', [...rows, ...shape]);
+      return;
+    }
+    // A full circle and an ellipse read by their radii; every other edge by
+    // its length as well.
+    const length = props.curveType !== 'circle' && props.curveType !== 'ellipse' && props.length != null
+      ? [{ label: 'Length', value: formatLength(props.length, sceneUnit.current) }]
+      : [];
+    this.renderPanel(CURVE_LABELS[props.curveType] ?? 'Curve', [...shape, ...length]);
+  }
+
+  /** What sets a face's shape: its radius, radii or half-angle; none for a plane or a freeform face. */
+  private static faceShapeRows(props: FaceProperties): { label: string; value: string }[] {
+    const rows: { label: string; value: string }[] = [];
+    if ((props.surfaceType === 'circle' || props.surfaceType === 'cylinder' || props.surfaceType === 'sphere') && props.radius != null) {
       rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
     } else if (props.surfaceType === 'torus') {
       if (props.majorRadius != null) {
@@ -102,32 +132,15 @@ export class SelectionInfoOverlay {
       }
     } else if (props.surfaceType === 'cone' && props.halfAngleDeg != null) {
       rows.push({ label: 'Half-angle', value: `${props.halfAngleDeg.toFixed(2)}\u00B0` });
-    } else if (props.areaMm2 != null) {
-      rows.push({ label: 'Area', value: formatArea(props.areaMm2, sceneUnit.current) });
     }
-
-    this.renderPanel(badge, rows);
+    return rows;
   }
 
-  private renderEdge(props: EdgeProperties): void {
-    const badge = CURVE_LABELS[props.curveType] ?? 'Curve';
+  /** What sets an edge's shape: an arc's or a circle's radius, an ellipse's radii; none for a line or a freeform edge. */
+  private static edgeShapeRows(props: EdgeProperties): { label: string; value: string }[] {
     const rows: { label: string; value: string }[] = [];
-
-    if (props.curveType === 'line') {
-      if (props.length != null) {
-        rows.push({ label: 'Length', value: formatLength(props.length, sceneUnit.current) });
-      }
-    } else if (props.curveType === 'circle') {
-      if (props.radius != null) {
-        rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
-      }
-    } else if (props.curveType === 'arc') {
-      if (props.radius != null) {
-        rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
-      }
-      if (props.length != null) {
-        rows.push({ label: 'Length', value: formatLength(props.length, sceneUnit.current) });
-      }
+    if ((props.curveType === 'circle' || props.curveType === 'arc') && props.radius != null) {
+      rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
     } else if (props.curveType === 'ellipse') {
       if (props.majorRadius != null) {
         rows.push({ label: 'Major R', value: formatLength(props.majorRadius, sceneUnit.current) });
@@ -135,13 +148,8 @@ export class SelectionInfoOverlay {
       if (props.minorRadius != null) {
         rows.push({ label: 'Minor R', value: formatLength(props.minorRadius, sceneUnit.current) });
       }
-    } else {
-      if (props.length != null) {
-        rows.push({ label: 'Length', value: formatLength(props.length, sceneUnit.current) });
-      }
     }
-
-    this.renderPanel(badge, rows);
+    return rows;
   }
 
   private renderPanel(badge: string, rows: { label: string; value: string }[]): void {

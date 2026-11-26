@@ -26,10 +26,28 @@ type ResolvedMaterial = {
   owner: 'part' | 'transient' | 'none';
 };
 
-/** The result rows, whichever mode computed them; lengths in `unit`. */
+/** What the measured shape is, as a user names it. */
+type MeasuredKind = NonNullable<ShapeProperties['kind']>;
+
+const KIND_LABELS: Record<MeasuredKind, string> = {
+  solid: 'Solid',
+  surface: 'Surface',
+  face: 'Face',
+  curve: 'Curve',
+  vertex: 'Point',
+};
+
+/**
+ * The result rows, whichever mode computed them; lengths in `unit`. Each
+ * kind has its own measure: a solid a volume and an area, a surface or a
+ * face an area, a curve a length — a row a kind has no measure for is not
+ * shown, rather than reading 0.
+ */
 type PropertiesReadout = {
-  volume: number;
-  surfaceArea: number;
+  kind: MeasuredKind;
+  volume?: number;
+  surfaceArea?: number;
+  length?: number;
   centroid: { x: number; y: number; z: number };
   /** Grams, or null when no density is known (Mass reads "—"). */
   massG: number | null;
@@ -38,8 +56,8 @@ type PropertiesReadout = {
 
 /**
  * Shape Properties: volume, surface area, mass and center of mass of one
- * solid (Solid mode, today's panel) or of a whole part's final solids (Part
- * mode, a server aggregate). Material is never typed: a solid inside a part
+ * solid — or a surface's area, a curve's length — (Solid mode, today's
+ * panel) or of a whole part's final solids (Part mode, a server aggregate). Material is never typed: a solid inside a part
  * reads the part's `.material()` (read-only, with its density); a solid
  * outside any part picks from the merged materials list, transiently. Part
  * mode is read-only throughout — the material is set from the timeline
@@ -61,8 +79,10 @@ export class ShapePropertiesModal {
   private calcBtn!: HTMLButtonElement;
   private resultsEl!: HTMLDivElement;
   private errorEl!: HTMLDivElement;
+  private kindVal!: HTMLSpanElement;
   private volVal!: HTMLSpanElement;
   private areaVal!: HTMLSpanElement;
+  private lengthVal!: HTMLSpanElement;
   private massVal!: HTMLSpanElement;
   private centroidVal!: HTMLSpanElement;
   private modeTabs!: ChoiceTabs<ShapePropertiesMode>;
@@ -155,14 +175,22 @@ export class ShapePropertiesModal {
       </div>
       <div class="mt-3 border-t border-base-content/[0.07] pt-2.5 hidden" data-ref="results">
         <div class="flex justify-between items-baseline py-0.5">
+          <span class="text-base-content/50 text-[11px]">Kind</span>
+          <span class="text-base-content/90 text-xs font-medium" data-ref="kind">—</span>
+        </div>
+        <div class="flex justify-between items-baseline py-0.5" data-ref="vol-row">
           <span class="text-base-content/50 text-[11px]">Volume</span>
           <span class="text-base-content/90 text-xs font-medium" data-ref="vol">—</span>
         </div>
-        <div class="flex justify-between items-baseline py-0.5">
+        <div class="flex justify-between items-baseline py-0.5" data-ref="area-row">
           <span class="text-base-content/50 text-[11px]">Surface Area</span>
           <span class="text-base-content/90 text-xs font-medium" data-ref="area">—</span>
         </div>
-        <div class="flex justify-between items-baseline py-0.5">
+        <div class="flex justify-between items-baseline py-0.5" data-ref="length-row">
+          <span class="text-base-content/50 text-[11px]">Length</span>
+          <span class="text-base-content/90 text-xs font-medium" data-ref="length">—</span>
+        </div>
+        <div class="flex justify-between items-baseline py-0.5" data-ref="mass-row">
           <span class="text-base-content/50 text-[11px]">Mass</span>
           <span class="text-base-content/90 text-xs font-medium" data-ref="mass">—</span>
         </div>
@@ -188,8 +216,10 @@ export class ShapePropertiesModal {
     this.calcBtn = this.panel.querySelector<HTMLButtonElement>('[data-action="calculate"]')!;
     this.resultsEl = this.panel.querySelector<HTMLDivElement>('[data-ref="results"]')!;
     this.errorEl = this.panel.querySelector<HTMLDivElement>('[data-ref="error"]')!;
+    this.kindVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="kind"]')!;
     this.volVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="vol"]')!;
     this.areaVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="area"]')!;
+    this.lengthVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="length"]')!;
     this.massVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="mass"]')!;
     this.centroidVal = this.panel.querySelector<HTMLSpanElement>('[data-ref="centroid"]')!;
     const modeHost = this.panel.querySelector<HTMLDivElement>('[data-ref="mode"]')!;
@@ -685,6 +715,7 @@ export class ShapePropertiesModal {
         return null;
       }
       return {
+        kind: 'solid',
         volume: props.volumeMm3,
         surfaceArea: props.surfaceAreaMm2,
         centroid: props.centroid,
@@ -698,12 +729,23 @@ export class ShapePropertiesModal {
     }
     // `volumeMm3` is a field NAME only — the value is in the document unit³.
     const unit = props.unit && isLengthUnit(props.unit) ? props.unit : sceneUnit.current;
+    // A server that measured solids only names no kind.
+    const kind = props.kind ?? 'solid';
     const density = this.densityGcm3();
-    // Mass = volume in document unit³ × grams per document unit³.
-    // The panel opens on solids; a shape measured without a volume reads as none.
-    const volume = props.volumeMm3 ?? 0;
-    const massG = density === null ? null : volume * density * ShapePropertiesModal.cm3PerUnit(unit);
-    return { volume, surfaceArea: props.surfaceAreaMm2 ?? 0, centroid: props.centroid, massG, unit };
+    // Mass = volume in document unit³ × grams per document unit³; a shape
+    // with no volume has no mass either.
+    const massG = density === null || props.volumeMm3 === undefined
+      ? null
+      : props.volumeMm3 * density * ShapePropertiesModal.cm3PerUnit(unit);
+    return {
+      kind,
+      volume: props.volumeMm3,
+      surfaceArea: props.surfaceAreaMm2,
+      length: props.length,
+      centroid: props.centroid,
+      massG,
+      unit,
+    };
   }
 
   private renderResults(): void {
@@ -717,8 +759,9 @@ export class ShapePropertiesModal {
 
     // Convert from the readout's own unit, not from mm.
     const f = convertLength(1, readout.unit, lengthUnit);
-    const vol = formatVolume(readout.volume * f * f * f, lengthUnit, { decimals: 4 });
-    const area = formatArea(readout.surfaceArea * f * f, lengthUnit, { decimals: 4 });
+    const vol = readout.volume === undefined ? '—' : formatVolume(readout.volume * f * f * f, lengthUnit, { decimals: 4 });
+    const area = readout.surfaceArea === undefined ? '—' : formatArea(readout.surfaceArea * f * f, lengthUnit, { decimals: 4 });
+    const length = readout.length === undefined ? '—' : formatLength(readout.length * f, lengthUnit, { decimals: 4 });
 
     let mass = '—';
     if (readout.massG !== null) {
@@ -735,12 +778,24 @@ export class ShapePropertiesModal {
     const coord = (v: number) => formatLength(v * f, lengthUnit, { decimals: 4, suffix: false });
     const centroidText = `(${coord(centroid.x)}, ${coord(centroid.y)}, ${coord(centroid.z)}) ${lengthUnit}`;
 
+    this.kindVal.textContent = KIND_LABELS[readout.kind];
     this.volVal.textContent = vol;
     this.areaVal.textContent = area;
+    this.lengthVal.textContent = length;
     this.massVal.textContent = mass;
+    // Only a solid has a volume, and so a mass.
+    const solid = readout.kind === 'solid';
+    this.showRow('vol-row', solid);
+    this.showRow('mass-row', solid);
+    this.showRow('area-row', readout.surfaceArea !== undefined);
+    this.showRow('length-row', readout.length !== undefined);
     this.centroidVal.textContent = centroidText;
     this.resultsEl.classList.remove('hidden');
     this.centroidHandler?.(centroid);
+  }
+
+  private showRow(ref: string, shown: boolean): void {
+    this.panel.querySelector(`[data-ref="${ref}"]`)!.classList.toggle('hidden', !shown);
   }
 
   private showError(msg: string): void {

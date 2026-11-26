@@ -37,6 +37,12 @@ export type SourceLocationParam = { filePath?: string; line: number; column: num
  * Lengths/areas are in the document's unit (`unit` names it): `areaMm2` is a
  * field NAME kept for compatibility, not a promise of mm².
  */
+/**
+ * The surface or the curve a picked face or edge belongs to, measured whole.
+ * Absent for a solid's faces and edges, and from servers that predate it.
+ */
+export type OwnerMeasure = { kind: 'surface'; area: number } | { kind: 'curve'; length: number };
+
 export type FaceProperties = {
   surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'other';
   areaMm2?: number;
@@ -44,6 +50,7 @@ export type FaceProperties = {
   majorRadius?: number;
   minorRadius?: number;
   halfAngleDeg?: number;
+  owner?: OwnerMeasure;
   /** The document unit the values are in; absent on servers predating units (mm). */
   unit?: LengthUnit;
 };
@@ -55,6 +62,7 @@ export type EdgeProperties = {
   radius?: number;
   majorRadius?: number;
   minorRadius?: number;
+  owner?: OwnerMeasure;
   /** The document unit the values are in; absent on servers predating units (mm). */
   unit?: LengthUnit;
 };

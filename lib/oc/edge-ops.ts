@@ -12,18 +12,7 @@ import { EdgeQuery } from "./edge-query.js";
 import { mmTol } from "../units/tolerance.js";
 import { BooleanBuilders } from "./boolean-builders.js";
 
-/** One point of an edge sampled by {@link EdgeOps.sampleEdgeRaw}. */
-export type EdgeSample = {
-  parameter: number;
-  point: Point;
-  /** The unit tangent, or the zero vector where the curve's derivative vanishes. */
-  tangent: Vector3d;
-};
-
 export class EdgeOps {
-  /** How many samples {@link sampleEdgeRaw} takes unless told otherwise. */
-  static readonly SAMPLE_COUNT = 16;
-
   // Wrapper methods (public API for external callers)
   static getFirstVertex(edge: Edge): Vertex {
     return Vertex.fromTopoDSVertex(EdgeOps.getFirstVertexRaw(edge.getShape() as TopoDS_Edge));
@@ -85,11 +74,6 @@ export class EdgeOps {
     return Edge.fromTopoDSEdge(
       EdgeOps.makeEdgeFromCurveAndVerticesRaw(curve, v1.getShape() as TopoDS_Vertex, v2.getShape() as TopoDS_Vertex)
     );
-  }
-
-  /** See {@link sampleEdgeRaw}. */
-  static sampleEdge(edge: Edge, count: number = EdgeOps.SAMPLE_COUNT): EdgeSample[] {
-    return EdgeOps.sampleEdgeRaw(edge.getShape() as TopoDS_Edge, count);
   }
 
   // Raw methods (for oc-internal and common/ use)
@@ -269,45 +253,6 @@ export class EdgeOps {
     adaptor.delete();
 
     return result;
-  }
-
-  /**
-   * Points and unit tangents at `count` parameters spread evenly over the
-   * edge's own trim, both ends included, in the curve's parameter direction.
-   * A tangent is the zero vector where the curve's derivative vanishes.
-   * The predicates that must hold along a whole curve, not only at a few
-   * points, read these.
-   */
-  static sampleEdgeRaw(edge: TopoDS_Edge, count: number = EdgeOps.SAMPLE_COUNT): EdgeSample[] {
-    if (count < 2) {
-      throw new Error(`sampleEdge needs at least 2 samples (got ${count})`);
-    }
-    const oc = getOC();
-    const typed = oc.TopoDS.Edge(edge);
-    const adaptor = new oc.BRepAdaptor_Curve(typed);
-    const point = new oc.gp_Pnt();
-    const derivative = new oc.gp_Vec();
-    try {
-      const first = adaptor.FirstParameter();
-      const last = adaptor.LastParameter();
-      const samples: EdgeSample[] = [];
-      for (let i = 0; i < count; i++) {
-        const parameter = first + ((last - first) * i) / (count - 1);
-        adaptor.D1(parameter, point, derivative);
-        const tangent = Convert.toVector3d(derivative);
-        samples.push({
-          parameter,
-          point: Convert.toPoint(point),
-          tangent: tangent.isZero(1e-12) ? tangent : tangent.normalize(),
-        });
-      }
-      return samples;
-    } finally {
-      derivative.delete();
-      point.delete();
-      adaptor.delete();
-      typed.delete();
-    }
   }
 
   /** Arc length of the edge, exact for any curve type. */

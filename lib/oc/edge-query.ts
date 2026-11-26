@@ -8,7 +8,6 @@ import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { CurveClass, CurveClassifier } from "./curve-classifier.js";
-import { EdgeOps } from "./edge-ops.js";
 
 /** An edge's geometry independent of its kernel representation; see {@link EdgeQuery.getEdgeGeometryRaw}. */
 export type EdgeGeometry =
@@ -75,7 +74,7 @@ export class EdgeQuery {
     facts.onPlane ??= new Map();
     return remembered(facts.onPlane, `${vectorKey(plane.origin)}|${vectorKey(plane.normal)}`, () => {
       if (!EdgeQuery.isLineOrCircular(edge)) {
-        return EdgeQuery.isEdgeOnPlaneSampledRaw(edge.getShape(), plane);
+        return EdgeQuery.isCurveOnPlane(CurveClassifier.classify(edge as Edge), plane);
       }
       const [gpPln, dispose] = Convert.toGpPln(plane);
       const result = EdgeQuery.isEdgeOnPlaneRaw(edge.getShape(), gpPln);
@@ -89,7 +88,7 @@ export class EdgeQuery {
     facts.parallelTo ??= new Map();
     return remembered(facts.parallelTo, vectorKey(planeNormal), () => {
       if (!EdgeQuery.isLineOrCircular(edge)) {
-        return EdgeQuery.isEdgeParallelToPlaneSampledRaw(edge.getShape(), planeNormal);
+        return EdgeQuery.isCurveParallelToPlane(CurveClassifier.classify(edge as Edge), planeNormal);
       }
       const [gpVec, dispose] = Convert.toGpVec(planeNormal);
       const result = EdgeQuery.isEdgeParallelToPlaneRaw(edge.getShape(), gpVec);
@@ -261,25 +260,35 @@ export class EdgeQuery {
   }
 
   /**
-   * Whether every one of {@link EdgeOps.SAMPLE_COUNT} samples spread along
-   * the edge lies on `plane`, within OCCT's confusion tolerance.
+   * Whether a curve other than a line or a circular one lies on `plane`:
+   * the plane it lies in (an ellipse's own, or the one OCC fits to a spline,
+   * see {@link CurveClassifier.planeOf}) is `plane`, within OCCT's confusion
+   * tolerance. A curve in no plane lies on none.
    */
-  static isEdgeOnPlaneSampledRaw(edge: TopoDS_Shape, plane: Plane): boolean {
+  static isCurveOnPlane(curve: CurveClass, plane: Plane): boolean {
+    const own = CurveClassifier.planeOf(curve);
+    if (!own) {
+      return false;
+    }
     const tolerance = getOC().Precision.Confusion();
-    return EdgeOps.sampleEdgeRaw(edge as TopoDS_Edge)
-      .every(sample => Math.abs(plane.signedDistanceToPoint(sample.point)) <= tolerance);
+    return EdgeQuery.sameNormal(own.normal, plane.normal)
+      && Math.abs(plane.signedDistanceToPoint(own.origin)) <= tolerance;
   }
 
   /**
-   * Whether the edge lies in a plane parallel to the one with normal
-   * `planeNormal`: every sampled tangent is perpendicular to the normal.
+   * Whether a curve other than a line or a circular one lies in a plane
+   * parallel to the one with normal `planeNormal`: the plane it lies in has
+   * that normal, either way round.
    */
-  static isEdgeParallelToPlaneSampledRaw(edge: TopoDS_Shape, planeNormal: Vector3d): boolean {
-    const normal = planeNormal.normalize();
-    // unit: dimensionless (dot of unit vectors)
-    const tolerance = 1e-6;
-    return EdgeOps.sampleEdgeRaw(edge as TopoDS_Edge)
-      .every(sample => Math.abs(sample.tangent.dot(normal)) < tolerance);
+  static isCurveParallelToPlane(curve: CurveClass, planeNormal: Vector3d): boolean {
+    const own = CurveClassifier.planeOf(curve);
+    return own !== null && EdgeQuery.sameNormal(own.normal, planeNormal);
+  }
+
+  /** Two plane normals along one line, either way round. */
+  private static sameNormal(a: Vector3d, b: Vector3d): boolean {
+    // unit: dimensionless (cross of unit vectors)
+    return a.normalize().cross(b.normalize()).length() < 1e-6;
   }
 
   static isEdgeParallelToPlaneRaw(edge: TopoDS_Shape, planeNormal: gp_Vec): boolean {

@@ -193,6 +193,42 @@ describe("CurveClassifier", () => {
     expect(curve.closed).toBe(false);
   });
 
+  it("finds the plane of a planar spline", () => {
+    const edge = bezier([[0, 0, 4], [5, 8, 4], [10, -6, 4], [15, 2, 4]]);
+    const curve = CurveClassifier.classify(edge);
+    expect(curve).toMatchObject({ kind: "spline", planar: true });
+    const plane = CurveClassifier.planeOf(curve)!;
+    expect(Math.abs(plane.normal.z)).toBeCloseTo(1, 9);
+    expect(plane.origin.z).toBeCloseTo(4, 9);
+  });
+
+  it("finds no plane for a spline with one narrow bump off it", () => {
+    // 100 poles in z = 0 but one: pole 51 moves only knot spans 47 to 51 of
+    // 97, which fall between the 8th and 9th of 16 evenly spread samples
+    // (7/15 and 8/15 of the curve), so sampling would read the curve as flat.
+    withOwned(own => {
+      const oc = getOC();
+      const count = 100;
+      const degree = 3;
+      const poles = own(new oc.NCollection_Array1_gp_Pnt(1, count));
+      for (let i = 1; i <= count; i++) {
+        poles.SetValue(i, own(new oc.gp_Pnt(i, Math.sin(i / 7) * 10, i === 51 ? 0.5 : 0)));
+      }
+      const spans = count - degree;
+      const knots = own(new oc.NCollection_Array1_double(1, spans + 1));
+      const mults = own(new oc.NCollection_Array1_int(1, spans + 1));
+      for (let i = 1; i <= spans + 1; i++) {
+        knots.SetValue(i, i - 1);
+        mults.SetValue(i, i === 1 || i === spans + 1 ? degree + 1 : 1);
+      }
+      const curve = own(new oc.Geom_BSplineCurve(poles, knots, mults, degree)) as unknown as Geom_Curve;
+      const edge = Edge.fromTopoDSEdge(own(own(new oc.BRepBuilderAPI_MakeEdge(curve)).Edge()));
+      const classified = CurveClassifier.classify(edge);
+      expect(classified).toMatchObject({ kind: "spline", planar: false });
+      expect(CurveClassifier.planeOf(classified)).toBeNull();
+    });
+  });
+
   it("keeps a wrapper's class", () => {
     const edge = bezier([[0, 0, 0], [5, 8, 0], [10, -6, 0], [15, 2, 0]]);
     expect(CurveClassifier.classify(edge)).toBe(CurveClassifier.classify(edge));

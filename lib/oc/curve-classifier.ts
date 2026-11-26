@@ -31,6 +31,8 @@ export type CurveClass = {
   origin?: Point;
   /** For a line: its unit direction. */
   direction?: Vector3d;
+  /** For a planar spline or other curve: a point of its plane and the plane's unit normal. */
+  plane?: { origin: Point; normal: Vector3d };
   length: number;
 };
 
@@ -40,7 +42,7 @@ type CachedClass = { tolerance: number; value: CurveClass };
 const classes = new WeakMap<Shape, CachedClass>();
 
 /** The analytic part of a class: what a line, circle or ellipse reads off its curve. */
-type Analytic = Omit<CurveClass, 'recovered' | 'closed' | 'planar' | 'length'> & { length?: number };
+type Analytic = Omit<CurveClass, 'recovered' | 'closed' | 'planar' | 'plane' | 'length'> & { length?: number };
 
 /**
  * The one classifier for edges. Filters, properties, selection probes and
@@ -58,10 +60,7 @@ export class CurveClassifier {
   /** See {@link CurveClassifier.tolerance}. */
   private static readonly TOLERANCE_MM = 1e-3;
 
-  /** Samples taken along a curve to decide whether it is planar. */
-  private static readonly PLANARITY_SAMPLES = 16;
-
-  /** How far a sample may lie off the plane of a planar curve. */
+  /** How far a planar curve may lie off its plane. */
   private static readonly PLANARITY_TOLERANCE_MM = 1e-6;
 
   /** The edge's class, kept per wrapper for the tolerance it was classified at. */
@@ -91,13 +90,13 @@ export class CurveClassifier {
         if (recovered) {
           return CurveClassifier.complete(recovered, true, closed, ocEdge);
         }
-        return CurveClassifier.complete({ kind: 'spline' }, false, closed, ocEdge, adaptor, first, last);
+        return CurveClassifier.complete({ kind: 'spline' }, false, closed, ocEdge, true);
       }
       const native = CurveClassifier.readAnalytic(adaptor, closed, first, last);
       if (native) {
         return CurveClassifier.complete(native, false, closed, ocEdge);
       }
-      return CurveClassifier.complete({ kind: 'other' }, false, closed, ocEdge, adaptor, first, last);
+      return CurveClassifier.complete({ kind: 'other' }, false, closed, ocEdge, true);
     } finally {
       adaptor.delete();
       // The adaptor held its own reference; the typed copy goes with it.
@@ -115,25 +114,78 @@ export class CurveClassifier {
     return mmTol(CurveClassifier.TOLERANCE_MM);
   }
 
-  /** Fills in what every class carries: closure, planarity and length. */
+  /**
+   * Fills in what every class carries: closure, planarity and length. A
+   * line, a circle and an ellipse lie in a plane by their kind; a spline or
+   * any other curve is asked of OCC's plane finder (`fitPlane`).
+   */
   private static complete(
     analytic: Analytic,
     recovered: boolean,
     closed: boolean,
     edge: TopoDS_Edge,
-    adaptor?: BRepAdaptor_Curve,
-    first = 0,
-    last = 0,
+    fit = false,
   ): CurveClass {
     const { length, ...rest } = analytic;
-    const planar = adaptor ? CurveClassifier.isPlanarSampled(adaptor, first, last) : true;
+    const plane = fit ? CurveClassifier.fitPlane(edge) : null;
     return {
       ...rest,
       recovered,
       closed,
-      planar,
+      planar: fit ? plane !== null : true,
+      ...(plane ? { plane } : {}),
       length: length ?? CurveClassifier.measureLength(edge),
     };
+  }
+
+  /**
+   * The plane a curve lies in, within {@link PLANARITY_TOLERANCE_MM}, or
+   * null when it lies in none. `BRepBuilderAPI_FindPlane` fits a B-spline or
+   * Bezier curve by its poles — exact, as the curve lies in a plane exactly
+   * when its poles do — and any other curve by points along it.
+   */
+  private static fitPlane(edge: TopoDS_Edge): { origin: Point; normal: Vector3d } | null {
+    const oc = getOC();
+    const finder = new oc.BRepBuilderAPI_FindPlane(edge, mmTol(CurveClassifier.PLANARITY_TOLERANCE_MM));
+    try {
+      if (!finder.Found()) {
+        return null;
+      }
+      const plane = finder.Plane();
+      const pln = plane.Pln();
+      const location = pln.Location();
+      const axis = pln.Axis();
+      const direction = axis.Direction();
+      try {
+        return {
+          origin: new Point(location.X(), location.Y(), location.Z()),
+          normal: new Vector3d(direction.X(), direction.Y(), direction.Z()).normalize(),
+        };
+      } finally {
+        direction.delete();
+        axis.delete();
+        location.delete();
+        pln.delete();
+        plane.delete();
+      }
+    } finally {
+      finder.delete();
+    }
+  }
+
+  /**
+   * The plane a planar curve lies in: a circle's, an arc's or an ellipse's
+   * own, or the one fitted to a spline or other curve. Null for a line,
+   * which lies in many, and for a curve in none.
+   */
+  static planeOf(curve: CurveClass): { origin: Point; normal: Vector3d } | null {
+    if (curve.plane) {
+      return curve.plane;
+    }
+    if ((curve.kind === 'circle' || curve.kind === 'arc' || curve.kind === 'ellipse') && curve.center && curve.axisDirection) {
+      return { origin: curve.center, normal: curve.axisDirection.normalize() };
+    }
+    return null;
   }
 
   /** A native line, circle or ellipse read off its adaptor; null for any other curve. */
@@ -252,50 +304,5 @@ export class CurveClassifier {
     return length;
   }
 
-  /**
-   * Whether a curve lies in one plane: the plane through three
-   * well-separated samples — the first, the one farthest from it, and the
-   * one farthest from the line through those two — holds every sample within
-   * {@link PLANARITY_TOLERANCE_MM}. A curve whose samples are collinear lies
-   * in a plane.
-   */
-  private static isPlanarSampled(adaptor: BRepAdaptor_Curve, first: number, last: number): boolean {
-    const count = CurveClassifier.PLANARITY_SAMPLES;
-    const samples: Vector3d[] = [];
-    for (let i = 0; i < count; i++) {
-      const p = adaptor.Value(first + ((last - first) * i) / (count - 1));
-      samples.push(new Vector3d(p.X(), p.Y(), p.Z()));
-      p.delete();
-    }
-    const tolerance = mmTol(CurveClassifier.PLANARITY_TOLERANCE_MM);
-    const origin = samples[0];
-    let far = origin;
-    let farDistance = 0;
-    for (const sample of samples) {
-      const d = sample.subtract(origin).length();
-      if (d > farDistance) {
-        farDistance = d;
-        far = sample;
-      }
-    }
-    if (farDistance <= tolerance) {
-      return true;
-    }
-    const chord = far.subtract(origin).normalize();
-    let normal: Vector3d | null = null;
-    let normalLength = 0;
-    for (const sample of samples) {
-      const n = chord.cross(sample.subtract(origin));
-      const nLength = n.length();
-      if (nLength > normalLength) {
-        normalLength = nLength;
-        normal = n;
-      }
-    }
-    if (!normal || normalLength <= tolerance) {
-      return true;
-    }
-    const unit = normal.normalize();
-    return samples.every(sample => Math.abs(sample.subtract(origin).dot(unit)) <= tolerance);
-  }
+
 }

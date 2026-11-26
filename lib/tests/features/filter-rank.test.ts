@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
@@ -17,6 +17,7 @@ import { LazySelectionSceneObject } from "../../features/lazy-scene-object.js";
 import { ExtremalFilter, groupLayers } from "../../filters/rank/extremal.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { ShapeMeasure } from "../../oc/shape-measure.js";
+import { getOC } from "../../oc/init.js";
 import { testRect } from "../helpers/profiles.js";
 
 /** 100 × 50 × 30 box with its corner at the origin. */
@@ -195,6 +196,35 @@ describe("rank filters: largest / smallest", () => {
     expect(smallFaces.getShapes()).toHaveLength(2);
     expect(ShapeMeasure.size(smallFaces.getShapes()[0])).toBeCloseTo(1500, 4);
     expect(notBig.getShapes()).toHaveLength(4);
+  });
+
+  it("integrates a shape once for its centre and its size, whichever is read first", () => {
+    box();
+    const faces = select(face()) as SelectSceneObject;
+    const edges = select(edge()) as SelectSceneObject;
+    render();
+    const [first, second] = faces.getShapes();
+    const [rim] = edges.getShapes();
+    const oc = getOC();
+    const surface = vi.spyOn(oc.BRepGProp, "SurfaceProperties");
+    const linear = vi.spyOn(oc.BRepGProp, "LinearProperties");
+    try {
+      const center = ShapeMeasure.centerOfMass(first);
+      expect(ShapeMeasure.size(first)).toBeGreaterThan(0);
+      expect(ShapeMeasure.centerOfMass(first)).toBe(center);
+      expect(surface).toHaveBeenCalledTimes(1);
+
+      expect(ShapeMeasure.size(second)).toBeGreaterThan(0);
+      ShapeMeasure.centerOfMass(second);
+      expect(surface).toHaveBeenCalledTimes(2);
+
+      ShapeMeasure.size(rim);
+      ShapeMeasure.centerOfMass(rim);
+      expect(linear).toHaveBeenCalledTimes(1);
+    } finally {
+      surface.mockRestore();
+      linear.mockRestore();
+    }
   });
 
   it("ranks by radius on request and ignores shapes without one", () => {

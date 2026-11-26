@@ -24,33 +24,29 @@ export class ShapeMeasure {
   private static radii = new WeakMap<Shape, number | null>();
 
   static centerOfMass(shape: Shape): Point {
-    const cached = ShapeMeasure.centers.get(shape);
-    if (cached) {
-      return cached;
-    }
+    return ShapeMeasure.centers.get(shape) ?? ShapeMeasure.measure(shape).center;
+  }
+
+  /** Edge length, or face area — the shape's natural size measure. */
+  static size(shape: Shape): number {
+    return ShapeMeasure.sizes.get(shape) ?? ShapeMeasure.measure(shape).size;
+  }
+
+  /**
+   * The centre and the size come out of one integration, which on a
+   * free-form face costs milliseconds: whichever is asked for first keeps
+   * both.
+   */
+  private static measure(shape: Shape): { center: Point; size: number } {
     const props = ShapeMeasure.properties(shape);
     try {
       const cog = props.CentreOfMass();
       const center = new Point(cog.X(), cog.Y(), cog.Z());
       cog.delete();
-      ShapeMeasure.centers.set(shape, center);
-      return center;
-    } finally {
-      props.delete();
-    }
-  }
-
-  /** Edge length, or face area — the shape's natural size measure. */
-  static size(shape: Shape): number {
-    const cached = ShapeMeasure.sizes.get(shape);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const props = ShapeMeasure.properties(shape);
-    try {
       const size = props.Mass();
+      ShapeMeasure.centers.set(shape, center);
       ShapeMeasure.sizes.set(shape, size);
-      return size;
+      return { center, size };
     } finally {
       props.delete();
     }

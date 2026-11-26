@@ -8,6 +8,7 @@ import { Sheet } from "../../common/sheet.js";
 import { Solid } from "../../common/solid.js";
 import { Wire } from "../../common/wire.js";
 import { Vector3d } from "../../math/vector3d.js";
+import { TestCurves } from "./curves.js";
 
 /**
  * Surfaces built straight from the kernel, for tests that need a sheet
@@ -50,6 +51,26 @@ export const TestSheets = {
         const type = swept.getType();
         swept.dispose();
         throw new Error(`TestSheets.strip: the prism of a polyline came back as a ${type}`);
+      }
+      return swept;
+    } finally {
+      wire.dispose();
+    }
+  },
+
+  /**
+   * A straight run of 10 into a quarter-turn arc of radius 10, extruded
+   * `height` along +Z: two faces meeting tangentially along one vertical
+   * edge.
+   */
+  tangentStrip(height: number): Sheet {
+    const wire = TestCurves.lineIntoArc();
+    try {
+      const swept = ExtrudeOps.makePrism(wire, new Vector3d(0, 0, 1), height);
+      if (!(swept instanceof Sheet)) {
+        const type = swept.getType();
+        swept.dispose();
+        throw new Error(`TestSheets.tangentStrip: the prism of an open profile came back as a ${type}`);
       }
       return swept;
     } finally {

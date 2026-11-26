@@ -42,6 +42,12 @@ describe('isSceneEmpty', () => {
     expect(isSceneEmpty([row('helix', [{ shapeType: 'edge' }]), row('pipe', [SOLID])])).toBe(false);
   });
 
+  it('is not empty once a surface is modelled', () => {
+    // A surface is material too: thicken, offset and split work on it.
+    expect(isSceneEmpty([row('load', [{ shapeType: 'sheet' }])])).toBe(false);
+    expect(isSceneEmpty([row('load', [{ shapeType: 'sheet', isMetaShape: true }])])).toBe(true);
+  });
+
   it('ignores meta and guide shapes', () => {
     // Trim regions and preview guides are overlays, not modelled material.
     expect(isSceneEmpty([row('box', [{ shapeType: 'solid', isMetaShape: true }])])).toBe(true);

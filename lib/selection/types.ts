@@ -433,7 +433,7 @@ export function renderConnectorAdjustments(options: ConnectorSynthesisOptions | 
  * whose line a clone inherited.
  */
 export const PRODUCER_CALLEES = [
-  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell',
+  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'helix',
 ] as const;
 
 /** Idiomatic variable base name per producer feature type. */
@@ -447,6 +447,7 @@ export function nameHintFor(featureType: string): string {
     case 'rib': return 'rib';
     case 'wrap': return 'wr';
     case 'shell': return 'sh';
+    case 'helix': return 'h';
     case 'plane': return 'p';
     case 'sketch': return 's';
     case 'axis': return 'a';

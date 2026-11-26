@@ -14,6 +14,7 @@ import { ParameterLink, FaceSource, FromSource } from "./atoms.js";
 import { PickRef, SelectionScene } from "./types.js";
 import {
   bucketContext,
+  curveContext,
   globalContext,
   induceFilterArgs,
   induceFilterCandidates,
@@ -157,9 +158,16 @@ export function synthesizeSelectors(
   // feature's picks that exactly fill one of its buckets are named by it.
   const bucketGroups = new Map<BucketRecord, PickAttribution[]>();
   const globalPools: { edge: PickAttribution[]; face: PickAttribution[] } = { edge: [], face: [] };
+  // A curve's edges stand outside the scene-wide universe: they route
+  // through the curve object, never a bare select().
+  const curvePools = new Map<SceneObject, PickAttribution[]>();
 
   for (const attr of ExactFill.apply(index, attributions)) {
-    if (attr.producer && canBindProducer(index, attr.producer.bucket.feature, stmtBindable)) {
+    if (isCurveEdgePick(attr)) {
+      const list = curvePools.get(attr.solidOwner!) ?? [];
+      list.push(attr);
+      curvePools.set(attr.solidOwner!, list);
+    } else if (attr.producer && canBindProducer(index, attr.producer.bucket.feature, stmtBindable)) {
       const bucket = attr.producer.bucket;
       let list = bucketGroups.get(bucket);
       if (!list) {
@@ -332,6 +340,13 @@ export function synthesizeSelectors(
 
   for (const result of globalResults) {
     const failure = addGroup(result);
+    if (failure) {
+      return failure;
+    }
+  }
+
+  for (const [curve, curveAttrs] of curvePools) {
+    const failure = addGroup(synthesizeCurveCandidates(scene, index, curve, curveAttrs, params, preferBucketIndices, stmtBindable));
     if (failure) {
       return failure;
     }
@@ -908,6 +923,73 @@ function synthesizeGlobalCandidates(
       tier: 3,
     })),
   };
+}
+
+/**
+ * Whether a pick is an edge of a curve standing on its own — a helix, a
+ * curve tool's result, a loaded curve — rather than of a solid or a surface.
+ */
+export function isCurveEdgePick(attr: PickAttribution): boolean {
+  return attr.ref.sub.type === 'edge' && attr.solidOwner !== null
+    && attr.solidShape !== null && !attr.solidShape.isBody();
+}
+
+/**
+ * Candidates for picks on one curve object's edges, in route order: the
+ * object's `edges` bucket (`c.edges(2)`) when its statement binds for an
+ * accessor, then a `select(edge().from(c)…)` that names the curve whole and
+ * describes the picks among its edges. A curve is never in the scene-wide
+ * universe, so no bare `select()` is tried. A repeat's copy of a curve has
+ * no variable of its own to name in `from()`.
+ */
+function synthesizeCurveCandidates(
+  scene: SelectionScene,
+  index: SelectionIndex,
+  curve: SceneObject,
+  attrs: PickAttribution[],
+  params: ParameterLink[],
+  preferIndices: boolean,
+  stmtBindable?: StatementBindable,
+): GroupResult {
+  const candidates: SelectorPart[] = [];
+  const bucket = attrs[0].producer ? attrs[0].producer.bucket : null;
+  if (bucket && attrs.every(a => a.producer?.bucket === bucket)
+    && canBindProducer(index, bucket.feature, stmtBindable)) {
+    const result = synthesizeBucketCandidates(index, bucket, attrs, params, preferIndices);
+    if (result.ok) {
+      candidates.push(...result.candidates);
+    }
+  }
+
+  if (!curve.getCloneSource() && canBindProducer(index, curve, stmtBindable, true)) {
+    const scope = resolvePartScope(scene, attrs);
+    if (scope.ok === false) {
+      return scope;
+    }
+    const pickKeys = new Set(attrs.map(a => a.pickedKey!));
+    for (const induced of induceFilterCandidates(index, curveContext(scene, index, curve, params, scope.part), attrs, pickKeys)) {
+      candidates.push({
+        producer: null,
+        accessor: 'select',
+        indices: null,
+        filterArgs: induced.filterArgs,
+        refs: induced.refs,
+        wholeRefs: induced.wholeRefs,
+        bakedConstants: induced.bakedConstants,
+        tier: 3,
+      });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return {
+      ok: false,
+      reason: `the picked edges belong to a ${curve.getType()}() curve, which a selection names through its variable `
+        + `(its edges(), or select(edge().from(…))) — that statement cannot be bound to one`,
+      pick: attrs[0].ref,
+    };
+  }
+  return { ok: true, candidates };
 }
 
 /**

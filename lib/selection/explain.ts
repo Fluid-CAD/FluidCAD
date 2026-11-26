@@ -8,7 +8,7 @@ import { FaceQuery } from "../oc/face-query.js";
 import { BucketHit, BucketRecord, SelectionIndex } from "./selection-index.js";
 import { attributePick, inPartScope, pickPartScope, PickAttribution } from "./attribution.js";
 import {
-  BucketArguments, canBindProducer, checkBindable, producerBinding, producerFeatureType, synthesizeSelectors, SelectorChain,
+  BucketArguments, canBindProducer, checkBindable, isCurveEdgePick, producerBinding, producerFeatureType, synthesizeSelectors, SelectorChain,
   SelectorPart, StatementBindable,
 } from "./synthesis.js";
 import {
@@ -259,6 +259,18 @@ export function synthesizeApplyFeature(
       seed: attributePick(scene, index, c.seed),
       members: c.members.map(m => attributePick(scene, index, m)),
     }));
+    // A fillet and a chamfer reshape solids: an edge of a curve standing on
+    // its own has no solid to round, and the statement would build nothing.
+    if (feature === 'fillet' || feature === 'chamfer') {
+      const curveEdge = [...attributions, ...chainInputs.flatMap(c => c.members)].find(isCurveEdgePick);
+      if (curveEdge) {
+        return {
+          ok: false,
+          reason: `${feature}: edge selection 1 holds a curve edge; ${feature} works on solids.`,
+          pick: curveEdge.ref,
+        };
+      }
+    }
 
     // Sketch and plane name a plane/reference, not geometry — prefer the
     // compact index form over induced filters with baked-in constants.

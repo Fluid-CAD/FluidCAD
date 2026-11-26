@@ -2,7 +2,8 @@ import { Edge } from "../common/edge.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
-import { Solid } from "../common/solid.js";
+import type { BodyShape } from "../common/body-shape.js";
+import type { BodyKind } from "../filters/body-kind.js";
 import { SelectionScene } from "./types.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
@@ -11,13 +12,14 @@ import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { injectFilterScope } from "../filters/scope-injection.js";
 import { injectFromMembership } from "../filters/from-object.js";
 import { applyBucketFilters } from "../filters/bucket-scope.js";
+import { ISceneObject } from "../core/interfaces.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
 import {
   Atom, ParameterLink, FaceSource, FromSource, instantiateEdgeAtoms, instantiateFaceAtoms,
 } from "./atoms.js";
 import { induceConjunctions } from "./induction.js";
-import { probeEdge, probeFace } from "./probe.js";
+import { bodyKindOf, probeEdge, probeFace } from "./probe.js";
 
 /**
  * One induction universe: the shapes a candidate filter runs over and the
@@ -39,6 +41,12 @@ export type InductionContext = {
   evaluate: (builders: FilterBuilderBase<Shape>[], shapes?: Shape[]) => Shape[];
   /** Instantiates candidate atoms from the given picks' geometry. */
   instantiate: (attrs: PickAttribution[]) => Atom<FilterBuilderBase<Shape>>[];
+  /**
+   * Atoms every candidate opens with, ahead of what induction finds: the
+   * `from(c)` that brings a curve's edges into a `select()`. They are
+   * applied wherever the candidate is evaluated and rendered first.
+   */
+  prefix?: Atom<FilterBuilderBase<Shape>>[];
   /** Allow degrading to one filter arg per pick (OR across args). */
   orSplit: boolean;
 };
@@ -109,35 +117,14 @@ export function globalContext(
   const scopedFromSources = fromSources.filter(
     source => scene.findEnclosingPart(source.feature) === partScope,
   );
-  const solids: Solid[] = [];
-  const seenSolids = new Set<string>();
-  const objects = scene.getAllSceneObjects();
-  // Removal scope: a solid only counts as consumed when its consumer is in
-  // this scene's object list. Under an edit boundary the scene is truncated,
-  // and a solid eaten by the edited statement (or anything after it) is still
-  // present in the world the emitted select() executes in — the same scope
-  // rule renderRollback applies.
-  const scope = new Set(objects);
-  for (const obj of objects) {
-    // A select() statement inserted inside a part() body only sees that
-    // part's objects (getPartScopedObjectsUpTo); mirror it here so
-    // verification runs over the same universe the emitted code will.
-    if (partScope && scene.findEnclosingPart(obj) !== partScope) {
-      continue;
-    }
-    for (const shape of obj.getShapes({}, 'solid', scope)) {
-      if (shape instanceof Solid && !seenSolids.has(shape.id)) {
-        seenSolids.add(shape.id);
-        solids.push(shape);
-      }
-    }
-  }
+  const { bodies, scope } = scopeBodies(scene, partScope);
+  const bodyKinds = new Set<BodyKind>(bodies.map(body => bodyKindOf(body)));
 
   const universe: Shape[] = [];
   const universeKeys: number[] = [];
   const seenKeys = new Set<number>();
-  for (const solid of solids) {
-    for (const sub of solid.getSubShapes(kind)) {
+  for (const body of bodies) {
+    for (const sub of body.getSubShapes(kind)) {
       const key = index.keyOf(sub);
       if (!seenKeys.has(key)) {
         seenKeys.add(key);
@@ -152,7 +139,7 @@ export function globalContext(
     universe,
     kindFn: kind,
     evaluate: (builders, shapes = universe) => {
-      injectFilterScope(builders, () => ({ bodies: solids, extraFaces: [] }));
+      injectFilterScope(builders, () => ({ bodies, extraFaces: [] }));
       // `from()` membership reads removals through the same scope as the
       // universe: under an edit boundary the owner still holds the solid
       // the edited statement consumed.
@@ -171,6 +158,7 @@ export function globalContext(
         params,
         scopedFaceSources,
         scopedFromSources,
+        bodyKinds,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
         attrs.map(a => probeFace(a.picked as Face, a.solidShape)),
@@ -178,9 +166,105 @@ export function globalContext(
         params,
         scopedFaceSources,
         scopedFromSources,
+        bodyKinds,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit: true,
   };
+}
+
+/**
+ * The universe of a `select(edge().from(c)…)` over a curve object's edges:
+ * a curve stands outside the scene-wide universe (its edges join a
+ * `select()` only when `.from()` names it), so every candidate opens with
+ * `from(c)` and induction describes the picks among the curve's own edges.
+ * `from(c)` keeps nothing but those edges, so evaluating over them alone is
+ * what the emitted statement resolves; scope and `from()` membership are
+ * injected as a `select()` injects them.
+ */
+export function curveContext(
+  scene: SelectionScene,
+  index: SelectionIndex,
+  curve: SceneObject,
+  params: ParameterLink[] = [],
+  partScope: SceneObject | null = null,
+): InductionContext {
+  const { bodies, scope } = scopeBodies(scene, partScope);
+  const universe: Edge[] = [];
+  const universeKeys: number[] = [];
+  const seenKeys = new Set<number>();
+  for (const shape of curve.getShapes({}, undefined, scope)) {
+    if (!shape.isEdge() && !shape.isWire()) {
+      continue;
+    }
+    for (const sub of shape.getSubShapes('edge') as Edge[]) {
+      const key = index.keyOf(sub);
+      if (!seenKeys.has(key)) {
+        seenKeys.add(key);
+        universe.push(sub);
+        universeKeys.push(key);
+      }
+    }
+  }
+
+  const from: Atom<FilterBuilderBase<Shape>> = {
+    code: '.from({{ref}})',
+    addTo: b => (b as unknown as EdgeFilterBuilder).from(curve as unknown as ISceneObject),
+    weight: 24, constants: 0, needsScope: false,
+    ref: curve, wholeRef: true, scope: true,
+  };
+
+  return {
+    universeKeys,
+    universe,
+    kindFn: 'edge',
+    evaluate: (builders, shapes = universe) => {
+      injectFilterScope(builders, () => ({ bodies, extraFaces: [] }));
+      const releaseFrom = injectFromMembership(builders, scope);
+      try {
+        return new ShapeFilter(shapes, ...builders).apply();
+      } finally {
+        releaseFrom();
+      }
+    },
+    instantiate: attrs => instantiateEdgeAtoms(
+      attrs.map(a => probeEdge(a.picked as Edge, a.solidShape)),
+      universe,
+      false,
+      params,
+    ) as Atom<FilterBuilderBase<Shape>>[],
+    prefix: [from],
+    orSplit: true,
+  };
+}
+
+/**
+ * The bodies — solids and surfaces — a `select()` in `partScope` sees, and
+ * the removal scope they were read through: a body only counts as consumed
+ * when its consumer is in this scene's object list. Under an edit boundary
+ * the scene is truncated, and a body eaten by the edited statement (or
+ * anything after it) is still present in the world the emitted select()
+ * executes in — the same scope rule renderRollback applies.
+ */
+function scopeBodies(scene: SelectionScene, partScope: SceneObject | null): { bodies: BodyShape[]; scope: Set<SceneObject> } {
+  const bodies: BodyShape[] = [];
+  const seen = new Set<string>();
+  const objects = scene.getAllSceneObjects();
+  const scope = new Set(objects);
+  for (const obj of objects) {
+    // A select() statement inserted inside a part() body only sees that
+    // part's objects (getPartScopedObjectsUpTo); mirror it here so
+    // verification runs over the same universe the emitted code will.
+    if (partScope && scene.findEnclosingPart(obj) !== partScope) {
+      continue;
+    }
+    for (const shape of obj.getShapes({}, undefined, scope)) {
+      if (shape.isBody() && !seen.has(shape.id)) {
+        seen.add(shape.id);
+        bodies.push(shape as BodyShape);
+      }
+    }
+  }
+  return { bodies, scope };
 }
 
 /**
@@ -222,13 +306,21 @@ export function induceFilterCandidates(
   }
 
   const keysOf = (resolved: Shape[]) => new Set(resolved.map(s => index.keyOf(s)));
+  const prefix = ctx.prefix ?? [];
+  const prefixed = () => {
+    const builder = newBuilder(ctx.kindFn);
+    for (const atom of prefix) {
+      atom.addTo(builder);
+    }
+    return builder;
+  };
   const evaluateAtoms = (atoms: Atom<FilterBuilderBase<Shape>>[]) => {
     const matches = new Map<Atom<FilterBuilderBase<Shape>>, Set<number>>();
     for (const atom of atoms) {
       if (atom.contextual) {
         continue;
       }
-      const builder = newBuilder(ctx.kindFn);
+      const builder = prefixed();
       atom.addTo(builder);
       matches.set(atom, keysOf(ctx.evaluate([builder])));
     }
@@ -246,7 +338,7 @@ export function induceFilterCandidates(
     atom: Atom<FilterBuilderBase<Shape>>,
     survivors: Set<number>,
   ) => {
-    const builder = newBuilder(ctx.kindFn);
+    const builder = prefixed();
     atom.addTo(builder);
     const shapes = ctx.universe.filter((_, i) => survivors.has(ctx.universeKeys[i]));
     return keysOf(ctx.evaluate([builder], shapes));
@@ -276,7 +368,7 @@ export function induceFilterCandidates(
   for (const conjunctions of candidates) {
     // Final oracle pass over the composed builders, exactly as emitted.
     const builders = conjunctions.map(conj => {
-      const builder = newBuilder(ctx.kindFn);
+      const builder = prefixed();
       for (const atom of conj) {
         atom.addTo(builder);
       }
@@ -288,9 +380,9 @@ export function induceFilterCandidates(
 
     const refs: SceneObject[] = [];
     const filterArgs = conjunctions
-      .map(conj => `${ctx.kindFn}()${conj.map(a => renderAtomCode(a, refs)).join('')}`)
+      .map(conj => `${ctx.kindFn}()${[...prefix, ...conj].map(a => renderAtomCode(a, refs)).join('')}`)
       .join(', ');
-    const accessorRefs = new Set(conjunctions.flat().filter(a => a.ref && !a.wholeRef).map(a => a.ref!));
+    const accessorRefs = new Set([...prefix, ...conjunctions.flat()].filter(a => a.ref && !a.wholeRef).map(a => a.ref!));
     const wholeRefs = refs.filter(ref => !accessorRefs.has(ref));
     const constants = conjunctions.reduce(
       (sum, conj) => sum + conj.reduce((s, a) => s + a.constants, 0), 0,

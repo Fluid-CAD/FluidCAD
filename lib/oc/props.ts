@@ -31,7 +31,28 @@ export interface ShapeProperties {
   boundingBox: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } };
 }
 
+/**
+ * The surface or the curve a picked face or edge belongs to, measured whole:
+ * a surface's area, a curve's length. A solid's faces and edges carry none —
+ * they are read on their own.
+ */
+export type OwnerMeasure = { kind: 'surface'; area: number } | { kind: 'curve'; length: number };
+
 export class ShapeProps {
+  /** {@link OwnerMeasure} of the shape a face or an edge was picked on; undefined for a solid or anything else. */
+  static ownerMeasure(owner: Shape): OwnerMeasure | undefined {
+    if (owner.isSolid()) {
+      return undefined;
+    }
+    if (owner.isBody()) {
+      return { kind: 'surface', area: ShapeProps.massOf(owner.getShape(), 'surface').mass };
+    }
+    if (owner.isEdge() || owner.isWire()) {
+      return { kind: 'curve', length: ShapeProps.massOf(owner.getShape(), 'linear').mass };
+    }
+    return undefined;
+  }
+
   /** The properties of a rendered shape, measured as what it is (see {@link ShapeProperties}). */
   static measure(shape: Shape): ShapeProperties {
     const raw = shape.getShape();

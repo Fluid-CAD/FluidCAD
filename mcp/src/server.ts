@@ -687,7 +687,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of a face',
       description:
-        'Returns the surface kind and size of a single face of a solid or a surface, as `surfaceType` plus that kind\'s fields: plane (`areaMm2`); circle, a flat face bounded only by circular edges (`radius`, no area); cylinder (`radius`, and `closed` — true when it wraps fully around its axis like a bore or a boss wall, false for a fillet or a partial wall); sphere (`radius`); torus (`majorRadius`, `minorRadius`); cone (`halfAngleDeg`); other (`areaMm2`). It returns no normal, center or axis, and no area for a circle or a curved analytic face: resolve_selection with `picks: [{ shapeId, kind: "face", index: faceIndex }]` summarizes the face with its center, normal (a planar face\'s points out of its solid) or axis, and area. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
+        'Returns the surface kind and size of a single face of a solid or a surface, as `surfaceType` plus that kind\'s fields: plane (`areaMm2`); circle, a flat face bounded only by circular edges (`radius`, no area); cylinder (`radius`, and `closed` — true when it wraps fully around its axis like a bore or a boss wall, false for a fillet or a partial wall); sphere (`radius`); torus (`majorRadius`, `minorRadius`); cone (`halfAngleDeg`); other (`areaMm2`). On a face of a surface, `owner` is `{ kind: "surface", area }`, the whole surface\'s area. It returns no normal, center or axis, and no area for a circle or a curved analytic face: resolve_selection with `picks: [{ shapeId, kind: "face", index: faceIndex }]` summarizes the face with its center, normal (a planar face\'s points out of its solid) or axis, and area. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,
@@ -705,7 +705,8 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       description:
         'Returns the curve kind and size of a single edge of a solid, a surface or a curve: `curveType` (line, circle, arc, ellipse, other), ' +
         '`length` (absent on a full circle and an ellipse), `radius` for circles and arcs, `majorRadius`/`minorRadius` for ellipses, and its ' +
-        'endpoints `start` and `end` { x, y, z } in the edge\'s own direction (equal on a closed edge). Lengths are in the document unit, returned as `unit`.',
+        'endpoints `start` and `end` { x, y, z } in the edge\'s own direction (equal on a closed edge). On an edge of a surface or a curve, `owner` measures ' +
+        'that whole: `{ kind: "surface", area }` or `{ kind: "curve", length }`. Lengths are in the document unit, returned as `unit`.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,

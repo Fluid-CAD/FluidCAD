@@ -104,6 +104,23 @@ describe("surfaces and curves measured and addressed", () => {
     expect(rim.length).toBeCloseTo(10, 6);
   });
 
+  it("a face or an edge carries the surface or the curve it is part of, measured whole; a solid's carry none", () => {
+    const { scene, solid, surface, curve } = build();
+    const manager = getSceneManager();
+
+    const face = manager.getFaceProperties(scene, surface.id, 0)!;
+    expect(face.owner?.kind).toBe("surface");
+    expect(face.owner?.kind === "surface" && face.owner.area).toBeCloseTo(100, 6);
+
+    const arc = manager.getEdgeProperties(scene, curve.id, 1)!;
+    expect(arc.owner?.kind).toBe("curve");
+    expect(arc.owner?.kind === "curve" && arc.owner.length).toBeCloseTo(20 + 5 * Math.PI, 6);
+
+    expect(manager.getEdgeProperties(scene, surface.id, 0)!.owner?.kind).toBe("surface");
+    expect(manager.getFaceProperties(scene, solid.id, 0)!.owner).toBeUndefined();
+    expect(manager.getEdgeProperties(scene, solid.id, 0)!.owner).toBeUndefined();
+  });
+
   it("measure and hit test report what the entity is part of", () => {
     const { scene, surface, curve, solid } = build();
     const manager = getSceneManager();

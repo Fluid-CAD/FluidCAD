@@ -55,7 +55,7 @@ export type ImportReport = {
   sourceUnits: StepFileUnits;
 };
 import { Solid } from "./common/solid.js";
-import { ShapeProps } from "./oc/props.js";
+import { ShapeProps, type OwnerMeasure } from "./oc/props.js";
 import type { ShapeProperties } from "./oc/props.js";
 import { FaceProps } from "./oc/face-props.js";
 import type { FaceProperties } from "./oc/face-props.js";
@@ -398,7 +398,11 @@ class SceneManager {
     return null;
   }
 
-  getFaceProperties(scene: Scene, shapeId: string, faceIndex: number): FaceProperties | null {
+  /**
+   * One face's properties, and — when the face is part of a surface rather
+   * than a solid — that surface measured whole (`owner`).
+   */
+  getFaceProperties(scene: Scene, shapeId: string, faceIndex: number): (FaceProperties & { owner?: OwnerMeasure }) | null {
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
@@ -408,7 +412,8 @@ class SceneManager {
             if (faceIndex < 0 || faceIndex >= faces.length) {
               return null;
             }
-            return FaceProps.getProperties(faces[faceIndex].getShape());
+            const owner = ShapeProps.ownerMeasure(shape);
+            return { ...FaceProps.getProperties(faces[faceIndex].getShape()), ...(owner ? { owner } : {}) };
           } finally {
             for (const face of faces) face.dispose();
           }
@@ -455,7 +460,11 @@ class SceneManager {
     }
   }
 
-  getEdgeProperties(scene: Scene, shapeId: string, edgeIndex: number): (EdgeProperties & EdgeEndpoints) | null {
+  /**
+   * One edge's properties and endpoints, and — when the edge is part of a
+   * surface or a curve rather than a solid — that whole measured (`owner`).
+   */
+  getEdgeProperties(scene: Scene, shapeId: string, edgeIndex: number): (EdgeProperties & EdgeEndpoints & { owner?: OwnerMeasure }) | null {
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
@@ -465,7 +474,8 @@ class SceneManager {
               return null;
             }
             const edge = edges[edgeIndex].getShape();
-            return { ...EdgeProps.getProperties(edge), ...EdgeProps.endpoints(edge) };
+            const owner = ShapeProps.ownerMeasure(shape);
+            return { ...EdgeProps.getProperties(edge), ...EdgeProps.endpoints(edge), ...(owner ? { owner } : {}) };
           } finally {
             for (const edge of edges) edge.dispose();
           }

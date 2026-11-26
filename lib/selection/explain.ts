@@ -260,9 +260,10 @@ export function synthesizeApplyFeature(
       seed: attributePick(scene, index, c.seed),
       members: c.members.map(m => attributePick(scene, index, m)),
     }));
-    // A tool that reshapes solids takes a solid's edges and faces only. Its
-    // build refuses a pick made on a surface or a curve, so the pick is
-    // refused here, in the build's words, before a statement is written.
+    // A tool that reshapes solids takes a solid's edges and faces only: its
+    // build refuses a surface's and finds no solid to reshape at a curve's
+    // edge. Either pick is refused here, in the build's words for a
+    // selection off a solid, before a statement is written.
     if (isSolidReshaper(feature)) {
       for (const attr of [...attributions, ...chainInputs.flatMap(c => c.members)]) {
         const part = attr.ref.sub.type;

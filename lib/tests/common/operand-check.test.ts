@@ -7,7 +7,7 @@ import { face } from "../../filters/index.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { BuildError } from "../../common/build-error.js";
 import {
-  isSolidReshaper, offSolidPart, offSolidRefusal, operandKindError, operandKindOf, refuseOffSolidParts, requireShapes,
+  isSolidReshaper, offSolidPart, offSolidRefusal, operandKindError, operandKindOf, refuseSurfaceParts, requireShapes,
 } from "../../common/operand-check.js";
 import { TestSheets } from "../helpers/sheets.js";
 import { TestCurves } from "../helpers/curves.js";
@@ -90,7 +90,7 @@ describe("requireShapes kinds", () => {
     expect(offSolidRefusal("chamfer", "curve edge").hint).toContain(".ofSolid()");
   });
 
-  it("finds a selection's edges on a surface or a curve in reach, and leaves a solid's alone", () => {
+  it("finds a selection's edges on a surface in reach, and leaves a solid's and a curve's to the build", () => {
     sketch("xy", () => {
       testRect(20, 20, { at: [100, 0] });
     });
@@ -100,15 +100,13 @@ describe("requireShapes kinds", () => {
     const [surface, curve] = l.getShapes();
     const scope = [e, l];
 
-    expect(() => refuseOffSolidParts("fillet", 0, e.getShapes()[0].getSubShapes("edge"), scope)).not.toThrow();
-    expect(refusal(() => refuseOffSolidParts("fillet", 0, surface.getSubShapes("edge"), scope)).diagnostic)
+    expect(() => refuseSurfaceParts("fillet", 0, e.getShapes()[0].getSubShapes("edge"), scope)).not.toThrow();
+    expect(refusal(() => refuseSurfaceParts("fillet", 0, surface.getSubShapes("edge"), scope)).diagnostic)
       .toBe("fillet: edge selection 1 holds a surface edge; fillet works on solids.");
-    expect(refusal(() => refuseOffSolidParts("chamfer", 2, curve.getSubShapes("edge"), scope)).diagnostic)
-      .toBe("chamfer: edge selection 3 holds a curve edge; chamfer works on solids.");
-    expect(refusal(() => refuseOffSolidParts("fillet", 0, [curve], scope)).diagnostic)
-      .toBe("fillet: edge selection 1 holds a curve; fillet works on solids.");
-    // An edge nothing in reach holds is left to the build, which reports what it could not match.
-    expect(() => refuseOffSolidParts("fillet", 0, curve.getSubShapes("edge"), [e])).not.toThrow();
+    expect(refusal(() => refuseSurfaceParts("shell", 2, surface.getSubShapes("face"), scope)).diagnostic)
+      .toBe("shell: face selection 3 holds a surface face; shell works on solids.");
+    // A curve's edge is one more edge on no solid: the build reports those itself.
+    expect(() => refuseSurfaceParts("fillet", 0, curve.getSubShapes("edge"), scope)).not.toThrow();
   });
 
   it("builds the same wording for a feature that checks by itself", () => {

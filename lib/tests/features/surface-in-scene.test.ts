@@ -563,7 +563,7 @@ describe("surfaces and curves in an existing model", () => {
       expect(Math.min(...surface.xs)).toBeCloseTo(-10, 6);
     });
 
-    describe("a pick off a solid is refused in one wording by the build, the preview and the pick-to-code synthesis", () => {
+    describe("a pick off a solid is refused in one wording by the preview and the pick-to-code synthesis, a surface's by the build too", () => {
       /** A three-edge curve, loaded the way an imported curve is. */
       function curve(): SceneObject {
         return asObject(loadShapes([TestCurves.threeEdges()]));
@@ -605,7 +605,8 @@ describe("surfaces and curves in an existing model", () => {
           const shapeId = c.getShapes()[0].id;
 
           const words = `${tool}: edge selection 1 holds a curve edge; ${tool} works on solids.`;
-          expect(built(statement)).toBe(words);
+          // A build holds the edge alone, with nothing to say it is a curve's: it reports an edge on no solid.
+          expect(built(statement)).toBe(`${tool}: 3 selected edge(s) matched no solid in the scene and were skipped.`);
           expect(previewed(preview(scene, {
             feature: tool, value: 1, distance2: null, isAngle: false, edges: [{ shapeId, index: 0, kind: "edge" }],
           }))).toBe(words);

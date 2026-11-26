@@ -181,8 +181,8 @@ export function isSolidReshaper(consumerType: string): consumerType is SolidResh
  * What an edge or a face reads as in a solid reshaper's refusal when the
  * shape it lies on is no solid — "surface edge", "surface face", "curve
  * edge" — or null on a solid. For the callers that know the shape a pick
- * was made on; a build finds it among the bodies and curves in reach
- * ({@link refuseOffSolidParts}).
+ * was made on: the pick-to-code synthesis and the previews. A build finds a
+ * surface's parts among the bodies in reach ({@link refuseSurfaceParts}).
  */
 export function offSolidPart(owner: Shape, part: 'edge' | 'face'): string | null {
   const kind = operandKindOf(owner);
@@ -202,14 +202,18 @@ export function offSolidRefusal(consumerType: SolidReshaper, given: string, posi
 }
 
 /**
- * Refuse a selection handed to a tool that reshapes solids when it holds a
- * surface, a curve, or a face or an edge of one: skipping them would leave
- * the user to guess why nothing happened. `shapes` are what the selection
- * holds — faces, edges, or whole bodies — `position` its place among the
- * tool's selections, from 0, and `scope` the objects whose bodies and
- * curves are in reach. An edge a solid in reach also holds is the solid's.
+ * Refuse faces or edges of a surface handed to a tool that reshapes solids:
+ * skipping them would leave the user to guess why nothing happened.
+ * `shapes` are what the selection holds — faces, edges, or whole bodies —
+ * `position` its place among the tool's selections, from 0, and `scope` the
+ * objects whose bodies are in reach. A curve's edge is not looked for here:
+ * a build holds the edge alone, and nothing in reach tells a curve's edge
+ * from one a selection or a sketch also holds, or one a later feature
+ * consumed. The build reports it with the edges that matched no solid; the
+ * callers that know the shape a pick was made on refuse it by
+ * {@link offSolidPart}.
  */
-export function refuseOffSolidParts(
+export function refuseSurfaceParts(
   consumerType: SolidReshaper,
   position: number,
   shapes: readonly Shape[],
@@ -218,32 +222,18 @@ export function refuseOffSolidParts(
   if (shapes.length === 0) {
     return;
   }
-  let bodies: BodyShape[] | null = null;
-  let curves: Shape[] | null = null;
-  /** Whether a surface in reach (`sheet`), or a solid, holds the face or edge. */
-  const onBody = (part: Shape, sheet: boolean) => {
-    bodies ??= heldBodiesOf(scope).map(({ body }) => body as BodyShape);
-    return bodies.some(body => body.isSheet() === sheet && (part.isEdge()
-      ? !!body.hasEdge((part as Edge).getShape())
-      : body.hasFace((part as Face).getShape())));
-  };
-  const onCurve = (edge: Shape) => {
-    curves ??= scope.flatMap(obj => obj.getShapes()).filter(held => held.isEdge() || held.isWire());
-    return curves.some(curve => curve.getSubShapes('edge').some(own => own.getShape().IsSame(edge.getShape())));
-  };
+  let sheets: BodyShape[] | null = null;
   for (const shape of shapes) {
     let given: string | null = null;
     if (shape.isSheet()) {
       given = 'surface';
-    } else if (shape.isWire()) {
-      given = 'curve';
-    } else if (shape.isFace() && onBody(shape, true)) {
-      given = 'surface face';
-    } else if (shape.isEdge()) {
-      if (onBody(shape, true)) {
-        given = 'surface edge';
-      } else if (onCurve(shape) && !onBody(shape, false)) {
-        given = 'curve edge';
+    } else if (shape.isEdge() || shape.isFace()) {
+      sheets ??= heldBodiesOf(scope).map(({ body }) => body).filter(body => body.isSheet()) as BodyShape[];
+      const onSheet = shape.isEdge()
+        ? sheets.some(sheet => !!sheet.hasEdge((shape as Edge).getShape()))
+        : sheets.some(sheet => sheet.hasFace((shape as Face).getShape()));
+      if (onSheet) {
+        given = `surface ${shape.isEdge() ? 'edge' : 'face'}`;
       }
     }
     if (given) {

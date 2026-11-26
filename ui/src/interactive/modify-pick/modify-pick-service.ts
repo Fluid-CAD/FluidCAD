@@ -6,7 +6,7 @@ import {
 } from '../../api';
 import { mergeUniqueEntities } from '../../helpers/entities';
 import { ExpressionMode } from '../create-feature/expression-mode';
-import { findActiveSketch } from '../../helpers/scene-utils';
+import { findActiveSketch, hasSolid } from '../../helpers/scene-utils';
 import { collectPlaneOptions, planeOptionForLocation, PlaneOption, resolvePlaneByShapeId } from '../create-feature/plane-bases';
 import { SketchStartPanel } from '../create-feature/sketch-panel';
 import { FeatureGhostOverlay } from '../create-feature/feature-ghost';
@@ -476,15 +476,14 @@ export class ModifyPickService {
    * supported flow) or one of the origin planes, which need no scene at all.
    */
   update(sceneObjects: SceneObjectRender[]): void {
-    const hasSolid = sceneObjects.some(o =>
-      o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
+    const solid = hasSolid(sceneObjects);
     const active = findActiveSketch(sceneObjects);
     const sketchMode = active !== undefined;
     // Fillet/Chamfer/Shell need a solid to pick on, and stay out of the way
     // while a sketch is being edited. A blank document is the exception: it
     // shows the whole toolbar (see {@link Viewer.sceneIsEmpty}) and can't be
     // in sketch mode anyway — an active sketch is scene content.
-    const modifyVisible = (hasSolid || this.viewer.sceneIsEmpty) && !sketchMode;
+    const modifyVisible = (solid || this.viewer.sceneIsEmpty) && !sketchMode;
 
     this.tooltip.clearCache();
     this.tooltip.hide();
@@ -494,7 +493,7 @@ export class ModifyPickService {
     this.cancelGhost();
     this.ghost.clear();
     this.sceneSketchActive = sketchMode;
-    this.sketchAvailable = hasSolid;
+    this.sketchAvailable = solid;
     this.planes = collectPlaneOptions(sceneObjects);
     // Shape ids die with every render — a pending plane can't survive one.
     this.pendingPlaneShapeId = null;

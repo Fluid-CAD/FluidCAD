@@ -1,4 +1,4 @@
-import { SceneObjectRender, SourceLocation } from '../types';
+import { SceneObjectPart, SceneObjectRender, SourceLocation } from '../types';
 import { SceneIndex } from './scene-index';
 
 /**
@@ -258,9 +258,83 @@ export function isRollbackViewTruncated(
   return false;
 }
 
+/** What a rendered shape stands for in the model: a solid, a surface or a curve. */
+export type ModelShapeKind = 'solid' | 'surface' | 'curve';
+
+/** The kinds a body can be: what colour paints. */
+export const BODY_KINDS: readonly ModelShapeKind[] = ['solid', 'surface'];
+
+/** Every kind: what a move or a copy takes when it is named — a curve moves with the bodies. */
+export const MODEL_KINDS: readonly ModelShapeKind[] = ['solid', 'surface', 'curve'];
+
+/**
+ * The kind a rendered shape stands for, or null for what is not material of
+ * the model: a meta or guide shape (a plane's quad, a guide sketch), a loose
+ * face or vertex.
+ */
+export function modelShapeKind(shape: SceneObjectPart): ModelShapeKind | null {
+  if (shape.isMetaShape || shape.isGuide) {
+    return null;
+  }
+  switch (shape.shapeType) {
+    case 'solid':
+    case 'surface':
+      return shape.shapeType;
+    case 'wire':
+    case 'edge':
+      return 'curve';
+    default:
+      return null;
+  }
+}
+
+/**
+ * The shapes of `obj` that are material of one of `kinds`. Lines count as a
+ * curve only on a row that is one of its own (a helix, a loaded curve): a
+ * sketch's lines are a profile to build from, and a selection's edges belong
+ * to the body they were picked on.
+ */
+export function modelShapesOf(
+  obj: SceneObjectRender,
+  sceneObjects: SceneObjectRender[],
+  kinds: readonly ModelShapeKind[],
+): SceneObjectPart[] {
+  return (obj.sceneShapes ?? []).filter(shape => {
+    const kind = modelShapeKind(shape);
+    return kind !== null && kinds.includes(kind) && (kind !== 'curve' || isCurveRow(obj, sceneObjects));
+  });
+}
+
+function isCurveRow(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
+  return obj.type !== 'sketch' && obj.type !== 'select' && !isHiddenTimelineRow(obj)
+    && SceneIndex.of(sceneObjects).enclosing(obj, 'sketch') === undefined;
+}
+
+function sceneHolds(sceneObjects: SceneObjectRender[], kind: ModelShapeKind): boolean {
+  return sceneObjects.some(obj => modelShapesOf(obj, sceneObjects, [kind]).length > 0);
+}
+
+/** The scene holds a solid: what the tools that reshape or cut solids need. */
+export function hasSolid(sceneObjects: SceneObjectRender[]): boolean {
+  return sceneHolds(sceneObjects, 'solid');
+}
+
+/** The scene holds a surface. */
+export function hasSurface(sceneObjects: SceneObjectRender[]): boolean {
+  return sceneHolds(sceneObjects, 'surface');
+}
+
+/** The scene holds a curve of its own: a helix, a loaded curve — a sketch's lines are not one. */
+export function hasCurve(sceneObjects: SceneObjectRender[]): boolean {
+  return sceneHolds(sceneObjects, 'curve');
+}
+
 /** The object carries real material: a body (a solid or a surface), not a meta or guide shape. */
 function hasBodyShape(obj: SceneObjectRender): boolean {
-  return obj.sceneShapes?.some(s => (s.shapeType === 'solid' || s.shapeType === 'surface') && !s.isMetaShape && !s.isGuide) === true;
+  return obj.sceneShapes?.some(s => {
+    const kind = modelShapeKind(s);
+    return kind === 'solid' || kind === 'surface';
+  }) === true;
 }
 
 /**

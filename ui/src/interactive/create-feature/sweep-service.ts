@@ -24,6 +24,7 @@ import {
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 import { iconUrl } from '../../ui/icon-url';
+import { hasSolid } from '../../helpers/scene-utils';
 
 type SweepEditRequest = Parameters<typeof applySweepEdit>[1];
 
@@ -292,8 +293,7 @@ export class SweepFeatureService {
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
     this.profiles = collectWireSources(sceneObjects);
-    this.hasSolid = sceneObjects.some(o =>
-      o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
+    this.hasSolid = hasSolid(sceneObjects);
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
     // Offered whenever the scene has anything to work from — like Loft — and
     // on a blank document (see {@link Viewer.sceneIsEmpty}). The dialog itself

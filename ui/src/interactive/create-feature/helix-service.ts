@@ -24,6 +24,7 @@ import {
 import { ConnectorOption } from './connector-options';
 import { ConnectorPicks } from './connector-picks';
 import { iconUrl } from '../../ui/icon-url';
+import { hasSolid } from '../../helpers/scene-utils';
 
 /**
  * The Helix dialog on the create rails: a helical wire built around an axis or
@@ -264,8 +265,7 @@ export class HelixFeatureService {
     this.connectors.collect(sceneObjects);
     const profiles = collectSketchProfiles(sceneObjects);
     this.hasSketch = profiles.length > 0;
-    this.hasSolid = sceneObjects.some(o =>
-      o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
+    this.hasSolid = hasSolid(sceneObjects);
     this.sceneSketchActive = profiles[0]?.kind === 'active';
     // Offered whenever the scene has a solid (face mode + edge picks) or a
     // sketch to sweep the helix with — like Revolve's availability signal —

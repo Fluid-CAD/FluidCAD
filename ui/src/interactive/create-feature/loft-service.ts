@@ -24,6 +24,7 @@ import {
   sourceChip, SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 import { iconUrl } from '../../ui/icon-url';
+import { hasSolid } from '../../helpers/scene-utils';
 
 type LoftEditRequest = Parameters<typeof applyLoftEdit>[1];
 
@@ -330,8 +331,7 @@ export class LoftFeatureService {
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
     this.profiles = collectWireSources(sceneObjects);
-    this.hasSolid = sceneObjects.some(o =>
-      o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
+    this.hasSolid = hasSolid(sceneObjects);
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
     // A loft needs two profile sources: solid faces to pick, or two sketches
     // (a helix can only ever be a guide, so it doesn't count here). A blank

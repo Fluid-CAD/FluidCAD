@@ -22,6 +22,7 @@ import {
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 import { iconUrl } from '../../ui/icon-url';
+import { hasSolid } from '../../helpers/scene-utils';
 
 type ExtrudeApplyRequest = Parameters<typeof applyExtrude>[0];
 
@@ -326,8 +327,7 @@ export class ExtrudeFeatureService {
     this.sceneObjects = sceneObjects;
     this.options = collectExtrudeProfiles(sceneObjects);
     this.sceneSketchActive = this.options[0]?.kind === 'active';
-    this.hasSolid = sceneObjects.some(o =>
-      o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
+    this.hasSolid = hasSolid(sceneObjects);
     // Offered whenever the scene has anything to work from — like Loft. With
     // no unconsumed sketch the dialog opens on a placeholder dropdown, which
     // is also what a blank document gets (see {@link Viewer.sceneIsEmpty}):

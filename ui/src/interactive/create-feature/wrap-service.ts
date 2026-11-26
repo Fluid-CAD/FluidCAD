@@ -18,6 +18,7 @@ import {
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 import { iconUrl } from '../../ui/icon-url';
+import { hasSolid } from '../../helpers/scene-utils';
 
 type WrapApplyRequest = Parameters<typeof applyWrap>[0];
 
@@ -223,8 +224,7 @@ export class WrapFeatureService {
     this.sceneObjects = sceneObjects;
     this.options = collectSketchProfiles(sceneObjects);
     this.sceneSketchActive = this.options[0]?.kind === 'active';
-    this.hasSolid = sceneObjects.some(o =>
-      o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
+    this.hasSolid = hasSolid(sceneObjects);
     // Offered whenever the scene has a solid to wrap onto — the target face
     // lives on one — and on a blank document (see {@link Viewer.sceneIsEmpty}).
     // The dialog itself explains what else is missing.

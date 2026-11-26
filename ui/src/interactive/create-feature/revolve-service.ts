@@ -30,6 +30,7 @@ import {
   axisOptionsSignature, collectAxisOptions, labelWithAxisNames,
 } from './axis-options';
 import { iconUrl } from '../../ui/icon-url';
+import { hasSolid } from '../../helpers/scene-utils';
 
 /**
  * The Revolve dialog on the create rails: a profile sketch swept around an
@@ -291,8 +292,7 @@ export class RevolveFeatureService {
     this.profiles = collectSketchProfiles(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     this.connectors.collect(sceneObjects);
-    this.hasSolid = sceneObjects.some(o =>
-      o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
+    this.hasSolid = hasSolid(sceneObjects);
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
     // Offered whenever the scene has anything to work from — like Extrude —
     // and on a blank document (see {@link Viewer.sceneIsEmpty}).

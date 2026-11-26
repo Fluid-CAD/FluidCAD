@@ -152,7 +152,7 @@ export function globalContext(
     universe,
     kindFn: kind,
     evaluate: (builders, shapes = universe) => {
-      injectFilterScope(builders, () => ({ solids, extraFaces: [] }));
+      injectFilterScope(builders, () => ({ bodies: solids, extraFaces: [] }));
       // `from()` membership reads removals through the same scope as the
       // universe: under an edit boundary the owner still holds the solid
       // the edited statement consumed.

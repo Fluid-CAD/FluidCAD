@@ -4,7 +4,7 @@ import { Convert } from "./convert.js";
 import { FaceOps } from "./face-ops.js";
 import { Vector3d } from "../math/vector3d.js";
 import { TopologyIndex } from "./topology-index.js";
-import { Solid } from "../common/solid.js";
+import type { BodyShape } from "../common/body-shape.js";
 import { Edge } from "../common/edge.js";
 
 /**
@@ -21,38 +21,40 @@ const SMOOTH_COSINE = 1 - 1e-6;
 const TURN_EPSILON = 1e-9;
 
 /**
- * {@link EdgeConvexityOps.classify}'s answers, per solid and edge wrapper.
+ * {@link EdgeConvexityOps.classify}'s answers, per body and edge wrapper.
  * Both wrappers' OC shapes are fixed for their lifetime, so the corner class
  * is too — and the `convex()` filter asks it of every edge in scope, once
  * per candidate atom during selector synthesis and again in the emitted
  * `select()` on every render.
  */
-const classified = new WeakMap<Solid, WeakMap<Edge, EdgeConvexity | null>>();
+const classified = new WeakMap<BodyShape, WeakMap<Edge, EdgeConvexity | null>>();
 
 export class EdgeConvexityOps {
   /**
-   * Classify `edge` within `solid`, or null when the solid does not own the
-   * edge with exactly two faces (a seam, a sheet border, foreign geometry).
+   * Classify `edge` within `body` — a solid, or a surface, whose faces'
+   * normals as oriented stand for the outward ones — or null when the body
+   * does not own the edge with exactly two faces (a seam, a surface's open
+   * rim, foreign geometry).
    *
    * With outward normals n1, n2 of the two faces at the edge midpoint and
    * the edge's tangent t oriented as face 1's wire traverses it (material
    * on the left, per OCCT's wire convention), the corner is convex when
    * (n1 × n2) · t > 0 and concave when it is negative.
    */
-  static classify(edge: Edge, solid: Solid): EdgeConvexity | null {
-    let perSolid = classified.get(solid);
-    if (!perSolid) {
-      perSolid = new WeakMap();
-      classified.set(solid, perSolid);
+  static classify(edge: Edge, body: BodyShape): EdgeConvexity | null {
+    let perBody = classified.get(body);
+    if (!perBody) {
+      perBody = new WeakMap();
+      classified.set(body, perBody);
     }
-    const known = perSolid.get(edge);
+    const known = perBody.get(edge);
     if (known !== undefined) {
       return known;
     }
     const raw = edge.getShape() as TopoDS_Edge;
-    const faces = TopologyIndex.seekShapes(solid.getEdgeToFacesIndex(), raw);
+    const faces = TopologyIndex.seekShapes(body.getEdgeToFacesIndex(), raw);
     const result = faces.length === 2 ? EdgeConvexityOps.classifyRaw(raw, faces[0], faces[1]) : null;
-    perSolid.set(edge, result);
+    perBody.set(edge, result);
     return result;
   }
 

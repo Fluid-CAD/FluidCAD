@@ -5,7 +5,7 @@ import { ShapeFilter } from "../filters/filter.js";
 import { BuildSceneObjectContext, SceneObject, SourceLocation } from "../common/scene-object.js";
 import { ISelect } from "../core/interfaces.js";
 import { Shape } from "../common/shape.js";
-import { Solid } from "../common/solid.js";
+import type { BodyShape } from "../common/body-shape.js";
 import { ShapeType } from "../common/shape-type.js";
 import { FromSceneObjectFilter, injectFromMembership } from "../filters/from-object.js";
 import { injectFilterScope } from "../filters/scope-injection.js";
@@ -139,16 +139,18 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
    * The candidate set and match a `select(filters)` statement resolves over
    * `sceneObjects` (the objects its part scope exposes to it), as one shared
    * step: objects named by `.from(...)` join the universe so cross-part
-   * selection works, edge filters get their belongsTo-face scope injected,
+   * selection works, scope-aware filters get the bodies in scope injected,
    * `.from` filters get their membership sets, and the filters run over
-   * every solid's faces or edges minus `excludedShapes`. Shared with the
-   * scene-level evaluator (`SelectionResolver`) so a tool that evaluates a
-   * filter expression sees exactly what the statement would.
+   * every body's faces or edges — solids and surfaces — minus
+   * `excludedShapes`; a curve's edges only join when `.from()` names its
+   * object. Shared with the scene-level evaluator (`SelectionResolver`) so a
+   * tool that evaluates a filter expression sees exactly what the statement
+   * would.
    */
   /**
    * `removalScope` bounds which removals count when reading the candidates'
-   * solids (see SceneObject.getOwnShapes): a statement-boundary evaluation
-   * passes the objects before the boundary, so a solid a later feature
+   * bodies (see SceneObject.getOwnShapes): a statement-boundary evaluation
+   * passes the objects before the boundary, so a body a later feature
    * consumed is still a candidate there. Absent, hard removals apply as for
    * any feature build.
    */
@@ -173,9 +175,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     }
 
     const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes, removalScope, fromObjects);
-    if (type === "edge") {
-      SelectSceneObject.injectScopeFaces(filters, sceneObjects, removalScope);
-    }
+    SelectSceneObject.injectScope(filters, sceneObjects, removalScope);
     const releaseFrom = injectFromMembership(filters, removalScope);
     try {
       return SelectSceneObject.applyFilters(allShapes, filters);
@@ -249,11 +249,11 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
   }
 
   private static getAllShapes(type: ShapeType, scope: SceneObject[], exludedShapes: Shape[], removalScope?: Set<SceneObject>, fromObjects: SceneObject[] = []) {
-    const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid', removalScope).map(s => s.getSubShapes(type)).flat());
+    const scopeShapes = SelectSceneObject.bodiesIn(scope, removalScope).flatMap(body => body.getSubShapes(type));
     // A borrowed path can be a standalone helix/sketch or a copy of one.
     // Include curves explicitly named by .from(); unscoped edge filters keep
-    // their existing solid-only universe, so construction curves do not leak
-    // into an unrelated fillet/chamfer selection.
+    // to the bodies, so construction curves do not leak into an unrelated
+    // fillet/chamfer selection.
     if (type === "edge") {
       for (const obj of fromObjects) {
         scopeShapes.push(...obj.getShapes({}, undefined, removalScope)
@@ -309,15 +309,21 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return new SelectSceneObject(mirroredFilters);
   }
 
-  private static injectScopeFaces(
+  private static injectScope(
     filters: FilterBuilderBase<Shape>[],
     sceneObjects: SceneObject[],
     removalScope?: Set<SceneObject>,
   ): void {
     injectFilterScope(filters, () => ({
-      solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid', removalScope)) as Solid[],
+      bodies: SelectSceneObject.bodiesIn(sceneObjects, removalScope),
       extraFaces: [],
     }));
+  }
+
+  /** The bodies — solids and surfaces — the objects hold, meta shapes aside. */
+  private static bodiesIn(objects: SceneObject[], removalScope?: Set<SceneObject>): BodyShape[] {
+    return objects.flatMap(obj => obj.getShapes({}, undefined, removalScope)
+      .filter((shape): shape is BodyShape => shape.isBody()));
   }
 
   static applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {

@@ -1,38 +1,42 @@
 import { Matrix4 } from "../../math/matrix4.js";
 import { Edge, Face } from "../../common/shapes.js";
-import { Solid } from "../../common/solid.js";
+import type { BodyShape } from "../../common/body-shape.js";
 import { EdgeConvexity, EdgeConvexityOps } from "../../oc/edge-convexity.js";
 import { FilterBase } from "../filter-base.js";
 import { ScopeAwareFilter } from "../scope-injection.js";
 
 /**
- * Keeps edges by how the owning solid sits around them — outer corners
+ * Keeps edges by how the owning body sits around them — outer corners
  * (`convex`), inner corners (`concave`), or tangent transitions (`smooth`).
- * Scope-aware: the owning solid comes from the evaluator's scope injection
- * (`select()`'s scene solids, a bucket accessor's as-built solid). An edge
- * no scope solid owns with two faces has no convexity: it never matches the
- * positive form and always survives the negated one.
+ * Scope-aware: the owning body comes from the evaluator's scope injection
+ * (`select()`'s scene bodies, a bucket accessor's as-built body). On a
+ * surface the faces' normals as oriented stand for the outward ones: a fold
+ * that bulges toward the side its normals point to is convex, as a solid's
+ * outer corner bulges outward. An edge no
+ * scope body owns with two faces — a surface's open rim among them — has no
+ * convexity: it never matches the positive form and always survives the
+ * negated one.
  */
 export class ConvexityFilter extends FilterBase<Edge> implements ScopeAwareFilter {
-  private scopeSolids: Solid[] = [];
+  private scopeBodies: BodyShape[] = [];
 
   constructor(private kind: EdgeConvexity, private negate: boolean = false) {
     super();
   }
 
-  setScopeIndex(solids: Solid[], _extraFaces: Face[]): void {
-    this.scopeSolids = solids;
+  setScopeIndex(bodies: BodyShape[], _extraFaces: Face[]): void {
+    this.scopeBodies = bodies;
   }
 
   match(shape: Edge): boolean {
     let convexity: EdgeConvexity | null = null;
-    for (const solid of this.scopeSolids) {
-      // A solid that does not bound the edge cannot classify it — the
-      // solid's cached edge→faces table says so without a native lookup.
-      if (solid.getFacesOfEdge(shape).length === 0) {
+    for (const body of this.scopeBodies) {
+      // A body that does not bound the edge cannot classify it — the
+      // body's cached edge→faces table says so without a native lookup.
+      if (body.getFacesOfEdge(shape).length === 0) {
         continue;
       }
-      convexity = EdgeConvexityOps.classify(shape, solid);
+      convexity = EdgeConvexityOps.classify(shape, body);
       if (convexity !== null) {
         break;
       }

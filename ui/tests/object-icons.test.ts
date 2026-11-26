@@ -38,6 +38,10 @@ describe('icon artwork', () => {
     expect(existsSync(iconPath(icon))).toBe(true);
   });
 
+  it.each(['curves', 'surfaces'])('has the %s toolbar menu icon on disk', (icon) => {
+    expect(existsSync(iconPath(icon))).toBe(true);
+  });
+
   it('has the default icon on disk, since it backstops every missing PNG', () => {
     expect(existsSync(fileURLToPath(new URL(`../public/${DEFAULT_ICON_SRC}`, import.meta.url)))).toBe(true);
   });

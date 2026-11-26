@@ -6,10 +6,10 @@ import { EdgeProps } from "./edge-props.js";
 import { FaceProps } from "./face-props.js";
 
 /**
- * Mass-property measures the rank filters compare shapes by. Edges measure
- * through `LinearProperties` (length, center of the curve), faces through
- * `SurfaceProperties` (area, center of the surface). The center is the center
- * of mass, not a bounding extreme: a box's four rim edges and its vertical
+ * Mass-property measures the rank filters compare shapes by. Edges and
+ * curves measure through `LinearProperties` (length, center of the curve),
+ * faces and bodies through `SurfaceProperties` (area, center of the
+ * surface). The center is the center of mass, not a bounding extreme: a box's four rim edges and its vertical
  * edges all touch the top plane, but only the rim's centers lie on it, which
  * is what makes `farthest('z')` return the rim.
  */
@@ -87,7 +87,7 @@ export class ShapeMeasure {
     const oc = getOC();
     const props = new oc.GProp_GProps();
     const raw: TopoDS_Shape = shape.getShape();
-    if (shape.isEdge()) {
+    if (shape.isEdge() || shape.isWire()) {
       oc.BRepGProp.LinearProperties(raw, props, false, false);
     } else {
       oc.BRepGProp.SurfaceProperties(raw, props, false, false);

@@ -115,9 +115,16 @@ export type PartProperties = {
  * reports in³ / in² under them.
  */
 export type ShapeProperties = {
-  volumeMm3: number;
-  surfaceAreaMm2: number;
+  /** What the shape is; absent on servers that measured solids only. */
+  kind?: 'solid' | 'surface' | 'face' | 'curve' | 'vertex';
+  /** Solids only: a surface encloses no volume. */
+  volumeMm3?: number;
+  /** Solids, surfaces and faces. */
+  surfaceAreaMm2?: number;
+  /** Curves only. */
+  length?: number;
   centroid: { x: number; y: number; z: number };
+  boundingBox?: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } };
   /** The document unit the values are in; absent on servers predating units (mm). */
   unit?: LengthUnit;
 };

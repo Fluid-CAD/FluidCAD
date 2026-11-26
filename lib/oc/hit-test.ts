@@ -2,8 +2,16 @@ import type { TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { mmTol } from "../units/tolerance.js";
+import type { OperandKind } from "../common/operand-check.js";
 
-export type HitTestResult = { type: 'face'; index: number } | { type: 'edge'; index: number } | null;
+/**
+ * The face or edge a ray hits; `bodyKind` names what the shape hit is (a
+ * solid, a surface or a curve) when the scene reports it.
+ */
+export type HitTestResult =
+  | { type: 'face'; index: number; bodyKind?: OperandKind }
+  | { type: 'edge'; index: number; bodyKind?: OperandKind }
+  | null;
 
 export class OccHitTest {
   /**

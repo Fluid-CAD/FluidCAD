@@ -1,4 +1,5 @@
 import type { EntitySummary } from "./entity-summary.js";
+import type { OperandKind } from "../../common/operand-check.js";
 
 export interface MeasureVec {
   x: number;
@@ -42,6 +43,8 @@ export interface MeasureEntityRef {
 
 export interface MeasureEntityInfo {
   ref: MeasureEntityRef;
+  /** What the entity is part of: a solid, a surface or a curve. */
+  bodyKind?: OperandKind;
   geomType: string;
   area?: number;
   length?: number;

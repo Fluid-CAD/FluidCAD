@@ -199,8 +199,9 @@ describe("SelectionResolver — part scoping", () => {
     const match: ResolvedSelectionMatch = result.matches[0];
     // Every field earns its place: shapeId/kind/index address the entity for
     // measure and hit_test, sceneObjectId is the `$obj` key and the source
-    // statement, sceneObjectName/part say what owns it, summary describes
-    // it. Dropped on purpose: partId (the part name is the scope key and an
+    // statement, sceneObjectName/part say what owns it (bodyKind, left out
+    // on the common solid, says when that is a surface or a curve), summary
+    // describes it. Dropped on purpose: partId (the part name is the scope key and an
     // ambiguous name is refused with ids), raw MeasureVec objects (arrays
     // are a third shorter), unrounded coordinates. Anything else appearing
     // here is a payload regression.

@@ -273,7 +273,7 @@ export class SceneInterference {
       return {
         kind: 'refused',
         code: 'unknown-shape',
-        reason: `Shape ${notSolid.map(c => `"${c.shape.id}"`).join(', ')} is not a solid (sketch geometry or a helper shape has no volume to share); name solids only.`,
+        reason: `Shape ${notSolid.map(c => `"${c.shape.id}"`).join(', ')} is not a solid (a surface, a curve, sketch geometry or a helper shape has no volume to share); name solids only.`,
       };
     }
     return picked;

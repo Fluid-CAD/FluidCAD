@@ -20,6 +20,7 @@ import { SketchPointVertex } from '../features/sketch-point-ref.js';
 import { AnchoredLazyVertex } from '../features/anchored-vertex.js';
 import { PointResolver } from '../features/point-resolver.js';
 import { mmTol } from '../units/tolerance.js';
+import { operandKindOf, type OperandKind } from "../common/operand-check.js";
 import { pickedVertexPoint, topologyVertices } from "./vertex-pick.js";
 import type { LengthUnit } from "../units/units.js";
 import type { PickRef, SelectionScene, SynthesizeOptions } from "./types.js";
@@ -51,6 +52,12 @@ export type ResolvedSelectionMatch = {
   sceneObjectName: string;
   /** The owning part's name (null at root outside any part); the scope carries the part id. */
   part: string | null;
+  /**
+   * What the entity is part of when that is a surface or a curve. Absent on
+   * a solid's entity — the common case, kept out of every match's payload —
+   * and on a vertex whose owner is neither (a lone sketch point).
+   */
+  bodyKind?: Exclude<OperandKind, 'solid'>;
   summary: EntitySummary;
 } & ({ kind: MeasureEntityKind } | { kind: 'vertex' });
 
@@ -114,8 +121,9 @@ type EvaluatedItem =
 /** The expression's value: one selection or a list of them (`[e.endEdges(), edge().circle(5)]`). */
 type EvaluatedExpression = { items: EvaluatedItem[] };
 
-type EntityOwner = { object: SceneObject; solid: Shape; index: number };
-type SolidEntry = { object: SceneObject; solid: Shape };
+/** The shape a matched entity is addressed on — a body, a curve, or for a vertex whatever draws it — with its holder. */
+type OwnerEntry = { object: SceneObject; owner: Shape };
+type EntityOwner = OwnerEntry & { index: number };
 
 /**
  * Evaluates a FluidCAD filter expression (`face().onPlane("xy", 10)`,
@@ -226,7 +234,7 @@ export class SelectionExpression {
  * A statement boundary (`before`) truncates the world to the objects
  * strictly before that index — what the statement's arguments see at build
  * time, the same view `scopedSceneBefore` gives the edit dialogs — for the
- * candidates, `$obj`, and the solids the matches are addressed on.
+ * candidates, `$obj`, and the bodies and curves the matches are addressed on.
  *
  * `.from(obj)` inside the expression bypasses the scope, as in source, because
  * the candidate assembly is `SelectSceneObject.evaluateFilters` itself.
@@ -253,19 +261,19 @@ export class SelectionResolver {
       return { ok: false, code: scope.code, reason: scope.reason, ...(scope.candidates ? { candidates: scope.candidates } : {}) };
     }
 
-    const solids = SelectionResolver.solidsOf(view.objects, view.removalScope);
+    const owners = SelectionResolver.ownersIn(view.objects, view.removalScope);
     let matches: ResolvedSelectionMatch[];
     let warning: string | undefined;
     if (hasPicks) {
       const vertexShapes = request.picks!.some(pick => pick.sub.type === 'vertex')
         ? SelectionResolver.vertexShapesOf(view.objects, view.removalScope) : [];
-      const picked = SelectionResolver.resolvePicks(scene, request.picks!, solids, vertexShapes, scope, request.before);
+      const picked = SelectionResolver.resolvePicks(scene, request.picks!, owners, vertexShapes, scope, request.before);
       if (picked.ok === false) {
         return picked;
       }
       matches = picked.matches;
     } else {
-      const resolved = SelectionResolver.resolveExpression(scene, request.expression!, view, scope, solids);
+      const resolved = SelectionResolver.resolveExpression(scene, request.expression!, view, scope, owners);
       if (resolved.ok === false) {
         return resolved;
       }
@@ -314,7 +322,7 @@ export class SelectionResolver {
       };
     }
     // Removals by statements at or after the boundary have not happened in
-    // this world: a solid the boundary statement itself consumes is still
+    // this world: a body the boundary statement itself consumes is still
     // there, exactly as the rollback render shows it.
     const scoped = scopedSceneBefore(scene, before);
     const objects = scoped.getAllSceneObjects();
@@ -326,7 +334,7 @@ export class SelectionResolver {
     expression: string,
     view: { objects: SceneObject[]; removalScope: Set<SceneObject>; bounded: boolean },
     scope: Extract<ScopeResolution, { ok: true }>,
-    solids: SolidEntry[],
+    entries: OwnerEntry[],
   ): { ok: true; matches: ResolvedSelectionMatch[]; warning?: string } | Extract<ResolveSelectionResult, { ok: false }> {
     const before = view.bounded ? view.objects.length : undefined;
     let evaluated: EvaluatedExpression;
@@ -344,7 +352,7 @@ export class SelectionResolver {
       return { ok: false, code: 'not-a-selection', reason: e?.message ?? String(e) };
     }
 
-    const owners = SelectionResolver.ownersOf(solids, shapes);
+    const owners = SelectionResolver.ownersOf(entries, shapes);
     const matches: ResolvedSelectionMatch[] = [];
     for (const item of evaluated.items) {
       if (item.kind !== 'point') {
@@ -354,15 +362,15 @@ export class SelectionResolver {
         const position = PointResolver.toWorld(item.point);
         const sketch = item.point instanceof SketchPointVertex ? item.point.getSketch() : null;
         const anchor = item.point instanceof AnchoredLazyVertex
-          ? SelectionResolver.ownersOf(solids, [item.point.getAnchorShape()])[0] : null;
-        const entries = SelectionResolver.vertexShapesOf(scope.candidates, view.removalScope).filter(entry => {
+          ? SelectionResolver.ownersOf(entries, [item.point.getAnchorShape()])[0] : null;
+        const vertexOwners = SelectionResolver.vertexShapesOf(scope.candidates, view.removalScope).filter(entry => {
           if (sketch) {
             return entry.object.getParent() === sketch;
           }
-          return anchor ? entry.solid.id === anchor.solid.id : false;
+          return anchor ? entry.owner.id === anchor.owner.id : false;
         });
-        const found = entries.flatMap(entry => {
-          const points = topologyVertices(entry.solid);
+        const found = vertexOwners.flatMap(entry => {
+          const points = topologyVertices(entry.owner);
           const result: ResolvedSelectionMatch[] = [];
           for (let i = 0; i < points.length; i += 3) {
             const point = new Point(points[i], points[i + 1], points[i + 2]);
@@ -400,7 +408,7 @@ export class SelectionResolver {
   }
 
   /**
-   * Explicit picks address a face/edge by solid id and index, the way
+   * Explicit picks address a face/edge by body or curve id and index, the way
    * `hit_test` and `measure` do. Each must exist in the visible world and,
    * under a part scope, belong to that part — a `select()` there could never
    * name a face of another part.
@@ -408,8 +416,8 @@ export class SelectionResolver {
   private static resolvePicks(
     scene: Scene,
     picks: PickRef[],
-    solids: SolidEntry[],
-    vertexShapes: SolidEntry[],
+    owners: OwnerEntry[],
+    vertexShapes: OwnerEntry[],
     scope: Extract<ScopeResolution, { ok: true }>,
     before: number | undefined,
   ): { ok: true; matches: ResolvedSelectionMatch[] } | Extract<ResolveSelectionResult, { ok: false }> {
@@ -419,7 +427,7 @@ export class SelectionResolver {
     const matches: ResolvedSelectionMatch[] = [];
     for (const pick of picks) {
       const isVertex = pick.sub.type === 'vertex';
-      const entry = (isVertex ? vertexShapes : solids).find(s => s.solid.id === pick.shapeId);
+      const entry = (isVertex ? vertexShapes : owners).find(s => s.owner.id === pick.shapeId);
       if (!entry) {
         const where = before === undefined
           ? 'the scene (ids come from list_shapes / get_scene_summary)'
@@ -427,12 +435,12 @@ export class SelectionResolver {
         return {
           ok: false,
           code: 'unresolved-pick',
-          reason: `No ${isVertex ? 'shape' : 'solid'} "${pick.shapeId}" in ${where}.`,
+          reason: `No ${isVertex ? 'shape' : 'solid, surface or curve'} "${pick.shapeId}" in ${where}.`,
           pick,
         };
       }
 
-      const target = SelectionResolver.pickTarget(entry.solid, pick);
+      const target = SelectionResolver.pickTarget(entry.owner, pick);
       if (target.found === false) {
         return {
           ok: false,
@@ -452,7 +460,7 @@ export class SelectionResolver {
         };
       }
 
-      const owner = { object: entry.object, solid: entry.solid, index: pick.sub.index };
+      const owner = { object: entry.object, owner: entry.owner, index: pick.sub.index };
       if (target.vertex) {
         matches.push(SelectionResolver.toVertexMatch(scene, target.vertex, owner, scope.instance));
       } else {
@@ -463,14 +471,14 @@ export class SelectionResolver {
   }
 
   /**
-   * A selection can name sub-shapes no solid in the final model carries — a
+   * A selection can name sub-shapes no body or curve in the final model carries — a
    * feature accessor whose members a later operation consumed, or a stale
    * select(). Dropping them silently reads as "matches nothing"; say what
    * happened instead.
    */
   private static orphanWarning(orphaned: number, total: number, before: number | undefined): string {
     const world = before === undefined ? 'the final model' : `the world before statement index ${before}`;
-    return `${orphaned} of ${total} selected shape(s) belong to no solid in ${world} and were dropped — `
+    return `${orphaned} of ${total} selected shape(s) belong to no solid, surface or curve in ${world} and were dropped — `
       + 'a later feature consumed or reshaped them. Re-select on the visible geometry (a face()/edge() filter), '
       + 'or consume the accessor in source right after the feature that owns it.';
   }
@@ -598,18 +606,28 @@ export class SelectionResolver {
     return shapes;
   }
 
-  /** Every solid the visible leaf objects carry, with its owner; `removalScope` bounds which removals count (a boundary world). */
-  private static solidsOf(objects: SceneObject[], removalScope?: Set<SceneObject>): SolidEntry[] {
-    const solids: SolidEntry[] = [];
+  /**
+   * Every shape the visible leaf objects carry that a face or edge is
+   * addressed on, with its holder: the bodies (solids and surfaces) first,
+   * then the curves, so an edge a body and a curve share is named on the
+   * body. `removalScope` bounds which removals count (a boundary world).
+   */
+  private static ownersIn(objects: SceneObject[], removalScope?: Set<SceneObject>): OwnerEntry[] {
+    const bodies: OwnerEntry[] = [];
+    const curves: OwnerEntry[] = [];
     for (const object of objects) {
       if (object.isContainer()) {
         continue;
       }
-      for (const solid of object.getShapes({}, 'solid', removalScope)) {
-        solids.push({ object, solid });
+      for (const shape of object.getShapes({}, undefined, removalScope)) {
+        if (shape.isBody()) {
+          bodies.push({ object, owner: shape });
+        } else if (shape.isEdge() || shape.isWire()) {
+          curves.push({ object, owner: shape });
+        }
       }
     }
-    return solids;
+    return [...bodies, ...curves];
   }
 
   /** The sub-shape (face/edge) or the point (vertex) a pick names on its owning shape. */
@@ -634,10 +652,11 @@ export class SelectionResolver {
 
   /**
    * Every rendered shape a vertex pick may name. Faces and edges are picked on
-   * solids only; vertices also live on bare sketch edges, so their universe is
-   * wider — the entry's `solid` slot then holds whichever shape owns the vertex.
+   * bodies and curves only; vertices also live on bare sketch edges and lone
+   * points, so their universe is wider — the entry's `owner` is whichever
+   * shape owns the vertex.
    */
-  private static vertexShapesOf(objects: SceneObject[], removalScope?: Set<SceneObject>): SolidEntry[] {
+  private static vertexShapesOf(objects: SceneObject[], removalScope?: Set<SceneObject>): OwnerEntry[] {
     // Meta shapes stay out, except a lone meta vertex: a circle's centre mark
     // is the one pickable stand-in for the centre point (see the render
     // payload's `vertices`), so a hole or a loft can name it. Guides are in:
@@ -648,8 +667,8 @@ export class SelectionResolver {
     return objects.filter(object => !object.isContainer() && !object.isLazy()).flatMap(object =>
       object.getShapes({ excludeMeta: false, excludeGuide: false, includeDisplayHidden: true }, undefined, removalScope)
         .filter(shape => !shape.isMetaShape() || shape.getType() === 'vertex')
-        .map(solid => ({ object, solid })),
-    ).sort((a, b) => Number(a.solid.isGuideShape()) - Number(b.solid.isGuideShape()));
+        .map(owner => ({ object, owner })),
+    ).sort((a, b) => Number(a.owner.isGuideShape()) - Number(b.owner.isGuideShape()));
   }
 
   private static toVertexMatch(
@@ -668,32 +687,37 @@ export class SelectionResolver {
       }
     }
     const decimals = EntitySummaryBuilder.decimalsFor(scene.unit);
+    const bodyKind = SelectionResolver.bodyKindOf(owner.owner);
     return {
-      shapeId: owner.solid.id, kind: 'vertex', index: owner.index,
+      shapeId: owner.owner.id, kind: 'vertex', index: owner.index,
       sceneObjectId: owner.object.id, sceneObjectName: owner.object.getName(),
       part: scene.findEnclosingPart(owner.object)?.partName ?? null,
+      ...(bodyKind ? { bodyKind } : {}),
       summary: { form: 'vertex', center: point.toArray().map(value => EntitySummaryBuilder.round(value, decimals)) as [number, number, number] },
       ...(instance ? { instanceId: instance.instanceId, pose: instance.pose } : {}),
     };
   }
 
   /**
-   * The solid each matched face/edge belongs to, its index in that solid's
-   * face/edge list (the index `measure` and `hit_test` use), and the leaf
-   * scene object that owns the solid. Sub-shape wrappers are cached per
-   * solid, so identity matches first and `isSame` covers re-wrapped shapes.
+   * The body or curve each matched face/edge belongs to, its index in that
+   * shape's face/edge list (the index `measure` and `hit_test` use), and the
+   * leaf scene object that holds it. Sub-shape wrappers are cached per
+   * shape, so identity matches first and `isSame` covers re-wrapped shapes.
    */
-  private static ownersOf(solids: SolidEntry[], shapes: Shape[]): (EntityOwner | null)[] {
+  private static ownersOf(entries: OwnerEntry[], shapes: Shape[]): (EntityOwner | null)[] {
     return shapes.map(shape => {
       const kind = SelectionResolver.kindOf(shape);
-      for (const { object, solid } of solids) {
-        const subShapes = SelectionResolver.indexedShapes(solid, kind);
+      for (const { object, owner } of entries) {
+        if (kind === 'face' && !owner.isBody()) {
+          continue;
+        }
+        const subShapes = SelectionResolver.indexedShapes(owner, kind);
         let index = subShapes.indexOf(shape);
         if (index < 0) {
           index = subShapes.findIndex(s => s.isSame(shape));
         }
         if (index >= 0) {
-          return { object, solid, index };
+          return { object, owner, index };
         }
       }
       return null;
@@ -710,6 +734,12 @@ export class SelectionResolver {
     return shape.getIndexedShapes(kind);
   }
 
+  /** A match's `bodyKind`: the owner's kind when it is a surface or a curve. */
+  private static bodyKindOf(owner: Shape): ResolvedSelectionMatch['bodyKind'] {
+    const kind = operandKindOf(owner);
+    return kind === 'surface' || kind === 'curve' ? kind : undefined;
+  }
+
   private static kindOf(shape: Shape): MeasureEntityKind {
     return shape instanceof Face ? 'face' : 'edge';
   }
@@ -722,17 +752,19 @@ export class SelectionResolver {
   ): ResolvedSelectionMatch {
     const kind = SelectionResolver.kindOf(shape);
     const part = scene.findEnclosingPart(owner.object);
-    // Summarize the entity as its solid's explorer lists it rather than as
+    // Summarize the entity as its body's explorer lists it rather than as
     // the filter or a feature bucket wrapped it: that face is the one sure
     // to carry the orientation an outward normal is read from.
-    const indexed = SelectionResolver.indexedShapes(owner.solid, kind)[owner.index] ?? shape;
+    const indexed = SelectionResolver.indexedShapes(owner.owner, kind)[owner.index] ?? shape;
+    const bodyKind = SelectionResolver.bodyKindOf(owner.owner);
     const match: ResolvedSelectionMatch = {
-      shapeId: owner.solid.id,
+      shapeId: owner.owner.id,
       kind,
       index: owner.index,
       sceneObjectId: owner.object.id,
       sceneObjectName: owner.object.getName(),
       part: part?.partName ?? null,
+      ...(bodyKind ? { bodyKind } : {}),
       summary: SelectionResolver.summarize(indexed, kind, scene.unit, instance?.pose),
     };
     if (instance) {

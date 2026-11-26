@@ -60,7 +60,9 @@ import type { ShapeProperties } from "./oc/props.js";
 import { FaceProps } from "./oc/face-props.js";
 import type { FaceProperties } from "./oc/face-props.js";
 import { EdgeProps } from "./oc/edge-props.js";
-import type { EdgeProperties } from "./oc/edge-props.js";
+import type { EdgeEndpoints, EdgeProperties } from "./oc/edge-props.js";
+import { ShapeMeasure } from "./oc/shape-measure.js";
+import { operandKindOf } from "./common/operand-check.js";
 import { Explorer } from "./oc/explorer.js";
 import { OccHitTest } from "./oc/hit-test.js";
 import type { HitTestResult } from "./oc/hit-test.js";
@@ -389,7 +391,7 @@ class SceneManager {
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
-          return ShapeProps.getProperties(shape.getShape());
+          return ShapeProps.measure(shape);
         }
       }
     }
@@ -453,7 +455,7 @@ class SceneManager {
     }
   }
 
-  getEdgeProperties(scene: Scene, shapeId: string, edgeIndex: number): EdgeProperties | null {
+  getEdgeProperties(scene: Scene, shapeId: string, edgeIndex: number): (EdgeProperties & EdgeEndpoints) | null {
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
@@ -462,7 +464,8 @@ class SceneManager {
             if (edgeIndex < 0 || edgeIndex >= edges.length) {
               return null;
             }
-            return EdgeProps.getProperties(edges[edgeIndex].getShape());
+            const edge = edges[edgeIndex].getShape();
+            return { ...EdgeProps.getProperties(edge), ...EdgeProps.endpoints(edge) };
           } finally {
             for (const edge of edges) edge.dispose();
           }
@@ -474,6 +477,7 @@ class SceneManager {
 
   measure(scene: Scene, refs: MeasureEntityRef[]): MeasureResult | null {
     const inputs: MeasureInput[] = [];
+    const owners: Shape[] = [];
     const disposers: (() => void)[] = [];
     // Where the mates put each instance — read once, and only when an
     // entity names an instance without bringing a pose of its own.
@@ -520,12 +524,20 @@ class SceneManager {
           });
         }
         inputs.push({ ref, shape: subShape });
+        owners.push(shape);
       }
       if (inputs.length === 0) {
         return null;
       }
       // Measure runs outside any build scope: sample at the scene's own density.
-      return MeasureOps.measure(inputs, { quality: this.meshQuality, unit: scene.unit });
+      const result = MeasureOps.measure(inputs, { quality: this.meshQuality, unit: scene.unit });
+      result.entities.forEach((entity, i) => {
+        const bodyKind = operandKindOf(owners[i]);
+        if (bodyKind) {
+          entity.bodyKind = bodyKind;
+        }
+      });
+      return result;
     } finally {
       for (const dispose of disposers) {
         dispose();
@@ -838,11 +850,38 @@ class SceneManager {
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
         if (shape.id === shapeId) {
-          return OccHitTest.hitTest(shape.getShape(), rayOrigin, rayDir, edgeThreshold);
+          const hit = OccHitTest.hitTest(shape.getShape(), rayOrigin, rayDir, edgeThreshold);
+          const bodyKind = operandKindOf(shape);
+          return hit && bodyKind ? { ...hit, bodyKind } : hit;
         }
       }
     }
     return null;
+  }
+
+  /**
+   * The natural size of each listed shape the scene holds: the area of a
+   * solid, a surface or a face, the length of a curve. A cheap fixed-order
+   * integration, enough to tell shapes apart in a list; the exact values a
+   * user reads come from {@link getShapeProperties}. Ids the scene does not
+   * hold are left out.
+   */
+  getShapeSizes(scene: Scene, shapeIds: readonly string[]): Record<string, { area?: number; length?: number }> {
+    const wanted = new Set(shapeIds);
+    const sizes: Record<string, { area?: number; length?: number }> = {};
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (!wanted.has(shape.id) || sizes[shape.id]) {
+          continue;
+        }
+        if (shape.isBody() || shape.isFace()) {
+          sizes[shape.id] = { area: ShapeMeasure.size(shape) };
+        } else if (shape.isEdge() || shape.isWire()) {
+          sizes[shape.id] = { length: ShapeMeasure.size(shape) };
+        }
+      }
+    }
+    return sizes;
   }
 }
 

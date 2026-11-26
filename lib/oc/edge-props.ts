@@ -10,7 +10,38 @@ export interface EdgeProperties {
   minorRadius?: number;
 }
 
+export type EdgeEndpoints = {
+  start: { x: number; y: number; z: number };
+  end: { x: number; y: number; z: number };
+};
+
 export class EdgeProps {
+  /**
+   * Where an edge starts and ends, in the edge's own direction (a reversed
+   * edge starts at its curve's last point). A closed edge — a full circle —
+   * starts and ends at the same point.
+   */
+  static endpoints(edge: TopoDS_Shape): EdgeEndpoints {
+    const oc = getOC();
+    const ocEdge = oc.TopoDS.Edge(edge);
+    const first = oc.TopExp.FirstVertex(ocEdge, true);
+    const last = oc.TopExp.LastVertex(ocEdge, true);
+    const firstPnt = oc.BRep_Tool.Pnt(first);
+    const lastPnt = oc.BRep_Tool.Pnt(last);
+    try {
+      return {
+        start: { x: firstPnt.X(), y: firstPnt.Y(), z: firstPnt.Z() },
+        end: { x: lastPnt.X(), y: lastPnt.Y(), z: lastPnt.Z() },
+      };
+    } finally {
+      firstPnt.delete();
+      lastPnt.delete();
+      first.delete();
+      last.delete();
+      ocEdge.delete();
+    }
+  }
+
   static getProperties(edge: TopoDS_Shape): EdgeProperties {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);

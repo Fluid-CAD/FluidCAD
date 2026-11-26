@@ -188,11 +188,12 @@ export class PartPropertiesAggregator {
           continue;
         }
         shapeIds.push(shape.shapeId);
-        volume += props.volumeMm3;
-        area += props.surfaceAreaMm2;
-        weighted.x += props.centroid.x * props.volumeMm3;
-        weighted.y += props.centroid.y * props.volumeMm3;
-        weighted.z += props.centroid.z * props.volumeMm3;
+        const solidVolume = props.volumeMm3 ?? 0;
+        volume += solidVolume;
+        area += props.surfaceAreaMm2 ?? 0;
+        weighted.x += props.centroid.x * solidVolume;
+        weighted.y += props.centroid.y * solidVolume;
+        weighted.z += props.centroid.z * solidVolume;
       }
     }
     const centroid = volume > 0

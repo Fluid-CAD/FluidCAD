@@ -700,8 +700,10 @@ export class ShapePropertiesModal {
     const unit = props.unit && isLengthUnit(props.unit) ? props.unit : sceneUnit.current;
     const density = this.densityGcm3();
     // Mass = volume in document unit³ × grams per document unit³.
-    const massG = density === null ? null : props.volumeMm3 * density * ShapePropertiesModal.cm3PerUnit(unit);
-    return { volume: props.volumeMm3, surfaceArea: props.surfaceAreaMm2, centroid: props.centroid, massG, unit };
+    // The panel opens on solids; a shape measured without a volume reads as none.
+    const volume = props.volumeMm3 ?? 0;
+    const massG = density === null ? null : volume * density * ShapePropertiesModal.cm3PerUnit(unit);
+    return { volume, surfaceArea: props.surfaceAreaMm2 ?? 0, centroid: props.centroid, massG, unit };
   }
 
   private renderResults(): void {

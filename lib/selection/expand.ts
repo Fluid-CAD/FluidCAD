@@ -39,16 +39,19 @@ function toPickRefs(ref: PickRef, indices: number[]): PickRef[] {
 }
 
 /**
- * Every solid the scene renders, in scene order. Removals count when their
- * remover is in the scene: a boundary-scoped view keeps the solids a later
- * statement consumes, exactly as its rollback draws them.
+ * Every shape the scene renders that a `kind` pick can land on, in scene
+ * order: the bodies (solids and surfaces) and, for edges, the curves too.
+ * Removals count when their remover is in the scene: a boundary-scoped view
+ * keeps the bodies a later statement consumes, exactly as its rollback draws
+ * them.
  */
-function renderedSolids(scene: SelectionScene): Shape[] {
+function renderedPickOwners(scene: SelectionScene, kind: PickSubRef['type']): Shape[] {
   const objects = scene.getAllSceneObjects();
   const removalScope = new Set(objects);
   return objects
     .filter(obj => !obj.isContainer())
-    .flatMap(obj => obj.getShapes({}, 'solid', removalScope));
+    .flatMap(obj => obj.getShapes({}, undefined, removalScope))
+    .filter(shape => shape.isBody() || (kind === 'edge' && (shape.isEdge() || shape.isWire())));
 }
 
 /**
@@ -60,20 +63,20 @@ export type PickUniverse = { ref: PickRef; key: number }[];
 
 export function buildPickUniverse(scene: SelectionScene, index: SelectionIndex, kind: PickSubRef['type']): PickUniverse {
   const universe: PickUniverse = [];
-  for (const solid of renderedSolids(scene)) {
-    pickUniverse(solid, kind).forEach((shape, universeIndex) => {
-      universe.push({ ref: { shapeId: solid.id, sub: { type: kind, index: universeIndex } }, key: index.keyOf(shape) });
+  for (const owner of renderedPickOwners(scene, kind)) {
+    pickUniverse(owner, kind).forEach((shape, universeIndex) => {
+      universe.push({ ref: { shapeId: owner.id, sub: { type: kind, index: universeIndex } }, key: index.keyOf(shape) });
     });
   }
   return universe;
 }
 
 /**
- * A bucket's surviving members across every rendered solid, as pick refs in
+ * A bucket's surviving members across every rendered body, as pick refs in
  * universe order. The accessor the bucket backs (`e.startFaces()`) names
  * every member wherever it lives, so a feature that built several bodies at
  * once (a region extrude) expands to all of them. Bucket members are
- * as-built wrappers; the hash keys bridge them onto each solid's mesh-order
+ * as-built wrappers; the hash keys bridge them onto each body's mesh-order
  * universe, so members a later boolean consumed are skipped naturally.
  */
 export function bucketMembers(universe: PickUniverse, bucket: BucketRecord): PickRef[] {
@@ -83,7 +86,7 @@ export function bucketMembers(universe: PickUniverse, bucket: BucketRecord): Pic
 
 /**
  * Expand a picked edge (or face) to its full tangent chain on the owning
- * solid — the "Select with tangents" gesture. Returns every chain member as
+ * body or curve — the "Select with tangents" gesture. Returns every chain member as
  * a pick ref in mesh exploration order (the seed included), so the UI can
  * highlight them exactly like ordinary picks.
  */
@@ -121,7 +124,7 @@ export function expandTangentChain(scene: SelectionScene, ref: PickRef): ExpandT
 
 /**
  * Expand a picked edge (or face) to its whole classified bucket — the
- * double-click gesture ("the whole top rim") — across every rendered solid
+ * double-click gesture ("the whole top rim") — across every rendered body
  * that carries members of it.
  */
 export function expandBucket(scene: SelectionScene, ref: PickRef): ExpandBucketResult {
@@ -137,7 +140,7 @@ export function expandBucket(scene: SelectionScene, ref: PickRef): ExpandBucketR
 
     const members = bucketMembers(buildPickUniverse(scene, index, ref.sub.type), attr.producer.bucket);
     if (members.length === 0) {
-      return { ok: false, reason: 'no bucket member survives on the current solids' };
+      return { ok: false, reason: 'no bucket member survives on the current bodies' };
     }
 
     return {

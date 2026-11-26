@@ -80,10 +80,19 @@ export class FilterBuilderBase<TShape extends Shape = Shape> {
   }
 
   /**
+   * A new, empty builder of this one's own class: a transformed or remapped
+   * `face()` must still read as a face filter to `select()`, which tells a
+   * face selection from an edge one by the builder's class.
+   */
+  private emptyOfSameKind(): this {
+    return new (this.constructor as new () => this)();
+  }
+
+  /**
     * @internal
   */
-  transform(matrix: Matrix4): FilterBuilderBase<TShape> {
-    const transformedBuilder = new FilterBuilderBase<TShape>();
+  transform(matrix: Matrix4): this {
+    const transformedBuilder = this.emptyOfSameKind();
     for (const filter of this.filters) {
       transformedBuilder.filter(filter.transform(matrix) as FilterBase<TShape>);
     }
@@ -97,8 +106,8 @@ export class FilterBuilderBase<TShape extends Shape = Shape> {
   /**
     * @internal
   */
-  remap(remap: Map<SceneObject, SceneObject>): FilterBuilderBase<TShape> {
-    const remappedBuilder = new FilterBuilderBase<TShape>();
+  remap(remap: Map<SceneObject, SceneObject>): this {
+    const remappedBuilder = this.emptyOfSameKind();
     for (const filter of this.filters) {
       remappedBuilder.filter(filter.remap(remap) as FilterBase<TShape>);
     }

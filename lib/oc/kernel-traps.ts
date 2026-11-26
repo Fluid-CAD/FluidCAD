@@ -18,7 +18,8 @@ type TrapListener = (report: KernelTrapReport) => void;
  * The OpenCascade kernel's traps: a `WebAssembly.RuntimeError` thrown out of
  * the wasm module — "memory access out of bounds", "unreachable", "table
  * index is out of bounds". A trap is not an OCCT exception (those reach JS
- * as numbers and leave the kernel sound): it means C++ code read or jumped
+ * as a `WebAssembly.Exception`, decoded by `describeOcException`, and leave
+ * the kernel sound): it means C++ code read or jumped
  * somewhere it never should have, mid-operation. The module itself keeps
  * running, so the statement that trapped fails on its own row and the rest
  * of the model still renders, but the heap may now be corrupt — memory a

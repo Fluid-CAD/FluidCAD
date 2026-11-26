@@ -32,11 +32,10 @@
  * **Free what you make.** The binding's objects live on the kernel's heap
  * until freed, and a feature builds on every render. Run raw code inside
  * `this.occ(scope => …)`, whose scope frees every object constructed
- * through `scope.oc` when it ends (see {@link OccScope}). The binding's
- * `delete()` skips the C++ destructor, so even the scope can't free every
- * internal allocation of an algorithm without a `Clear()`; a long session
- * still grows a little. An ocjs build whose `delete()` runs
- * destructors frees all of it.
+ * through `scope.oc` when it ends (see {@link OccScope}). `delete()` runs
+ * the C++ destructor, so a freed object is freed in full; for the same
+ * reason, never free an object while another one still uses it (an
+ * `Extrema_*` object keeps a reference to the adaptor it was built from).
  *
  * Raw shapes come back into the kernel's wrappers through
  * `ShapeFactory.fromShape(raw)` (`fluidcad/sdk/kernel`), and a wrapper's raw

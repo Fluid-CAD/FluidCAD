@@ -27,22 +27,22 @@ export type OccScopeOptions = {
  * everything recorded is released in reverse order:
  *
  * - a transient's handle (`Geom_*`, `Poly_*`, a history) and a shape
- *   handle (`TopoDS_Shape` and its kinds) are nulled, then deleted: nulling
- *   drops their reference to the data they share, which `delete()` alone
- *   keeps — the binding's `delete()` skips the C++ destructor;
+ *   handle (`TopoDS_Shape` and its kinds) are nulled, then deleted. The
+ *   destructor that `delete()` runs drops their reference to the data they
+ *   share; nulling first only lets go of it early, it never frees it;
  * - any other object with a `Clear()` (the booleans, explorers, locations)
- *   is cleared, then deleted ({@link BooleanBuilders.release}): clearing is
- *   what frees the internals the skipped destructor would have;
+ *   is cleared, then deleted ({@link BooleanBuilders.release}). The
+ *   destructor frees the same internals, so clearing first is harmless;
  * - anything else is deleted;
  * - **never** an object the scope returns or keeps, nor a raw handle one
  *   of the returned or kept shape wrappers holds, nor one the scene holds
  *   ({@link OccScopeOptions.survivors}): freeing those would pull geometry
  *   out from under the model.
  *
- * The binding still can't free everything: an object whose internals only
- * its destructor releases (an algorithm without `Clear()`) leaves them on
- * the heap even when the scope deletes it. An ocjs build whose `delete()`
- * runs the destructor frees all of it.
+ * `delete()` runs the C++ destructor, so what the scope releases is freed
+ * in full, an algorithm's internals included. That is also why the order
+ * matters: an object deleted while another still uses it (the adaptor an
+ * `Extrema_*` object was built from) leaves the user reading freed memory.
  */
 export class OccScope {
   /**

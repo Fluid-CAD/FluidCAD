@@ -10,6 +10,8 @@ import { edge } from "../../filters/index.js";
 import { circle, bezier, line, yAxis } from "../../core/2d/index.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
+import { SelectSceneObject } from "../../features/select.js";
+import { getCurrentScene } from "../../scene-manager.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { getOC } from "../../oc/init.js";
@@ -407,6 +409,19 @@ describe("loft guides", () => {
       const l = guided(true);
       render();
       expect(l.getError()).toMatch(/loft\(\) uses a select\(\) that runs after it/);
+    });
+
+    it("claims the guide's selection, so a later bare call does not take it as the last selection", () => {
+      extrude(60, sketch("xy", () => testRect(40, 40)));
+      const a = sketch("xy", () => testRect(40, 40));
+      const b = sketch(plane("xy", { offset: 60 }), () => testRect(40, 40));
+      const rail = select(edge().verticalTo("xy").nearest("x").nearest("y")) as unknown as SelectSceneObject;
+      expect(getCurrentScene().getLastSelection()).toBe(rail);
+
+      loft(a, b).guides(rail).new();
+
+      expect(rail.isClaimed()).toBe(true);
+      expect(getCurrentScene().getLastSelection()).toBeNull();
     });
   });
 });

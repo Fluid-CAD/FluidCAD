@@ -19,6 +19,7 @@ import { Point, PointLike } from "../math/point.js";
 import { AnchoredLazyVertex } from "./anchored-vertex.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { PointResolver } from "./point-resolver.js";
+import { SelectSceneObject } from "./select.js";
 import { disposeBuildTemporaries } from "./build-temporaries.js";
 
 export class Loft extends ExtrudeBase implements ILoft {
@@ -68,6 +69,9 @@ export class Loft extends ExtrudeBase implements ILoft {
     if (guides.length === 0) {
       throw new Error("loft.guides: provide at least one guide curve.");
     }
+    // A guide arrives through the chain, where the builder's own claim of
+    // its arguments does not reach.
+    SelectSceneObject.claimOperands(guides, this.getSourceLocation());
     this._guides = guides;
     return this;
   }

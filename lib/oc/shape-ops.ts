@@ -328,6 +328,11 @@ export class ShapeOps {
    * for a spline curve, and so for every face boxed through its edges. It
    * held on every shape tried, but nothing says it must; those shapes go
    * to the exact box, which is costly only for the faces covered here.
+   *
+   * One thing here is still read the sampled way: the face's UV bounds,
+   * off its boundary's 2D curves, which say which spans the face covers.
+   * Should they fall short, what the box leaves out is a sliver past a
+   * knot line, as thin as the shortfall.
    */
   static controlHullRaw(shape: TopoDS_Shape): BoundingBox | null {
     const oc = getOC();

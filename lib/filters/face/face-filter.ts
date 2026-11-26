@@ -29,7 +29,7 @@ import { EdgeFilterBuilder } from "../edge/edge-filter.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ISceneObject } from "../../core/interfaces.js";
 import { PlaneRefSource } from "../plane-ref.js";
-import { DirectionLike } from "../direction.js";
+import { DirectionLike, checkDirection } from "../direction.js";
 import { ExtremalFilter } from "../rank/extremal.js";
 import { MeasureExtremeFilter, SizeMeasure } from "../rank/measure.js";
 import { BodyKindFilter } from "../body-kind.js";
@@ -374,7 +374,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param within - The largest angle, in degrees, between the normal and the direction (default 45).
    */
   facing(direction: DirectionLike, within: number = 45) {
-    this.filters.push(new FacingFilter(direction, FaceFilterBuilder.checkWithin(within)));
+    this.filters.push(new FacingFilter(checkDirection(direction, 'facing(direction, within)'), FaceFilterBuilder.checkWithin(within)));
     return this;
   }
 
@@ -384,7 +384,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param within - The largest angle, in degrees, between the normal and the direction (default 45).
    */
   notFacing(direction: DirectionLike, within: number = 45) {
-    this.filters.push(new NotFacingFilter(direction, FaceFilterBuilder.checkWithin(within)));
+    this.filters.push(new NotFacingFilter(checkDirection(direction, 'notFacing(direction, within)'), FaceFilterBuilder.checkWithin(within)));
     return this;
   }
 
@@ -605,7 +605,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
    */
   farthest(direction: DirectionLike) {
-    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'farthest' }));
+    this.filters.push(new ExtremalFilter<Face>(checkDirection(direction, 'farthest(direction)'), { kind: 'farthest' }));
     return this;
   }
 
@@ -614,7 +614,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
    */
   notFarthest(direction: DirectionLike) {
-    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'farthest' }, true));
+    this.filters.push(new ExtremalFilter<Face>(checkDirection(direction, 'notFarthest(direction)'), { kind: 'farthest' }, true));
     return this;
   }
 
@@ -624,7 +624,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
    */
   nearest(direction: DirectionLike) {
-    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'nearest' }));
+    this.filters.push(new ExtremalFilter<Face>(checkDirection(direction, 'nearest(direction)'), { kind: 'nearest' }));
     return this;
   }
 
@@ -633,7 +633,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
    */
   notNearest(direction: DirectionLike) {
-    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'nearest' }, true));
+    this.filters.push(new ExtremalFilter<Face>(checkDirection(direction, 'notNearest(direction)'), { kind: 'nearest' }, true));
     return this;
   }
 
@@ -648,7 +648,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     if (!Number.isInteger(index)) {
       throw new Error(`nth(direction, index): index must be an integer (got ${index})`);
     }
-    this.filters.push(new ExtremalFilter<Face>(direction, { kind: 'nth', index }));
+    this.filters.push(new ExtremalFilter<Face>(checkDirection(direction, 'nth(direction, index)'), { kind: 'nth', index }));
     return this;
   }
 

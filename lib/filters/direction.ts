@@ -52,6 +52,29 @@ export function resolveDirection(direction: DirectionLike): Vector3d {
   return normalizeAxis(direction as AxisLike).direction.normalize();
 }
 
+/**
+ * Refuses, where the filter is written, a direction that can never resolve:
+ * a plane name or any other unknown string, a zero vector. A filter is
+ * evaluated shape by shape and a shape whose test throws is dropped, so a
+ * bad direction left to match time selects nothing without a word. An axis
+ * feature has no axis until it is built, so it is taken on trust here.
+ * `call` names the filter in the message: `facing(direction, within)`.
+ */
+export function checkDirection<D extends DirectionLike>(direction: D, call: string): D {
+  if (direction instanceof AxisObjectBase) {
+    return direction;
+  }
+  try {
+    resolveDirection(direction);
+  } catch (e) {
+    const reason = typeof direction === 'string'
+      ? `'${direction}' is not a direction — use 'x', 'y', 'z', '-x', '-y', '-z', a vector, or an axis`
+      : (e as Error).message;
+    throw new Error(`${call}: ${reason}`);
+  }
+  return direction;
+}
+
 /** Structural equality of two direction arguments (scene-compare reuse). */
 export function compareDirections(a: DirectionLike, b: DirectionLike): boolean {
   if (a instanceof AxisObjectBase || b instanceof AxisObjectBase) {

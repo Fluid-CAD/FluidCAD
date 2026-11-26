@@ -198,6 +198,21 @@ describe("rank filters: largest / smallest", () => {
     expect(notBig.getShapes()).toHaveLength(4);
   });
 
+  it("refuses a direction that names none, where the filter is written", () => {
+    expect(() => face().farthest("xy" as never)).toThrow("farthest(direction): 'xy' is not a direction");
+    expect(() => face().notFarthest("top" as never)).toThrow("notFarthest(direction): 'top' is not a direction");
+    expect(() => face().nearest("xz" as never)).toThrow("nearest(direction): 'xz' is not a direction");
+    expect(() => face().notNearest([0, 0, 0])).toThrow(/notNearest\(direction\): .*zero/);
+    expect(() => face().nth("up" as never, 1)).toThrow("nth(direction, index): 'up' is not a direction");
+    expect(() => edge().farthest("xy" as never)).toThrow("farthest(direction): 'xy' is not a direction");
+    expect(() => edge().notFarthest("xy" as never)).toThrow("notFarthest(direction): 'xy' is not a direction");
+    expect(() => edge().nearest([0, 0, 0])).toThrow(/nearest\(direction\): .*zero/);
+    expect(() => edge().notNearest("-xy" as never)).toThrow("notNearest(direction): '-xy' is not a direction");
+    expect(() => edge().nth("yz" as never, 0)).toThrow("nth(direction, index): 'yz' is not a direction");
+    expect(() => face().farthest("-z")).not.toThrow();
+    expect(() => edge().nearest([0, 1, 1])).not.toThrow();
+  });
+
   it("integrates a shape once for its centre and its size, whichever is read first", () => {
     box();
     const faces = select(face()) as SelectSceneObject;

@@ -27,7 +27,7 @@ import { AbovePlaneFilter, BelowPlaneFilter } from "./above-below.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ISceneObject } from "../../core/interfaces.js";
 import { PlaneRefSource } from "../plane-ref.js";
-import { DirectionLike } from "../direction.js";
+import { DirectionLike, checkDirection } from "../direction.js";
 import { ConvexityFilter } from "./convexity.js";
 import { ExtremalFilter } from "../rank/extremal.js";
 import { MeasureExtremeFilter, SizeMeasure } from "../rank/measure.js";
@@ -658,7 +658,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
    */
   farthest(direction: DirectionLike) {
-    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'farthest' }));
+    this.filters.push(new ExtremalFilter<Edge>(checkDirection(direction, 'farthest(direction)'), { kind: 'farthest' }));
     return this;
   }
 
@@ -667,7 +667,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
    */
   notFarthest(direction: DirectionLike) {
-    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'farthest' }, true));
+    this.filters.push(new ExtremalFilter<Edge>(checkDirection(direction, 'notFarthest(direction)'), { kind: 'farthest' }, true));
     return this;
   }
 
@@ -677,7 +677,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
    */
   nearest(direction: DirectionLike) {
-    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'nearest' }));
+    this.filters.push(new ExtremalFilter<Edge>(checkDirection(direction, 'nearest(direction)'), { kind: 'nearest' }));
     return this;
   }
 
@@ -686,7 +686,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * @param direction - `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis.
    */
   notNearest(direction: DirectionLike) {
-    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'nearest' }, true));
+    this.filters.push(new ExtremalFilter<Edge>(checkDirection(direction, 'notNearest(direction)'), { kind: 'nearest' }, true));
     return this;
   }
 
@@ -701,7 +701,7 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
     if (!Number.isInteger(index)) {
       throw new Error(`nth(direction, index): index must be an integer (got ${index})`);
     }
-    this.filters.push(new ExtremalFilter<Edge>(direction, { kind: 'nth', index }));
+    this.filters.push(new ExtremalFilter<Edge>(checkDirection(direction, 'nth(direction, index)'), { kind: 'nth', index }));
     return this;
   }
 

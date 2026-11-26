@@ -236,6 +236,12 @@ describe("face kind predicates", () => {
       expect(filter.compareTo(face().facing([1, 0, 0], 30).getFilters()[0] as FacingFilter)).toBe(true);
     });
 
+    it("refuses a direction that names none, where the filter is written", () => {
+      expect(() => face().facing("xy" as never)).toThrow("facing(direction, within): 'xy' is not a direction");
+      expect(() => face().notFacing("up" as never)).toThrow("notFacing(direction, within): 'up' is not a direction");
+      expect(() => face().facing([0, 0, 0])).toThrow(/facing\(direction, within\): .*zero/);
+    });
+
     it("refuses an angle outside 0 to 180 degrees", () => {
       expect(() => face().facing("z", -1)).toThrow(/within/);
       expect(() => face().facing("z", 181)).toThrow(/within/);

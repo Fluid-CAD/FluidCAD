@@ -196,6 +196,66 @@ describe("Producers", () => {
     });
   });
 
+  describe("a sweep's path, in its preview", () => {
+    /** The preview of a Ø4 circle on XY at line 5 swept along the statement at `line`. */
+    function sweepPreview(scene: Scene, line: number): FeatureGhostResult {
+      return buildFeatureGhost(scene, {
+        feature: "sweep",
+        op: "add",
+        thin: null,
+        profile: { filePath: FILE, line: 5 },
+        path: { kind: "wire", filePath: FILE, line },
+      }, DEFAULT_MESH_CONFIG);
+    }
+
+    /** The z extent of the preview's first body. */
+    function height(result: FeatureGhostResult): number {
+      if ("reason" in result) {
+        throw new Error(`the preview refused: ${result.reason}`);
+      }
+      const zs = result.solids[0].meshes.flatMap(mesh => mesh.vertices.filter((_, i) => i % 3 === 2));
+      return Math.max(...zs) - Math.min(...zs);
+    }
+
+    it("runs along a curve tool's result, a wire, named by its statement", () => {
+      const spine = chord([0, 0, 0], [0, 0, 30]);
+      setLocation(spine, 3);
+      const profile = sketch("xy", () => {
+        circle([0, 0], 4);
+      });
+      setLocation(profile, 5);
+      const scene = render();
+
+      expect(height(sweepPreview(scene, 3))).toBeCloseTo(30, 3);
+    });
+
+    it("runs along a curve the edited sweep itself consumed", () => {
+      const coil = helix("z").radius(10).pitch(5).turns(2);
+      setLocation(coil, 3);
+      const profile = sketch("xz", () => {
+        circle([10, 0], 2);
+      });
+      setLocation(profile, 5);
+      const swept = asObject(sweep(coil, profile));
+      const scene = render();
+
+      expect(swept.getError()).toBeNull();
+      expect(height(sweepPreview(scene, 3))).toBeGreaterThan(10);
+    });
+
+    it("does not take a solid's statement for a path", () => {
+      const box = block();
+      setLocation(box, 3);
+      const profile = sketch("xy", () => {
+        circle([0, 0], 4);
+      });
+      setLocation(profile, 5);
+      const scene = render();
+
+      expect(sweepPreview(scene, 3).ok).toBe(false);
+    });
+  });
+
   describe("holdsSurface", () => {
     it("is true of an imported surface, alone or beside a solid or a curve", () => {
       const surface = asObject(loadShapes([TestSheets.plate(10, 10)]));

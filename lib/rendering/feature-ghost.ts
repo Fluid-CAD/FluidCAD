@@ -64,6 +64,7 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import { SplitOps, type SplitCutter } from "../oc/split-ops.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { CurveOperand } from "../helpers/curve-operand.js";
+import { Producers } from "../selection/producers.js";
 import { MeshBuilder } from "./mesh-builder.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import { transformMeshes } from "./mesh-transform.js";
@@ -3566,13 +3567,15 @@ export function findProfile(
 }
 
 /**
- * The wire statement a loft guide or a sweep path names: a sketch or a helix,
- * the two things `loft.guides()` accepts (feature-sources.ts:178) and the two
- * the sweep dialog's path slot offers.
+ * The wire statement a loft guide or a sweep path names: a sketch, or a
+ * curve producer (a helix, a curve tool's result, an imported curve). The
+ * question is asked with no removal applied, as the edges are read: the
+ * statement being edited has consumed its own path.
  */
 function findWireSource(scene: Scene, ref: { filePath: string; line: number }): SceneObject | null {
+  const unconsumed = new Set<SceneObject>();
   return objectsAt(scene, ref)
-    .find(obj => obj.getType() === 'sketch' || obj.getType() === 'helix') ?? null;
+    .find(obj => obj.getType() === 'sketch' || Producers.isCurveProducer(obj, unconsumed)) ?? null;
 }
 
 /**
@@ -3745,8 +3748,14 @@ export function profileEdgesWithOwner(profile: Extrudable): Map<Edge, GeometrySc
  * them would show a surface the apply never produces.
  */
 function wireSourceEdges(source: SceneObject): Edge[] {
-  const edges = onlyEdges(source.getShapes(undefined, 'edge'));
-  return edges.length > 0 ? edges : unconsumedEdges(source);
+  const edges = curveEdges(source.getShapes());
+  return edges.length > 0 ? edges : curveEdges(source.getShapes(undefined, undefined, new Set<SceneObject>()));
+}
+
+/** The edges of the curves among `shapes`: an edge itself, and a wire's edges in its walk. */
+function curveEdges(shapes: Shape[]): Edge[] {
+  return [...new Set(shapes.flatMap(shape => (shape instanceof Wire ? shape.getEdges() : [shape])))]
+    .filter((shape): shape is Edge => shape instanceof Edge);
 }
 
 /** The object's edges read as if no consumer had removed anything. */

@@ -27,10 +27,10 @@ import { mmTol, mmTol3 } from "../units/tolerance.js";
  */
 export type SplitCutter =
   | { kind: 'plane'; plane: Plane }
-  | { kind: 'sheet'; edges: TopoDS_Edge[]; normal: Vector3d };
+  | { kind: 'surface'; edges: TopoDS_Edge[]; normal: Vector3d };
 
 /** A sheet cutter, for the callers that have already told the two apart. */
-export type SplitSheet = Extract<SplitCutter, { kind: 'sheet' }>;
+export type SplitSheet = Extract<SplitCutter, { kind: 'surface' }>;
 
 /** One piece a split made of a solid, with which side of the cut it lies on. */
 export type SplitPiece = {
@@ -110,7 +110,7 @@ export class SplitOps {
       ? SplitOps.makePlaneTool(cutter.plane, bbox, diagonal)
       : SplitOps.makeSheetTool(cutter, bbox);
 
-    if (cutter.kind === 'sheet' && !SplitOps.boundsOverlap(bbox, ShapeOps.getBoundingBox(tool), mmTol(1e-6))) {
+    if (cutter.kind === 'surface' && !SplitOps.boundsOverlap(bbox, ShapeOps.getBoundingBox(tool), mmTol(1e-6))) {
       tool.delete();
       return none;
     }

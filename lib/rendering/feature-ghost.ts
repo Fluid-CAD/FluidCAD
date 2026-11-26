@@ -2480,7 +2480,7 @@ function resolveSplitCutter(scene: Scene, ref: GhostPlaneRef, scratch: Shape[]):
     }
     return cutter.kind === 'plane'
       ? { kind: 'plane', plane: cutter.plane }
-      : { kind: 'sheet', edges: cutter.edges.map(edge => edge.getShape()), normal: cutter.normal };
+      : { kind: 'surface', edges: cutter.edges.map(edge => edge.getShape()), normal: cutter.normal };
   }
   const plane = resolveGhostPlane(scene, ref, scratch);
   return plane ? { kind: 'plane', plane } : null;
@@ -2576,7 +2576,7 @@ function splitGhostTool(cutter: SplitCutter, solids: Shape[]): { shape: Shape; n
     (bbox.minY + bbox.maxY) / 2,
     (bbox.minZ + bbox.maxZ) / 2,
   );
-  if (cutter.kind === 'sheet') {
+  if (cutter.kind === 'surface') {
     const shape = ShapeFactory.fromShape(SplitOps.makeSheetTool(cutter, bbox));
     const { foot, front } = SplitOps.sheetFrontAt(middle, cutter);
     // The arrow sits on the sheet at the height of the bounds' centre.

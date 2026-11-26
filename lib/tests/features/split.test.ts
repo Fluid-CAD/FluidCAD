@@ -338,7 +338,7 @@ describe("split", () => {
       expect(volume(pieces[0]) + volume(pieces[1])).toBeCloseTo(40 * 30 * 10, 2);
       // A sheet has no plane; the cut reports itself as one.
       expect(s.getPlane()).toBeNull();
-      expect(s.getCutKind()).toBe('sheet');
+      expect(s.getCutKind()).toBe('surface');
       expect(e.getShapes().length).toBe(0);
       expect(sceneSolids(scene).length).toBe(2);
       expect(s.getError()).toBeNull();
@@ -395,7 +395,7 @@ describe("split", () => {
       const pieces = s.getShapes();
       expect(pieces.length).toBe(2);
       expect(volume(pieces[0]) + volume(pieces[1])).toBeCloseTo(40 * 30 * 10, 2);
-      expect(s.getCutKind()).toBe('sheet');
+      expect(s.getCutKind()).toBe('surface');
       expect(s.getError()).toBeNull();
     });
 
@@ -535,7 +535,7 @@ describe("split", () => {
 
       render();
 
-      expect(s.getCutKind()).toBe('sheet');
+      expect(s.getCutKind()).toBe('surface');
       // The original's sliver lies beyond x = 14.5; the image took its other piece.
       expect(s.getShapes().length).toBe(1);
       expect(ShapeOps.getBoundingBox(s.getShapes()[0]).minX).toBeCloseTo(14.54, 1);
@@ -543,7 +543,7 @@ describe("split", () => {
       // The image's front is the image of the original's: its sliver lies
       // beyond x = -14.5, and the middle piece spans the two cuts.
       const clone = r.getInstanceRoots(1)[0] as Split;
-      expect(clone.getCutKind()).toBe('sheet');
+      expect(clone.getCutKind()).toBe('surface');
       const pieces = clone.getShapes();
       expect(pieces.length).toBe(2);
       expect(ShapeOps.getBoundingBox(pieces[0]).maxX).toBeCloseTo(-14.54, 1);

@@ -17,7 +17,7 @@ import { ISplit } from "../core/interfaces.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
 import { CutterFromSketchEdge } from "./cutter-from-sketch-edge.js";
 
-/** A side of the cut: `front` is where the plane normal (or the sheet's tangent × sketch normal) points. */
+/** A side of the cut: `front` is where the plane normal (or the surface's tangent × sketch normal) points. */
 export type SplitSide = 'front' | 'back';
 
 /** Which pieces a split keeps — both sides, or one of them. */
@@ -31,7 +31,7 @@ export type SplitOptions = {
 
 export const SPLIT_KEEP_VALUES: readonly SplitKeep[] = ['both', 'front', 'back'];
 
-/** What a split names as its cut: a plane datum, or a sketched edge's plane or sheet. */
+/** What a split names as its cut: a plane datum, or a sketched edge's plane or surface. */
 export type SplitCut = PlaneObjectBase | CutterFromSketchEdge;
 
 /**
@@ -194,7 +194,7 @@ export class Split extends SceneObject implements ISplit {
         return { kind: 'plane', plane: seed.plane };
       }
       this.setState('plane', null);
-      return { kind: 'sheet', edges: seed.edges.map(edge => edge.getShape()), normal: seed.normal };
+      return { kind: 'surface', edges: seed.edges.map(edge => edge.getShape()), normal: seed.normal };
     }
 
     this.cut.removeShapes(this);
@@ -240,8 +240,8 @@ export class Split extends SceneObject implements ISplit {
   }
 
   /** What the split cut with: a plane, or a sketched curve's sheet. */
-  getCutKind(): 'plane' | 'sheet' {
-    return (this.getState('cut-kind') as 'plane' | 'sheet' | undefined) ?? 'plane';
+  getCutKind(): 'plane' | 'surface' {
+    return (this.getState('cut-kind') as 'plane' | 'surface' | undefined) ?? 'plane';
   }
 
   /**

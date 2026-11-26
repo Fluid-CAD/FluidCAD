@@ -23,7 +23,7 @@ import { GeometrySceneObject } from "./2d/geometry.js";
  */
 export type SketchEdgeCutter =
   | { kind: 'plane'; plane: Plane; center: Point }
-  | { kind: 'sheet'; edges: Edge[]; normal: Vector3d; center: Point };
+  | { kind: 'surface'; edges: Edge[]; normal: Vector3d; center: Point };
 
 /**
  * The cutter a sketched edge seeds (see {@link SketchEdgeCutter}). The
@@ -75,7 +75,7 @@ export function sketchEdgeCutter(geometry: GeometrySceneObject, consumer = 'spli
   const chained = chainEdges(edges);
   const bbox = ShapeOps.unionBoundingBoxes(chained.map(edge => ShapeOps.getBoundingBox(edge)));
   return {
-    kind: 'sheet',
+    kind: 'surface',
     edges: chained,
     normal: sketchNormal,
     center: new Point((bbox.minX + bbox.maxX) / 2, (bbox.minY + bbox.maxY) / 2, (bbox.minZ + bbox.maxZ) / 2),
@@ -133,7 +133,7 @@ function moveCutter(cutter: SketchEdgeCutter, matrix: Matrix4): SketchEdgeCutter
   }
   const normal = matrix.transformDirection(cutter.normal);
   return {
-    kind: 'sheet',
+    kind: 'surface',
     edges: cutter.edges.map(edge => ShapeOps.transform(edge, matrix) as Edge),
     normal: matrix.isMirroring() ? normal.negate() : normal,
     center,
@@ -243,6 +243,6 @@ export class CutterFromSketchEdge extends SceneObject {
         center: cutter.center,
       };
     }
-    return { kind: 'sheet', normal: cutter.normal, center: cutter.center, edges: cutter.edges.length };
+    return { kind: 'surface', normal: cutter.normal, center: cutter.center, edges: cutter.edges.length };
   }
 }

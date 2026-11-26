@@ -25,7 +25,7 @@ export type {
  * `label` = `<Type> <n>` (n per part and per shape type, timeline order —
  * "Solid 2"), `part` = the enclosing part's name (null for a shape no part
  * holds, listed under "Model"). Both are absent on a meta shape (a sketch's
- * plane quad, a guide), which has no row. `lineageKey` (solids only) is the
+ * plane quad, a guide), which has no row. `lineageKey` (solids and surfaces) is the
  * body's identity across renders — stable through the agent's own edits,
  * where `shapeId` is minted afresh whenever the holder rebuilds.
  */

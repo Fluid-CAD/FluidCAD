@@ -630,7 +630,7 @@ export class SceneRenderer {
     const grouped = this.getOrBuildMeshes(shape, holder, scope, profiler);
     return {
       shapeId: shape.id,
-      lineageKey: shape.getType() === 'solid' && !shape.isMetaShape() && !shape.isGuideShape()
+      lineageKey: shape.isBody() && !shape.isMetaShape() && !shape.isGuideShape()
         ? this.lineageKeys.get(shape)
         : undefined,
       meshKey: grouped

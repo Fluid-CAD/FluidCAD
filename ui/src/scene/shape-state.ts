@@ -17,7 +17,7 @@ export type LineageRoot = {
 /**
  * Hidden and transparency state of the shapes panel, keyed so it survives
  * a render that mints new shape ids (D7 of shape-naming-and-lineage). A
- * solid is keyed by its `lineageKey` (the lib's BodyLineage: the feature
+ * body (a solid or a surface) is keyed by its `lineageKey` (the lib's BodyLineage: the feature
  * that created the body, followed through every fillet, cut, split and
  * copy); everything else — a sketch wire, a datum, a mesh without a lineage
  * — is keyed `shape:<shapeId>` and so lives exactly one render, as before.

@@ -18,7 +18,9 @@ const PRODUCER_CALLEES = new Set([
  * repeatable scene feature. Broader than {@link PRODUCER_CALLEES}: a repeat
  * only binds the call to a variable and passes it along (`repeat(…, f)`), it
  * never chains selector accessors onto it, so modifier and primitive calls
- * qualify too.
+ * qualify too. The move, copy and colour targets take the same list: what
+ * they name may hold a surface or a curve rather than a solid — `load()`
+ * brings both in from a file, `helix()` draws a curve.
  */
 const REPEAT_TARGET_CALLEES = new Set([
   ...PRODUCER_CALLEES,

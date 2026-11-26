@@ -49,7 +49,7 @@ export type FaceBoundedSweepResult = {
 export class FaceBoundedSweep {
   /** The target ends the sweep with a plain prism: a plane parallel to the sketch plane. */
   static endsWithPrism(startFace: Face, targetFace: Face): boolean {
-    return FaceQuery.isPlanarFace(targetFace) && FaceQuery.areFacePlanesParallel(startFace, targetFace);
+    return FaceQuery.forBuilding.isPlanar(targetFace) && FaceQuery.areFacePlanesParallel(startFace, targetFace);
   }
 
   /** Sweep one profile face up to the target. */
@@ -104,7 +104,7 @@ export class FaceBoundedSweep {
         const distance = mode === 'first' ? hit.entry : hit.exit;
         const closer = mode === 'first' ? distance < bestDistance - same : distance > bestDistance + same;
         const tied = Math.abs(distance - bestDistance) <= same;
-        const planar = FaceQuery.isPlanarFace(face);
+        const planar = FaceQuery.forBuilding.isPlanar(face);
         if (closer || (tied && planar && !bestPlanar)) {
           best = face;
           bestDistance = distance;
@@ -131,7 +131,7 @@ export class FaceBoundedSweep {
    * by half again so a tilted plane is crossed over the whole profile.
    */
   private static split(startFace: Face, targetFace: Face, sketchPlane: Plane, options: FaceBoundedSweepOptions): Shape[] {
-    const isPlanar = FaceQuery.isPlanarFace(targetFace);
+    const isPlanar = FaceQuery.forBuilding.isPlanar(targetFace);
     let distance = FaceBoundedSweep.signedDistanceToFace(targetFace, sketchPlane);
     if (isPlanar) {
       distance *= 1.5;
@@ -167,7 +167,7 @@ export class FaceBoundedSweep {
         ? FaceQuery.makeInfinitePlanarFace(targetFace, endOffset, sketchPlane.normal.reverse())
         : FaceQuery.makeInfinitePlanarFace(targetFace);
     }
-    const surfaceType = FaceQuery.getSurfaceType(targetFace);
+    const surfaceType = FaceQuery.forBuilding.surfaceType(targetFace);
     if (surfaceType === 'cylinder') {
       return FaceQuery.makeInfiniteCylindricalFace(targetFace, endOffset);
     }

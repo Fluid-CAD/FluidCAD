@@ -229,8 +229,9 @@ function circleBounds(center: MeasureVec, dir: MeasureVec, xDir: MeasureVec, yDi
 
 function classifyContactFace(shape: Shape): ContactEntity | null {
   const raw = shape.getShape();
-  // The wrapper's class is kept with it: one recovery answers the form and a cone's frame.
-  const surface = SurfaceClassifier.classify(shape as Face);
+  // A contact hands the solver the face's plane, axis or radius to mate
+  // against, so the face is read as a feature that builds on it reads it.
+  const surface = SurfaceClassifier.forBuilding(shape as Face);
   const classified = classifyFace(raw, surface);
 
   if (classified.form === 'plane') {

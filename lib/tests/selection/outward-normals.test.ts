@@ -185,11 +185,11 @@ describe("FaceOps.outwardNormalRaw on curved faces", () => {
     const solids = scene.getAllSceneObjects().flatMap(o => o.getAddedShapes()).filter((s): s is Solid => s instanceof Solid);
     const cylinders = solids.flatMap(solid => solid.getIndexedShapes('face'))
       .filter(face => FaceQuery.getSurfaceTypeRaw(face.getShape()) === 'cylinder');
-    expect(cylinders.map(face => FaceOps.axialSurfaceAxisRaw(face.getShape() as TopoDS_Face)!.origin.x).sort((a, b) => a - b))
+    expect(cylinders.map(face => FaceOps.axialSurfaceAxis(face.getShape() as TopoDS_Face)!.origin.x).sort((a, b) => a - b))
       .toEqual([30, 100]);
     for (const face of cylinders) {
       const raw = face.getShape() as TopoDS_Face;
-      const axis = FaceOps.axialSurfaceAxisRaw(raw)!;
+      const axis = FaceOps.axialSurfaceAxis(raw)!;
       const normal = FaceOps.outwardNormalRaw(raw)!;
       // The surface point the default probe evaluates: the centre of the UV bounds.
       const bounds = oc.BRepTools.UVBounds(raw);

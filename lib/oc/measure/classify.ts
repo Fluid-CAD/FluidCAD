@@ -113,8 +113,9 @@ function detectCircularBoundary(face: TopoDS_Face): { center: MeasureVec; radius
  * {@link FaceOps.outwardNormalRaw} — which reads the face's orientation, so
  * `shape` must be the face as its solid's explorer gives it.
  *
- * `surface` is the face's class when the caller already holds it: a
- * wrapper's kept class.
+ * `surface` is the face's class when the caller already holds it — a
+ * wrapper's kept class, or its {@link SurfaceClassifier.forBuilding} class
+ * for a reader that builds on what it measures.
  */
 export function classifyFace(shape: TopoDS_Shape, surface: SurfaceClass = SurfaceClassifier.classifyRaw(shape)): ClassifiedEntity {
   const oc = getOC();

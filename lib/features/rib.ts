@@ -355,7 +355,7 @@ export class Rib extends ExtrudeBase implements IRib {
 function findFacesAlignedWith(faces: Face[], direction: Vector3d): Face[] {
   const out: Face[] = [];
   for (const f of faces) {
-    if (FaceQuery.getSurfaceType(f) !== "plane") {
+    if (!FaceQuery.forBuilding.isPlanar(f)) {
       continue;
     }
     const pl = FaceQuery.getSurfacePlane(f);
@@ -374,7 +374,7 @@ function findScopeCoincidentFaces(ribSideFaces: Face[], scopeShapes: Shape[]): F
     const rawFaces = Explorer.findShapes(scope.getShape(), Explorer.getOcShapeType("face"));
     for (const rf of rawFaces) {
       const wrapped = Face.fromTopoDSFace(Explorer.toFace(rf));
-      if (FaceQuery.getSurfaceType(wrapped) !== "plane") {
+      if (!FaceQuery.forBuilding.isPlanar(wrapped)) {
         continue;
       }
       const pl = FaceQuery.getSurfacePlane(wrapped);
@@ -383,7 +383,7 @@ function findScopeCoincidentFaces(ribSideFaces: Face[], scopeShapes: Shape[]): F
   }
   const tol = mmTol(1e-4);
   for (const rf of ribSideFaces) {
-    if (FaceQuery.getSurfaceType(rf) !== "plane") {
+    if (!FaceQuery.forBuilding.isPlanar(rf)) {
       continue;
     }
     const rPl = FaceQuery.getSurfacePlane(rf);

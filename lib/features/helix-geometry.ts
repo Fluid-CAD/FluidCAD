@@ -230,7 +230,7 @@ export function resolveHelixGeometry(
 
 /** A cylindrical or conical face, read as the frame a helix coils around. */
 export function resolveHelixFaceSource(face: Face): HelixSourceKind {
-  const surfaceType = FaceQuery.getSurfaceType(face);
+  const surfaceType = FaceQuery.forBuilding.surfaceType(face);
 
   if (surfaceType === 'cylinder') {
     const cylinder = FaceQuery.gpCylinderOf(face);

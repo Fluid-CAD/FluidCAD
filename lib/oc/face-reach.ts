@@ -129,7 +129,7 @@ export class FaceReach {
    */
   private runsAlongSweep(face: Face): boolean {
     // The face's class is kept with the wrapper: one recovery answers both the kind and the frame.
-    const surface = SurfaceClassifier.classify(face);
+    const surface = SurfaceClassifier.forBuilding(face);
     if (surface.kind === "plane" && surface.normal) {
       return Math.abs(surface.normal.dot(this.plane.normal)) < 1e-6;
     }

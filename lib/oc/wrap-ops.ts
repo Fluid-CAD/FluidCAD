@@ -124,7 +124,7 @@ export class WrapOps {
 
   /** Builds the development mapping for the target face's underlying surface. */
   static createDevelopment(targetFace: Face, sketchPlane: Plane): Development {
-    const surfaceType = FaceQuery.getSurfaceType(targetFace);
+    const surfaceType = FaceQuery.forBuilding.surfaceType(targetFace);
 
     if (surfaceType === 'cylinder') {
       const cylinder = FaceQuery.gpCylinderOf(targetFace);

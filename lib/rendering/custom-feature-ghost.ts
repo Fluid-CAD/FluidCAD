@@ -456,7 +456,7 @@ export class CustomFeatureGhost {
       }
     }
     if (kind === 'plane') {
-      if (shapes.length !== 1 || !(shapes[0] instanceof Face) || !FaceQuery.isPlanarFace(shapes[0])) {
+      if (shapes.length !== 1 || !(shapes[0] instanceof Face) || !FaceQuery.forBuilding.isPlanar(shapes[0])) {
         return null;
       }
       return new PlaneObject(shapes[0].getPlane());

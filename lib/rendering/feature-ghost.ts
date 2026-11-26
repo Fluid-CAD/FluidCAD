@@ -1364,7 +1364,7 @@ function resolvePlaneGhostBase(
     return null;
   }
   const face = resolvePickedFace(scene, ref, scratch);
-  if (!face || !FaceQuery.isPlanarFace(face)) {
+  if (!face || !FaceQuery.forBuilding.isPlanar(face)) {
     return null;
   }
   try {
@@ -3670,7 +3670,7 @@ function resolveGhostPlane(scene: Scene, ref: GhostPlaneRef, scratch: Shape[]): 
     return cutter?.kind === 'plane' ? cutter.plane : null;
   }
   const face = resolvePickedFace(scene, ref, scratch);
-  if (!face || !FaceQuery.isPlanarFace(face)) {
+  if (!face || !FaceQuery.forBuilding.isPlanar(face)) {
     return null;
   }
   try {

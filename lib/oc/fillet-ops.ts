@@ -36,7 +36,7 @@ export class FilletOps {
   static seamsAmong(solid: Solid, edges: Edge[]): Edge[] {
     return edges.filter(edge => {
       const faces = solid.getFacesOfEdge(edge);
-      return faces.length === 2 && FaceQuery.isSameSurface(faces[0], faces[1]);
+      return faces.length === 2 && FaceQuery.forBuilding.isSameSurface(faces[0], faces[1]);
     });
   }
 
@@ -74,7 +74,7 @@ export class FilletOps {
     for (const seam of seams) {
       const faces = solid.getFacesOfEdge(seam);
       if (faces.length > 0) {
-        kinds.add(FaceQuery.getSurfaceType(faces[0]));
+        kinds.add(FaceQuery.forBuilding.surfaceType(faces[0]));
       }
     }
     return [...kinds].join(' or ') || 'surface';

@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Face } from "ocjs-fluidcad";
+import type { TopoDS_Edge } from "ocjs-fluidcad";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -115,7 +115,7 @@ function frameFromSelection(
 }
 
 function frameFromFace(face: Face, options: ConnectorOptions): Plane {
-  const placement = facePlacement(face.getShape() as TopoDS_Face);
+  const placement = facePlacement(face);
   return buildOrthonormalFrame(placement.origin, placement.zDir, options);
 }
 

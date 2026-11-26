@@ -51,7 +51,7 @@ function anchorFromFace(face: Face, spec: VertexAnchorSpec): AnchorPlacement {
   if (spec.kind !== "center") {
     throw new Error(`${describeAnchor(spec)} needs an edge selection — a face only supports center().`);
   }
-  return facePlacement(face.getShape() as TopoDS_Face);
+  return facePlacement(face);
 }
 
 /**
@@ -68,9 +68,10 @@ function anchorFromFace(face: Face, spec: VertexAnchorSpec): AnchorPlacement {
  *   and the bounding-box centre. On a curved face that normal is only the
  *   seam's, which is why the axial surfaces get their own branch above.
  */
-export function facePlacement(raw: TopoDS_Face): AnchorPlacement {
+export function facePlacement(face: Face): AnchorPlacement {
+  const raw = face.getShape();
   const center = computeFaceBoundingBoxCenter(raw);
-  const axis = FaceOps.axialSurfaceAxisRaw(raw);
+  const axis = FaceOps.axialSurfaceAxis(face);
   if (axis) {
     const direction = axis.direction.normalize();
     const offset = axis.origin.vectorTo(center);

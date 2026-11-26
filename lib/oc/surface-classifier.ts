@@ -6,6 +6,7 @@ import { Axis } from "../math/axis.js";
 import { Shape } from "../common/shape.js";
 import type { Face } from "../common/face.js";
 import { mmTol } from "../units/tolerance.js";
+import { getActiveUnit } from "../units/registry.js";
 import { lazily } from "../helpers/lazily.js";
 
 /** What a face's surface is, whatever the kernel stores it as. */
@@ -29,6 +30,17 @@ export type SurfaceClass = {
   readonly kind: SurfaceKind;
   /** True when the kind was recovered from a non-analytic surface. */
   readonly recovered: boolean;
+  /**
+   * How far the recovered surface strays from the face's own, as OCC's
+   * converter measures it; 0 for a surface the kernel stores as its kind.
+   */
+  readonly gap: number;
+  /**
+   * For a recovered face: its class without recovery — revolved, extruded
+   * or freeform. What a feature builds on when {@link gap} is over
+   * {@link SurfaceClassifier.buildingTolerance}.
+   */
+  readonly unrecovered?: SurfaceClass;
   /** For a cylinder or a sphere. */
   readonly radius?: number;
   /** For a torus. */
@@ -70,7 +82,7 @@ type Writable<T> = { -readonly [K in keyof T]: T[K] };
 type Read = Writable<Omit<SurfaceClass, 'areaMm2'>>;
 
 /** The analytic part of a class: what a plane, cylinder, cone, sphere or torus reads off its surface. */
-type Analytic = Omit<Read, 'recovered'>;
+type Analytic = Omit<Read, 'recovered' | 'gap' | 'unrecovered'>;
 
 /**
  * The one classifier for faces. Filters, properties, selection probes and
@@ -84,11 +96,19 @@ type Analytic = Omit<Read, 'recovered'>;
  * cannot recover is `revolved` (a surface of revolution), `extruded` (a
  * surface of linear extrusion) or `freeform` (B-spline, Bezier, offset and
  * the rest).
+ *
+ * Two questions are asked of a face. Naming it (a filter, a property, a
+ * measurement) reads {@link classify}. Building on it — taking its plane,
+ * axis or radius to construct geometry — reads {@link forBuilding}, which
+ * holds a recovered surface to the tighter {@link buildingTolerance}.
  */
 export class SurfaceClassifier {
 
   /** See {@link SurfaceClassifier.tolerance}. */
   private static readonly TOLERANCE_MM = 1e-3;
+
+  /** See {@link SurfaceClassifier.buildingTolerance}. */
+  private static readonly BUILDING_TOLERANCE_MM = 1e-4;
 
   /** The face's class, kept per wrapper for the tolerance it was classified at. */
   static classify(face: Face): SurfaceClass {
@@ -98,6 +118,40 @@ export class SurfaceClassifier {
   /** The class of a raw face, asked of OCCT every time. */
   static classifyRaw(face: TopoDS_Shape): SurfaceClass {
     return SurfaceClassifier.classifyWith(face, () => face);
+  }
+
+  /**
+   * The class a feature may build on: the face's own class when the kernel
+   * stores that surface or recovery matched it within
+   * {@link buildingTolerance}, else its class without recovery. Kept per
+   * wrapper with {@link classify}.
+   */
+  static forBuilding(face: Face): SurfaceClass {
+    return SurfaceClassifier.buildingOf(SurfaceClassifier.classify(face));
+  }
+
+  /** The class a feature may build on, given the face's class; see {@link forBuilding}. */
+  static buildingOf(surface: SurfaceClass): SurfaceClass {
+    return surface.unrecovered && surface.gap > SurfaceClassifier.buildingTolerance()
+      ? surface.unrecovered
+      : surface;
+  }
+
+  /**
+   * Why a feature cannot build on a face that is named a plane, a cylinder
+   * or another elementary surface, in plain words; null when it can, or
+   * when the face is named as none.
+   */
+  static buildingRefusal(surface: SurfaceClass): string | null {
+    if (SurfaceClassifier.buildingOf(surface) === surface) {
+      return null;
+    }
+    const unit = getActiveUnit();
+    const length = (value: number) => `${Number(value.toPrecision(2))} ${unit}`;
+    const limit = length(SurfaceClassifier.buildingTolerance());
+    return surface.kind === 'plane'
+      ? `The face is flat within ${length(surface.gap)} but not flat enough to build on: it must be flat within ${limit}.`
+      : `The face is a ${surface.kind} within ${length(surface.gap)} but not close enough to one to build on: it must match within ${limit}.`;
   }
 
   /**
@@ -114,12 +168,31 @@ export class SurfaceClassifier {
   }
 
   /**
-   * How far a recovered surface may stray from the face's own, and how
-   * closely a recovered radius must match a requested one — the figure the
-   * edge classifier recovers lines and circles at.
+   * How far a recovered surface may stray from the face's own for the face
+   * to be named by it, and how closely a recovered radius must match a
+   * requested one — the figure the edge classifier recovers lines and
+   * circles at.
    */
   static tolerance(): number {
     return mmTol(SurfaceClassifier.TOLERANCE_MM);
+  }
+
+  /**
+   * How far a recovered surface may stray from the face's own for a feature
+   * to build on it as that surface. Naming tolerates {@link tolerance}, at
+   * which a small or shallow free-form patch already reads as a plane or a
+   * cylinder (a 1 mm patch of an R≈500 mm surface is flat within 7.6e-4 mm;
+   * a 40 mm parabolic sheet is a cylinder within 5.2e-4 mm, of a radius
+   * that depends on the trim): harmless for a name, wrong for geometry
+   * built from that plane or axis. The flat walls, round corners and cones
+   * FluidCAD's own lofts and sweeps store as B-splines recover within
+   * 1e-12 mm, so 1e-4 mm keeps every one of them buildable with eight
+   * decades to spare. OCC measures the gap on a coarse grid and can
+   * under-read it by a fifth; at this figure that is 0.02 µm, below
+   * anything a feature would show.
+   */
+  static buildingTolerance(): number {
+    return mmTol(SurfaceClassifier.BUILDING_TOLERANCE_MM);
   }
 
   /** Whether `kind` is one of the elementary surfaces a face can be recovered as. */
@@ -199,7 +272,14 @@ export class SurfaceClassifier {
     const oc = getOC();
     const typed = oc.TopoDS.Face(face);
     try {
-      return lazily(SurfaceClassifier.read(typed), 'areaMm2', () => SurfaceClassifier.measureArea(source()));
+      const read = SurfaceClassifier.read(typed);
+      const area = () => SurfaceClassifier.measureArea(source());
+      const value = lazily(read, 'areaMm2', area);
+      if (read.unrecovered) {
+        // One integration serves both classes of the face.
+        lazily(read.unrecovered, 'areaMm2', () => value.areaMm2);
+      }
+      return value;
     } finally {
       typed.delete();
     }
@@ -215,13 +295,14 @@ export class SurfaceClassifier {
     try {
       const native = SurfaceClassifier.readAnalytic(adaptor);
       if (native) {
-        return { ...native, recovered: false };
+        return { ...native, recovered: false, gap: 0 };
       }
+      const stored: Read = { ...SurfaceClassifier.readNonAnalytic(adaptor), recovered: false, gap: 0 };
       const recovered = SurfaceClassifier.recover(face);
       if (recovered) {
-        return { ...recovered, recovered: true };
+        return { ...recovered.analytic, recovered: true, gap: recovered.gap, unrecovered: stored as SurfaceClass };
       }
-      return { ...SurfaceClassifier.readNonAnalytic(adaptor), recovered: false };
+      return stored;
     } finally {
       adaptor.delete();
     }
@@ -229,9 +310,10 @@ export class SurfaceClassifier {
 
   /**
    * The elementary surface a non-analytic face approximates over its own UV
-   * bounds within {@link tolerance}; null when there is none.
+   * bounds within {@link tolerance}, with how far it strays; null when
+   * there is none.
    */
-  private static recover(face: TopoDS_Face): Analytic | null {
+  private static recover(face: TopoDS_Face): { analytic: Analytic; gap: number } | null {
     const oc = getOC();
     const surface = oc.BRep_Tool.Surface(face);
     if (!surface) {
@@ -248,12 +330,14 @@ export class SurfaceClassifier {
         return null;
       }
       owned.push(recovered);
-      if (converter.Gap() > tolerance) {
+      const gap = converter.Gap();
+      if (gap > tolerance) {
         return null;
       }
       const adaptor = new oc.GeomAdaptor_Surface(recovered);
       owned.push(adaptor);
-      return SurfaceClassifier.readAnalytic(adaptor);
+      const analytic = SurfaceClassifier.readAnalytic(adaptor);
+      return analytic ? { analytic, gap } : null;
     } finally {
       for (const object of owned.reverse()) {
         object.delete();

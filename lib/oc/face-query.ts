@@ -36,7 +36,10 @@ function surfaceFactsOf(face: Shape): SurfaceFacts {
 }
 
 export class FaceQuery {
-  // Wrapper methods (public API for external callers)
+  // Wrapper methods (public API for external callers). The predicates name
+  // a face: they read its class as SurfaceClassifier.classify gives it. A
+  // feature that builds on a face asks through `forBuilding` and the
+  // geometry readers below it instead.
 
   /** {@link isCircleFaceRaw}, answered from the wrapper's cached class. */
   static isCircleFace(face: Shape, diameter?: number): boolean {
@@ -67,6 +70,11 @@ export class FaceQuery {
   /** The wrapper's {@link SurfaceClassifier} class, kept per wrapper there. */
   private static classOf(face: Shape): SurfaceClass {
     return SurfaceClassifier.classify(face as Face);
+  }
+
+  /** The class a feature may build on; see {@link SurfaceClassifier.forBuilding}. */
+  private static buildingClassOf(face: Shape): SurfaceClass {
+    return SurfaceClassifier.forBuilding(face as Face);
   }
 
   /**
@@ -147,9 +155,45 @@ export class FaceQuery {
     return FaceQuery.surfaceTypeOf(FaceQuery.classOf(face));
   }
 
-  // Geometry readers. Each rebuilds the plane, cylinder or cone from the
-  // face's class (kept per wrapper: a recovered face is recovered once,
-  // however many of these are asked) and throws for a face of another kind.
+  /**
+   * True when both faces lie on the same underlying surface — coplanar
+   * planes, coaxial equal-radius cylinders, coaxial cones sharing apex and
+   * semi-angle, or the same sphere or torus. Trim and orientation
+   * differences are ignored: this is surface identity, for consumers that
+   * resolve the infinite surface rather than the bounded face. A surface
+   * recovered from a B-spline (see {@link SurfaceClassifier}) compares like
+   * a native one, within the tolerance it was recovered at; free-form faces
+   * are never the same surface as another face.
+   */
+  static isSameSurface(face1: Shape, face2: Shape): boolean {
+    return FaceQuery.sameSurface(FaceQuery.classOf(face1), FaceQuery.classOf(face2), SurfaceClassifier.tolerance());
+  }
+
+  /**
+   * The questions above as a feature asks them before it builds on a face:
+   * a face recovered from a B-spline counts as its plane, cylinder or cone
+   * only when it matches within {@link SurfaceClassifier.buildingTolerance}
+   * (see there for why naming and building differ). Whatever takes a
+   * plane, an axis or a radius off a face to construct geometry asks here,
+   * and then reads the geometry with the readers below, which hold to the
+   * same rule.
+   */
+  static readonly forBuilding = {
+    /** {@link FaceQuery.getSurfaceType} for building. */
+    surfaceType: (face: Shape): string => FaceQuery.surfaceTypeOf(FaceQuery.buildingClassOf(face)),
+
+    /** {@link FaceQuery.isPlanarFace} for building: a guard for `face.getPlane()` and {@link FaceQuery.getSurfacePlane}. */
+    isPlanar: (face: Shape): boolean => FaceQuery.buildingClassOf(face).kind === 'plane',
+
+    /** {@link FaceQuery.isSameSurface} for building, within the building tolerance once either face was recovered. */
+    isSameSurface: (face1: Shape, face2: Shape): boolean => FaceQuery.sameSurface(
+      FaceQuery.buildingClassOf(face1), FaceQuery.buildingClassOf(face2), SurfaceClassifier.buildingTolerance()),
+  };
+
+  // Geometry readers. Each hands a feature the plane, cylinder or cone to
+  // build with, so each reads the face's building class (kept per wrapper:
+  // a recovered face is recovered once, however many of these are asked)
+  // and throws for a face that is not of that kind for building.
 
   static getSurfacePlane(face: Shape): Plane {
     return Convert.toPlane(FaceQuery.gpPlaneOf(face), true);
@@ -164,19 +208,8 @@ export class FaceQuery {
     return result;
   }
 
-  /**
-   * True when both faces lie on the same underlying surface — coplanar
-   * planes, coaxial equal-radius cylinders, coaxial cones sharing apex and
-   * semi-angle, or the same sphere or torus. Trim and orientation
-   * differences are ignored: this is surface identity, for consumers that
-   * resolve the infinite surface rather than the bounded face. A surface
-   * recovered from a B-spline (see {@link SurfaceClassifier}) compares like
-   * a native one, within the tolerance it was recovered at; free-form faces
-   * are never the same surface as another face.
-   */
-  static isSameSurface(face1: Shape, face2: Shape): boolean {
-    const a = FaceQuery.classOf(face1);
-    const b = FaceQuery.classOf(face2);
+  /** `recoveredTolerance` is the distance bound once either class was recovered; native surfaces compare at 1e-7 mm. */
+  private static sameSurface(a: SurfaceClass, b: SurfaceClass, recoveredTolerance: number): boolean {
     if (a.kind !== b.kind || !SurfaceClassifier.isAnalytic(a.kind)) {
       return false;
     }
@@ -184,7 +217,7 @@ export class FaceQuery {
     // active unit between native surfaces, the recovery tolerance once
     // either was recovered. The angular bounds are unit-free.
     const recovered = a.recovered || b.recovered;
-    const tolerance = recovered ? SurfaceClassifier.tolerance() : mmTol(1e-7);
+    const tolerance = recovered ? recoveredTolerance : mmTol(1e-7);
     const angular = recovered ? FaceQuery.RECOVERED_ANGULAR_TOLERANCE : 1e-7;
     const axisAngular = recovered ? FaceQuery.RECOVERED_ANGULAR_TOLERANCE : 1e-9;
     if (a.kind === 'plane') {
@@ -320,19 +353,19 @@ export class FaceQuery {
     return Face.fromTopoDSFace(rawFace);
   }
 
-  /** The face's plane for OCCT, native or recovered; the caller deletes it. Throws for a face that is no plane. */
+  /** The face's plane for OCCT, native or recovered; the caller deletes it. Throws for a face that is no plane to build on. */
   static gpPlaneOf(face: Shape): gp_Pln {
-    return SurfaceClassifier.gpPlane(FaceQuery.classOf(face));
+    return SurfaceClassifier.gpPlane(FaceQuery.buildingClassOf(face));
   }
 
-  /** The face's cylinder for OCCT, native or recovered; the caller deletes it. Throws for a face that is no cylinder. */
+  /** The face's cylinder for OCCT, native or recovered; the caller deletes it. Throws for a face that is no cylinder to build on. */
   static gpCylinderOf(face: Shape): gp_Cylinder {
-    return SurfaceClassifier.gpCylinder(FaceQuery.classOf(face));
+    return SurfaceClassifier.gpCylinder(FaceQuery.buildingClassOf(face));
   }
 
-  /** The face's cone for OCCT, native or recovered; the caller deletes it. Throws for a face that is no cone. */
+  /** The face's cone for OCCT, native or recovered; the caller deletes it. Throws for a face that is no cone to build on. */
   static gpConeOf(face: Shape): gp_Cone {
-    return SurfaceClassifier.gpCone(FaceQuery.classOf(face));
+    return SurfaceClassifier.gpCone(FaceQuery.buildingClassOf(face));
   }
 
   /**
@@ -343,7 +376,7 @@ export class FaceQuery {
    * on the recovered surface.
    */
   static getSurfaceVBounds(face: Shape): { vMin: number; vMax: number } {
-    const surface = FaceQuery.classOf(face);
+    const surface = FaceQuery.buildingClassOf(face);
     if (surface.recovered && surface.axis && (surface.kind === 'cylinder' || surface.kind === 'cone')) {
       const slant = surface.kind === 'cone' ? Math.cos(surface.semiAngle ?? 0) : 1;
       const { origin, direction } = surface.axis;

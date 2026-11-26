@@ -9,63 +9,50 @@ import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { mmTol } from "../units/tolerance.js";
+import { SurfaceClass, SurfaceClassifier } from "./surface-classifier.js";
 
 export class FaceOps {
+  /**
+   * The plane of a flat face, to build on: a native plane's, or the one
+   * {@link SurfaceClassifier} recovers from a flat B-spline within its
+   * building tolerance. Throws for any other face, saying so when the face
+   * is flat enough to be named planar but not to be built on.
+   */
   static getPlane(face: Face | TopoDS_Face): Plane {
-    const rawFace = face instanceof Face ? face.getShape() as TopoDS_Face : face;
-    return FaceOps.getPlaneRaw(rawFace);
-  }
-
-  static getPlaneRaw(face: TopoDS_Face): Plane {
-    const plane = FaceOps.tryGetPlaneRaw(face);
+    const named = FaceOps.classOf(face);
+    const plane = FaceOps.planeOf(SurfaceClassifier.buildingOf(named), FaceOps.rawOf(face));
     if (!plane) {
-      throw new Error("Face is not planar");
+      throw new Error((named.kind === 'plane' ? SurfaceClassifier.buildingRefusal(named) : null) ?? "Face is not planar");
     }
     return plane;
   }
 
-  /** The face's plane, or null when the face is not planar. Never throws. */
+  /** The face's plane as {@link getPlane} reads it, or null when the face is no plane to build on. Never throws. */
   static tryGetPlane(face: Face | TopoDS_Face): Plane | null {
-    const rawFace = face instanceof Face ? face.getShape() as TopoDS_Face : face;
-    return FaceOps.tryGetPlaneRaw(rawFace);
+    return FaceOps.planeOf(SurfaceClassifier.buildingOf(FaceOps.classOf(face)), FaceOps.rawOf(face));
   }
 
-  static tryGetPlaneRaw(face: TopoDS_Face): Plane | null {
-    const oc = getOC();
-    const topoFace = oc.TopoDS.Face(face);
-    const adaptor = new oc.BRepAdaptor_Surface(topoFace, true);
-    // The adaptor holds its own reference to the face; the typed copy goes.
-    topoFace.delete();
+  private static rawOf(face: Face | TopoDS_Face): TopoDS_Face {
+    return face instanceof Face ? face.getShape() : face;
+  }
 
-    const type = adaptor.GetType();
+  /** A wrapper's class is kept with it; a raw face is classified afresh. */
+  private static classOf(face: Face | TopoDS_Face): SurfaceClass {
+    return face instanceof Face ? SurfaceClassifier.classify(face) : SurfaceClassifier.classifyRaw(face);
+  }
 
-    if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-      adaptor.delete();
-      // OCC stores geometrically-flat walls produced by loft/sweep (and some
-      // imported STEP faces) as B-spline surfaces, so the adaptor type is not
-      // GeomAbs_Plane even though the face lies on a plane. Fall back to
-      // fitting a plane and verifying the surface really is flat.
-      return FaceOps.tryFitPlaneRaw(face);
+  /** The plane a `plane` class describes, facing out of `face`; null for any other class. */
+  private static planeOf(surface: SurfaceClass, face: TopoDS_Face): Plane | null {
+    if (surface.kind !== 'plane' || !surface.origin || !surface.normal) {
+      return null;
     }
-
-    let pln = adaptor.Plane();
-
-    const ax3 = pln.Position();
-    const direction = ax3.Direction();
-    const location = ax3.Location();
-
-    const normal = FaceOps.calculateNormalRaw(face);
-
-    let loc: Vector3d = new Vector3d(location.X(), location.Y(), location.Z());
-
-    const dot = loc.dot(normal);
-    const origin = normal.multiply(dot);
-
-    pln.delete();
-    adaptor.delete();
-    ax3.delete();
-    direction.delete();
-    location.delete();
+    // The surface's own axis carries whatever sign it was built with, and a
+    // reversed face flips it: the outward normal gives the side.
+    const outward = FaceOps.outwardNormalRaw(face);
+    const normal = outward && outward.dot(surface.normal) < 0 ? surface.normal.negate() : surface.normal;
+    // Canonical origin: the foot of the perpendicular from the world origin,
+    // so identical planes compare equal.
+    const origin = normal.multiply(surface.origin.toVector3d().dot(normal));
 
     // The in-plane axes come from the normal, never from the surface's own
     // ax3 X direction: that is whatever the modelling operation happened to
@@ -73,99 +60,6 @@ export class FaceOps {
     // start cap came out rotated 180° from the sketch plane that made it,
     // and a sketch on it rendered upside down.
     return Plane.upright(new Point(origin.x, origin.y, origin.z), normal);
-  }
-
-  /**
-   * Recovers the plane of a face whose parametric surface is not
-   * `GeomAbs_Plane` but is geometrically flat (e.g. a loft or sweep side wall,
-   * which OCC stores as a B-spline). Returns null when no plane fits the
-   * boundary edges, or when the surface interior deviates from that plane — so
-   * a domed face with a planar rim is correctly rejected.
-   */
-  private static tryFitPlaneRaw(face: TopoDS_Face): Plane | null {
-    const oc = getOC();
-    // Use the face's own modelling tolerance (never tighter than the kernel's
-    // confusion tolerance) both to fit the plane and to judge flatness, so a
-    // face built at a looser tolerance is not falsely rejected.
-    const typed = oc.TopoDS.Face(face);
-    let tolerance: number;
-    try {
-      tolerance = Math.max(oc.BRep_Tool.Tolerance(typed), oc.Precision.Confusion());
-    } finally {
-      typed.delete();
-    }
-
-    const finder = new oc.BRepBuilderAPI_FindPlane(face, tolerance);
-    if (!finder.Found()) {
-      finder.delete();
-      return null;
-    }
-
-    const geomPlane = finder.Plane();
-    const pln = geomPlane.Pln();
-    const location = pln.Location();
-
-    const loc = new Vector3d(location.X(), location.Y(), location.Z());
-
-    location.delete();
-    pln.delete();
-    geomPlane.delete();
-    finder.delete();
-
-    // FindPlane only fits the boundary edges; confirm the surface interior lies
-    // on that plane before trusting it as flat.
-    const normal = FaceOps.calculateNormalRaw(face);
-    if (!FaceOps.surfaceLiesOnPlane(face, loc, normal, tolerance)) {
-      return null;
-    }
-
-    // Canonical origin: foot of the perpendicular from the world origin onto
-    // the plane, matching the GeomAbs_Plane path so identical planes compare equal.
-    // FindPlane only fits a least-squares X direction, so — as in that path —
-    // the in-plane axes are derived from the normal instead.
-    const origin = normal.multiply(loc.dot(normal));
-    return Plane.upright(new Point(origin.x, origin.y, origin.z), normal);
-  }
-
-  /**
-   * True when every sampled point of the face's surface lies within `tolerance`
-   * of the plane through `pointOnPlane` with the given `normal`. Samples a UV
-   * grid over the face's trimmed parameter range.
-   */
-  private static surfaceLiesOnPlane(
-    face: TopoDS_Face,
-    pointOnPlane: Vector3d,
-    normal: Vector3d,
-    tolerance: number,
-  ): boolean {
-    const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(face), true);
-    const u0 = adaptor.FirstUParameter();
-    const u1 = adaptor.LastUParameter();
-    const v0 = adaptor.FirstVParameter();
-    const v1 = adaptor.LastVParameter();
-
-    const steps = 3;
-    let flat = true;
-    for (let i = 0; i <= steps && flat; i++) {
-      for (let j = 0; j <= steps && flat; j++) {
-        const u = u0 + ((u1 - u0) * i) / steps;
-        const v = v0 + ((v1 - v0) * j) / steps;
-        const p = adaptor.Value(u, v);
-        const dist = Math.abs(
-          normal.x * (p.X() - pointOnPlane.x) +
-          normal.y * (p.Y() - pointOnPlane.y) +
-          normal.z * (p.Z() - pointOnPlane.z),
-        );
-        p.delete();
-        if (dist > tolerance) {
-          flat = false;
-        }
-      }
-    }
-
-    adaptor.delete();
-    return flat;
   }
 
   static calculateNormal(face: Face | TopoDS_Face): Vector3d {
@@ -184,31 +78,17 @@ export class FaceOps {
   }
 
   /**
-   * The axis of a face whose surface is a cylinder or a cone — origin at the
-   * surface's own location, direction along its axis — or null for any other
-   * surface. The direction carries the surface's raw sign: for an extruded
-   * circle that is the extrude direction, for a revolve or an imported body
-   * whatever the modeller stored. Callers that need a stable sign apply
-   * {@link Vector3d.canonicalSign}.
+   * The axis of a face whose surface is a cylinder or a cone to build on
+   * (native, or recovered within {@link SurfaceClassifier.buildingTolerance})
+   * — origin at the surface's own location, direction along its axis — or
+   * null for any other surface. The direction carries the surface's raw
+   * sign: for an extruded circle that is the extrude direction, for a
+   * revolve or an imported body whatever the modeller stored. Callers that
+   * need a stable sign apply {@link Vector3d.canonicalSign}.
    */
-  static axialSurfaceAxisRaw(face: TopoDS_Face): Axis | null {
-    const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_Surface(oc.TopoDS.Face(face), true);
-    const type = adaptor.GetType();
-    let axis: Axis | null = null;
-    if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder || type === oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
-      const surface = type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder ? adaptor.Cylinder() : adaptor.Cone();
-      const ax1 = surface.Axis();
-      const location = ax1.Location();
-      const direction = ax1.Direction();
-      axis = new Axis(Convert.toPoint(location), Convert.toVector3dFromGpDir(direction));
-      direction.delete();
-      location.delete();
-      ax1.delete();
-      surface.delete();
-    }
-    adaptor.delete();
-    return axis;
+  static axialSurfaceAxis(face: Face | TopoDS_Face): Axis | null {
+    const surface = SurfaceClassifier.buildingOf(FaceOps.classOf(face));
+    return surface.kind === 'cylinder' || surface.kind === 'cone' ? surface.axis ?? null : null;
   }
 
   /**

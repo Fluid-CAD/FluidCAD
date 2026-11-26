@@ -191,7 +191,7 @@ export class Face extends Shape<TopoDS_Face> {
   }
 
   getPlane(): Plane {
-    return FaceOps.getPlane(this.getShape());
+    return FaceOps.getPlane(this);
   }
 
   getFaces(): TopoDS_Face[] {

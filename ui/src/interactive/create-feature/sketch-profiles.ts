@@ -1,21 +1,25 @@
-import { fetchSketchNames, gotoSource } from '../../api';
+import { fetchSketchNames, gotoSource, isNameLookupCallee, type NameLookupCallee } from '../../api';
 import { SceneIndex } from '../../helpers/scene-index';
-import { findActiveSketch, isTopLevel } from '../../helpers/scene-utils';
+import { findActiveSketch, isCurveObject, isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectPart, SceneObjectRender } from '../../types';
 import { PickSlotChip } from '../pick-slot';
 import { consumedLabel, consumerName } from './consumed-option';
 
-/** A sketch, helix or offset a create-feature dialog can consume (profile or path). */
+/** A sketch, curve or offset a create-feature dialog can consume (profile or path). */
 export type SketchProfileOption = {
   /** `active` is the sketch being edited (implicit consumption). */
   kind: 'active' | 'other';
   /**
-   * The producing statement: a sketch, a helix, or a top-level face offset.
-   * A helix is a bare wire — offered only where a wire is valid (a sweep
-   * path, a loft guide), never as a planar profile. An offset is a planar
-   * profile — offered only where one is extruded, never as a wire.
+   * What the producing statement is offered as: a sketch, a curve, or a
+   * top-level face offset. A `curve` is a curve of its own (a helix, a curve
+   * tool's result, a loaded curve — see {@link isCurveObject}), a bare wire:
+   * offered only where a wire is valid (a sweep path, a loft guide), never
+   * as a planar profile. An `offset` is a planar profile, offered where one
+   * is extruded.
    */
-  feature: 'sketch' | 'helix' | 'offset';
+  feature: 'sketch' | 'curve' | 'offset';
+  /** A curve: its row's type, which is its statement's callee where the name lookup knows one. */
+  callee?: string;
   label: string;
   filePath: string;
   line: number;
@@ -23,9 +27,9 @@ export type SketchProfileOption = {
   /** False while the sketch has nothing drawn — Apply is refused with a hint. */
   hasGeometry: boolean;
   /**
-   * The display name of the feature that consumed the sketch (hid it) in
-   * this world — the option is a sketch drawn no more, which the dialog
-   * reveals while it holds it. Absent for a sketch still on screen.
+   * The display name of the feature that consumed the sketch or the curve
+   * (hid it) in this world — the option is drawn no more, and the dialog
+   * reveals it while it holds it. Absent for one still on screen.
    */
   consumer?: string;
 };
@@ -90,29 +94,39 @@ export function collectExtrudeProfiles(sceneObjects: SceneObjectRender[]): Sketc
 
 /**
  * The wire sources a path/guide slot can consume right now: every offered
- * sketch (see {@link collectSketchProfiles}) plus every unconsumed helix —
- * a helix is a bare wire, valid exactly where a sketch is consumed as one
- * (a sweep path, a loft guide). Sketches keep their order (the active one
- * first), helixes follow.
+ * sketch (see {@link collectSketchProfiles}) plus every curve object the
+ * scene holds (see {@link isCurveObject}) — a curve is a bare wire, valid
+ * exactly where a sketch is consumed as one (a sweep path, a loft guide).
+ * Sketches keep their order (the active one first), curves follow, one
+ * option per statement: the clones a copy or a repeat stamps carry its call
+ * site, and the first row there names it. A curve a feature already used is
+ * offered again like a sketch is, named after that consumer — its consumer
+ * hid it, but a curve is never used up.
  */
 export function collectWireSources(sceneObjects: SceneObjectRender[]): SketchProfileOption[] {
   const options = collectSketchProfiles(sceneObjects);
+  const offered = new Set<string>();
   for (const obj of sceneObjects) {
-    if (obj.type !== 'helix' || !obj.sourceLocation) {
-      continue;
-    }
-    if (!hasRenderedGeometry(obj, sceneObjects)) {
+    if (!obj.sourceLocation || !isCurveObject(obj, sceneObjects)) {
       continue;
     }
     const loc = obj.sourceLocation;
+    const key = `${loc.filePath}:${loc.line}`;
+    if (offered.has(key)) {
+      continue;
+    }
+    offered.add(key);
+    const consumer = consumerName(obj, sceneObjects);
     options.push({
       kind: 'other',
-      feature: 'helix',
-      label: 'Helix',
+      feature: 'curve',
+      callee: obj.type,
+      label: consumedLabel(obj.name || 'Curve', consumer),
       filePath: loc.filePath,
       line: loc.line,
       column: loc.column,
       hasGeometry: true,
+      consumer,
     });
   }
   return options;
@@ -122,20 +136,28 @@ export function collectWireSources(sceneObjects: SceneObjectRender[]): SketchPro
  * Relabel options with the variable names their statements are bound to
  * ("spine — line 3"); unbound statements keep the plain label. Resolves over
  * the live buffer server-side, so it's async — callers apply the result if
- * the dialog is still armed on the same options. Sketch and helix options
- * resolve against their own callee, one fetch per kind present.
+ * the dialog is still armed on the same options. Each option resolves
+ * against its statement's callee, one fetch per callee present; a curve
+ * whose callee the lookup does not know keeps its row's name. `lookup` is
+ * the name query, the server's unless a caller brings its own.
  */
-export async function labelWithSketchNames(options: SketchProfileOption[]): Promise<SketchProfileOption[]> {
+export async function labelWithSketchNames(
+  options: SketchProfileOption[],
+  lookup: typeof fetchSketchNames = fetchSketchNames,
+): Promise<SketchProfileOption[]> {
   if (options.length === 0) {
     return options;
   }
   const names = new Array<string | null>(options.length).fill(null);
-  await Promise.all((['sketch', 'helix', 'offset'] as const).map(async (feature) => {
-    const indexes = options.flatMap((o, i) => o.feature === feature ? [i] : []);
-    if (indexes.length === 0) {
-      return;
+  const byCallee = new Map<NameLookupCallee, number[]>();
+  options.forEach((option, index) => {
+    const callee = option.feature === 'curve' ? option.callee : option.feature;
+    if (isNameLookupCallee(callee)) {
+      byCallee.set(callee, [...(byCallee.get(callee) ?? []), index]);
     }
-    const resolved = await fetchSketchNames(indexes.map(i => options[i].line), feature);
+  });
+  await Promise.all([...byCallee].map(async ([callee, indexes]) => {
+    const resolved = await lookup(indexes.map(i => options[i].line), callee);
     indexes.forEach((optionIndex, i) => {
       names[optionIndex] = resolved[i];
     });
@@ -257,34 +279,59 @@ export function resolveProfileByShapeId(
 }
 
 /**
- * Resolve a timeline row to the wire source it belongs to: a helix row is
- * its own source (it carries its wire on itself); anything else resolves
- * like a sketch row. For the wire-consuming slots (sweep path, loft guides).
+ * Resolve a timeline row to the wire source it belongs to: a curve object's
+ * row is its own source (it carries its wire on itself); anything else
+ * resolves like a sketch row. For the wire-consuming slots (sweep path, loft
+ * guides).
  */
 export function resolveWireRow(
   obj: SceneObjectRender,
   sceneObjects: SceneObjectRender[],
 ): SceneObjectRender | undefined {
-  if (obj.type === 'helix') {
+  if (isCurveObject(obj, sceneObjects)) {
     return obj;
   }
   return resolveSketchRow(obj, sceneObjects);
 }
 
+/** Whether the row carries this shape, drawn or — on a row shown again after its consumer hid it — hidden. */
+function holdsShape(obj: SceneObjectRender, shapeId: string): boolean {
+  return obj.sceneShapes?.some(s => s.shapeId === shapeId) === true
+    || obj.hiddenShapes?.some(s => s.shapeId === shapeId) === true;
+}
+
 /**
- * Resolve a picked shape to its wire source: a helix owns its wire shape
- * directly; sketch wires resolve through their entity object's parent.
+ * Resolve a picked shape to its wire source: a curve object owns its wire
+ * shape directly; sketch wires resolve through their entity object's parent.
  */
 export function resolveWireByShapeId(
   shapeId: string,
   sceneObjects: SceneObjectRender[],
 ): SceneObjectRender | undefined {
-  const owner = sceneObjects.find(o => o.sceneShapes?.some(s => s.shapeId === shapeId));
-  return owner ? resolveWireRow(owner, sceneObjects) : undefined;
+  const curve = resolveCurveObjectByShapeId(shapeId, sceneObjects);
+  if (curve) {
+    return curve;
+  }
+  const owner = sceneObjects.find(o => holdsShape(o, shapeId));
+  return owner ? resolveSketchRow(owner, sceneObjects) : undefined;
 }
 
 /**
- * The wire parts a source renders — a helix's own non-meta, non-guide shapes,
+ * The curve object a picked edge belongs to, or undefined for an edge of a
+ * solid, a surface or a sketch. A click on an edge of a curve object means
+ * the whole object, named as its statement (`sweep(profile, spring)`), not
+ * a raw edge pick — the one resolution every curve-taking slot shares.
+ */
+export function resolveCurveObjectByShapeId(
+  shapeId: string,
+  sceneObjects: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  return sceneObjects.find(o => holdsShape(o, shapeId) && isCurveObject(o, sceneObjects));
+}
+
+/**
+ * The wire parts a source renders — a curve object's own non-meta, non-guide
+ * shapes (every row at its statement: a copy's clones carry its call site),
  * or a sketch's direct children's, mirroring what SketchMesh draws as wire
  * lines. Addressed by source location like the options, so it re-resolves
  * after every render.
@@ -293,22 +340,19 @@ function wireShapeParts(
   option: { filePath: string; line: number },
   sceneObjects: SceneObjectRender[],
 ): SceneObjectPart[] {
-  const source = sceneObjects.find(o => (o.type === 'sketch' || o.type === 'helix' || o.type === 'offset')
-    && o.sourceLocation?.filePath === option.filePath && o.sourceLocation?.line === option.line);
-  if (!source) {
-    return [];
-  }
-  const drawn = (parts: SceneObjectPart[] | undefined): SceneObjectPart[] =>
-    (parts ?? []).filter(s => !s.isMetaShape && !s.isGuide && s.shapeId);
-  // A helix (or a top-level offset) carries its wires on its own object —
-  // there are no children.
-  if (source.type === 'helix' || source.type === 'offset') {
-    return drawn(source.sceneShapes);
-  }
-  // A consumed sketch's wires are its hidden shapes — the dialog that holds
+  const rows = sceneObjects.filter(o => o.sourceLocation?.filePath === option.filePath
+    && o.sourceLocation?.line === option.line);
+  // A consumed source's wires are its hidden shapes — the dialog that holds
   // it reveals them, so they are the highlight targets too.
-  return SceneIndex.of(sceneObjects).children(source.id)
-    .flatMap(obj => drawn(obj.sceneShapes).concat(drawn(obj.hiddenShapes)));
+  const drawn = (obj: SceneObjectRender): SceneObjectPart[] =>
+    [...(obj.sceneShapes ?? []), ...(obj.hiddenShapes ?? [])].filter(s => !s.isMetaShape && !s.isGuide && s.shapeId);
+  const sketch = rows.find(o => o.type === 'sketch');
+  if (sketch) {
+    return SceneIndex.of(sceneObjects).children(sketch.id).flatMap(drawn);
+  }
+  // A curve object (a top-level offset is one) carries its wires on its own
+  // rows — there are no children.
+  return rows.filter(o => isCurveObject(o, sceneObjects)).flatMap(drawn);
 }
 
 /**
@@ -325,9 +369,9 @@ export function sketchWireShapeIds(
 /**
  * The source's whole rendered geometry is one edge — what a slot taking a
  * bare edge (a from-edge plane's base) can consume. A helix always qualifies;
- * a sketch only while it draws a single curve, since the expression addresses
- * the sketch as a whole and a multi-segment one resolves to a wire, not an
- * edge.
+ * a sketch or another curve only while it draws a single curve, since the
+ * expression addresses the source as a whole and a multi-segment one
+ * resolves to a wire, not an edge.
  */
 export function isSingleEdgeWire(
   option: { filePath: string; line: number },

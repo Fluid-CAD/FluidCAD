@@ -36,7 +36,7 @@ type PathState =
 /**
  * The sweep dialog: operation tabs, the profile pick slot (a single sketch
  * chip) and the path pick slot — a chip container holding either one path
- * wire source (a sketch or a helix) or the picked path edges (edge picking
+ * wire source (a sketch or a curve object) or the picked path edges (edge picking
  * is live in the 3D view the
  * whole time the dialog is armed; picking an edge re-sources the path to
  * edges, picking a sketch re-sources it back) — then the Extend toggle
@@ -329,7 +329,7 @@ export class SweepPanel extends FeaturePanel {
   }
 
   private defaultPath(): PathState {
-    // Prefer a concrete wire source (a spine sketch or a helix) that isn't
+    // Prefer a concrete wire source (a spine sketch or a curve object) that isn't
     // the chosen profile; otherwise the prompt invites edge picks.
     const profile = this.selectedProfile();
     const other = this.options.find(o =>
@@ -359,8 +359,8 @@ function matchOption(
 }
 
 /**
- * The options the profile slot may hold: sketches only. A helix is a bare
- * wire — it can be the path, never the planar profile the sweep extrudes.
+ * The options the profile slot may hold: sketches only. A curve object is a
+ * bare wire — it can be the path, never the planar profile the sweep extrudes.
  */
 function profileOptions(options: SketchProfileOption[]): SketchProfileOption[] {
   return options.filter(o => o.feature === 'sketch');

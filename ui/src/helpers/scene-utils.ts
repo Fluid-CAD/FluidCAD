@@ -305,9 +305,71 @@ export function modelShapesOf(
   });
 }
 
+/**
+ * The shape ids of everything of `kinds` the row holds — every body and
+ * curve by default: what lights up while a dialog holds the row as a whole
+ * object.
+ */
+export function modelShapeIdsOf(
+  obj: SceneObjectRender,
+  sceneObjects: SceneObjectRender[],
+  kinds: readonly ModelShapeKind[] = MODEL_KINDS,
+): string[] {
+  return modelShapesOf(obj, sceneObjects, kinds).flatMap(shape => shape.shapeId ? [shape.shapeId] : []);
+}
+
 function isCurveRow(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
-  return obj.type !== 'sketch' && obj.type !== 'select' && !isHiddenTimelineRow(obj)
+  return obj.type !== 'sketch' && ownsGeometry(obj)
     && SceneIndex.of(sceneObjects).enclosing(obj, 'sketch') === undefined;
+}
+
+/** A selection and a lazy accessor name what other rows hold; an internal row has no statement to name. */
+function ownsGeometry(obj: SceneObjectRender): boolean {
+  return obj.type !== 'select' && !isHiddenTimelineRow(obj);
+}
+
+/**
+ * The shapes a row holds for a later feature to read: the ones it draws, or
+ * — on a row its consumer hid (`consumedBy`) — the ones that consumer took
+ * off the screen, which stay readable. Meta and guide shapes are not held.
+ */
+function heldShapes(obj: SceneObjectRender): SceneObjectPart[] {
+  const material = (shapes: SceneObjectPart[] | undefined): SceneObjectPart[] =>
+    (shapes ?? []).filter(shape => !shape.isMetaShape && !shape.isGuide);
+  const drawn = material(obj.sceneShapes);
+  return drawn.length > 0 || obj.consumedBy === undefined ? drawn : material(obj.hiddenShapes);
+}
+
+/**
+ * Whether the row stands in the scene as a curve of its own: a helix, a
+ * curve tool's result, a loaded curve, a copy of one. Everything it holds is
+ * an edge or a wire, and it holds at least one. A click on one of its edges
+ * means the whole object, where an edge of a solid or a surface is taken by
+ * itself.
+ *
+ * It is asked of what the row holds, never of its type, so a tool that
+ * leaves a curve is known for it without being listed anywhere (the engine
+ * asks the same of the scene: `Producers.isCurveProducer`). A sketch is not
+ * one here — its lines are on its entity rows, and it is offered through
+ * its own collectors — nor is the geometry inside one, a selection or a
+ * lazy accessor.
+ */
+export function isCurveObject(obj: SceneObjectRender, sceneObjects: SceneObjectRender[]): boolean {
+  if (!isCurveRow(obj, sceneObjects)) {
+    return false;
+  }
+  const held = heldShapes(obj);
+  return held.length > 0 && held.every(shape => modelShapeKind(shape) === 'curve');
+}
+
+/**
+ * Whether the row holds at least one surface: a surface tool's result, a
+ * loaded surface, a copy of one. It may hold solids and curves beside it. A
+ * click on a face of one of its surfaces means the whole object, where a
+ * face of a solid is taken by itself (the engine's `Producers.holdsSurface`).
+ */
+export function holdsSurface(obj: SceneObjectRender): boolean {
+  return ownsGeometry(obj) && heldShapes(obj).some(shape => modelShapeKind(shape) === 'surface');
 }
 
 function sceneHolds(sceneObjects: SceneObjectRender[], kind: ModelShapeKind): boolean {

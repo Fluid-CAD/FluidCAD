@@ -20,8 +20,8 @@ import { RegionPicker } from './region-picker';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
-  collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, resolveWireRow,
-  SketchProfileOption, sketchWireShapeIds,
+  collectWireSources, labelWithSketchNames, optionsSignature, resolveCurveObjectByShapeId, resolveWireByShapeId,
+  resolveWireRow, SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 import { iconUrl } from '../../ui/icon-url';
 import { hasSolid } from '../../helpers/scene-utils';
@@ -31,7 +31,7 @@ type SweepEditRequest = Parameters<typeof applySweepEdit>[1];
 /**
  * The Sweep dialog on the create rails: a profile sketch swept along a path.
  * The profile slot takes sketches; the path slot takes any wire source — a
- * sketch or a helix (timeline or wire clicks into the armed slot); the path
+ * sketch or a curve object (timeline or wire clicks into the armed slot); the path
  * alternatively takes edge picks, live in the 3D view the whole
  * time the dialog is armed — an edge click re-sources the path to picked
  * edges (listed as removable chips), plain clicks accumulate, right-click
@@ -509,11 +509,12 @@ export class SweepFeatureService {
       return;
     }
     this.hideContextMenu();
-    // A helix's wire renders as a regular edge — clicking it selects the
-    // helix as the named path source (`sweep(spring)`), not a raw edge pick.
-    // A helix not among the options (consumed) falls through to edge picking.
-    const owner = resolveWireByShapeId(shapeId, this.sceneObjects);
-    if (owner?.type === 'helix' && owner.sourceLocation) {
+    // A curve object's wire renders as regular edges — clicking one selects
+    // the object as the named path source (`sweep(profile, spring)`), not a
+    // raw edge pick. One not among the options (it has no statement to name)
+    // falls through to edge picking.
+    const owner = resolveCurveObjectByShapeId(shapeId, this.sceneObjects);
+    if (owner?.sourceLocation) {
       const loc = owner.sourceLocation;
       if (this.panel.selectSketch('path', loc.filePath, loc.line)) {
         this.panel.setMessage(null);
@@ -668,16 +669,17 @@ export class SweepFeatureService {
 
   private pickSketch(sketch: SceneObjectRender): void {
     const loc = sketch.sourceLocation!;
-    // A helix is a bare wire: it can only be the path, never the planar
-    // profile. Route it to the path slot regardless of which slot is armed;
-    // a sketch pick while the scope slot is armed lands in the path too (a
-    // sketch is never a scope solid).
-    const slot = sketch.type === 'helix' || this.panel.armedSlot === 'scope'
+    // A curve object is a bare wire: it can only be the path, never the
+    // planar profile. Route it to the path slot regardless of which slot is
+    // armed; a sketch pick while the scope slot is armed lands in the path
+    // too (a sketch is never a scope solid).
+    const curve = sketch.type !== 'sketch';
+    const slot = curve || this.panel.armedSlot === 'scope'
       ? 'path'
       : this.panel.armedSlot;
     if (!this.panel.selectSketch(slot, loc.filePath, loc.line)) {
-      this.panel.setMessage(sketch.type === 'helix'
-        ? 'That helix was already consumed — only helixes still rendered in the scene can be used.'
+      this.panel.setMessage(curve
+        ? 'That curve cannot be used — only curves still in the scene can be.'
         : 'That sketch was already consumed — only sketches still rendered in the scene can be used.');
       return;
     }

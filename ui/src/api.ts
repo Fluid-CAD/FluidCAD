@@ -5356,6 +5356,16 @@ export async function applyValueFeatureEdit(
   }, options.signal);
 }
 
+/** The callees the name lookup finds a statement by — the `/sketch-names` endpoint's vocabulary. */
+const NAME_LOOKUP_CALLEES = ['sketch', 'plane', 'axis', 'helix', 'offset', 'repeat'] as const;
+
+export type NameLookupCallee = typeof NAME_LOOKUP_CALLEES[number];
+
+/** Whether the name lookup can find a statement of this callee. */
+export function isNameLookupCallee(callee: string | undefined): callee is NameLookupCallee {
+  return (NAME_LOOKUP_CALLEES as readonly string[]).includes(callee ?? '');
+}
+
 /**
  * Variable names of the sketch (or plane) statements at the given source
  * lines (dialog labels). Unbound or unresolvable lines come back null;
@@ -5363,7 +5373,7 @@ export async function applyValueFeatureEdit(
  */
 export async function fetchSketchNames(
   lines: number[],
-  callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' | 'repeat' = 'sketch',
+  callee: NameLookupCallee = 'sketch',
 ): Promise<(string | null)[]> {
   try {
     const res = await fetch('api/sketch-names', {

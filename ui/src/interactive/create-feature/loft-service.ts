@@ -334,7 +334,7 @@ export class LoftFeatureService {
     this.hasSolid = hasSolid(sceneObjects);
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
     // A loft needs two profile sources: solid faces to pick, or two sketches
-    // (a helix can only ever be a guide, so it doesn't count here). A blank
+    // (a curve object can only ever be a guide, so it doesn't count here). A blank
     // document shows the button regardless (see {@link Viewer.sceneIsEmpty}).
     this.available = this.hasSolid
       || this.profiles.filter(o => o.feature === 'sketch').length >= 2
@@ -637,19 +637,19 @@ export class LoftFeatureService {
   }
 
   /**
-   * Sketch picks land in whichever section was focused last. A helix is a
-   * bare wire — it can only ever be a guide, so it always lands there.
+   * Sketch picks land in whichever section was focused last. A curve object
+   * is a bare wire — it can only ever be a guide, so it always lands there.
    */
   private pickSketch(sketch: SceneObjectRender): void {
     const loc = sketch.sourceLocation!;
     const option = this.findOption(loc.filePath, loc.line);
     if (!option) {
-      this.panel.setMessage(sketch.type === 'helix'
-        ? 'That helix was already consumed — only helixes still rendered in the scene can be used.'
+      this.panel.setMessage(sketch.type !== 'sketch'
+        ? 'That curve cannot be used — only curves still in the scene can be.'
         : 'That sketch was already consumed — only sketches still rendered in the scene can be used.');
       return;
     }
-    if (this.panel.armedSection === 'guides' || option.feature === 'helix') {
+    if (this.panel.armedSection === 'guides' || option.feature === 'curve') {
       this.addGuide(option);
     } else {
       this.addSketchProfile(option);
@@ -681,8 +681,8 @@ export class LoftFeatureService {
     if (!this.armed) {
       return;
     }
-    if (option.feature === 'helix') {
-      this.panel.setMessage('A helix is a wire — it can guide the loft, but a profile must be a sketch or a face.');
+    if (option.feature === 'curve') {
+      this.panel.setMessage('A curve is a wire — it can guide the loft, but a profile must be a sketch or a face.');
       return;
     }
     if (this.usesSketch(option.filePath, option.line)) {
@@ -798,8 +798,8 @@ export class LoftFeatureService {
     for (const item of this.items) {
       if (item.kind === 'sketch') {
         // An empty sketch blocks Apply but not the statement preview — and it
-        // has no region to skin, so it has no ghost either. A helix is a rail
-        // and never a section (the panel refuses it too).
+        // has no region to skin, so it has no ghost either. A curve object is
+        // a rail and never a section (the panel refuses it too).
         if (item.option.feature !== 'sketch' || !item.option.hasGeometry) {
           return null;
         }

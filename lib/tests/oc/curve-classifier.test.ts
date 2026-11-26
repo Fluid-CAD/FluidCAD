@@ -271,6 +271,79 @@ describe("CurveClassifier", () => {
     });
   });
 
+  describe("planarity", () => {
+    function raiseTolerance(edge: TopoDS_Edge, tolerance: number): void {
+      const oc = getOC();
+      const builder = new oc.BRep_Builder();
+      builder.UpdateEdge(edge, tolerance);
+      builder.delete();
+      expect(oc.BRep_Tool.Tolerance(edge)).toBe(tolerance);
+    }
+
+    /** The 100-pole spline of the bump test over `[first, last]` of its 97 knot spans. */
+    function bumped(own: Own, first: number, last: number): TopoDS_Edge {
+      const oc = getOC();
+      const count = 100;
+      const degree = 3;
+      const poles = own(new oc.NCollection_Array1_gp_Pnt(1, count));
+      for (let i = 1; i <= count; i++) {
+        poles.SetValue(i, own(new oc.gp_Pnt(i, Math.sin(i / 7) * 10, i === 51 ? 0.5 : 0)));
+      }
+      const spans = count - degree;
+      const knots = own(new oc.NCollection_Array1_double(1, spans + 1));
+      const mults = own(new oc.NCollection_Array1_int(1, spans + 1));
+      for (let i = 1; i <= spans + 1; i++) {
+        knots.SetValue(i, i - 1);
+        mults.SetValue(i, i === 1 || i === spans + 1 ? degree + 1 : 1);
+      }
+      const curve = own(new oc.Geom_BSplineCurve(poles, knots, mults, degree)) as unknown as Geom_Curve;
+      return own(own(new oc.BRepBuilderAPI_MakeEdge(curve, first, last)).Edge());
+    }
+
+    it("stands a fitted plane on the curve's own start point", () => {
+      const curve = CurveClassifier.classify(bezier([[3, 1, 4], [5, 8, 4], [10, -6, 4], [15, 2, 4]]));
+      expect(curve.plane!.origin.distanceTo(new Point(3, 1, 4))).toBeLessThan(1e-12);
+    });
+
+    it("holds a loosely toleranced edge to the planarity tolerance, not to its own", () => {
+      // One pole 1e-4 off the plane of the rest. An imported edge can carry
+      // a tolerance of 1e-2, which the plane finder would take for its own
+      // and call the curve flat, on a tilted plane.
+      const edge = bezier([[0, 0, 0], [10, 20, 0], [20, -20, 1e-4], [30, 0, 0]]).getShape() as TopoDS_Edge;
+      expect(CurveClassifier.classifyRaw(edge).planar).toBe(false);
+      raiseTolerance(edge, 1e-2);
+      expect(CurveClassifier.classifyRaw(edge).planar).toBe(false);
+    });
+
+    it("finds the exact plane of a flat spline whose edge is loosely toleranced", () => {
+      const edge = bezier([[0, 0, 4], [5, 8, 4], [10, -6, 4], [15, 2, 4]]).getShape() as TopoDS_Edge;
+      raiseTolerance(edge, 1e-2);
+      const curve = CurveClassifier.classifyRaw(edge);
+      expect(curve.planar).toBe(true);
+      expect(Math.abs(curve.plane!.normal.z)).toBeCloseTo(1, 12);
+      expect(curve.plane!.origin.z).toBeCloseTo(4, 12);
+    });
+
+    it("judges an edge over its own range of the curve", () => {
+      withOwned(own => {
+        // The bump lifts knot spans 47 to 51 only: an edge that stops short
+        // of them, or starts past them, is flat, loosely toleranced or not.
+        for (const [first, last, planar] of [[0, 97, false], [0, 40, true], [52, 97, true], [48, 50, false]] as const) {
+          const edge = bumped(own, first, last);
+          expect(CurveClassifier.classifyRaw(edge).planar).toBe(planar);
+          raiseTolerance(edge, 1e-2);
+          expect(CurveClassifier.classifyRaw(edge).planar).toBe(planar);
+        }
+      });
+    });
+
+    it("claims no planarity tolerance below OCCT's own floor", () => {
+      expect(CurveClassifier.planarityTolerance()).toBeCloseTo(1e-6, 15);
+      // 1e-6 mm is 1e-9 m, under the 1e-7 no edge's tolerance goes below.
+      expect(withUnit("m", () => CurveClassifier.planarityTolerance())).toBe(1e-7);
+    });
+  });
+
   it("keeps a wrapper's class", () => {
     const edge = bezier([[0, 0, 0], [5, 8, 0], [10, -6, 0], [15, 2, 0]]);
     expect(CurveClassifier.classify(edge)).toBe(CurveClassifier.classify(edge));

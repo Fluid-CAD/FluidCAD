@@ -251,7 +251,11 @@ export class EdgeQuery {
    * Whether a curve other than a line or a circular one lies on `plane`:
    * the plane it lies in (an ellipse's own, or the one OCC fits to a spline,
    * see {@link CurveClassifier.planeOf}) is `plane`, within OCCT's confusion
-   * tolerance. A curve in no plane lies on none.
+   * tolerance over the whole curve. The two planes may tilt against each
+   * other within the angular bound and still drift apart along a long
+   * curve, so the far end is bounded too: no point of the curve is farther
+   * from its plane's origin than `reach`, which a tilt lifts off `plane` by
+   * at most sin(angle) × reach. A curve in no plane lies on none.
    */
   static isCurveOnPlane(curve: CurveClass, plane: Plane): boolean {
     const own = CurveClassifier.planeOf(curve);
@@ -259,8 +263,15 @@ export class EdgeQuery {
       return false;
     }
     const tolerance = getOC().Precision.Confusion();
-    return EdgeQuery.sameNormal(own.normal, plane.normal)
-      && Math.abs(plane.signedDistanceToPoint(own.origin)) <= tolerance;
+    const offset = Math.abs(plane.signedDistanceToPoint(own.origin));
+    if (offset > tolerance || !EdgeQuery.sameNormal(own.normal, plane.normal)) {
+      return false;
+    }
+    // An ellipse's plane stands on its centre, a fitted plane on the
+    // curve's own start point.
+    const reach = curve.kind === 'ellipse' ? curve.majorRadius ?? 0 : curve.length;
+    const sine = own.normal.normalize().cross(plane.normal.normalize()).length();
+    return offset + sine * reach <= tolerance;
   }
 
   /**

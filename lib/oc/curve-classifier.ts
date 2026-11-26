@@ -17,7 +17,12 @@ export type CurveClass = {
   readonly recovered: boolean;
   /** The edge returns to its start: a full circle, a full ellipse, a closed spline. */
   readonly closed: boolean;
-  /** The edge lies in one plane. A spline or any other curve is fitted on first read; see {@link plane}. */
+  /**
+   * The edge lies in one plane. A line, a circle, an arc and an ellipse do
+   * by their kind — one recovered from a B-spline within
+   * {@link CurveClassifier.tolerance} of it, like the kind itself. A spline
+   * or any other curve is fitted on first read; see {@link plane}.
+   */
   readonly planar: boolean;
   /** For a circle or an arc. */
   readonly radius?: number;
@@ -33,8 +38,10 @@ export type CurveClass = {
   /** For a line: its unit direction. */
   readonly direction?: Vector3d;
   /**
-   * For a planar spline or other curve: a point of its plane and the
-   * plane's unit normal. Fitted on first read and kept.
+   * For a planar spline or other curve: the plane fitted to it, as a point
+   * of the curve and the plane's unit normal. Fitted on first read and
+   * kept; see {@link CurveClassifier.planarityTolerance} for what "in a
+   * plane" holds to.
    */
   readonly plane?: CurvePlane;
   /** The edge's length; integrated on first read, and kept, where the kind gives no formula. */
@@ -158,9 +165,17 @@ export class CurveClassifier {
     return mmTol(CurveClassifier.TOLERANCE_MM);
   }
 
-  /** How far a planar curve may lie off its plane. */
+  /**
+   * How far a spline or other curve may lie off the plane fitted to it and
+   * still be planar: 1e-6 mm, but never below OCCT's own 1e-7 floor read in
+   * the document's unit, as no edge carries a tighter tolerance for the fit
+   * to apply. This is the figure the fit holds the curve to whatever
+   * tolerance the edge itself carries (see `fitPlane`). A curve recovered
+   * as an arc or an ellipse is planar by its kind instead: within
+   * {@link tolerance} of the recovered curve's plane, like the kind itself.
+   */
   static planarityTolerance(): number {
-    return mmTol(CurveClassifier.PLANARITY_TOLERANCE_MM);
+    return Math.max(mmTol(CurveClassifier.PLANARITY_TOLERANCE_MM), getOC().Precision.Confusion());
   }
 
   /**
@@ -196,44 +211,85 @@ export class CurveClassifier {
   }
 
   /**
-   * The plane a curve lies in, within `tolerance`, or null when it lies in
-   * none. `BRepBuilderAPI_FindPlane` fits a B-spline or Bezier curve by its
-   * poles — exact, as the curve lies in a plane exactly when its poles do —
-   * and any other curve by points along it.
+   * The plane a curve lies in within `tolerance`, or null when it lies in
+   * none. `BRepBuilderAPI_FindPlane` fits the edge's curve over the edge's
+   * own range (so a flat piece of a curve that leaves the plane elsewhere
+   * is planar) and accepts the plane when the curve stays within the
+   * larger of the given tolerance and the edge's own. An imported edge
+   * often carries a loose tolerance, which would pass a curve that leaves
+   * its plane by that much and tilt the fitted normal, so such an edge is
+   * fitted through a clean copy: the same curve over the same range, at
+   * `tolerance`. The origin is the curve's start point dropped onto the
+   * plane, so no point of the curve is farther from it than the curve is
+   * long.
    */
   private static fitPlane(edge: TopoDS_Shape, tolerance: number): CurvePlane | null {
     const oc = getOC();
-    const finder = new oc.BRepBuilderAPI_FindPlane(edge, tolerance);
+    const owned: { delete(): void }[] = [];
     try {
+      const typed = oc.TopoDS.Edge(edge);
+      owned.push(typed);
+      const fitted = oc.BRep_Tool.Tolerance(typed) > tolerance ? CurveClassifier.cleanCopy(typed, tolerance) : null;
+      if (fitted) {
+        owned.push(fitted);
+      }
+      const finder = new oc.BRepBuilderAPI_FindPlane(fitted ?? typed, tolerance);
+      owned.push(finder);
       if (!finder.Found()) {
         return null;
       }
       const plane = finder.Plane();
+      owned.push(plane);
       const pln = plane.Pln();
+      owned.push(pln);
       const location = pln.Location();
       const axis = pln.Axis();
       const direction = axis.Direction();
-      try {
-        return {
-          origin: new Point(location.X(), location.Y(), location.Z()),
-          normal: new Vector3d(direction.X(), direction.Y(), direction.Z()).normalize(),
-        };
-      } finally {
-        direction.delete();
-        axis.delete();
-        location.delete();
-        pln.delete();
-        plane.delete();
-      }
+      owned.push(location, axis, direction);
+      const normal = new Vector3d(direction.X(), direction.Y(), direction.Z()).normalize();
+      const adaptor = new oc.BRepAdaptor_Curve(typed);
+      owned.push(adaptor);
+      const start = adaptor.Value(adaptor.FirstParameter());
+      owned.push(start);
+      const lift = (start.X() - location.X()) * normal.x + (start.Y() - location.Y()) * normal.y + (start.Z() - location.Z()) * normal.z;
+      return {
+        origin: new Point(start.X() - lift * normal.x, start.Y() - lift * normal.y, start.Z() - lift * normal.z),
+        normal,
+      };
     } finally {
-      finder.delete();
+      for (const object of owned.reverse()) {
+        object.delete();
+      }
+    }
+  }
+
+  /**
+   * An edge on `edge`'s 3D curve over the same range, carrying `tolerance`
+   * and nothing else; null when the edge has no 3D curve to copy (it lies
+   * on a surface only).
+   */
+  private static cleanCopy(edge: TopoDS_Edge, tolerance: number): TopoDS_Edge | null {
+    const oc = getOC();
+    const curve = oc.BRep_Tool.Curve(edge, 0, 1);
+    const builder = new oc.BRep_Builder();
+    try {
+      if (!curve.returnValue) {
+        return null;
+      }
+      const copy = new oc.TopoDS_Edge();
+      builder.MakeEdge(copy, curve.returnValue, tolerance);
+      builder.Range(copy, curve.First, curve.Last, true);
+      return copy;
+    } finally {
+      builder.delete();
+      curve[Symbol.dispose]();
     }
   }
 
   /**
    * The plane a planar curve lies in: a circle's, an arc's or an ellipse's
-   * own, or the one fitted to a spline or other curve. Null for a line,
-   * which lies in many, and for a curve in none.
+   * own (centre and axis), or the one fitted to a spline or other curve.
+   * Null for a line, which lies in many, and for a curve in none.
    */
   static planeOf(curve: CurveClass): CurvePlane | null {
     if (curve.plane) {

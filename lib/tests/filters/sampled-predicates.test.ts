@@ -110,6 +110,30 @@ describe("sampled predicates on curved edges", () => {
       expect(matches(flat, edge().onPlane("xy"))).toBe(true);
     });
 
+    it("rejects a long spline that starts on the plane and drifts off it", () => {
+      // A flat spline in a plane tilted 5e-7 rad from xy about the y axis:
+      // it starts on xy, its normal is within the angular bound of xy's, and
+      // 100 mm on it is 5e-5 mm below.
+      const tilt = Math.tan(5e-7);
+      const drifting = bezier([[0, 0, 0], [30, 20, -30 * tilt], [60, -20, -60 * tilt], [100, 0, -100 * tilt]]);
+      const curve = CurveClassifier.classify(drifting);
+      expect(curve).toMatchObject({ kind: "spline", planar: true });
+      expect(EdgeQuery.isCurveParallelToPlane(curve, XY.normal)).toBe(true);
+      expect(matches(drifting, edge().onPlane("xy"))).toBe(false);
+
+      // The same curve a tenth of a millimetre long stays within tolerance of xy.
+      const short = bezier([[0, 0, 0], [0.03, 0.02, -0.03 * tilt], [0.06, -0.02, -0.06 * tilt], [0.1, 0, -0.1 * tilt]]);
+      expect(matches(short, edge().onPlane("xy"))).toBe(true);
+    });
+
+    it("keeps an ellipse lying in the plane, and rejects one tilted off it past its centre", () => {
+      const lying = Geometry.makeEllipseEdge(new Point(0, 0, 0), 50, 20, new Vector3d(0, 0, 1), new Vector3d(1, 0, 0));
+      expect(CurveClassifier.classify(lying).kind).toBe("ellipse");
+      expect(matches(lying, edge().onPlane("xy"))).toBe(true);
+      const tilted = Geometry.makeEllipseEdge(new Point(0, 0, 0), 50, 20, new Vector3d(Math.sin(5e-7), 0, Math.cos(5e-7)), new Vector3d(Math.cos(5e-7), 0, -Math.sin(5e-7)));
+      expect(matches(tilted, edge().onPlane("xy"))).toBe(false);
+    });
+
     it("judges lines and arcs as before", () => {
       const inPlane = [segment([0, 0, 0], [10, 5, 0]), arcThrough([0, 0, 0], [5, 5, 0], [10, 0, 0])];
       const offPlane = [segment([0, 0, 0], [0, 0, 10]), arcThrough([0, 0, 0], [5, 0, 5], [10, 0, 0])];

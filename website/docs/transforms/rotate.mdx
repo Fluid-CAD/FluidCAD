@@ -9,13 +9,13 @@ import transformRotateCopy from '!!raw-loader!./_examples/transform-rotate-copy.
 
 # Rotate
 
-`rotate()` turns solids around an axis, in place or as copies.
+`rotate()` turns solids, surfaces and curves around an axis, in place or as copies.
 
 ## In the viewport
 
 1. Click **Rotate** on the toolbar. The Rotate dialog docks on the right.
-2. Pick the tab: **Move** turns the solids in place; **Copy** keeps the originals and adds turned copies.
-3. Click the solids to rotate — any face or edge click in the viewport selects the whole solid, or click their timeline rows. They fill the **Solids** slot as numbered chips.
+2. Pick the tab: **Move** turns the shapes in place; **Copy** keeps the originals and adds turned copies.
+3. Click the solids, surfaces or curves to rotate — any face or edge click in the viewport selects the whole shape, or click their timeline rows. They fill the **Shapes** slot as numbered chips.
 4. Fill the **Axis** slot: click one of the world axes shown in the viewport (X red, Y green, Z blue), an `axis()` feature, or an edge. A circular edge gives its centre line.
 5. Enter the **Angle** in degrees and click **Apply**.
 
@@ -54,4 +54,4 @@ Targets follow the same rule as [translate](/docs/transforms/translate#code-form
 
 ## Inside a sketch
 
-`rotate()` works on solids only. Sketch geometry is oriented with constraints instead — [`angle()`](/docs/sketching/constraints/dimensional/angle), [`horizontal()`](/docs/sketching/constraints/positional/horizontal) and [`vertical()`](/docs/sketching/constraints/positional/vertical) pin a line's direction, and the solver turns the rest of the profile with it. Calling `rotate()` inside `sketch(...)` is an error.
+`rotate()` turns 3D shapes, not sketch geometry. Sketch geometry is oriented with constraints instead — [`angle()`](/docs/sketching/constraints/dimensional/angle), [`horizontal()`](/docs/sketching/constraints/positional/horizontal) and [`vertical()`](/docs/sketching/constraints/positional/vertical) pin a line's direction, and the solver turns the rest of the profile with it. Calling `rotate()` inside `sketch(...)` is an error.

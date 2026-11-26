@@ -9,13 +9,13 @@ import copyCircular from '!!raw-loader!./_examples/copy-circular.js';
 
 # Copy
 
-`copy()` duplicates a **finished solid** at several positions, in a row or around an axis. The copies are clones of the shape as it is — no modelling operation is re-run. To re-apply a feature (a cut, an extrude) at each position instead, use [Repeat](/docs/patterns/repeat). `copy()` also copies [connectors](#copying-connectors), the frames an assembly mates to.
+`copy()` duplicates a **finished shape** — a solid, a surface or a curve — at several positions, in a row or around an axis. The copies are clones of the shape as it is — no modelling operation is re-run. To re-apply a feature (a cut, an extrude) at each position instead, use [Repeat](/docs/patterns/repeat). `copy()` also copies [connectors](#copying-connectors), the frames an assembly mates to.
 
 ## In the viewport
 
 1. Click **Copy** on the toolbar. The Copy dialog docks on the right.
 2. Pick the **Type** at the top: **Linear** copies along one or two axes, **Circular** around an axis. The third type, **Along a repeat**, is for [connectors](#copying-connectors).
-3. Click the solid to copy — any face or edge click in the viewport, or its timeline row. It fills the **Solids & connectors** slot.
+3. Click the solid, surface or curve to copy — any face or edge click in the viewport, or its timeline row. It fills the **Shapes & connectors** slot.
 4. **Linear**: in **Direction 1**, fill the **Axis** slot (click a world axis shown in the viewport, an `axis()` feature, an edge, or a connector), enter the **Total Count** (the original included) and the spacing — the **Offset / Total** switch decides whether the value is the gap between neighbours or the whole span, spread evenly. **Add second direction** opens a second axis and count for a grid.
 5. **Circular**: fill the **Axis** slot (empty defaults to world Z), the **Total Count**, and the **Angle** — **Total** for the sweep, **Offset** for the degrees between neighbours.
 6. **Centered** spreads the pattern around the original instead of away from it. **Skip** lists instance indices to leave out (`1, 3`).
@@ -94,9 +94,9 @@ Each copy is an independent solid. Later features reach the copies through their
 
 A [connector](/docs/part/connector), the frame an assembly mates to, is copied with the same dialog; [Repeat](/docs/patterns/repeat) refuses connectors and points here. Each copy is a connector with no statement of its own, addressed `bolt.instance(1)`, `bolt.instance(2)`, …: *copy 1 of `bolt`*, and so on. An assembly mates one as `flange.connectors.bolt.instance(3)`.
 
-<img src="/img/docs/ui/copy-dialog-connector.png" alt="The Copy dialog on Circular: the bolt connector in Solids & connectors, world Z as the axis, Total Count 6, Angle 360" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+<img src="/img/docs/ui/copy-dialog-connector.png" alt="The Copy dialog on Circular: the bolt connector in Shapes & connectors, world Z as the axis, Total Count 6, Angle 360" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
 
-1. Click the connector's triad in the viewport (every connector shows while the dialog is open), or right-click its timeline row and choose **Copy…**. Solids and connectors can share the **Solids & connectors** slot; each one gets its copies.
+1. Click the connector's triad in the viewport (every connector shows while the dialog is open), or right-click its timeline row and choose **Copy…**. Shapes and connectors can share the **Shapes & connectors** slot; each one gets its copies.
 2. **Linear** and **Circular** work as they do for solids, except that a Circular copy of a connector can't be **Centered** yet: the statement is refused.
 3. **Along a repeat**, offered while every target is a connector, puts one copy on each instance of a repeat. Click the Repeat row in the timeline, or the repeated feature in the viewport, to fill the **Pattern** slot. The count, spacing, axis and skip fields go away: the repeat decides them, and when it changes the copies move with it.
 4. Triads preview the copies. **Apply** writes the statement, and the Copy row appears in the timeline like any other feature; clicking it highlights the connector with all its copies.

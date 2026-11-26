@@ -70,9 +70,9 @@ Face frames follow the outward normal, so two parts mated **face-to-face** end u
 
 A copy of a connector is a connector too — a mate side, a replicate row — with no statement of its own. The copies of `bolt` are addressed `bolt.instance(1)`, `bolt.instance(2)`, …; in these pages `bolt.instance(3)` is *copy 3 of `bolt`*.
 
-<img src="/img/docs/ui/copy-dialog-along-repeat.png" alt="The Copy dialog on Along a repeat: the bolt connector in Solids & connectors, the holes repeat in Pattern" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+<img src="/img/docs/ui/copy-dialog-along-repeat.png" alt="The Copy dialog on Along a repeat: the bolt connector in Shapes & connectors, the holes repeat in Pattern" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
 
-1. Right-click the connector's row in the timeline (under the part's *N connectors* toggle) and choose **Copy…**. The Copy dialog opens with the connector in its **Solids & connectors** slot. Or click **Copy** on the toolbar and click the connector's triad: every connector shows while the dialog is open.
+1. Right-click the connector's row in the timeline (under the part's *N connectors* toggle) and choose **Copy…**. The Copy dialog opens with the connector in its **Shapes & connectors** slot. Or click **Copy** on the toolbar and click the connector's triad: every connector shows while the dialog is open.
 2. Pick the **Type**. **Along a repeat** puts one copy on every instance of a feature you repeated: its **Pattern** slot asks for the repeat — click the Repeat row in the timeline, or the repeated feature in the viewport. Count, spacing and axis come from the repeat, so the dialog hides them. **Linear** and **Circular** lay the copies out on their own, with the fields of a [solid copy](/docs/patterns/copy); their **Axis** slot also takes a connector, for its Z axis.
 3. A translucent triad previews each copy. Click **Apply**. The `copy()` statement is written at the end of the part body, and its Copy row appears in the timeline like any other feature; clicking the row highlights the connector with all its copies.
 

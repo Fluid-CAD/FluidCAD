@@ -92,7 +92,7 @@ The **Shapes** panel lists the solids the model produced, grouped by part: one c
 
 Hiding a body or making it transparent follows the body itself, not the row: the setting stays through later features that reshape it (a fillet, a chamfer, a shell, a cut), through edits to earlier features that rebuild it, and both halves of a split inherit it. A body whose feature was removed loses the setting with it.
 
-The scale icon at the bottom right opens **Shape properties**. The **Part | Solid** tabs at the top choose what the numbers describe, and **Calculate** fills **Volume**, **Surface Area**, **Mass** and **Center of Mass** in the chosen length and mass units. A density is never typed: mass comes from a material, and **Density** under it is read-only.
+The scale icon at the bottom right opens **Shape properties**. The **Part | Solid** tabs at the top choose what the numbers describe, and **Calculate** fills **Kind**, **Volume**, **Surface Area**, **Mass** and **Center of Mass** in the chosen length and mass units — for a surface only its area and center, for a curve its **Length** and center. A density is never typed: mass comes from a material, and **Density** under it is read-only.
 
 - **Solid** (the default) measures one solid: click a face or edge in the viewport, or a row in the Shapes panel. A solid inside a part that declares a material shows **Material** and **Density** read-only — the part owns them.
 

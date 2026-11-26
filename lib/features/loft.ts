@@ -6,6 +6,7 @@ import { Face } from "../common/face.js";
 import { Extrudable } from "../helpers/types.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { FaceOps } from "../oc/face-ops.js";
+import { FaceQuery } from "../oc/face-query.js";
 import { Plane } from "../math/plane.js";
 import { ILoft, LoftConditionType } from "../core/interfaces.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
@@ -219,9 +220,9 @@ export class Loft extends ExtrudeBase implements ILoft {
       const faces = Explorer.findFacesWrapped(shape);
       scratch.push(...faces);
       for (const f of faces) {
-        if (firstPlane && FaceOps.faceOnPlaneWrapped(f as Face, firstPlane)) {
+        if (firstPlane && FaceQuery.isFaceOnPlane(f, firstPlane)) {
           startFaces.push(f as Face);
-        } else if (lastPlane && FaceOps.faceOnPlaneWrapped(f as Face, lastPlane)) {
+        } else if (lastPlane && FaceQuery.isFaceOnPlane(f, lastPlane)) {
           endFaces.push(f as Face);
         } else {
           sideFaces.push(f as Face);

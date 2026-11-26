@@ -109,9 +109,10 @@ export class FaceQuery {
     return FaceQuery.isTorusOf(FaceQuery.classOf(face), majorRadius, minorRadius);
   }
 
+  /** {@link isFaceOnPlaneRaw}, answered from the wrapper's cached class. */
   static isFaceOnPlane(face: Shape, plane: Plane): boolean {
     const [gpPln, dispose] = Convert.toGpPln(plane);
-    const result = FaceQuery.isFaceOnPlaneRaw(face.getShape(), gpPln);
+    const result = FaceQuery.isOnPlaneOf(FaceQuery.classOf(face), gpPln);
     dispose();
     return result;
   }
@@ -553,13 +554,36 @@ export class FaceQuery {
     return true;
   }
 
+  /** A planar face (native or recovered) lying on `plane`: parallel to it, a point of it on the plane. */
   static isFaceOnPlaneRaw(face: TopoDS_Shape, plane: gp_Pln): boolean {
+    return FaceQuery.isOnPlaneOf(SurfaceClassifier.classifyRaw(face), plane);
+  }
+
+  /**
+   * A plane class lying on `plane`: its origin on the plane, its normal
+   * along the plane's (either way round, by the dot of the two as this
+   * test has always been made). A native plane's origin is held to OCCT's
+   * confusion tolerance; a recovered one may sit as far off as recovery let
+   * it stray from the face.
+   */
+  private static isOnPlaneOf(surface: SurfaceClass, plane: gp_Pln): boolean {
+    if (surface.kind !== 'plane' || !surface.origin || !surface.normal) {
+      return false;
+    }
     const oc = getOC();
-    const typed = oc.TopoDS.Face(face);
+    const [origin, dispose] = Convert.toGpPnt(surface.origin);
+    const axis = plane.Axis();
+    const normal = axis.Direction();
     try {
-      return FaceOps.faceOnPlane(typed, plane);
+      if (plane.Distance(origin) > FaceQuery.sizeTolerance(surface)) {
+        return false;
+      }
+      const dot = normal.X() * surface.normal.x + normal.Y() * surface.normal.y + normal.Z() * surface.normal.z;
+      return Math.abs(Math.abs(dot) - 1.0) < oc.Precision.Angular();
     } finally {
-      typed.delete();
+      normal.delete();
+      axis.delete();
+      dispose();
     }
   }
 

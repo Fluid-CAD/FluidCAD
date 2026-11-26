@@ -123,6 +123,31 @@ describe("face kind predicates", () => {
     expect(count(top)).toBe(1);
   });
 
+  it("onPlane() keeps a flat wall a loft stores as a B-spline", () => {
+    const rounded = (z: number) => sketch(plane("xy", z), () => {
+      const b = line([-11, -8], [11, -8]);
+      const r = line([11, -8], [11, 8]);
+      const t = line([11, 8], [-11, 8]);
+      const l = line([-11, 8], [-11, -8]);
+      fillet(4, b, r, t, l);
+    });
+    loft(rounded(0), rounded(20));
+    const front = select(face().onPlane("xz", 8)) as SelectSceneObject;
+    const back = select(face().onPlane("xz", -8)) as SelectSceneObject;
+    const between = select(face().onPlane("xz", 7)) as SelectSceneObject;
+    const parallel = select(face().parallelTo("xz")) as SelectSceneObject;
+    const offPlane = select(face().parallelTo("xz").notOnPlane("xz", 8)) as SelectSceneObject;
+    render();
+    for (const wall of [front, back]) {
+      expect(count(wall)).toBe(1);
+      expect(SurfaceClassifier.classify(wall.getShapes()[0] as Face)).toMatchObject({ kind: "plane", recovered: true });
+    }
+    expect(front.getShapes()[0]).not.toBe(back.getShapes()[0]);
+    expect(count(between)).toBe(0);
+    expect(count(parallel)).toBe(2);
+    expect(count(offPlane)).toBe(1);
+  });
+
   describe("facing()", () => {
     it("keeps a box's top only, and widens with within", () => {
       sketch("xy", () => {

@@ -208,49 +208,6 @@ export class FaceOps {
     }
   }
 
-  static faceOnPlane(face: TopoDS_Face, plane: gp_Pln): boolean {
-    const oc = getOC();
-
-    const faceAdaptor = new oc.BRepAdaptor_Surface(face, true);
-    // Every gp_* read below is a fresh copy: all of them go with the adaptor.
-    const scratch: { delete(): void }[] = [faceAdaptor];
-    try {
-      const type = faceAdaptor.GetType();
-
-      if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-        return false;
-      }
-
-      const facePlane = faceAdaptor.Plane();
-      const location = facePlane.Location();
-      scratch.push(facePlane, location);
-
-      if (!plane.Contains(location, oc.Precision.Confusion())) {
-        return false;
-      }
-
-      const planeAxis = plane.Axis();
-      const faceAxis = facePlane.Axis();
-      const axis1 = planeAxis.Direction();
-      const axis2 = faceAxis.Direction();
-      scratch.push(planeAxis, faceAxis, axis1, axis2);
-
-      const dot = axis1.Dot(axis2);
-
-      return Math.abs(Math.abs(dot) - 1.0) < oc.Precision.Angular();
-    } finally {
-      for (const handle of scratch) handle.delete();
-    }
-  }
-
-  static faceOnPlaneWrapped(face: Face, plane: Plane): boolean {
-    const oc = getOC();
-    const [gpPln, dispose] = Convert.toGpPln(plane);
-    const result = FaceOps.faceOnPlane(face.getShape() as TopoDS_Face, gpPln);
-    dispose();
-    return result;
-  }
-
   static makeFace(wire: TopoDS_Wire): TopoDS_Face {
     const oc = getOC();
     const MakeFaceFn = new oc.BRepBuilderAPI_MakeFace(wire, false);

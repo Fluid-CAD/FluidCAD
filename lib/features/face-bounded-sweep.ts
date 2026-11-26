@@ -243,7 +243,7 @@ export class FaceBoundedSweep {
     for (const piece of pieces) {
       const faces = Explorer.findFacesWrapped(piece);
       try {
-        if (faces.some(f => FaceOps.faceOnPlaneWrapped(f, sketchPlane))) {
+        if (faces.some(f => FaceQuery.isFaceOnPlane(f, sketchPlane))) {
           return piece;
         }
       } finally {

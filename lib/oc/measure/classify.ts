@@ -2,7 +2,7 @@ import type { gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { Explorer } from "../explorer.js";
 import { CurveClassifier } from "../curve-classifier.js";
-import { SurfaceClassifier } from "../surface-classifier.js";
+import { SurfaceClass, SurfaceClassifier } from "../surface-classifier.js";
 import { FaceOps } from "../face-ops.js";
 import type { MeasureEntityKind, MeasureVec } from "./measure-types.js";
 import { dist, dot, projectPointOnLine, scale } from "./vec.js";
@@ -112,8 +112,11 @@ function detectCircularBoundary(face: TopoDS_Face): { center: MeasureVec; radius
  * so it is signed by
  * {@link FaceOps.outwardNormalRaw} — which reads the face's orientation, so
  * `shape` must be the face as its solid's explorer gives it.
+ *
+ * `surface` is the face's class when the caller already holds it: a
+ * wrapper's kept class.
  */
-export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
+export function classifyFace(shape: TopoDS_Shape, surface: SurfaceClass = SurfaceClassifier.classifyRaw(shape)): ClassifiedEntity {
   const oc = getOC();
   const face = oc.TopoDS.Face(shape);
 
@@ -135,7 +138,6 @@ export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
     shape,
   };
 
-  const surface = SurfaceClassifier.classifyRaw(face);
   if (surface.kind === 'plane' && surface.origin && surface.normal) {
     result.form = 'plane';
     result.point = vecFromPoint(surface.origin);

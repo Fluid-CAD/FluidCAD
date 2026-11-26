@@ -14,15 +14,12 @@ import { SurfaceClass, SurfaceClassifier } from "./surface-classifier.js";
 import { CurveClassifier } from "./curve-classifier.js";
 
 /**
- * What the cylinder filters (`cylinder()`, `cylinderCurve()`) and `facing()`
- * read off one face beyond its {@link SurfaceClassifier} class, kept per
- * wrapper. A wrapper's OC shape never changes while it lives, so the answer
- * holds for its lifetime — and selector synthesis asks it of the same scene
- * faces once per candidate atom, per request. The rim walk only runs for
- * cylinders.
+ * What `facing()` reads off one face, kept per wrapper. A wrapper's OC
+ * shape never changes while it lives, so the answer holds for its lifetime.
+ * What depends on the face's class (the rim walks) is kept with the class
+ * instead; see {@link SurfaceClassifier.derived}.
  */
 type SurfaceFacts = {
-  closedRim?: boolean;
   /** The outward normal at the face's UV centre; null where it is undefined. */
   centreNormal?: Vector3d | null;
 };
@@ -40,6 +37,7 @@ function surfaceFactsOf(face: Shape): SurfaceFacts {
 
 export class FaceQuery {
   // Wrapper methods (public API for external callers)
+
   /** {@link isCircleFaceRaw}, answered from the wrapper's cached class. */
   static isCircleFace(face: Shape, diameter?: number): boolean {
     return FaceQuery.isCircleOf(FaceQuery.classOf(face), face.getShape(), diameter);
@@ -55,7 +53,7 @@ export class FaceQuery {
     if (!FaceQuery.isCylinderOf(FaceQuery.classOf(face), diameter)) {
       return false;
     }
-    return FaceQuery.cachedClosedRim(face);
+    return FaceQuery.hasClosedCircularRim(face);
   }
 
   /** {@link isCylinderCurveFaceRaw}, answered from the wrapper's cached class and rim. */
@@ -63,7 +61,7 @@ export class FaceQuery {
     if (!FaceQuery.isCylinderOf(FaceQuery.classOf(face), diameter)) {
       return false;
     }
-    return !FaceQuery.cachedClosedRim(face);
+    return !FaceQuery.hasClosedCircularRim(face);
   }
 
   /** The wrapper's {@link SurfaceClassifier} class, kept per wrapper there. */
@@ -71,12 +69,13 @@ export class FaceQuery {
     return SurfaceClassifier.classify(face as Face);
   }
 
-  private static cachedClosedRim(face: Shape): boolean {
-    const facts = surfaceFactsOf(face);
-    if (facts.closedRim === undefined) {
-      facts.closedRim = FaceQuery.hasClosedCircularRimRaw(face.getShape());
-    }
-    return facts.closedRim;
+  /**
+   * {@link hasClosedCircularRimRaw}, read off the wrapper's edges and their
+   * cached classes, and kept with the face's class.
+   */
+  static hasClosedCircularRim(face: Shape): boolean {
+    return SurfaceClassifier.derived(face as Face, 'closedRim', () =>
+      (face as Face).getEdges().some(edge => CurveClassifier.classify(edge).kind === 'circle'));
   }
 
   /** {@link isSphereFaceRaw}, answered from the wrapper's cached class. */
@@ -148,16 +147,17 @@ export class FaceQuery {
     return FaceQuery.surfaceTypeOf(FaceQuery.classOf(face));
   }
 
+  // Geometry readers. Each rebuilds the plane, cylinder or cone from the
+  // face's class (kept per wrapper: a recovered face is recovered once,
+  // however many of these are asked) and throws for a face of another kind.
+
   static getSurfacePlane(face: Shape): Plane {
-    const gpPln = FaceQuery.getSurfaceAdaptorPlaneRaw(face.getShape());
-    const result = Convert.toPlane(gpPln);
-    gpPln.delete();
-    return result;
+    return Convert.toPlane(FaceQuery.gpPlaneOf(face), true);
   }
 
   static areFacePlanesParallel(face1: Shape, face2: Shape): boolean {
-    const plane1 = FaceQuery.getSurfaceAdaptorPlaneRaw(face1.getShape());
-    const plane2 = FaceQuery.getSurfaceAdaptorPlaneRaw(face2.getShape());
+    const plane1 = FaceQuery.gpPlaneOf(face1);
+    const plane2 = FaceQuery.gpPlaneOf(face2);
     const result = FaceQuery.arePlanesParallelRaw(plane1, plane2);
     plane1.delete();
     plane2.delete();
@@ -262,8 +262,8 @@ export class FaceQuery {
   }
 
   static getSignedPlaneDistance(startFace: Shape, targetFace: Shape): number {
-    const startPlane = FaceQuery.getSurfaceAdaptorPlaneRaw(startFace.getShape());
-    const targetPlane = FaceQuery.getSurfaceAdaptorPlaneRaw(targetFace.getShape());
+    const startPlane = FaceQuery.gpPlaneOf(startFace);
+    const targetPlane = FaceQuery.gpPlaneOf(targetFace);
     const result = FaceQuery.getSignedPlaneDistanceRaw(startPlane, targetPlane);
     startPlane.delete();
     targetPlane.delete();
@@ -271,14 +271,14 @@ export class FaceQuery {
   }
 
   static findFarthestCornerDistanceFromFace(targetFace: Shape, sourceFace: Shape): number {
-    const sourcePlane = FaceQuery.getSurfaceAdaptorPlaneRaw(sourceFace.getShape());
+    const sourcePlane = FaceQuery.gpPlaneOf(sourceFace);
     const result = FaceQuery.findFarthestCornerDistanceRaw(targetFace.getShape(), sourcePlane);
     sourcePlane.delete();
     return result;
   }
 
   static makeInfinitePlanarFace(face: Shape, offset?: number, offsetDirection?: Vector3d): Face {
-    const gpPln = FaceQuery.getSurfaceAdaptorPlaneRaw(face.getShape());
+    const gpPln = FaceQuery.gpPlaneOf(face);
 
     if (offset && offsetDirection) {
       const [vec, disposeVec] = Convert.toGpVec(offsetDirection);
@@ -294,7 +294,7 @@ export class FaceQuery {
 
   static makeInfiniteCylindricalFace(face: Shape, offset?: number): Face {
     const oc = getOC();
-    const cylinder = FaceQuery.getSurfaceAdaptorCylinderRaw(face.getShape());
+    const cylinder = FaceQuery.gpCylinderOf(face);
     const cylMaker = new oc.gce_MakeCylinder(cylinder, offset || 0);
     const rawFace = FaceOps.makeFaceFromCylinder(cylMaker.Value());
     cylinder.delete();
@@ -303,7 +303,7 @@ export class FaceQuery {
   }
 
   static makeInfiniteConicalFace(face: Shape, offset?: number): Face {
-    const cone = FaceQuery.getSurfaceAdaptorConeRaw(face.getShape());
+    const cone = FaceQuery.gpConeOf(face);
     if (offset) {
       // The parallel surface at normal distance `offset` is the coaxial cone
       // with the same semi-angle and a reference radius enlarged by
@@ -318,6 +318,74 @@ export class FaceQuery {
     const rawFace = FaceOps.makeFaceFromCone(cone);
     cone.delete();
     return Face.fromTopoDSFace(rawFace);
+  }
+
+  /** The face's plane for OCCT, native or recovered; the caller deletes it. Throws for a face that is no plane. */
+  static gpPlaneOf(face: Shape): gp_Pln {
+    return SurfaceClassifier.gpPlane(FaceQuery.classOf(face));
+  }
+
+  /** The face's cylinder for OCCT, native or recovered; the caller deletes it. Throws for a face that is no cylinder. */
+  static gpCylinderOf(face: Shape): gp_Cylinder {
+    return SurfaceClassifier.gpCylinder(FaceQuery.classOf(face));
+  }
+
+  /** The face's cone for OCCT, native or recovered; the caller deletes it. Throws for a face that is no cone. */
+  static gpConeOf(face: Shape): gp_Cone {
+    return SurfaceClassifier.gpCone(FaceQuery.classOf(face));
+  }
+
+  /**
+   * The V-bounds of `face` on its surface. For a cylindrical surface V is
+   * the axial coordinate; for a conical surface V is along the slant
+   * (caller multiplies by `cos(semiAngle)` to get axial Z). A cylinder or
+   * cone recovered from a B-spline reports the V-bounds its boundary spans
+   * on the recovered surface.
+   */
+  static getSurfaceVBounds(face: Shape): { vMin: number; vMax: number } {
+    const surface = FaceQuery.classOf(face);
+    if (surface.recovered && surface.axis && (surface.kind === 'cylinder' || surface.kind === 'cone')) {
+      const slant = surface.kind === 'cone' ? Math.cos(surface.semiAngle ?? 0) : 1;
+      const { origin, direction } = surface.axis;
+      let vMin = Infinity;
+      let vMax = -Infinity;
+      for (const point of FaceQuery.boundarySamples(face.getShape())) {
+        const v = point.subtract(origin).toVector3d().dot(direction) / slant;
+        vMin = Math.min(vMin, v);
+        vMax = Math.max(vMax, v);
+      }
+      return { vMin, vMax };
+    }
+    const oc = getOC();
+    const typed = oc.TopoDS.Face(face.getShape());
+    const adaptor = new oc.BRepAdaptor_Surface(typed, true);
+    try {
+      return { vMin: adaptor.FirstVParameter(), vMax: adaptor.LastVParameter() };
+    } finally {
+      adaptor.delete();
+      typed.delete();
+    }
+  }
+
+  /** Points along every boundary edge of a face, its vertices included. */
+  private static boundarySamples(face: TopoDS_Shape): Point[] {
+    const oc = getOC();
+    const steps = 8;
+    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
+      const points: Point[] = [];
+      for (const edge of edges) {
+        const typed = oc.TopoDS.Edge(edge);
+        const adaptor = new oc.BRepAdaptor_Curve(typed);
+        typed.delete();
+        const first = adaptor.FirstParameter();
+        const last = adaptor.LastParameter();
+        for (let i = 0; i <= steps; i++) {
+          points.push(Convert.toPoint(adaptor.Value(first + ((last - first) * i) / steps), true));
+        }
+        adaptor.delete();
+      }
+      return points;
+    });
   }
 
   // Raw methods (for oc-internal and common/ use). Each classifies the face
@@ -498,78 +566,6 @@ export class FaceQuery {
 
   private static surfaceTypeOf(surface: SurfaceClass): string {
     return SurfaceClassifier.isAnalytic(surface.kind) ? surface.kind : 'other';
-  }
-
-  // The three reads below answer for a surface recovered from a B-spline as
-  // for a native one, so a caller that branched on getSurfaceType reads the
-  // plane, cylinder or cone it was told of.
-
-  static getSurfaceAdaptorPlaneRaw(face: TopoDS_Shape): gp_Pln {
-    return SurfaceClassifier.withAnalyticSurface(face, surface => surface.Plane());
-  }
-
-  static getSurfaceAdaptorCylinderRaw(face: TopoDS_Shape): gp_Cylinder {
-    return SurfaceClassifier.withAnalyticSurface(face, surface => surface.Cylinder());
-  }
-
-  static getSurfaceAdaptorConeRaw(face: TopoDS_Shape): gp_Cone {
-    return SurfaceClassifier.withAnalyticSurface(face, surface => surface.Cone());
-  }
-
-  /**
-   * Returns the parametric V-bounds of `face`'s underlying surface. For a
-   * cylindrical surface V is the axial coordinate; for a conical surface V is
-   * along the slant (caller multiplies by `cos(semiAngle)` to get axial Z).
-   * A cylinder or cone recovered from a B-spline reports the V-bounds its
-   * boundary spans on the recovered surface.
-   */
-  static getSurfaceVBoundsRaw(face: TopoDS_Shape): { vMin: number; vMax: number } {
-    const oc = getOC();
-    return SurfaceClassifier.withAnalyticSurface(face, (surface, recovered) => {
-      if (!recovered) {
-        return { vMin: surface.FirstVParameter(), vMax: surface.LastVParameter() };
-      }
-      const type = surface.GetType();
-      if (type !== oc.GeomAbs_SurfaceType.GeomAbs_Cylinder && type !== oc.GeomAbs_SurfaceType.GeomAbs_Cone) {
-        return { vMin: surface.FirstVParameter(), vMax: surface.LastVParameter() };
-      }
-      const frame = type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder ? surface.Cylinder() : surface.Cone();
-      const slant = type === oc.GeomAbs_SurfaceType.GeomAbs_Cone ? Math.cos((frame as gp_Cone).SemiAngle()) : 1;
-      const axis = frame.Axis();
-      const origin = Convert.toPoint(axis.Location(), true);
-      const direction = Convert.toVector3dFromGpDir(axis.Direction(), true);
-      axis.delete();
-      frame.delete();
-      let vMin = Infinity;
-      let vMax = -Infinity;
-      for (const point of FaceQuery.boundarySamples(face)) {
-        const v = point.subtract(origin).toVector3d().dot(direction) / slant;
-        vMin = Math.min(vMin, v);
-        vMax = Math.max(vMax, v);
-      }
-      return { vMin, vMax };
-    });
-  }
-
-  /** Points along every boundary edge of a face, its vertices included. */
-  private static boundarySamples(face: TopoDS_Shape): Point[] {
-    const oc = getOC();
-    const steps = 8;
-    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
-      const points: Point[] = [];
-      for (const edge of edges) {
-        const typed = oc.TopoDS.Edge(edge);
-        const adaptor = new oc.BRepAdaptor_Curve(typed);
-        typed.delete();
-        const first = adaptor.FirstParameter();
-        const last = adaptor.LastParameter();
-        for (let i = 0; i <= steps; i++) {
-          points.push(Convert.toPoint(adaptor.Value(first + ((last - first) * i) / steps), true));
-        }
-        adaptor.delete();
-      }
-      return points;
-    });
   }
 
   static findFarthestCornerDistanceRaw(face: TopoDS_Shape, plane: gp_Pln): number {

@@ -1,5 +1,6 @@
 import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
+import type { Edge } from "../common/edge.js";
 import { CurveClass, CurveClassifier } from "./curve-classifier.js";
 
 export interface EdgeProperties {
@@ -51,25 +52,37 @@ export class EdgeProps {
    * The edge's kind and sizes, read off its {@link CurveClassifier} class —
    * the classification the edge filters read too, so a probe and the
    * predicate it instantiates agree on every edge.
+   *
+   * Reads the wrapper's kept class; a spline's planarity and a length that
+   * needs integrating are computed only when read.
    */
-  static getProperties(edge: TopoDS_Shape): EdgeProperties {
-    return EdgeProps.fromClass(CurveClassifier.classifyRaw(edge));
+  static of(edge: Edge): EdgeProperties {
+    return EdgeProps.fromClass(CurveClassifier.classify(edge));
   }
 
-  /** A curve class as the properties shown for the edge. */
-  static fromClass(curve: CurveClass): EdgeProperties {
-    const shape = { closed: curve.closed, planar: curve.planar };
+  /** {@link of} for a raw edge: classified afresh, with every property read at once. */
+  static getProperties(edge: TopoDS_Shape): EdgeProperties {
+    // Spread out: the properties may outlive the raw edge, which a lazy length or planarity would still read.
+    return { ...EdgeProps.fromClass(CurveClassifier.classifyRaw(edge)) };
+  }
+
+  /** A curve class as the properties shown for the edge; `planar` and `length` are read off the class on demand. */
+  private static fromClass(curve: CurveClass): EdgeProperties {
+    const closed = curve.closed;
     switch (curve.kind) {
       case 'line':
-        return { curveType: 'line', ...shape, length: curve.length };
+        return { curveType: 'line', closed, get planar() { return curve.planar; }, get length() { return curve.length; } };
       case 'circle':
-        return { curveType: 'circle', ...shape, radius: curve.radius };
+        return { curveType: 'circle', closed, get planar() { return curve.planar; }, radius: curve.radius };
       case 'arc':
-        return { curveType: 'arc', ...shape, radius: curve.radius, length: curve.length };
+        return { curveType: 'arc', closed, get planar() { return curve.planar; }, radius: curve.radius, get length() { return curve.length; } };
       case 'ellipse':
-        return { curveType: 'ellipse', ...shape, majorRadius: curve.majorRadius, minorRadius: curve.minorRadius };
+        return {
+          curveType: 'ellipse', closed, get planar() { return curve.planar; },
+          majorRadius: curve.majorRadius, minorRadius: curve.minorRadius,
+        };
       default:
-        return { curveType: curve.kind, ...shape, length: curve.length };
+        return { curveType: curve.kind, closed, get planar() { return curve.planar; }, get length() { return curve.length; } };
     }
   }
 }

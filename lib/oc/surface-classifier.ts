@@ -1,4 +1,4 @@
-import type { Adaptor3d_Surface, gp_Ax1, gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
+import type { Adaptor3d_Surface, gp_Ax1, gp_Ax3, gp_Cone, gp_Cylinder, gp_Pln, gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -6,43 +6,71 @@ import { Axis } from "../math/axis.js";
 import { Shape } from "../common/shape.js";
 import type { Face } from "../common/face.js";
 import { mmTol } from "../units/tolerance.js";
+import { lazily } from "../helpers/lazily.js";
 
 /** What a face's surface is, whatever the kernel stores it as. */
 export type SurfaceKind =
   | 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus'
   | 'revolved' | 'extruded' | 'freeform';
 
-/** A face's surface kind and the sizes that go with it; see {@link SurfaceClassifier.classify}. */
-export type SurfaceClass = {
-  kind: SurfaceKind;
-  /** True when the kind was recovered from a non-analytic surface. */
-  recovered: boolean;
-  /** For a cylinder or a sphere. */
-  radius?: number;
-  /** For a torus. */
-  majorRadius?: number;
-  minorRadius?: number;
-  /** For a cylinder, a cone, a torus or a revolved surface. */
-  axis?: Axis;
-  /** For a plane: a point on it. */
-  origin?: Point;
-  /** For a plane: the direction of its frame's main axis (either side of the face). */
-  normal?: Vector3d;
-  /** For a cone: its half-angle in radians, and its apex. */
-  semiAngle?: number;
-  apex?: Point;
-  /** For a sphere: its centre. */
-  center?: Point;
-  areaMm2: number;
+/** Where an elementary surface sits: the frame its parameters are read in. */
+export type SurfacePlacement = {
+  origin: Point;
+  /** The frame's main direction: a plane's normal, a cylinder's, cone's or torus's axis. */
+  direction: Vector3d;
+  /** Where the surface's u parameter starts. */
+  xDirection: Vector3d;
+  /** False for a left-handed frame. */
+  direct: boolean;
 };
 
-/** The class of one wrapper, with the tolerance it was classified at (unit-dependent). */
-type CachedClass = { tolerance: number; value: SurfaceClass };
+/** A face's surface kind and the sizes that go with it; see {@link SurfaceClassifier.classify}. */
+export type SurfaceClass = {
+  readonly kind: SurfaceKind;
+  /** True when the kind was recovered from a non-analytic surface. */
+  readonly recovered: boolean;
+  /** For a cylinder or a sphere. */
+  readonly radius?: number;
+  /** For a torus. */
+  readonly majorRadius?: number;
+  readonly minorRadius?: number;
+  /** For a cylinder, a cone, a torus or a revolved surface. */
+  readonly axis?: Axis;
+  /** For a plane: a point on it. */
+  readonly origin?: Point;
+  /** For a plane: the direction of its frame's main axis (either side of the face). */
+  readonly normal?: Vector3d;
+  /** For a cone: its half-angle in radians, its apex, and its radius at the frame's origin. */
+  readonly semiAngle?: number;
+  readonly apex?: Point;
+  readonly refRadius?: number;
+  /** For a sphere: its centre. */
+  readonly center?: Point;
+  /** For a plane, cylinder, cone, sphere or torus: its frame, enough to rebuild the surface. */
+  readonly placement?: SurfacePlacement;
+  /**
+   * The face's area, integrated on first read and kept. A class from
+   * {@link SurfaceClassifier.classifyRaw} reads it off the raw face, so
+   * read it while that face lives.
+   */
+  readonly areaMm2: number;
+};
+
+/**
+ * One wrapper's class with the tolerance it was classified at
+ * (unit-dependent), and what readers derived from it.
+ */
+type CachedClass = { tolerance: number; value: SurfaceClass; derived: Map<string, unknown> };
 
 const classes = new WeakMap<Shape, CachedClass>();
 
+type Writable<T> = { -readonly [K in keyof T]: T[K] };
+
+/** What classification reads at once; the area comes on demand. */
+type Read = Writable<Omit<SurfaceClass, 'areaMm2'>>;
+
 /** The analytic part of a class: what a plane, cylinder, cone, sphere or torus reads off its surface. */
-type Analytic = Omit<SurfaceClass, 'recovered' | 'areaMm2'>;
+type Analytic = Omit<Read, 'recovered'>;
 
 /**
  * The one classifier for faces. Filters, properties, selection probes and
@@ -64,58 +92,25 @@ export class SurfaceClassifier {
 
   /** The face's class, kept per wrapper for the tolerance it was classified at. */
   static classify(face: Face): SurfaceClass {
-    const tolerance = SurfaceClassifier.tolerance();
-    const cached = classes.get(face);
-    if (cached?.tolerance === tolerance) {
-      return cached.value;
-    }
-    const value = SurfaceClassifier.classifyRaw(face.getShape());
-    classes.set(face, { tolerance, value });
-    return value;
+    return SurfaceClassifier.cached(face).value;
   }
 
   /** The class of a raw face, asked of OCCT every time. */
   static classifyRaw(face: TopoDS_Shape): SurfaceClass {
-    const oc = getOC();
-    const typed = oc.TopoDS.Face(face);
-    try {
-      const areaMm2 = SurfaceClassifier.measureArea(typed);
-      const analytic = SurfaceClassifier.withAnalyticSurfaceOf(typed, (surface, recovered) => {
-        const read = SurfaceClassifier.readAnalytic(surface);
-        return read ? { ...read, recovered } : null;
-      });
-      if (analytic) {
-        return { ...analytic, areaMm2 };
-      }
-      return { ...SurfaceClassifier.readNonAnalytic(typed), recovered: false, areaMm2 };
-    } finally {
-      typed.delete();
-    }
+    return SurfaceClassifier.classifyWith(face, () => face);
   }
 
   /**
-   * Runs `read` over the face's elementary surface: its own adaptor when the
-   * kernel stores one, else an adaptor over the surface recovered from it.
-   * A face with neither is read through its own adaptor, so a caller that
-   * asks it for a plane fails as it would have without recovery.
+   * What a reader derives from the face's class (a rim walk, say), computed
+   * once and kept beside the class: it is dropped when the class is, so it
+   * never outlives the tolerance it was derived at.
    */
-  static withAnalyticSurface<T>(face: TopoDS_Shape, read: (surface: Adaptor3d_Surface, recovered: boolean) => T): T {
-    const oc = getOC();
-    const typed = oc.TopoDS.Face(face);
-    try {
-      const result = SurfaceClassifier.withAnalyticSurfaceOf(typed, (surface, recovered) => ({ value: read(surface, recovered) }));
-      if (result) {
-        return result.value;
-      }
-      const adaptor = new oc.BRepAdaptor_Surface(typed, true);
-      try {
-        return read(adaptor, false);
-      } finally {
-        adaptor.delete();
-      }
-    } finally {
-      typed.delete();
+  static derived<T>(face: Face, key: string, compute: () => T): T {
+    const { derived } = SurfaceClassifier.cached(face);
+    if (!derived.has(key)) {
+      derived.set(key, compute());
     }
+    return derived.get(key) as T;
   }
 
   /**
@@ -132,54 +127,138 @@ export class SurfaceClassifier {
     return kind === 'plane' || kind === 'cylinder' || kind === 'cone' || kind === 'sphere' || kind === 'torus';
   }
 
+  /** The plane a `plane` class describes, for OCCT; the caller deletes it. */
+  static gpPlane(surface: SurfaceClass): gp_Pln {
+    const frame = SurfaceClassifier.gpFrame(surface, 'plane');
+    try {
+      return new (getOC().gp_Pln)(frame);
+    } finally {
+      frame.delete();
+    }
+  }
+
+  /** The cylinder a `cylinder` class describes, for OCCT; the caller deletes it. */
+  static gpCylinder(surface: SurfaceClass): gp_Cylinder {
+    const frame = SurfaceClassifier.gpFrame(surface, 'cylinder');
+    try {
+      return new (getOC().gp_Cylinder)(frame, surface.radius ?? 0);
+    } finally {
+      frame.delete();
+    }
+  }
+
+  /** The cone a `cone` class describes, for OCCT; the caller deletes it. */
+  static gpCone(surface: SurfaceClass): gp_Cone {
+    const frame = SurfaceClassifier.gpFrame(surface, 'cone');
+    try {
+      return new (getOC().gp_Cone)(frame, surface.semiAngle ?? 0, surface.refRadius ?? 0);
+    } finally {
+      frame.delete();
+    }
+  }
+
+  /** The frame of a class of the given kind; throws for any other class. */
+  private static gpFrame(surface: SurfaceClass, kind: SurfaceKind): gp_Ax3 {
+    if (surface.kind !== kind || !surface.placement) {
+      throw new Error(`The face is not a ${kind} (got '${surface.kind}')`);
+    }
+    const oc = getOC();
+    const { origin, direction, xDirection, direct } = surface.placement;
+    const location = new oc.gp_Pnt(origin.x, origin.y, origin.z);
+    const main = new oc.gp_Dir(direction.x, direction.y, direction.z);
+    const x = new oc.gp_Dir(xDirection.x, xDirection.y, xDirection.z);
+    try {
+      const frame = new oc.gp_Ax3(location, main, x);
+      if (!direct) {
+        frame.YReverse();
+      }
+      return frame;
+    } finally {
+      x.delete();
+      main.delete();
+      location.delete();
+    }
+  }
+
+  private static cached(face: Face): CachedClass {
+    const tolerance = SurfaceClassifier.tolerance();
+    let cached = classes.get(face);
+    if (cached?.tolerance !== tolerance) {
+      cached = {
+        tolerance,
+        value: SurfaceClassifier.classifyWith(face.getShape(), () => face.getShape()),
+        derived: new Map(),
+      };
+      classes.set(face, cached);
+    }
+    return cached;
+  }
+
+  /** Classifies `face`; `source` hands the area integration the face when it is first asked for. */
+  private static classifyWith(face: TopoDS_Shape, source: () => TopoDS_Shape): SurfaceClass {
+    const oc = getOC();
+    const typed = oc.TopoDS.Face(face);
+    try {
+      return lazily(SurfaceClassifier.read(typed), 'areaMm2', () => SurfaceClassifier.measureArea(source()));
+    } finally {
+      typed.delete();
+    }
+  }
+
   /**
-   * `read` over the face's native elementary surface, else over the one
-   * recovered from it; null (without calling `read`) when there is neither.
+   * The face's class but for its area: its native elementary surface, else
+   * the one recovered from it, else what the kernel stores.
    */
-  private static withAnalyticSurfaceOf<T>(face: TopoDS_Face, read: (surface: Adaptor3d_Surface, recovered: boolean) => T): T | null {
+  private static read(face: TopoDS_Face): Read {
     const oc = getOC();
     const adaptor = new oc.BRepAdaptor_Surface(face, true);
     try {
-      if (SurfaceClassifier.isElementary(adaptor)) {
-        return read(adaptor, false);
+      const native = SurfaceClassifier.readAnalytic(adaptor);
+      if (native) {
+        return { ...native, recovered: false };
       }
+      const recovered = SurfaceClassifier.recover(face);
+      if (recovered) {
+        return { ...recovered, recovered: true };
+      }
+      return { ...SurfaceClassifier.readNonAnalytic(adaptor), recovered: false };
     } finally {
       adaptor.delete();
     }
+  }
+
+  /**
+   * The elementary surface a non-analytic face approximates over its own UV
+   * bounds within {@link tolerance}; null when there is none.
+   */
+  private static recover(face: TopoDS_Face): Analytic | null {
+    const oc = getOC();
     const surface = oc.BRep_Tool.Surface(face);
     if (!surface) {
       return null;
     }
-    const tolerance = SurfaceClassifier.tolerance();
-    const bounds = oc.BRepTools.UVBounds(face);
-    const converter = new oc.GeomConvert_SurfToAnaSurf(surface);
-    let recovered: ReturnType<typeof converter.ConvertToAnalytical> | null = null;
+    const owned: { delete(): void }[] = [surface];
     try {
-      recovered = converter.ConvertToAnalytical(tolerance, bounds.UMin, bounds.UMax, bounds.VMin, bounds.VMax);
-      if (!recovered || converter.Gap() > tolerance) {
+      const tolerance = SurfaceClassifier.tolerance();
+      const bounds = oc.BRepTools.UVBounds(face);
+      const converter = new oc.GeomConvert_SurfToAnaSurf(surface);
+      owned.push(converter);
+      const recovered = converter.ConvertToAnalytical(tolerance, bounds.UMin, bounds.UMax, bounds.VMin, bounds.VMax);
+      if (!recovered) {
         return null;
       }
-      const recoveredAdaptor = new oc.GeomAdaptor_Surface(recovered);
-      try {
-        return SurfaceClassifier.isElementary(recoveredAdaptor) ? read(recoveredAdaptor, true) : null;
-      } finally {
-        recoveredAdaptor.delete();
+      owned.push(recovered);
+      if (converter.Gap() > tolerance) {
+        return null;
       }
+      const adaptor = new oc.GeomAdaptor_Surface(recovered);
+      owned.push(adaptor);
+      return SurfaceClassifier.readAnalytic(adaptor);
     } finally {
-      recovered?.delete();
-      converter.delete();
-      surface.delete();
+      for (const object of owned.reverse()) {
+        object.delete();
+      }
     }
-  }
-
-  private static isElementary(surface: Adaptor3d_Surface): boolean {
-    const oc = getOC();
-    const type = surface.GetType();
-    return type === oc.GeomAbs_SurfaceType.GeomAbs_Plane
-      || type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder
-      || type === oc.GeomAbs_SurfaceType.GeomAbs_Cone
-      || type === oc.GeomAbs_SurfaceType.GeomAbs_Sphere
-      || type === oc.GeomAbs_SurfaceType.GeomAbs_Torus;
   }
 
   /** An elementary surface's kind, frame and sizes; null for any other surface. */
@@ -188,13 +267,18 @@ export class SurfaceClassifier {
     const type = surface.GetType();
     if (type === oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
       const plane = surface.Plane();
-      const axis = SurfaceClassifier.axisOf(plane.Axis());
+      const placement = SurfaceClassifier.placementOf(plane.Position());
       plane.delete();
-      return { kind: 'plane', origin: axis.origin, normal: axis.direction };
+      return { kind: 'plane', origin: placement.origin, normal: placement.direction, placement };
     }
     if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
       const cylinder = surface.Cylinder();
-      const analytic: Analytic = { kind: 'cylinder', radius: cylinder.Radius(), axis: SurfaceClassifier.axisOf(cylinder.Axis()) };
+      const analytic: Analytic = {
+        kind: 'cylinder',
+        radius: cylinder.Radius(),
+        axis: SurfaceClassifier.axisOf(cylinder.Axis()),
+        placement: SurfaceClassifier.placementOf(cylinder.Position()),
+      };
       cylinder.delete();
       return analytic;
     }
@@ -205,13 +289,20 @@ export class SurfaceClassifier {
         axis: SurfaceClassifier.axisOf(cone.Axis()),
         semiAngle: cone.SemiAngle(),
         apex: SurfaceClassifier.pointOf(cone.Apex()),
+        refRadius: cone.RefRadius(),
+        placement: SurfaceClassifier.placementOf(cone.Position()),
       };
       cone.delete();
       return analytic;
     }
     if (type === oc.GeomAbs_SurfaceType.GeomAbs_Sphere) {
       const sphere = surface.Sphere();
-      const analytic: Analytic = { kind: 'sphere', radius: sphere.Radius(), center: SurfaceClassifier.pointOf(sphere.Location()) };
+      const analytic: Analytic = {
+        kind: 'sphere',
+        radius: sphere.Radius(),
+        center: SurfaceClassifier.pointOf(sphere.Location()),
+        placement: SurfaceClassifier.placementOf(sphere.Position()),
+      };
       sphere.delete();
       return analytic;
     }
@@ -222,6 +313,7 @@ export class SurfaceClassifier {
         majorRadius: torus.MajorRadius(),
         minorRadius: torus.MinorRadius(),
         axis: SurfaceClassifier.axisOf(torus.Axis()),
+        placement: SurfaceClassifier.placementOf(torus.Position()),
       };
       torus.delete();
       return analytic;
@@ -229,22 +321,17 @@ export class SurfaceClassifier {
     return null;
   }
 
-  /** The kind of a face no elementary surface stands for. */
-  private static readNonAnalytic(face: TopoDS_Face): Analytic {
+  /** The kind of a surface that is no elementary one. */
+  private static readNonAnalytic(surface: Adaptor3d_Surface): Analytic {
     const oc = getOC();
-    const adaptor = new oc.BRepAdaptor_Surface(face, true);
-    try {
-      const type = adaptor.GetType();
-      if (type === oc.GeomAbs_SurfaceType.GeomAbs_SurfaceOfRevolution) {
-        return { kind: 'revolved', axis: SurfaceClassifier.axisOf(adaptor.AxeOfRevolution()) };
-      }
-      if (type === oc.GeomAbs_SurfaceType.GeomAbs_SurfaceOfExtrusion) {
-        return { kind: 'extruded' };
-      }
-      return { kind: 'freeform' };
-    } finally {
-      adaptor.delete();
+    const type = surface.GetType();
+    if (type === oc.GeomAbs_SurfaceType.GeomAbs_SurfaceOfRevolution) {
+      return { kind: 'revolved', axis: SurfaceClassifier.axisOf(surface.AxeOfRevolution()) };
     }
+    if (type === oc.GeomAbs_SurfaceType.GeomAbs_SurfaceOfExtrusion) {
+      return { kind: 'extruded' };
+    }
+    return { kind: 'freeform' };
   }
 
   private static axisOf(axis: gp_Ax1): Axis {
@@ -260,18 +347,37 @@ export class SurfaceClassifier {
     return result;
   }
 
+  private static placementOf(frame: gp_Ax3): SurfacePlacement {
+    const location = frame.Location();
+    const dir = frame.Direction();
+    const x = frame.XDirection();
+    const placement: SurfacePlacement = {
+      origin: new Point(location.X(), location.Y(), location.Z()),
+      direction: new Vector3d(dir.X(), dir.Y(), dir.Z()),
+      xDirection: new Vector3d(x.X(), x.Y(), x.Z()),
+      direct: frame.Direct(),
+    };
+    x.delete();
+    dir.delete();
+    location.delete();
+    frame.delete();
+    return placement;
+  }
+
   private static pointOf(p: gp_Pnt): Point {
     const point = new Point(p.X(), p.Y(), p.Z());
     p.delete();
     return point;
   }
 
-  private static measureArea(face: TopoDS_Face): number {
+  private static measureArea(face: TopoDS_Shape): number {
     const oc = getOC();
     const props = new oc.GProp_GProps();
-    oc.BRepGProp.SurfaceProperties(face, props, false, false);
-    const area = props.Mass();
-    props.delete();
-    return area;
+    try {
+      oc.BRepGProp.SurfaceProperties(face, props, false, false);
+      return props.Mass();
+    } finally {
+      props.delete();
+    }
   }
 }

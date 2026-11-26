@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { Geom_Curve, TopoDS_Edge } from "ocjs-fluidcad";
 import { setupOC, render } from "../setup.js";
 import { getOC } from "../../oc/init.js";
-import { CurveClassifier } from "../../oc/curve-classifier.js";
+import { CurveClass, CurveClassifier } from "../../oc/curve-classifier.js";
+import { withUnit } from "../../units/registry.js";
 import { Geometry } from "../../oc/geometry.js";
 import { Edge } from "../../common/edge.js";
 import { Point } from "../../math/point.js";
@@ -229,8 +230,60 @@ describe("CurveClassifier", () => {
     });
   });
 
+  describe("what is computed on demand", () => {
+    /** Whether `key` is still a getter on `curve`: not yet computed. */
+    function pending(curve: CurveClass, key: "plane" | "planar" | "length"): boolean {
+      return typeof Object.getOwnPropertyDescriptor(curve, key)?.get === "function";
+    }
+
+    it("fits a spline's plane and integrates its length when they are first read, once", () => {
+      const curve = CurveClassifier.classify(bezier([[0, 0, 4], [5, 8, 4], [10, -6, 4], [15, 2, 4]]));
+      expect(curve.kind).toBe("spline");
+      expect([pending(curve, "plane"), pending(curve, "planar"), pending(curve, "length")]).toEqual([true, true, true]);
+
+      expect(curve.planar).toBe(true);
+      expect([pending(curve, "plane"), pending(curve, "planar"), pending(curve, "length")]).toEqual([false, false, true]);
+      expect(curve.plane).toBe(curve.plane);
+
+      expect(curve.length).toBeGreaterThan(15);
+      expect(pending(curve, "length")).toBe(false);
+    });
+
+    it("knows a line's and an arc's length and planarity without asking", () => {
+      withOwned(own => {
+        for (const edge of [lineEdge(own, [0, 0, 0], [3, 4, 0]), circleEdge(own, 0, Math.PI)]) {
+          const curve = CurveClassifier.classifyRaw(edge);
+          expect([pending(curve, "planar"), pending(curve, "length")]).toEqual([false, false]);
+          expect(curve.plane).toBeUndefined();
+        }
+      });
+    });
+
+    it("integrates an ellipse's length when it is first read", () => {
+      withOwned(own => {
+        const curve = CurveClassifier.classifyRaw(ellipseEdge(own, 0, 2 * Math.PI));
+        expect(pending(curve, "length")).toBe(true);
+        // Radii 7 and 3: between the inscribed and the circumscribed circle.
+        expect(curve.length).toBeGreaterThan(2 * Math.PI * 3);
+        expect(curve.length).toBeLessThan(2 * Math.PI * 7);
+        expect(pending(curve, "length")).toBe(false);
+      });
+    });
+  });
+
   it("keeps a wrapper's class", () => {
     const edge = bezier([[0, 0, 0], [5, 8, 0], [10, -6, 0], [15, 2, 0]]);
     expect(CurveClassifier.classify(edge)).toBe(CurveClassifier.classify(edge));
+  });
+
+  it("keeps what readers derive from a class with it, and drops both when the unit changes the tolerance", () => {
+    const edge = bezier([[0, 0, 0], [5, 8, 0], [10, -6, 0], [15, 2, 0]]);
+    const classified = CurveClassifier.classify(edge);
+    const derived = CurveClassifier.derived(edge, "probe", () => ({}));
+    expect(CurveClassifier.derived(edge, "probe", () => ({}))).toBe(derived);
+    withUnit("in", () => {
+      expect(CurveClassifier.classify(edge)).not.toBe(classified);
+      expect(CurveClassifier.derived(edge, "probe", () => ({}))).not.toBe(derived);
+    });
   });
 });

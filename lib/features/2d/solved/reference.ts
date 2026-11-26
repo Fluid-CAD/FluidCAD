@@ -59,7 +59,7 @@ export function registerReferenceEntities(
 ): ReferenceEntityRecord[] {
   const records: ReferenceEntityRecord[] = [];
   edges.forEach((edge, edgeIndex) => {
-    const props = EdgeProps.getProperties(edge.getShape());
+    const props = EdgeProps.of(edge);
     if (props.curveType === 'line') {
       const s = plane.worldToLocal(edge.getFirstVertex().toPoint());
       const e = plane.worldToLocal(edge.getLastVertex().toPoint());
@@ -92,7 +92,7 @@ export function registerReferenceEntities(
 export function centerMetaVertices(edges: Edge[]): Vertex[] {
   const centers: Vertex[] = [];
   for (const edge of edges) {
-    const props = EdgeProps.getProperties(edge.getShape());
+    const props = EdgeProps.of(edge);
     if (props.curveType !== 'circle' && props.curveType !== 'arc') {
       continue;
     }

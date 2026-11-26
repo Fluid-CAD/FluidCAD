@@ -16,27 +16,14 @@ export type EdgeGeometry =
   | { kind: 'other' };
 
 /**
- * What the edge filters ask of one edge, kept per wrapper. A wrapper's OC
- * shape never changes while it lives, so each answer holds for its
- * lifetime — and selector synthesis asks the same ones (`line()`,
- * `parallelTo('xy')`, `verticalTo('yz')`…) of every edge in scope, once per
- * candidate atom, per pick. Plane questions are keyed by the exact plane.
+ * The answers to one plane question the edge filters ask of an edge
+ * (`onPlane`, `parallelTo` or `alignedWith`), keyed by the exact plane.
+ * Selector synthesis asks the same ones of every edge in scope, once per
+ * candidate atom, per pick. They follow from the edge's class, so they are
+ * kept with it (see {@link CurveClassifier.derived}) and go when it does.
  */
-type EdgeFacts = {
-  onPlane?: Map<string, boolean>;
-  parallelTo?: Map<string, boolean>;
-  alignedWith?: Map<string, boolean>;
-};
-
-const edgeFacts = new WeakMap<Shape, EdgeFacts>();
-
-function edgeFactsOf(edge: Shape): EdgeFacts {
-  let facts = edgeFacts.get(edge);
-  if (!facts) {
-    facts = {};
-    edgeFacts.set(edge, facts);
-  }
-  return facts;
+function planeAnswers(edge: Shape, question: 'onPlane' | 'parallelTo' | 'alignedWith'): Map<string, boolean> {
+  return CurveClassifier.derived(edge as Edge, question, () => new Map<string, boolean>());
 }
 
 function vectorKey(v: { x: number; y: number; z: number }): string {
@@ -70,9 +57,7 @@ export class EdgeQuery {
   }
 
   static isEdgeOnPlane(edge: Shape, plane: Plane): boolean {
-    const facts = edgeFactsOf(edge);
-    facts.onPlane ??= new Map();
-    return remembered(facts.onPlane, `${vectorKey(plane.origin)}|${vectorKey(plane.normal)}`, () => {
+    return remembered(planeAnswers(edge, 'onPlane'), `${vectorKey(plane.origin)}|${vectorKey(plane.normal)}`, () => {
       if (!EdgeQuery.isLineOrCircular(edge)) {
         return EdgeQuery.isCurveOnPlane(CurveClassifier.classify(edge as Edge), plane);
       }
@@ -84,9 +69,7 @@ export class EdgeQuery {
   }
 
   static isEdgeParallelToPlane(edge: Shape, planeNormal: Vector3d): boolean {
-    const facts = edgeFactsOf(edge);
-    facts.parallelTo ??= new Map();
-    return remembered(facts.parallelTo, vectorKey(planeNormal), () => {
+    return remembered(planeAnswers(edge, 'parallelTo'), vectorKey(planeNormal), () => {
       if (!EdgeQuery.isLineOrCircular(edge)) {
         return EdgeQuery.isCurveParallelToPlane(CurveClassifier.classify(edge as Edge), planeNormal);
       }
@@ -98,9 +81,7 @@ export class EdgeQuery {
   }
 
   static isEdgeAlignedWithNormal(edge: Shape, planeNormal: Vector3d): boolean {
-    const facts = edgeFactsOf(edge);
-    facts.alignedWith ??= new Map();
-    return remembered(facts.alignedWith, vectorKey(planeNormal), () => {
+    return remembered(planeAnswers(edge, 'alignedWith'), vectorKey(planeNormal), () => {
       if (!EdgeQuery.isLineOrCircular(edge)) {
         // Only a straight edge can run along a direction.
         return false;
@@ -116,7 +97,8 @@ export class EdgeQuery {
    * Whether the edge is a line, a circle or an arc (native or recovered;
    * see {@link CurveClassifier}). A few points describe such an edge
    * exactly, so the plane predicates test it at those points; any other
-   * curve is sampled along its whole length.
+   * curve is judged by the plane it lies in (see {@link isCurveOnPlane}),
+   * and one that lies in none is on no plane and parallel to none.
    */
   static isLineOrCircular(edge: Shape): boolean {
     const kind = CurveClassifier.classify(edge as Edge).kind;

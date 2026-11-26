@@ -911,11 +911,11 @@ function describe(attr: PickAttribution): PickDescriptors | undefined {
   }
   try {
     if (attr.picked instanceof Edge) {
-      const props = EdgeProps.getProperties(attr.picked.getShape());
+      const props = EdgeProps.of(attr.picked);
       return { geomType: props.curveType, length: props.length, radius: props.radius };
     }
     if (attr.picked instanceof Face) {
-      const props = FaceProps.getProperties(attr.picked.getShape());
+      const props = FaceProps.of(attr.picked);
       return { geomType: props.surfaceType, area: props.areaMm2, radius: props.radius };
     }
     return undefined;

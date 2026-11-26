@@ -69,7 +69,7 @@ export type FaceProbe = {
  * or a surface the edge bounds faces of, or a curve standing on its own.
  */
 export function probeEdge(edge: Edge, owner: Shape | null): EdgeProbe {
-  const props = EdgeProps.getProperties(edge.getShape());
+  const props = EdgeProps.of(edge);
   const adjacentFaces: FaceProperties[] = [];
   const owningFaces: Face[] = [];
   let convexity: EdgeConvexity | null = null;
@@ -78,8 +78,9 @@ export function probeEdge(edge: Edge, owner: Shape | null): EdgeProbe {
     const index = body.getEdgeToFacesIndex();
     const wrappers = body.getFaces();
     for (const raw of TopologyIndex.seekShapes(index, edge.getShape())) {
-      adjacentFaces.push(FaceProps.getProperties(raw));
       const wrapper = wrappers.find(f => f.getShape().IsSame(raw));
+      // The body's own wrapper keeps the face's class; a face it does not hold is classified afresh.
+      adjacentFaces.push(wrapper ? FaceProps.of(wrapper) : FaceProps.getProperties(raw));
       if (wrapper) {
         owningFaces.push(wrapper);
       }
@@ -103,13 +104,13 @@ export function probeEdge(edge: Edge, owner: Shape | null): EdgeProbe {
 
 /** Probe a picked face. `owner` is the body the pick was made on. */
 export function probeFace(face: Face, owner: Shape | null): FaceProbe {
-  const props = FaceProps.getProperties(face.getShape());
+  const props = FaceProps.of(face);
   const body = bodyOf(owner);
   const edges = face.getEdges();
   const edgeProps: EdgeProperties[] = [];
   const points: Point[] = [];
   for (const edge of edges) {
-    edgeProps.push(EdgeProps.getProperties(edge.getShape()));
+    edgeProps.push(EdgeProps.of(edge));
     points.push(...edgeEndPoints(edge));
     points.push(EdgeOps.getEdgeMidPoint(edge));
   }

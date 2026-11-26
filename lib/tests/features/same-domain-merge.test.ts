@@ -47,7 +47,7 @@ describe("SameDomainMerge: a group the kernel gives up on is merged from another
   function cylinders(body: Shape, radius: number): Face[] {
     return Explorer.findFacesWrapped(body).filter(f =>
       FaceQuery.getSurfaceType(f) === 'cylinder'
-      && Math.abs(FaceQuery.getSurfaceAdaptorCylinderRaw(f.getShape()).Radius() - radius) < 1e-6) as Face[];
+      && Math.abs(FaceQuery.gpCylinderOf(f).Radius() - radius) < 1e-6) as Face[];
   }
 
   /** An 80 mm link: two r=20 ears, an r=10 hole in each, 25 thick. */

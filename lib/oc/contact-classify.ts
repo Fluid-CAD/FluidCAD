@@ -4,7 +4,7 @@ import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { FaceOps } from "./face-ops.js";
-import { FaceQuery } from "./face-query.js";
+import { SurfaceClassifier } from "./surface-classifier.js";
 import { classifyEdge, classifyFace } from "./measure/classify.js";
 import type { MeasureVec } from "./measure/measure-types.js";
 import { cross, dot, len, scale, sub } from "./measure/vec.js";
@@ -229,7 +229,9 @@ function circleBounds(center: MeasureVec, dir: MeasureVec, xDir: MeasureVec, yDi
 
 function classifyContactFace(shape: Shape): ContactEntity | null {
   const raw = shape.getShape();
-  const classified = classifyFace(raw);
+  // The wrapper's class is kept with it: one recovery answers the form and a cone's frame.
+  const surface = SurfaceClassifier.classify(shape as Face);
+  const classified = classifyFace(raw, surface);
 
   if (classified.form === 'plane') {
     const point = classified.point!;
@@ -287,17 +289,13 @@ function classifyContactFace(shape: Shape): ContactEntity | null {
 
     // Cone: canonical form is the APEX plus the axis pointing toward the
     // widening side, half-angle always positive.
-    const cone = FaceQuery.getSurfaceAdaptorConeRaw(raw);
-    const apexPnt = cone.Apex();
-    const apex = { x: apexPnt.X(), y: apexPnt.Y(), z: apexPnt.Z() };
-    apexPnt.delete();
-    const axis = cone.Axis();
-    const axisDir = axis.Direction();
-    let dir = { x: axisDir.X(), y: axisDir.Y(), z: axisDir.Z() };
-    axisDir.delete();
-    axis.delete();
-    const semiAngle = cone.SemiAngle();
-    cone.delete();
+    if (!surface.apex || !surface.axis || surface.semiAngle === undefined) {
+      return null;
+    }
+    const apex: MeasureVec = { x: surface.apex.x, y: surface.apex.y, z: surface.apex.z };
+    const { direction } = surface.axis;
+    let dir: MeasureVec = { x: direction.x, y: direction.y, z: direction.z };
+    const semiAngle = surface.semiAngle;
     if (semiAngle < 0) {
       dir = scale(dir, -1);
     }

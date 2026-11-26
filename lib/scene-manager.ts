@@ -414,7 +414,7 @@ class SceneManager {
               return null;
             }
             const owner = ShapeProps.ownerMeasure(shape);
-            return { ...FaceProps.getProperties(faces[faceIndex].getShape()), ...(owner ? { owner } : {}) };
+            return { ...FaceProps.of(faces[faceIndex]), ...(owner ? { owner } : {}) };
           } finally {
             for (const face of faces) face.dispose();
           }
@@ -474,9 +474,9 @@ class SceneManager {
             if (edgeIndex < 0 || edgeIndex >= edges.length) {
               return null;
             }
-            const edge = edges[edgeIndex].getShape();
+            const edge = edges[edgeIndex];
             const owner = ShapeProps.ownerMeasure(shape);
-            return { ...EdgeProps.getProperties(edge), ...EdgeProps.endpoints(edge), ...(owner ? { owner } : {}) };
+            return { ...EdgeProps.of(edge), ...EdgeProps.endpoints(edge.getShape()), ...(owner ? { owner } : {}) };
           } finally {
             for (const edge of edges) edge.dispose();
           }

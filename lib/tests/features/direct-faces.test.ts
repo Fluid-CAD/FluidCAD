@@ -43,7 +43,7 @@ describe("DirectFaces: coincident cylinders of opposite handedness merge cleanly
   function r8Faces(body: Shape) {
     return Explorer.findFacesWrapped(body).filter(f =>
       FaceQuery.getSurfaceType(f) === 'cylinder'
-      && Math.abs(FaceQuery.getSurfaceAdaptorCylinderRaw(f.getShape()).Radius() - 8) < 1e-6);
+      && Math.abs(FaceQuery.gpCylinderOf(f).Radius() - 8) < 1e-6);
   }
 
   function hub(): ExtrudeBase {
@@ -146,7 +146,7 @@ describe("DirectFaces: coincident cylinders of opposite handedness merge cleanly
     expect(ShapeValidator.validate(bodies[0].getShape()).findings).toEqual([]);
     const r15 = Explorer.findFacesWrapped(bodies[0]).filter(f =>
       FaceQuery.getSurfaceType(f) === 'cylinder'
-      && Math.abs(FaceQuery.getSurfaceAdaptorCylinderRaw(f.getShape()).Radius() - 15) < 1e-6);
+      && Math.abs(FaceQuery.gpCylinderOf(f).Radius() - 15) < 1e-6);
     expect(r15.length).toBe(1);
     expect(ShapeProps.getProperties(bodies[0].getShape()).volumeMm3).toBeCloseTo(Math.PI * 15 * 15 * 70, 0);
   });

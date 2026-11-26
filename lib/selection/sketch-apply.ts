@@ -908,7 +908,7 @@ export function edgeDimension(edge: Edge): number | null {
   try {
     const kind = classifyEdge(edge);
     if (kind === 'line') {
-      return EdgeProps.getProperties(edge.getShape()).length ?? null;
+      return EdgeProps.of(edge).length ?? null;
     }
     const circle = EdgeQuery.getCircleDataFromEdge(edge);
     return kind === 'circle' ? circle.radius * 2 : circle.radius;

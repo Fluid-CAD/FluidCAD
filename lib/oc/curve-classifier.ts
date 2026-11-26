@@ -5,44 +5,57 @@ import { Vector3d } from "../math/vector3d.js";
 import { Shape } from "../common/shape.js";
 import type { Edge } from "../common/edge.js";
 import { mmTol } from "../units/tolerance.js";
+import { lazily } from "../helpers/lazily.js";
 
 /** What an edge's curve is, whatever the kernel stores it as. */
 export type CurveKind = 'line' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'other';
 
 /** An edge's curve kind and the sizes that go with it; see {@link CurveClassifier.classify}. */
 export type CurveClass = {
-  kind: CurveKind;
+  readonly kind: CurveKind;
   /** True when the kind was recovered from a B-spline or Bezier curve. */
-  recovered: boolean;
+  readonly recovered: boolean;
   /** The edge returns to its start: a full circle, a full ellipse, a closed spline. */
-  closed: boolean;
-  /** The edge lies in one plane. */
-  planar: boolean;
+  readonly closed: boolean;
+  /** The edge lies in one plane. A spline or any other curve is fitted on first read; see {@link plane}. */
+  readonly planar: boolean;
   /** For a circle or an arc. */
-  radius?: number;
+  readonly radius?: number;
   /** For an ellipse. */
-  majorRadius?: number;
-  minorRadius?: number;
+  readonly majorRadius?: number;
+  readonly minorRadius?: number;
   /** For a circle, an arc or an ellipse: the centre. */
-  center?: Point;
+  readonly center?: Point;
   /** For a circle, an arc or an ellipse: the normal of its plane. */
-  axisDirection?: Vector3d;
+  readonly axisDirection?: Vector3d;
   /** For a line: a point on it. */
-  origin?: Point;
+  readonly origin?: Point;
   /** For a line: its unit direction. */
-  direction?: Vector3d;
-  /** For a planar spline or other curve: a point of its plane and the plane's unit normal. */
-  plane?: { origin: Point; normal: Vector3d };
-  length: number;
+  readonly direction?: Vector3d;
+  /**
+   * For a planar spline or other curve: a point of its plane and the
+   * plane's unit normal. Fitted on first read and kept.
+   */
+  readonly plane?: CurvePlane;
+  /** The edge's length; integrated on first read, and kept, where the kind gives no formula. */
+  readonly length: number;
 };
 
-/** The class of one wrapper, with the tolerance it was classified at (unit-dependent). */
-type CachedClass = { tolerance: number; value: CurveClass };
+/** A plane a curve lies in: a point and the unit normal. */
+export type CurvePlane = { origin: Point; normal: Vector3d };
+
+/**
+ * One wrapper's class with the tolerance it was classified at
+ * (unit-dependent), and what readers derived from it.
+ */
+type CachedClass = { tolerance: number; value: CurveClass; derived: Map<string, unknown> };
 
 const classes = new WeakMap<Shape, CachedClass>();
 
+type Writable<T> = { -readonly [K in keyof T]: T[K] };
+
 /** The analytic part of a class: what a line, circle or ellipse reads off its curve. */
-type Analytic = Omit<CurveClass, 'recovered' | 'closed' | 'planar' | 'plane' | 'length'> & { length?: number };
+type Analytic = Writable<Omit<CurveClass, 'recovered' | 'closed' | 'planar' | 'plane' | 'length'>> & { length?: number };
 
 /**
  * The one classifier for edges. Filters, properties, selection probes and
@@ -60,46 +73,77 @@ export class CurveClassifier {
   /** See {@link CurveClassifier.tolerance}. */
   private static readonly TOLERANCE_MM = 1e-3;
 
-  /** How far a planar curve may lie off its plane. */
+  /** See {@link CurveClassifier.planarityTolerance}. */
   private static readonly PLANARITY_TOLERANCE_MM = 1e-6;
 
   /** The edge's class, kept per wrapper for the tolerance it was classified at. */
   static classify(edge: Edge): CurveClass {
-    const tolerance = CurveClassifier.tolerance();
-    const cached = classes.get(edge);
-    if (cached?.tolerance === tolerance) {
-      return cached.value;
-    }
-    const value = CurveClassifier.classifyRaw(edge.getShape());
-    classes.set(edge, { tolerance, value });
-    return value;
+    return CurveClassifier.cached(edge).value;
   }
 
-  /** The class of a raw edge, asked of OCCT every time. */
+  /**
+   * The class of a raw edge, asked of OCCT every time. Its length and plane
+   * are read off the raw edge when first asked for, so read them while
+   * that edge lives.
+   */
   static classifyRaw(edge: TopoDS_Shape): CurveClass {
+    return CurveClassifier.classifyWith(edge, () => edge);
+  }
+
+  /**
+   * What a reader derives from the edge's class (a plane question, say),
+   * computed once and kept beside the class: it is dropped when the class
+   * is, so it never outlives the tolerance it was derived at.
+   */
+  static derived<T>(edge: Edge, key: string, compute: () => T): T {
+    const { derived } = CurveClassifier.cached(edge);
+    if (!derived.has(key)) {
+      derived.set(key, compute());
+    }
+    return derived.get(key) as T;
+  }
+
+  private static cached(edge: Edge): CachedClass {
+    const tolerance = CurveClassifier.tolerance();
+    let cached = classes.get(edge);
+    if (cached?.tolerance !== tolerance) {
+      cached = {
+        tolerance,
+        value: CurveClassifier.classifyWith(edge.getShape(), () => edge.getShape()),
+        derived: new Map(),
+      };
+      classes.set(edge, cached);
+    }
+    return cached;
+  }
+
+  /** Classifies `edge`; `source` hands the length integration and the plane fit the edge when they are first asked for. */
+  private static classifyWith(edge: TopoDS_Shape, source: () => TopoDS_Shape): CurveClass {
     const oc = getOC();
     const ocEdge = oc.TopoDS.Edge(edge);
-    const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
     try {
-      const closed = adaptor.IsClosed();
-      const first = adaptor.FirstParameter();
-      const last = adaptor.LastParameter();
-      const type = adaptor.GetType();
-      if (type === oc.GeomAbs_CurveType.GeomAbs_BSplineCurve || type === oc.GeomAbs_CurveType.GeomAbs_BezierCurve) {
-        const recovered = CurveClassifier.recover(ocEdge, closed);
-        if (recovered) {
-          return CurveClassifier.complete(recovered, true, closed, ocEdge);
+      const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
+      try {
+        const closed = adaptor.IsClosed();
+        const first = adaptor.FirstParameter();
+        const last = adaptor.LastParameter();
+        const type = adaptor.GetType();
+        if (type === oc.GeomAbs_CurveType.GeomAbs_BSplineCurve || type === oc.GeomAbs_CurveType.GeomAbs_BezierCurve) {
+          const recovered = CurveClassifier.recover(ocEdge, closed);
+          if (recovered) {
+            return CurveClassifier.complete(recovered, true, closed, source);
+          }
+          return CurveClassifier.complete({ kind: 'spline' }, false, closed, source, true);
         }
-        return CurveClassifier.complete({ kind: 'spline' }, false, closed, ocEdge, true);
+        const native = CurveClassifier.readAnalytic(adaptor, closed, first, last);
+        if (native) {
+          return CurveClassifier.complete(native, false, closed, source);
+        }
+        return CurveClassifier.complete({ kind: 'other' }, false, closed, source, true);
+      } finally {
+        adaptor.delete();
       }
-      const native = CurveClassifier.readAnalytic(adaptor, closed, first, last);
-      if (native) {
-        return CurveClassifier.complete(native, false, closed, ocEdge);
-      }
-      return CurveClassifier.complete({ kind: 'other' }, false, closed, ocEdge, true);
     } finally {
-      adaptor.delete();
-      // The adaptor held its own reference; the typed copy goes with it.
       ocEdge.delete();
     }
   }
@@ -114,39 +158,52 @@ export class CurveClassifier {
     return mmTol(CurveClassifier.TOLERANCE_MM);
   }
 
+  /** How far a planar curve may lie off its plane. */
+  static planarityTolerance(): number {
+    return mmTol(CurveClassifier.PLANARITY_TOLERANCE_MM);
+  }
+
   /**
    * Fills in what every class carries: closure, planarity and length. A
    * line, a circle and an ellipse lie in a plane by their kind; a spline or
-   * any other curve is asked of OCC's plane finder (`fitPlane`).
+   * any other curve (`fit`) is asked of OCC's plane finder when its
+   * planarity or plane is first read. A length the kind gives no formula
+   * for is integrated when first read. Both are kept.
    */
   private static complete(
     analytic: Analytic,
     recovered: boolean,
     closed: boolean,
-    edge: TopoDS_Edge,
+    source: () => TopoDS_Shape,
     fit = false,
   ): CurveClass {
     const { length, ...rest } = analytic;
-    const plane = fit ? CurveClassifier.fitPlane(edge) : null;
-    return {
-      ...rest,
-      recovered,
-      closed,
-      planar: fit ? plane !== null : true,
-      ...(plane ? { plane } : {}),
-      length: length ?? CurveClassifier.measureLength(edge),
-    };
+    const value = { ...rest, recovered, closed } as Writable<CurveClass>;
+    if (length !== undefined) {
+      value.length = length;
+    } else {
+      lazily(value, 'length', () => CurveClassifier.measureLength(source()));
+    }
+    if (!fit) {
+      value.planar = true;
+      return value;
+    }
+    // The tolerance is the one in force now: the class is kept for it.
+    const tolerance = CurveClassifier.planarityTolerance();
+    lazily(value, 'plane', () => CurveClassifier.fitPlane(source(), tolerance) ?? undefined);
+    lazily(value, 'planar', () => value.plane !== undefined);
+    return value;
   }
 
   /**
-   * The plane a curve lies in, within {@link PLANARITY_TOLERANCE_MM}, or
-   * null when it lies in none. `BRepBuilderAPI_FindPlane` fits a B-spline or
-   * Bezier curve by its poles — exact, as the curve lies in a plane exactly
-   * when its poles do — and any other curve by points along it.
+   * The plane a curve lies in, within `tolerance`, or null when it lies in
+   * none. `BRepBuilderAPI_FindPlane` fits a B-spline or Bezier curve by its
+   * poles — exact, as the curve lies in a plane exactly when its poles do —
+   * and any other curve by points along it.
    */
-  private static fitPlane(edge: TopoDS_Edge): { origin: Point; normal: Vector3d } | null {
+  private static fitPlane(edge: TopoDS_Shape, tolerance: number): CurvePlane | null {
     const oc = getOC();
-    const finder = new oc.BRepBuilderAPI_FindPlane(edge, mmTol(CurveClassifier.PLANARITY_TOLERANCE_MM));
+    const finder = new oc.BRepBuilderAPI_FindPlane(edge, tolerance);
     try {
       if (!finder.Found()) {
         return null;
@@ -178,7 +235,7 @@ export class CurveClassifier {
    * own, or the one fitted to a spline or other curve. Null for a line,
    * which lies in many, and for a curve in none.
    */
-  static planeOf(curve: CurveClass): { origin: Point; normal: Vector3d } | null {
+  static planeOf(curve: CurveClass): CurvePlane | null {
     if (curve.plane) {
       return curve.plane;
     }
@@ -295,14 +352,14 @@ export class CurveClassifier {
     return analytic;
   }
 
-  private static measureLength(edge: TopoDS_Edge): number {
+  private static measureLength(edge: TopoDS_Shape): number {
     const oc = getOC();
     const props = new oc.GProp_GProps();
-    oc.BRepGProp.LinearProperties(edge, props, false, false);
-    const length = props.Mass();
-    props.delete();
-    return length;
+    try {
+      oc.BRepGProp.LinearProperties(edge, props, false, false);
+      return props.Mass();
+    } finally {
+      props.delete();
+    }
   }
-
-
 }

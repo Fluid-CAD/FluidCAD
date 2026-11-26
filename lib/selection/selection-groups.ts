@@ -182,7 +182,7 @@ function geometricEdgeGroups(solid: Shape, ref: PickRef): SelectionGroup[] {
   const edges = Explorer.findEdgesWrapped(solid);
   const visible = new Set(HiddenEdges.visibleOf(solid.getShape(), edges));
   // Explorer-indexed, so a member's index is its pick index; hidden slots stay empty.
-  const props = edges.map(e => (visible.has(e) ? EdgeProps.getProperties(e.getShape()) : undefined));
+  const props = edges.map(e => (visible.has(e) ? EdgeProps.of(e) : undefined));
   const seed = props[ref.sub.index];
   const naming = seed ? CURVE_TYPE_NAMING[seed.curveType] : undefined;
   if (!seed || !naming) {
@@ -223,14 +223,14 @@ function geometricFaceGroups(body: Shape, ref: PickRef): SelectionGroup[] {
   if (!seed) {
     return [];
   }
-  const type = FaceProps.getProperties(seed.getShape()).surfaceType;
+  const type = FaceProps.of(seed).surfaceType;
   const naming = SURFACE_TYPE_NAMING[type];
   if (!naming) {
     return [];
   }
   const members: PickRef[] = [];
   faces.forEach((face, index) => {
-    if (FaceProps.getProperties(face.getShape()).surfaceType === type) {
+    if (FaceProps.of(face).surfaceType === type) {
       members.push({ shapeId: ref.shapeId, sub: { type: 'face', index } });
     }
   });

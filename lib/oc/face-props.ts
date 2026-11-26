@@ -1,4 +1,5 @@
 import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
+import type { Face } from "../common/face.js";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceQuery } from "./face-query.js";
@@ -29,24 +30,43 @@ export class FaceProps {
    * — the classification the face filters read too, so a probe and the
    * predicate it instantiates agree on every face. A plane bounded by
    * circles and arcs, one of them full, is a `circle`.
+   *
+   * Reads the wrapper's kept class, and integrates the area only when it is
+   * read.
    */
-  static getProperties(face: TopoDS_Shape): FaceProperties {
-    return FaceProps.fromClass(SurfaceClassifier.classifyRaw(face), face);
+  static of(face: Face): FaceProperties {
+    return FaceProps.fromClass(
+      SurfaceClassifier.classify(face),
+      () => FaceProps.circularRim(face.getShape()),
+      () => FaceQuery.hasClosedCircularRim(face),
+    );
   }
 
-  /** A surface class as the properties shown for `face`. */
-  static fromClass(surface: SurfaceClass, face: TopoDS_Shape): FaceProperties {
+  /** {@link of} for a raw face: classified afresh, with every property read at once. */
+  static getProperties(face: TopoDS_Shape): FaceProperties {
+    // Spread out: the properties may outlive the raw face, which a lazy area would still read.
+    return {
+      ...FaceProps.fromClass(
+        SurfaceClassifier.classifyRaw(face),
+        () => FaceProps.circularRim(face),
+        () => FaceQuery.hasClosedCircularRimRaw(face),
+      ),
+    };
+  }
+
+  /** A surface class as the properties shown for its face, given the radius of a flat face's circular rim and whether a cylinder closes. */
+  private static fromClass(surface: SurfaceClass, circularRim: () => number | null, closedRim: () => boolean): FaceProperties {
     const recovered = surface.recovered;
     switch (surface.kind) {
       case 'plane': {
-        const rim = FaceProps.circularRim(face);
+        const rim = circularRim();
         if (rim !== null) {
           return { surfaceType: 'circle', recovered, radius: rim };
         }
-        return { surfaceType: 'plane', recovered, areaMm2: surface.areaMm2 };
+        return { surfaceType: 'plane', recovered, get areaMm2() { return surface.areaMm2; } };
       }
       case 'cylinder':
-        return { surfaceType: 'cylinder', recovered, radius: surface.radius, closed: FaceQuery.hasClosedCircularRimRaw(face) };
+        return { surfaceType: 'cylinder', recovered, radius: surface.radius, closed: closedRim() };
       case 'sphere':
         return { surfaceType: 'sphere', recovered, radius: surface.radius };
       case 'torus':
@@ -54,7 +74,7 @@ export class FaceProps {
       case 'cone':
         return { surfaceType: 'cone', recovered, halfAngleDeg: (surface.semiAngle ?? 0) * (180 / Math.PI) };
       default:
-        return { surfaceType: surface.kind, recovered, areaMm2: surface.areaMm2 };
+        return { surfaceType: surface.kind, recovered, get areaMm2() { return surface.areaMm2; } };
     }
   }
 

@@ -2,6 +2,8 @@ import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Point } from "../math/point.js";
 import { Shape } from "../common/shape.js";
+import type { Edge } from "../common/edge.js";
+import type { Face } from "../common/face.js";
 import { EdgeProps } from "./edge-props.js";
 import { FaceProps } from "./face-props.js";
 
@@ -70,11 +72,11 @@ export class ShapeMeasure {
 
   private static measureRadius(shape: Shape): number | null {
     if (shape.isEdge()) {
-      const props = EdgeProps.getProperties(shape.getShape());
+      const props = EdgeProps.of(shape as Edge);
       return props.radius ?? null;
     }
     if (shape.isFace()) {
-      const props = FaceProps.getProperties(shape.getShape());
+      const props = FaceProps.of(shape as Face);
       if (props.radius !== undefined) {
         return props.radius;
       }

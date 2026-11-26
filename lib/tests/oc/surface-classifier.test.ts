@@ -8,6 +8,7 @@ import { Face } from "../../common/face.js";
 import { Solid } from "../../common/solid.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Point } from "../../math/point.js";
+import { withUnit } from "../../units/registry.js";
 import { sketch, line, loft, plane, extrude, revolve, circle, ellipse, spline, fillet } from "../../core/index.js";
 
 type Bound = { delete(): void };
@@ -238,6 +239,23 @@ describe("SurfaceClassifier", () => {
     expect(kinds.filter(k => k === "plane")).toHaveLength(5);
   });
 
+  describe("what is computed on demand", () => {
+    it("integrates the area when it is first read, once", () => {
+      const oc = getOC();
+      withOwned(own => {
+        const box = own(own(new oc.BRepPrimAPI_MakeBox(10, 20, 30)).Shape());
+        const face = Explorer.findShapes(box, oc.TopAbs_ShapeEnum.TopAbs_FACE).map(own)[0];
+        const surface = SurfaceClassifier.classifyRaw(face);
+        const pending = () => typeof Object.getOwnPropertyDescriptor(surface, "areaMm2")?.get === "function";
+        expect(surface.kind).toBe("plane");
+        expect(pending()).toBe(true);
+        expect(surface.areaMm2).toBeCloseTo(600, 6);
+        expect(pending()).toBe(false);
+        expect(surface.areaMm2).toBeCloseTo(600, 6);
+      });
+    });
+  });
+
   it("keeps a wrapper's class", () => {
     const oc = getOC();
     withOwned(own => {
@@ -245,6 +263,22 @@ describe("SurfaceClassifier", () => {
       const raw = Explorer.findShapes(box, oc.TopAbs_ShapeEnum.TopAbs_FACE).map(own)[0];
       const face = Face.fromTopoDSFace(oc.TopoDS.Face(raw));
       expect(SurfaceClassifier.classify(face)).toBe(SurfaceClassifier.classify(face));
+    });
+  });
+
+  it("keeps what readers derive from a class with it, and drops both when the unit changes the tolerance", () => {
+    const oc = getOC();
+    withOwned(own => {
+      const box = own(own(new oc.BRepPrimAPI_MakeBox(10, 10, 10)).Shape());
+      const raw = Explorer.findShapes(box, oc.TopAbs_ShapeEnum.TopAbs_FACE).map(own)[0];
+      const face = Face.fromTopoDSFace(oc.TopoDS.Face(raw));
+      const classified = SurfaceClassifier.classify(face);
+      const derived = SurfaceClassifier.derived(face, "probe", () => ({}));
+      expect(SurfaceClassifier.derived(face, "probe", () => ({}))).toBe(derived);
+      withUnit("in", () => {
+        expect(SurfaceClassifier.classify(face)).not.toBe(classified);
+        expect(SurfaceClassifier.derived(face, "probe", () => ({}))).not.toBe(derived);
+      });
     });
   });
 });

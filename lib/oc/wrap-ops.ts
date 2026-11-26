@@ -124,10 +124,10 @@ export class WrapOps {
 
   /** Builds the development mapping for the target face's underlying surface. */
   static createDevelopment(targetFace: Face, sketchPlane: Plane): Development {
-    const surfaceType = FaceQuery.getSurfaceTypeRaw(targetFace.getShape());
+    const surfaceType = FaceQuery.getSurfaceType(targetFace);
 
     if (surfaceType === 'cylinder') {
-      const cylinder = FaceQuery.getSurfaceAdaptorCylinderRaw(targetFace.getShape());
+      const cylinder = FaceQuery.gpCylinderOf(targetFace);
       const axis = cylinder.Axis();
       const spec = {
         origin: Convert.toPoint(axis.Location(), true),
@@ -140,7 +140,7 @@ export class WrapOps {
     }
 
     if (surfaceType === 'cone') {
-      const cone = FaceQuery.getSurfaceAdaptorConeRaw(targetFace.getShape());
+      const cone = FaceQuery.gpConeOf(targetFace);
       const axis = cone.Axis();
       const spec = {
         origin: Convert.toPoint(axis.Location(), true),

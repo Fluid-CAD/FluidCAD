@@ -160,6 +160,40 @@ describe("classifier agreement", () => {
     expect([...seen].sort()).toEqual(["arc", "circle", "ellipse", "line", "spline"]);
   });
 
+  describe("properties of a wrapper", () => {
+    it("are those of its raw shape, on every face and edge", () => {
+      buildBodies();
+      const { faces, edges } = facesAndEdges();
+      for (const f of faces) {
+        expect({ ...FaceProps.of(f) }).toEqual(FaceProps.getProperties(f.getShape()));
+        expect(FaceQuery.hasClosedCircularRim(f)).toBe(FaceQuery.hasClosedCircularRimRaw(f.getShape()));
+      }
+      for (const e of edges) {
+        expect({ ...EdgeProps.of(e) }).toEqual(EdgeProps.getProperties(e.getShape()));
+      }
+    });
+
+    it("leave a spline's plane unfitted and a free-form face's area unintegrated until they are read", () => {
+      buildBodies();
+      const { faces, edges } = facesAndEdges();
+      const wall = faces.find(f => SurfaceClassifier.classify(f).kind === "freeform")!;
+      const wallProps = FaceProps.of(wall);
+      const area = () => Object.getOwnPropertyDescriptor(SurfaceClassifier.classify(wall), "areaMm2")?.get;
+      expect(wallProps.surfaceType).toBe("freeform");
+      expect(area()).toBeDefined();
+      expect(wallProps.areaMm2).toBeGreaterThan(0);
+      expect(area()).toBeUndefined();
+
+      const curve = edges.find(e => CurveClassifier.classify(e).kind === "spline")!;
+      const curveProps = EdgeProps.of(curve);
+      const fit = () => Object.getOwnPropertyDescriptor(CurveClassifier.classify(curve), "planar")?.get;
+      expect(curveProps.curveType).toBe("spline");
+      expect(fit()).toBeDefined();
+      expect(typeof curveProps.planar).toBe("boolean");
+      expect(fit()).toBeUndefined();
+    });
+  });
+
   describe("faces stored as B-splines", () => {
     function roundedLoft() {
       return loft(roundedRect(0), roundedRect(20));

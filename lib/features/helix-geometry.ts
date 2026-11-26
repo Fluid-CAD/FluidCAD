@@ -233,24 +233,24 @@ export function resolveHelixFaceSource(face: Face): HelixSourceKind {
   const surfaceType = FaceQuery.getSurfaceType(face);
 
   if (surfaceType === 'cylinder') {
-    const cylinder = FaceQuery.getSurfaceAdaptorCylinderRaw(face.getShape());
+    const cylinder = FaceQuery.gpCylinderOf(face);
     const ax3 = cylinder.Position();
     const cs = Convert.toCoordinateSystemFromGpAx3(ax3, true);
     const radius = cylinder.Radius();
     cylinder.delete();
-    const { vMin, vMax } = FaceQuery.getSurfaceVBoundsRaw(face.getShape());
+    const { vMin, vMax } = FaceQuery.getSurfaceVBounds(face);
     const canon = canonicalizeAxialBounds(cs, vMin, vMax);
     return { kind: 'cylinder-face', cs: canon.cs, radius, vMin: canon.vMin, vMax: canon.vMax };
   }
 
   if (surfaceType === 'cone') {
-    const cone = FaceQuery.getSurfaceAdaptorConeRaw(face.getShape());
+    const cone = FaceQuery.gpConeOf(face);
     const ax3 = cone.Position();
     const cs = Convert.toCoordinateSystemFromGpAx3(ax3, true);
     const semiAngle = cone.SemiAngle();
     const refRadius = cone.RefRadius();
     cone.delete();
-    const { vMin, vMax } = FaceQuery.getSurfaceVBoundsRaw(face.getShape());
+    const { vMin, vMax } = FaceQuery.getSurfaceVBounds(face);
     // For a cone, the V-axis lies along the slant; canonicalizing the
     // CS direction here doesn't simplify the math the same way it does for
     // a cylinder, so leave the cone's frame alone.

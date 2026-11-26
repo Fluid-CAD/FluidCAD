@@ -6,7 +6,7 @@ import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
-import { FaceQuery } from "./face-query.js";
+import { SurfaceClassifier } from "./surface-classifier.js";
 import { ShapeOps } from "./shape-ops.js";
 import { ShapeInterference } from "./shape-interference.js";
 import { Extruder } from "../features/simple-extruder.js";
@@ -80,7 +80,7 @@ export class FaceReach {
 
   measure(face: Face): FaceReachHit | null {
     const raw = face.getShape();
-    if (this.runsAlongSweep(raw)) {
+    if (this.runsAlongSweep(face)) {
       return null;
     }
 
@@ -127,20 +127,14 @@ export class FaceReach {
    * crossed: a plane whose normal is perpendicular to the sweep, or a
    * cylinder whose axis follows it.
    */
-  private runsAlongSweep(raw: TopoDS_Shape): boolean {
-    const type = FaceQuery.getSurfaceTypeRaw(raw);
-    if (type === "plane") {
-      const pln = FaceQuery.getSurfaceAdaptorPlaneRaw(raw);
-      const dir = pln.Axis().Direction();
-      const dot = dir.X() * this.plane.normal.x + dir.Y() * this.plane.normal.y + dir.Z() * this.plane.normal.z;
-      dir.delete();
-      pln.delete();
-      return Math.abs(dot) < 1e-6;
+  private runsAlongSweep(face: Face): boolean {
+    // The face's class is kept with the wrapper: one recovery answers both the kind and the frame.
+    const surface = SurfaceClassifier.classify(face);
+    if (surface.kind === "plane" && surface.normal) {
+      return Math.abs(surface.normal.dot(this.plane.normal)) < 1e-6;
     }
-    if (type === "cylinder") {
-      const axis = FaceOps.axialSurfaceAxisRaw(raw as TopoDS_Face);
-      if (!axis) return false;
-      return Math.abs(axis.direction.normalize().dot(this.plane.normal)) > 1 - 1e-6;
+    if (surface.kind === "cylinder" && surface.axis) {
+      return Math.abs(surface.axis.direction.normalize().dot(this.plane.normal)) > 1 - 1e-6;
     }
     return false;
   }

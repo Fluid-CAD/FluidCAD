@@ -779,7 +779,10 @@ export class SchemaFeatureService implements FeatureDialogService {
     return undefined;
   }
 
-  /** The engine's face classification in a `visibleWhen`'s words: a plane (round or not) is planar. */
+  /**
+   * The engine's face classification in a `visibleWhen`'s words: a plane
+   * (round or not) is planar, and a revolved or extruded face is `other`.
+   */
   private static pickedSurface(props: FaceProperties | null): FeaturePickedSurface {
     switch (props?.surfaceType) {
       case 'plane':
@@ -789,6 +792,7 @@ export class SchemaFeatureService implements FeatureDialogService {
       case 'cone':
       case 'sphere':
       case 'torus':
+      case 'freeform':
         return props.surfaceType;
       default:
         return 'other';

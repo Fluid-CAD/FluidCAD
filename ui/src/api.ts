@@ -44,7 +44,9 @@ export type SourceLocationParam = { filePath?: string; line: number; column: num
 export type OwnerMeasure = { kind: 'surface'; area: number } | { kind: 'curve'; length: number };
 
 export type FaceProperties = {
-  surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'other';
+  surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'revolved' | 'extruded' | 'freeform';
+  /** True when the kind was recovered from a free-form surface: a flat or round face a loft or an import stores as a B-spline. Absent on servers predating it. */
+  recovered?: boolean;
   areaMm2?: number;
   radius?: number;
   majorRadius?: number;
@@ -57,7 +59,12 @@ export type FaceProperties = {
 
 /** Lengths are in the document's unit (`unit` names it). */
 export type EdgeProperties = {
-  curveType: 'line' | 'circle' | 'arc' | 'ellipse' | 'other';
+  /** `other` is a hyperbola, a parabola or an offset curve. */
+  curveType: 'line' | 'circle' | 'arc' | 'ellipse' | 'spline' | 'other';
+  /** The edge returns to its start: a full circle, a full ellipse, a closed spline. Absent on servers predating it. */
+  closed?: boolean;
+  /** The edge lies in one plane. Absent on servers predating it. */
+  planar?: boolean;
   length?: number;
   radius?: number;
   majorRadius?: number;
@@ -7495,7 +7502,7 @@ export type FeatureRefValue = { ref: string };
 export type FeatureExprValue = { expr: string };
 
 /** What a picked face is, as a custom feature's `visibleWhen` tells picks apart (mirror of the engine's `PickedSurface`). */
-export type FeaturePickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
+export type FeaturePickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'freeform' | 'other';
 
 /**
  * A condition on a picked value (mirror of the engine's `PickCondition`):
@@ -7646,11 +7653,11 @@ export type FeaturePickerParam = FeatureParamCommon & {
   /** sketch: helices and other wire sources too. */
   wire?: boolean;
   /** face: only faces of this surface (the engine checks). */
-  surface?: 'planar' | 'cylinder' | 'cone' | 'torus';
+  surface?: 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'freeform';
   /** face: only faces of the model's own file. */
   sameFile?: boolean;
   /** edge: only edges of this curve (the engine checks). */
-  curve?: 'line' | 'circle' | 'arc';
+  curve?: 'line' | 'circle' | 'arc' | 'ellipse' | 'spline';
   /** edge: a picked face stands for all of its edges. */
   facesAsEdges?: boolean;
   /** feature: only features of these types or ids. */

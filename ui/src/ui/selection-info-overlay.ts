@@ -11,7 +11,9 @@ const SURFACE_LABELS: Record<FaceProperties['surfaceType'], string> = {
   sphere: 'Sphere',
   torus: 'Torus',
   cone: 'Cone',
-  other: 'Surface',
+  revolved: 'Revolved surface',
+  extruded: 'Extruded surface',
+  freeform: 'Free-form surface',
 };
 
 const CURVE_LABELS: Record<EdgeProperties['curveType'], string> = {
@@ -19,8 +21,20 @@ const CURVE_LABELS: Record<EdgeProperties['curveType'], string> = {
   circle: 'Circle',
   arc: 'Arc',
   ellipse: 'Ellipse',
+  spline: 'Spline',
   other: 'Curve',
 };
+
+/**
+ * An edge's kind as the panel names it: a full ellipse, a closed spline or
+ * curve reads "(closed)" after its kind. A circle always is, and a line or
+ * an arc never.
+ */
+function curveLabel(props: EdgeProperties): string {
+  const label = CURVE_LABELS[props.curveType] ?? 'Curve';
+  const closable = props.curveType === 'ellipse' || props.curveType === 'spline' || props.curveType === 'other';
+  return closable && props.closed ? `${label} (closed)` : label;
+}
 
 export class SelectionInfoOverlay {
   private el: HTMLDivElement;
@@ -87,8 +101,9 @@ export class SelectionInfoOverlay {
     // surface has is its area, so the whole surface's leads.
     if (props.owner?.kind === 'surface') {
       const rows = [{ label: 'Area', value: formatArea(props.owner.area, sceneUnit.current) }];
-      if (props.surfaceType !== 'other') {
-        rows.push({ label: 'Face', value: SURFACE_LABELS[props.surfaceType] });
+      const kind = SURFACE_LABELS[props.surfaceType];
+      if (kind) {
+        rows.push({ label: 'Face', value: kind });
       }
       this.renderPanel('Surface', [...rows, ...shape]);
       return;
@@ -104,8 +119,8 @@ export class SelectionInfoOverlay {
     // An edge of a curve reads as the curve it belongs to, by its length.
     if (props.owner?.kind === 'curve') {
       const rows = [{ label: 'Length', value: formatLength(props.owner.length, sceneUnit.current) }];
-      if (props.curveType !== 'other') {
-        rows.push({ label: 'Edge', value: CURVE_LABELS[props.curveType] });
+      if (props.curveType !== 'other' || props.closed) {
+        rows.push({ label: 'Edge', value: curveLabel(props) });
       }
       this.renderPanel('Curve', [...rows, ...shape]);
       return;
@@ -115,7 +130,7 @@ export class SelectionInfoOverlay {
     const length = props.curveType !== 'circle' && props.curveType !== 'ellipse' && props.length != null
       ? [{ label: 'Length', value: formatLength(props.length, sceneUnit.current) }]
       : [];
-    this.renderPanel(CURVE_LABELS[props.curveType] ?? 'Curve', [...shape, ...length]);
+    this.renderPanel(curveLabel(props), [...shape, ...length]);
   }
 
   /** What sets a face's shape: its radius, radii or half-angle; none for a plane or a freeform face. */

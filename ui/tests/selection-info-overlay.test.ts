@@ -51,6 +51,56 @@ describe('selection info overlay', () => {
     expect(h.rows()).toEqual([['Length', '30.00 mm'], ['Edge', 'Arc'], ['Radius', '5.00 mm']]);
   });
 
+  it('names a free-form face, and a revolved and an extruded one', async () => {
+    for (const [surfaceType, label] of [['freeform', 'Free-form surface'], ['revolved', 'Revolved surface'], ['extruded', 'Extruded surface']] as const) {
+      const h = mount({ surfaceType, recovered: false, areaMm2: 120 }, null);
+      await h.overlay.showForFace('s', 0);
+      expect(h.badge()).toBe(label);
+      expect(h.rows()).toEqual([['Area', '120.00 mm²']]);
+      document.body.innerHTML = '';
+    }
+  });
+
+  it('names a sphere by its radius', async () => {
+    const h = mount({ surfaceType: 'sphere', recovered: false, radius: 6 }, null);
+    await h.overlay.showForFace('s', 0);
+    expect(h.badge()).toBe('Sphere');
+    expect(h.rows()).toEqual([['Radius', '6.00 mm']]);
+  });
+
+  it('names a free-form face of a surface in its face row', async () => {
+    const h = mount({ surfaceType: 'freeform', recovered: false, areaMm2: 80, owner: { kind: 'surface', area: 300 } }, null);
+    await h.overlay.showForFace('s', 0);
+    expect(h.badge()).toBe('Surface');
+    expect(h.rows()).toEqual([['Area', '300.00 mm²'], ['Face', 'Free-form surface']]);
+  });
+
+  it('names a spline by its length, and a closed one as closed', async () => {
+    const open = mount(null, { curveType: 'spline', closed: false, planar: true, length: 12.5 });
+    await open.overlay.showForEdge('s', 2);
+    expect(open.badge()).toBe('Spline');
+    expect(open.rows()).toEqual([['Length', '12.50 mm']]);
+    document.body.innerHTML = '';
+
+    const closed = mount(null, { curveType: 'spline', closed: true, planar: false, length: 40 });
+    await closed.overlay.showForEdge('s', 2);
+    expect(closed.badge()).toBe('Spline (closed)');
+  });
+
+  it('names an ellipse by its radii, and a full one as closed', async () => {
+    const h = mount(null, { curveType: 'ellipse', closed: true, planar: true, majorRadius: 5, minorRadius: 2.5 });
+    await h.overlay.showForEdge('s', 3);
+    expect(h.badge()).toBe('Ellipse (closed)');
+    expect(h.rows()).toEqual([['Major R', '5.00 mm'], ['Minor R', '2.50 mm']]);
+  });
+
+  it('names the spline edge of a curve in its edge row', async () => {
+    const h = mount(null, { curveType: 'spline', closed: false, planar: false, length: 18, owner: { kind: 'curve', length: 18 } });
+    await h.overlay.showForEdge('c', 0);
+    expect(h.badge()).toBe('Curve');
+    expect(h.rows()).toEqual([['Length', '18.00 mm'], ['Edge', 'Spline']]);
+  });
+
   it('keeps an edge of a solid as it was: an arc by its radius and length', async () => {
     const h = mount(null, { curveType: 'arc', radius: 5, length: 7.85 });
     await h.overlay.showForEdge('s', 1);

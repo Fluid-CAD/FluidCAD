@@ -24,6 +24,7 @@ import { withUnit } from "../../units/registry.js";
 import type { Scene } from "../../rendering/scene.js";
 import { extentDistances } from "../../filters/extent.js";
 import { edgeSideDistances } from "../../filters/edge/above-below.js";
+import { faceSideDistances, faceSideDistancesPastSpan } from "../../filters/face/above-below.js";
 import { FreeformBodies } from "../helpers/freeform-bodies.js";
 import { findSolids } from "../selection/pick-helpers.js";
 
@@ -363,6 +364,38 @@ describe("sampled predicates on curved edges", () => {
       } finally {
         box.mockRestore();
         framed.mockRestore();
+      }
+    });
+
+    it("stands in for a face clear of a span with bounds no farther from it, and measures one that crosses its end", () => {
+      FreeformBodies.filletedSlab();
+      const fillets = freeformFaces(render()).filter(f => SurfaceClassifier.classify(f).kind === "freeform");
+      const top = fillets.filter(f => extentDistances(f, XY)[0] > 5);
+      const bottom = fillets.filter(f => extentDistances(f, XY)[1] < 5);
+      expect([top.length, bottom.length]).toEqual([3, 3]);
+      const [lowest, highest] = extentDistances(top[0], XY);
+      expect([lowest, highest].map(v => Math.round(v * 1e4) / 1e4)).toEqual([8.5, 10]);
+
+      const box = vi.spyOn(ShapeOps, "getExactBoundingBoxRaw");
+      try {
+        // Past a span above them, the bottom fillets answer without being measured ...
+        const standIns = bottom.map(f => faceSideDistancesPastSpan(f, XY, 8, 12));
+        // ... and so do the top ones, which lie within it.
+        const within = top.map(f => faceSideDistancesPastSpan(f, XY, 8, 12));
+        expect(box).not.toHaveBeenCalled();
+        expect(within.every(([near, far]) => near >= 8 && far <= 12)).toBe(true);
+        bottom.forEach((f, i) => {
+          const [near, far] = faceSideDistances(f, XY);
+          expect(standIns[i][1]).toBeLessThan(8);
+          expect(standIns[i][0]).toBeLessThanOrEqual(near);
+          expect(standIns[i][1]).toBeGreaterThanOrEqual(far);
+        });
+
+        // A span that ends inside the top fillets measures them.
+        box.mockClear();
+        expect(top.map(f => faceSideDistancesPastSpan(f, XY, 9, 12))).toEqual(top.map(f => faceSideDistances(f, XY)));
+      } finally {
+        box.mockRestore();
       }
     });
 

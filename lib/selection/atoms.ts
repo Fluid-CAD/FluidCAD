@@ -14,7 +14,7 @@ import { Shape } from "../common/shape.js";
 import { ShapeMeasure } from "../oc/shape-measure.js";
 import { groupLayers } from "../filters/rank/extremal.js";
 import { edgeSideDistances } from "../filters/edge/above-below.js";
-import { faceSideDistances } from "../filters/face/above-below.js";
+import { faceSideDistances, faceSideDistancesPastSpan } from "../filters/face/above-below.js";
 import type { BodyKind } from "../filters/body-kind.js";
 import { CurveClassifier } from "../oc/curve-classifier.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -287,7 +287,7 @@ export function instantiateEdgeAtoms(
 
   atoms.push(...rankAtoms<EdgeFilterBuilder>(probes, universe));
 
-  atoms.push(...thresholdAtoms<EdgeFilterBuilder, Edge>(probes.map(p => p.edge), universe, edgeSideDistances,
+  atoms.push(...thresholdAtoms<EdgeFilterBuilder, Edge>(probes.map(p => p.edge), universe, edgeSideDistances, edgeSideDistances,
     (b, plane, offset) => offset === 0 ? b.above(plane) : b.above(plane, offset),
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
@@ -499,7 +499,7 @@ export function instantiateFaceAtoms(
 
   atoms.push(...rankAtoms<FaceFilterBuilder>(probes, universe));
 
-  atoms.push(...thresholdAtoms<FaceFilterBuilder, Face>(probes.map(p => p.face), universe, faceSideDistances,
+  atoms.push(...thresholdAtoms<FaceFilterBuilder, Face>(probes.map(p => p.face), universe, faceSideDistances, faceSideDistancesPastSpan,
     (b, plane, offset) => offset === 0 ? b.above(plane) : b.above(plane, offset),
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
@@ -898,7 +898,10 @@ function rankAtoms<B extends RankBuilder>(probes: RankProbe[], universe: Shape[]
  * are computed in normal-signed distances from the principal plane, read by
  * `sideDistances` — the very distances the predicates judge a shape's side
  * by (end vertices, or a curved shape's extent): `above(P, o)` keeps shapes
- * whose distances along P's normal all exceed `o`.
+ * whose distances along P's normal all exceed `o`. The picks are read by
+ * `sideDistances`; a universe shape is read by `distancesPastSpan`, which
+ * may answer with cheaper stand-ins that lie on the same side of the picks'
+ * span and no farther from it.
  *
  * A cut that lands exactly at 0 is not a synthetic gap number but the datum
  * plane itself: the picks straddle a principal plane, and the rendered form
@@ -911,6 +914,7 @@ function thresholdAtoms<B, S extends Shape>(
   targets: S[],
   universe: S[],
   sideDistances: (shape: S, plane: Plane) => number[],
+  distancesPastSpan: (shape: S, plane: Plane, lo: number, hi: number) => number[],
   above: (b: B, plane: 'xy' | 'xz' | 'yz', offset: number) => unknown,
   below: (b: B, plane: 'xy' | 'xz' | 'yz', offset: number) => unknown,
 ): Atom<B>[] {
@@ -920,7 +924,8 @@ function thresholdAtoms<B, S extends Shape>(
     const targetCoords = targets.flatMap(shape => sideDistances(shape, datum));
     const targetLo = Math.min(...targetCoords);
     const targetHi = Math.max(...targetCoords);
-    const universeCoords = universe.flatMap(shape => sideDistances(shape, datum));
+    const universeCoords = universe.flatMap(shape =>
+      distancesPastSpan(shape, datum, targetLo - sharedTolerance(), targetHi + sharedTolerance()));
 
     const beyondLo = universeCoords.filter(v => v < targetLo - sharedTolerance());
     if (beyondLo.length > 0) {

@@ -7,7 +7,7 @@ import { FilterBase } from "../filter-base.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
 import { SurfaceClassifier } from "../../oc/surface-classifier.js";
-import { extentDistances, extentSides } from "../extent.js";
+import { extentBounds, extentDistances, extentSides } from "../extent.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneRefSource, comparePlaneRefs, planeRefSceneObject, resolvePlaneRef } from "../plane-ref.js";
 
@@ -52,6 +52,27 @@ function boundaryDistances(face: Face, plane: Plane): number[] {
  */
 export function faceSideDistances(shape: Face, plane: Plane): number[] {
   return isJudgedByVertices(shape) ? boundaryDistances(shape, plane) : extentDistances(shape, plane);
+}
+
+/**
+ * What stands for a face's {@link faceSideDistances} when the selection
+ * synthesizer places a cut past the span `[lo, hi]` its picks cover.
+ * Measuring a face on a B-spline surface costs tens of milliseconds, and
+ * most of a scene lies clear of the span: a face whose bounds (see
+ * {@link extentBounds}) lie wholly below the span, wholly above it or
+ * wholly within it answers with the bounds. They reach at least as near the
+ * span as the face does, so a gap found past them is a gap past the face,
+ * if a narrower one. A face whose bounds cross an end of the span is
+ * measured, as is every face that has no such bounds.
+ */
+export function faceSideDistancesPastSpan(shape: Face, plane: Plane, lo: number, hi: number): number[] {
+  if (!isJudgedByVertices(shape)) {
+    const bounds = extentBounds(shape, plane);
+    if (bounds && (bounds[1] < lo || bounds[0] > hi || (bounds[0] >= lo && bounds[1] <= hi))) {
+      return bounds;
+    }
+  }
+  return faceSideDistances(shape, plane);
 }
 
 /**

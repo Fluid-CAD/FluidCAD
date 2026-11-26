@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
 import { sketch, line, spline, circle, ellipse, extrude, loft, plane, helix } from "../../core/index.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
@@ -19,7 +19,9 @@ import { TestCurves } from "../helpers/curves.js";
 import { TestSheets } from "../helpers/sheets.js";
 import { testRect } from "../helpers/profiles.js";
 import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
-import { findSolid, setLocation } from "./pick-helpers.js";
+import { findSolid, findSolids, setLocation } from "./pick-helpers.js";
+import { FreeformBodies } from "../helpers/freeform-bodies.js";
+import { ShapeOps } from "../../oc/shape-ops.js";
 
 /** A curve tool that leaves the three-edge wire of {@link TestCurves.threeEdges}: a line, a half circle, a line. */
 class TestPath extends CurveObject {
@@ -165,6 +167,30 @@ describe("synthesis over the kind predicates", () => {
     if (result.ok) {
       expect(result.preview).toContain("spline()");
       expect(result.preview).not.toMatch(/\d\.\d/);
+    }
+  });
+
+  it("measures only the picked body's fillets when another body's lie clear of the pick", () => {
+    FreeformBodies.filletedSlab();
+    FreeformBodies.filletedSlab([100, 100]);
+    const scene = render();
+    const [picked, other] = findSolids(scene);
+    const onBSpline = (solid: Shape) => new Set(solid.getSubShapes("face").filter(f => ShapeOps.controlHullRaw(f.getShape()) !== null));
+    expect([onBSpline(picked).size, onBSpline(other).size]).toEqual([6, 6]);
+    // A fillet along a spline on top of the first slab.
+    const topFillet = Explorer.findFacesWrapped(picked)
+      .findIndex(f => ShapeOps.controlHullRaw(f.getShape()) !== null && f.center().z > 5);
+    const refs: PickRef[] = [{ shapeId: picked.id, sub: { type: "face", index: topFillet } }];
+
+    const measured = vi.spyOn(ShapeOps, "extentAlong");
+    try {
+      const candidates = verifiedGlobalCandidates(scene, refs, "face");
+      expect(candidates.length).toBeGreaterThan(0);
+      const faces = new Set(measured.mock.calls.map(([shape]) => shape));
+      expect([...onBSpline(picked)].some(f => faces.has(f))).toBe(true);
+      expect([...onBSpline(other)].filter(f => faces.has(f))).toEqual([]);
+    } finally {
+      measured.mockRestore();
     }
   });
 

@@ -196,6 +196,8 @@ describe('select→apply-feature end to end', () => {
       `sketch('xy', () => { ${rectBodySrc(123.28, 56.07, -123.28 / 2, -56.07 / 2)} })`,
       `const e = extrude(25)`,
       `fillet(10, e.sideEdges())`,
+      `sketch('xy', () => { ${rectBodySrc(20, 10, 200, 0)} })`,
+      `extrude(5)`,
       ``,
     ].join('\n');
 
@@ -204,6 +206,11 @@ describe('select→apply-feature end to end', () => {
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
     const f = core.fillet(10, (e as any).sideEdges());
     (f as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 0 });
+    // A lower block beside it: its top faces up too, so `facing('z')` does
+    // not name the picked top alone and the plane reference is what isolates
+    // it. Left without a source location, its own end face is no reference.
+    sketch('xy', () => { drawRect(20, 10, 200, 0) });
+    extrude(5);
 
     const scene = render();
     const solid = findSolid(scene);

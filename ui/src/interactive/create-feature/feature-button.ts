@@ -4,14 +4,25 @@ import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LAB
 
 /**
  * What a dialog needs of the control it opens from: the click that toggles
- * it, the armed styling, and taking the control away with the dialog. A
- * {@link FeatureButton} on the bar is one; a cell of the custom features
- * menu (`CustomFeaturesMenu`) is the other.
+ * it, the armed styling, the greyed state while the tool has nothing to work
+ * on, and taking the control away with the dialog. A {@link FeatureButton}
+ * on the bar is one; a cell of a toolbar dropdown (`ToolMenu`, the custom
+ * features menu) is the other.
  */
 export interface FeatureLauncher {
   onClick?: () => void;
   setActive(active: boolean): void;
+  setDisabled(disabled: boolean): void;
   remove(): void;
+}
+
+/** A launcher on no surface: a service built with it opens only through its own `enter()`. */
+export function detachedLauncher(): FeatureLauncher {
+  return {
+    setActive: () => {},
+    setDisabled: () => {},
+    remove: () => {},
+  };
 }
 
 /**

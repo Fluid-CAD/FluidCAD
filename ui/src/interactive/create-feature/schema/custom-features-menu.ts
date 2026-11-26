@@ -1,16 +1,12 @@
 import type { PackageRef } from '../../../api';
-import { ICON_CHEVRON_DOWN, ICON_PIN, ICON_PINNED_OFF } from '../../../ui/icons';
+import { ICON_PIN, ICON_PINNED_OFF } from '../../../ui/icons';
 import { HubIcons } from '../../../ui/hub/hub-icons';
-import { iconUrl } from '../../../ui/icon-url';
 import type { Navbar } from '../../../ui/navbar';
 import type { NavbarMode } from '../../../ui/navbar/navbar';
-import { ICON_IMG_FALLBACK } from '../../../ui/object-icons';
 import { showPopupMenu } from '../../../ui/popup-menu';
-import { isShownOnBar, toolIndex } from '../../../ui/quick-find/tool-index';
-import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from '../../../ui/toolbar-styles';
-import { viewportChrome } from '../../../ui/viewport-chrome';
-import type { FeatureLauncher } from '../feature-button';
-import type { SketchHideable } from '../finish-sketch-button';
+import { isShownOnBar, type QuickFindTool } from '../../../ui/quick-find/tool-index';
+import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_LABEL } from '../../../ui/toolbar-styles';
+import { ToolMenuBase, ToolMenuCell, type ToolMenuCellEvents } from '../tool-menu';
 
 /** How one feature shows in the menu. */
 export type CustomFeatureCellSpec = {
@@ -36,29 +32,11 @@ export type CustomFeatureCellSpec = {
   package?: PackageRef;
 };
 
-// The dropdown hangs off the button like the sketch toolbar's option menus
-// (same surface, border and shadow), but from the page body: the bar clips
-// its track sideways, and a grid near either end of it must stay whole.
-const PANEL =
-  'fixed z-[1200] p-1.5 overflow-y-auto max-w-[calc(100vw-16px)] '
-  + 'panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
-/** Three columns that narrow (labels truncating) only when the window can't fit them. */
-const GRID = 'grid grid-cols-[repeat(3,minmax(0,5.5rem))] gap-1';
 /** A group's heading, once a package's features share the menu with the workspace's. */
 const GROUP_HEADING = 'flex items-center gap-1.5 px-1 pt-1.5 pb-1 text-[11px] text-base-content/55 min-w-0 first:pt-0.5';
 const PIN_BUTTON = 'btn btn-ghost btn-xs btn-square size-5 min-h-0 ml-auto shrink-0 text-base-content/45 hover:text-base-content [&>svg]:size-3.5';
-// The toolbar's own idle and armed looks, stretched to the cell.
-const CELL_SHAPE = 'btn btn-sm h-auto w-full min-w-0 flex-col gap-1 px-1 py-2';
-const CELL_BASE = `${CELL_SHAPE} btn-ghost text-base-content/70`;
-const CELL_ACTIVE = `${CELL_SHAPE} btn-soft btn-primary`;
-const CELL_LABEL = 'block max-w-full truncate text-[11px] leading-tight';
 /** A cell pinned to the toolbar wears a toolbar button's look, in its tooltip wrapper. */
 const PINNED_WRAP = 'tooltip tooltip-bottom shrink-0';
-
-/** Clearance from the window's edges, in pixels. */
-const EDGE = 8;
-/** Gap between the button and the dropdown, in pixels. */
-const GAP = 6;
 
 /**
  * One feature in the menu's grid: its icon over its label, the click that
@@ -66,51 +44,17 @@ const GAP = 6;
  * dialog drives it as it would its own toolbar button — and once its
  * package is pinned to the toolbar, it is one, on the bar.
  */
-export class CustomFeatureCell implements FeatureLauncher {
-  onClick?: () => void;
-
-  /** The grid cell — it carries the tooltip, so a greyed entry still explains itself. */
-  readonly el: HTMLDivElement;
-  private readonly button: HTMLButtonElement;
-  private readonly label: HTMLSpanElement;
-  private _active = false;
+export class CustomFeatureCell extends ToolMenuCell<CustomFeatureCellSpec> {
   private _pinned = false;
 
   constructor(
-    readonly spec: CustomFeatureCellSpec,
-    private readonly events: {
-      press: (cell: CustomFeatureCell) => void;
-      activeChange: () => void;
-      remove: (cell: CustomFeatureCell) => void;
+    spec: CustomFeatureCellSpec,
+    private readonly cellEvents: ToolMenuCellEvents<CustomFeatureCell> & {
       /** The cell's package changed (a library package got pinned): it may change group. */
       regroup: () => void;
     },
   ) {
-    this.el = document.createElement('div');
-    if (spec.tool !== undefined) {
-      this.el.dataset.tool = spec.tool;
-    } else if (spec.id !== null) {
-      this.el.dataset.tool = `feature:${spec.id}`;
-    }
-    this.button = document.createElement('button');
-    this.button.setAttribute('aria-label', spec.tip);
-    this.button.disabled = this.disabled;
-    this.button.innerHTML = `<img src="${spec.iconSrc}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`;
-    this.label = document.createElement('span');
-    this.label.textContent = spec.label;
-    this.button.appendChild(this.label);
-    this.button.addEventListener('click', () => this.events.press(this));
-    this.el.appendChild(this.button);
-    this.syncClass();
-    this.syncTip();
-  }
-
-  get active(): boolean {
-    return this._active;
-  }
-
-  get disabled(): boolean {
-    return this.spec.disabled === true;
+    super(spec, spec.tool ?? (spec.id !== null ? `feature:${spec.id}` : undefined), cellEvents);
   }
 
   /** On the toolbar, its package pinned there, rather than in the dropdown's grid. */
@@ -128,20 +72,6 @@ export class CustomFeatureCell implements FeatureLauncher {
     this.syncTip();
   }
 
-  setActive(active: boolean): void {
-    if (this._active === active) {
-      return;
-    }
-    this._active = active;
-    this.syncClass();
-    this.events.activeChange();
-  }
-
-  /** Take the cell out of the menu for good (its feature changed or left the catalog). */
-  remove(): void {
-    this.events.remove(this);
-  }
-
   /**
    * The package the feature comes from changed while its dialog stayed (the
    * project just pinned a library package by using it): the cell moves to
@@ -153,30 +83,30 @@ export class CustomFeatureCell implements FeatureLauncher {
       return;
     }
     (this.spec as { package?: PackageRef }).package = pkg;
-    this.events.regroup();
+    this.cellEvents.regroup();
   }
 
-  private syncClass(): void {
-    const look = this._pinned
-      ? (this._active ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN_BASE)
-      : (this._active ? CELL_ACTIVE : CELL_BASE);
+  protected override syncClass(): void {
+    if (!this._pinned) {
+      super.syncClass();
+      return;
+    }
     // A greyed cell lets the hover through to the cell, whose tooltip says why.
-    this.button.className = `${look}${this.disabled ? ' pointer-events-none' : ''}`;
-    this.label.className = this._pinned ? TOOLBAR_BTN_LABEL : CELL_LABEL;
-    this.el.className = this._pinned ? PINNED_WRAP : 'relative min-w-0 flex';
+    this.button.className = `${this.active ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN_BASE}${this.disabled ? ' pointer-events-none' : ''}`;
+    this.label.className = TOOLBAR_BTN_LABEL;
+    this.el.className = PINNED_WRAP;
   }
 
   /** On the bar the tooltip is the toolbar's own; in the grid, the native one. */
-  private syncTip(): void {
-    // A greyed entry's tip says why it can't be offered, so it wins.
-    const tip = (!this.disabled && this.spec.description) || this.spec.tip;
-    if (this._pinned) {
-      this.el.removeAttribute('title');
-      this.el.dataset.tip = tip;
-    } else {
+  protected override syncTip(): void {
+    if (!this._pinned) {
       delete this.el.dataset.tip;
-      this.el.title = tip;
+      super.syncTip();
+      return;
     }
+    // A greyed entry's tip says why it can't be offered, so it wins.
+    this.el.removeAttribute('title');
+    this.el.dataset.tip = (!this.spec.disabled && this.spec.description) || this.spec.tip;
   }
 }
 
@@ -241,127 +171,42 @@ export type CustomFeaturesMenuOptions = {
  * assemblies — never shown in part mode, as the part bar's never shows in
  * assembly mode.
  */
-export class CustomFeaturesMenu implements SketchHideable {
+export class CustomFeaturesMenu extends ToolMenuBase<CustomFeatureCellSpec, CustomFeatureCell> {
   /** The navbar group the part bar's button sits in. */
   static readonly GROUP = 'custom';
 
   /** The user pinned or unpinned a package: every pinned package's name, sorted. */
   onToolbarPackagesChange?: (names: string[]) => void;
-  /** The dropdown just opened (its owner may refresh what it lists). */
-  onOpen?: () => void;
 
-  private readonly wrap: HTMLSpanElement;
-  private readonly button: HTMLButtonElement;
-  private readonly panel: HTMLDivElement;
-  private readonly cells: CustomFeatureCell[] = [];
-  /** Each cell's exit from the Quick Find index. */
-  private readonly unindex = new Map<CustomFeatureCell, () => void>();
-  private sketchHidden = false;
-  private opened = false;
   /** The packages pinned to the toolbar, by name. */
   private toolbarPackages = new Set<string>();
   /** The toolbar groups of the pinned packages listed now, by group key. */
   private readonly pinnedGroups = new Map<string, HTMLElement>();
   /** What the empty dropdown's button does (open the Hub panel); null hides the button with nothing to list. */
   private emptyAction: (() => void) | null = null;
-  /** The dialogs open when the dropdown opened — one more closes it. */
-  private dialogsAtOpen: ReadonlySet<string> = new Set();
-  /** The navbar group the button sits in. */
-  private readonly groupKey: string;
-  private readonly mode: NavbarMode;
   private readonly pinnedPrefix: string;
-  private readonly emptyText: string;
   private readonly allPinnedText: string;
 
-  constructor(private readonly navbar: Navbar, options: CustomFeaturesMenuOptions = {}) {
-    this.groupKey = options.group ?? CustomFeaturesMenu.GROUP;
-    this.mode = options.mode ?? 'part';
+  constructor(navbar: Navbar, options: CustomFeaturesMenuOptions = {}) {
+    super(navbar, {
+      group: options.group ?? CustomFeaturesMenu.GROUP,
+      mode: options.mode ?? 'part',
+      label: options.label ?? 'Custom',
+      icon: options.icon ?? 'custom-features',
+      tip: options.tip ?? 'Custom features',
+      tool: options.tool ?? 'custom-features',
+      role: options.role ?? 'custom-features-menu',
+      emptyText: options.emptyText
+        ?? 'No custom features installed. Check FluidCAD Hub for packages of features and parts.',
+      columns: 3,
+    });
     this.pinnedPrefix = options.pinnedPrefix ?? 'custom-package:';
-    this.emptyText = options.emptyText
-      ?? 'No custom features installed. Check FluidCAD Hub for packages of features and parts.';
     this.allPinnedText = options.allPinnedText
       ?? 'Every custom feature is pinned to the toolbar. Right-click a pinned group to unpin it.';
-    const tip = options.tip ?? 'Custom features';
-    const label = options.label ?? 'Custom';
-    const icon = options.icon ?? 'custom-features';
-    const group = navbar.getGroup(this.groupKey)
-      ?? navbar.addGroup(this.groupKey, { visible: false, mode: this.mode });
-
-    this.button = document.createElement('button');
-    this.button.className = TOOLBAR_BTN_BASE;
-    this.button.setAttribute('aria-label', tip);
-    this.button.setAttribute('aria-haspopup', 'true');
-    this.button.setAttribute('aria-expanded', 'false');
-    this.button.innerHTML =
-      `<img src="${iconUrl(icon)}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
-      + `<span class="${TOOLBAR_BTN_LABEL} flex items-center gap-0.5"><span data-role="menu-label"></span>`
-      + `<span class="[&>svg]:size-2.5" aria-hidden="true">${ICON_CHEVRON_DOWN}</span></span>`;
-    this.button.querySelector<HTMLSpanElement>('[data-role="menu-label"]')!.textContent = label;
-    this.button.addEventListener('click', () => this.toggle());
-    this.wrap = document.createElement('span');
-    this.wrap.className = 'tooltip tooltip-bottom shrink-0';
-    this.wrap.dataset.tip = tip;
-    this.wrap.dataset.tool = options.tool ?? 'custom-features';
-    this.wrap.appendChild(this.button);
-    group.appendChild(this.wrap);
-
-    this.panel = document.createElement('div');
-    this.panel.className = PANEL;
-    this.panel.dataset.role = options.role ?? 'custom-features-menu';
-    // A click on a cell must not pull focus off the editor or the viewport.
-    this.panel.addEventListener('mousedown', (e) => e.preventDefault());
-
-    viewportChrome.subscribeDialogs((openIds) => {
-      if ([...openIds].some(id => !this.dialogsAtOpen.has(id))) {
-        this.close();
-      }
-    });
-  }
-
-  /** List a feature; the cell stays until its {@link CustomFeatureCell.remove}. */
-  add(spec: CustomFeatureCellSpec): CustomFeatureCell {
-    const cell = new CustomFeatureCell(spec, {
-      press: (pressed) => {
-        this.close();
-        pressed.onClick?.();
-      },
-      activeChange: () => this.syncActive(),
-      remove: (removed) => this.drop(removed),
-      regroup: () => this.layout(),
-    });
-    this.cells.push(cell);
-    // Quick Find finds the feature whether it sits in the dropdown (the
-    // button on the bar) or, its package pinned, on the bar itself.
-    this.unindex.set(cell, toolIndex.register({
-      id: `custom:${spec.tool ?? spec.id ?? spec.label}`,
-      label: spec.label,
-      tip: spec.description ?? spec.tip,
-      bench: this.mode === 'assembly' ? 'Generated' : 'Custom',
-      iconSrc: spec.iconSrc,
-      isAvailable: () => (cell.pinned ? isShownOnBar(cell.el) : isShownOnBar(this.wrap)),
-      isDisabled: () => cell.disabled,
-      disabledReason: () => (cell.disabled ? spec.tip : null),
-      isActive: () => cell.active,
-      run: () => {
-        this.close();
-        cell.onClick?.();
-      },
-    }));
-    this.layout();
-    return cell;
-  }
-
-  /** The cells in grid order. */
-  get entries(): readonly CustomFeatureCell[] {
-    return [...this.cells];
-  }
-
-  get isOpen(): boolean {
-    return this.opened;
   }
 
   /** Whether the button is on the bar: a feature left to list (or the empty state's way to the hub), and no sketch up. */
-  get isVisible(): boolean {
+  override get isVisible(): boolean {
     return (this.cells.some(cell => !cell.pinned) || this.emptyAction !== null) && !this.sketchHidden;
   }
 
@@ -406,69 +251,35 @@ export class CustomFeaturesMenu implements SketchHideable {
   }
 
   /** Armed: one of its listed features' dialogs is open (a pinned one arms its own button). */
-  get isActive(): boolean {
+  override get isActive(): boolean {
     return this.cells.some(cell => cell.active && !cell.pinned);
   }
 
-  toggle(): void {
-    if (this.isOpen) {
-      this.close();
-    } else {
-      this.open();
-    }
+  protected createCell(spec: CustomFeatureCellSpec, events: ToolMenuCellEvents<ToolMenuCell<CustomFeatureCellSpec>>): CustomFeatureCell {
+    return new CustomFeatureCell(spec, { ...events, regroup: () => this.layout() });
   }
 
-  open(): void {
-    if (this.isOpen || !this.isVisible) {
-      return;
-    }
-    this.opened = true;
-    this.dialogsAtOpen = viewportChrome.openDialogIds;
-    document.body.appendChild(this.panel);
-    this.position();
-    this.button.setAttribute('aria-expanded', 'true');
-    // The hover tooltip sits where the dropdown hangs.
-    this.wrap.classList.remove('tooltip');
-    document.addEventListener('pointerdown', this.onPointerDown, true);
-    document.addEventListener('keydown', this.onKeyDown, true);
-    document.addEventListener('wheel', this.onWheel, { capture: true, passive: true });
-    window.addEventListener('resize', this.onResize);
-    this.onOpen?.();
-  }
-
-  close(): void {
-    if (!this.isOpen) {
-      return;
-    }
-    this.opened = false;
-    this.panel.remove();
-    this.button.setAttribute('aria-expanded', 'false');
-    this.wrap.classList.add('tooltip');
-    document.removeEventListener('pointerdown', this.onPointerDown, true);
-    document.removeEventListener('keydown', this.onKeyDown, true);
-    document.removeEventListener('wheel', this.onWheel, { capture: true });
-    window.removeEventListener('resize', this.onResize);
-  }
-
-  /** Off the bar while a sketch is up, like the create buttons — and the dropdown and the pinned groups with it. */
-  setSketchHidden(hidden: boolean): void {
-    if (this.sketchHidden === hidden) {
-      return;
-    }
-    this.sketchHidden = hidden;
-    this.syncVisible();
-  }
-
-  private drop(cell: CustomFeatureCell): void {
-    const index = this.cells.indexOf(cell);
-    if (index < 0) {
-      return;
-    }
-    this.cells.splice(index, 1);
-    this.unindex.get(cell)?.();
-    this.unindex.delete(cell);
-    cell.el.remove();
-    this.layout();
+  /**
+   * Quick Find finds the feature whether it sits in the dropdown (the
+   * button on the bar) or, its package pinned, on the bar itself.
+   */
+  protected quickFindEntry(cell: CustomFeatureCell): QuickFindTool {
+    const { spec } = cell;
+    return {
+      id: `custom:${spec.tool ?? spec.id ?? spec.label}`,
+      label: spec.label,
+      tip: spec.description ?? spec.tip,
+      bench: this.mode === 'assembly' ? 'Generated' : 'Custom',
+      iconSrc: spec.iconSrc,
+      isAvailable: () => (cell.pinned ? isShownOnBar(cell.el) : this.buttonShown),
+      isDisabled: () => cell.disabled,
+      disabledReason: () => (cell.disabled ? spec.tip : null),
+      isActive: () => cell.active,
+      run: () => {
+        this.close();
+        cell.onClick?.();
+      },
+    };
   }
 
   /**
@@ -478,7 +289,7 @@ export class CustomFeaturesMenu implements SketchHideable {
    * source gets its own grid under a heading: the workspace's ("This
    * project") first, then each package by name, with its pin.
    */
-  private layout(): void {
+  protected layout(): void {
     this.cells.sort(CustomFeaturesMenu.compare);
     const groups = CustomFeaturesMenu.groupsOf(this.cells);
     const pinned = groups.filter(group => this.isPinned(group.pkg));
@@ -498,19 +309,13 @@ export class CustomFeaturesMenu implements SketchHideable {
         if (headed) {
           children.push(this.heading(group.pkg));
         }
-        const grid = document.createElement('div');
-        grid.className = GRID;
+        const grid = this.grid(group.cells);
         grid.dataset.group = group.pkg ? group.pkg.name : 'workspace';
-        grid.replaceChildren(...group.cells.map(cell => cell.el));
         children.push(grid);
       }
       this.panel.replaceChildren(...children);
     }
-    this.syncActive();
-    this.syncVisible();
-    if (this.isOpen) {
-      this.position();
-    }
+    this.settle();
   }
 
   private isPinned(pkg: PackageRef | null): pkg is PackageRef {
@@ -635,64 +440,11 @@ export class CustomFeaturesMenu implements SketchHideable {
       || (a.spec.id ?? '').localeCompare(b.spec.id ?? '');
   }
 
-  private syncActive(): void {
-    this.button.className = this.isActive ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN_BASE;
-  }
-
-  private syncVisible(): void {
-    // One vote, so a sketch hides the group whole — no empty group behind a divider.
-    this.navbar.setGroupVisible(this.groupKey, this.isVisible);
+  /** The pinned groups leave the bar with the button while a sketch is up. */
+  protected override syncVisible(): void {
+    super.syncVisible();
     for (const key of this.pinnedGroups.keys()) {
       this.navbar.setGroupVisible(key, !this.sketchHidden);
     }
-    if (!this.isVisible) {
-      this.close();
-    }
   }
-
-  /**
-   * Centred under the button, then pulled in from whichever window edge it
-   * would cross; as tall as the window leaves below it, scrolling past that.
-   */
-  private position(): void {
-    const anchor = this.button.getBoundingClientRect();
-    const top = anchor.bottom + GAP;
-    this.panel.style.top = `${Math.round(top)}px`;
-    this.panel.style.maxHeight = `${Math.max(Math.round(window.innerHeight - top - EDGE), 96)}px`;
-    // Measured from the left edge: a fixed box shrinks to the room right of
-    // wherever it stood, so a stale offset would read a squeezed width.
-    this.panel.style.left = '0px';
-    const width = this.panel.offsetWidth;
-    const centred = anchor.left + anchor.width / 2 - width / 2;
-    const left = Math.max(EDGE, Math.min(centred, window.innerWidth - width - EDGE));
-    this.panel.style.left = `${Math.round(left)}px`;
-  }
-
-  private readonly onPointerDown = (e: PointerEvent): void => {
-    const target = e.target as Node;
-    if (!this.panel.contains(target) && !this.wrap.contains(target)) {
-      this.close();
-    }
-  };
-
-  /** Escape closes the dropdown only — an open dialog under it stays. */
-  private readonly onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key !== 'Escape') {
-      return;
-    }
-    e.preventDefault();
-    e.stopPropagation();
-    this.close();
-  };
-
-  /** A wheel elsewhere moves what the dropdown hangs off (the bar scrolls, the view zooms). */
-  private readonly onWheel = (e: WheelEvent): void => {
-    if (!this.panel.contains(e.target as Node)) {
-      this.close();
-    }
-  };
-
-  private readonly onResize = (): void => {
-    this.position();
-  };
 }

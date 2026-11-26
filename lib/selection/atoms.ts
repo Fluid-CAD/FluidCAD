@@ -6,13 +6,18 @@ import { Point } from "../math/point.js";
 import { Plane, toPlane } from "../math/plane.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
-import { EdgeProbe, FaceProbe, edgeEndPoints, faceBoundaryPoints } from "./probe.js";
+import { EdgeProbe, FaceProbe } from "./probe.js";
 import { FaceProperties } from "../oc/face-props.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { mmTol } from "../units/tolerance.js";
 import { Shape } from "../common/shape.js";
 import { ShapeMeasure } from "../oc/shape-measure.js";
 import { groupLayers } from "../filters/rank/extremal.js";
+import { edgeSideDistances } from "../filters/edge/above-below.js";
+import { faceSideDistances } from "../filters/face/above-below.js";
+import type { BodyKind } from "../filters/body-kind.js";
+import { CurveClassifier } from "../oc/curve-classifier.js";
+import { Vector3d } from "../math/vector3d.js";
 
 /**
  * One filter predicate candidate: a rendered code fragment plus the builder
@@ -183,9 +188,10 @@ function planeNormalSign(plane: PrincipalPlane): number {
  * Instantiate candidate edge atoms from the picked edges' geometry. Universe
  * members are only consulted for `above`/`below` threshold placement; atom
  * truth over the universe is established later through the real predicates.
- * `allowScoped` gates the scope-aware atoms (`belongsToFace`, convexity),
- * which need the evaluator's scope injection — `select()` and bucket
- * accessors both provide it.
+ * `allowScoped` gates the scope-aware atoms (`belongsToFace`, convexity,
+ * `ofSolid()` / `ofSurface()`), which need the evaluator's scope injection —
+ * `select()` and bucket accessors both provide it. `bodyKinds` are the kinds
+ * of body the universe's shapes belong to.
  */
 export function instantiateEdgeAtoms(
   probes: EdgeProbe[],
@@ -194,6 +200,7 @@ export function instantiateEdgeAtoms(
   params: ParameterLink[] = [],
   faceSources: FaceSource[] = [],
   fromSources: FromSource[] = [],
+  bodyKinds: ReadonlySet<BodyKind> = new Set(),
 ): EdgeAtom[] {
   const atoms: EdgeAtom[] = [];
   atoms.push(...fromAtoms<EdgeFilterBuilder>(fromSources));
@@ -223,6 +230,9 @@ export function instantiateEdgeAtoms(
       atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
     }
   }
+  if (curveClass === 'ellipse' || curveClass === 'spline') {
+    atoms.push({ code: `.${curveClass}()`, addTo: b => b[curveClass](), weight: 30, constants: 0, needsScope: false });
+  }
   if (curveClass === null || curveClass === 'ellipse' || curveClass === 'spline' || curveClass === 'other') {
     // No line, arc or circle atom covers these picks (mixed classes, or a
     // fillet transition spline that recovers to no line or circle). A
@@ -233,17 +243,34 @@ export function instantiateEdgeAtoms(
     atoms.push({ code: '.notArc()', addTo: b => b.notArc(), weight: 28, constants: 0, needsScope: false });
   }
 
+  atoms.push(...closedAtoms(probes, universe));
+  if (curveClass === 'spline' || curveClass === 'other') {
+    const planar = sharedBoolean(probes.map(p => p.props.planar));
+    if (planar !== null) {
+      atoms.push({
+        code: planar ? '.planar()' : '.notPlanar()',
+        addTo: b => planar ? b.planar() : b.notPlanar(),
+        weight: 25, constants: 0, needsScope: false,
+      });
+    }
+  }
+
+  // Only a straight edge is ever perpendicular to a plane: `verticalTo` is
+  // false for every curve that is no line, circle or arc.
+  const chordJudged = probes.every(p => p.lineOrCircular);
   for (const plane of PRINCIPAL_PLANES) {
     atoms.push({
       code: `.parallelTo('${plane.name}')`,
       addTo: b => b.parallelTo(plane.name),
       weight: 25, constants: 0, needsScope: false,
     });
-    atoms.push({
-      code: `.verticalTo('${plane.name}')`,
-      addTo: b => b.verticalTo(plane.name),
-      weight: 25, constants: 0, needsScope: false,
-    });
+    if (chordJudged) {
+      atoms.push({
+        code: `.verticalTo('${plane.name}')`,
+        addTo: b => b.verticalTo(plane.name),
+        weight: 25, constants: 0, needsScope: false,
+      });
+    }
 
     const coords = probes.flatMap(p => [...p.ends, p.mid]).map(pt => pt[plane.axis]);
     const shared = sharedNumber(coords);
@@ -260,9 +287,7 @@ export function instantiateEdgeAtoms(
 
   atoms.push(...rankAtoms<EdgeFilterBuilder>(probes, universe));
 
-  const targetEnds = probes.flatMap(p => p.ends);
-  const universeEnds = universe.map(e => edgeEndPoints(e));
-  atoms.push(...thresholdAtoms<EdgeFilterBuilder>(targetEnds, universeEnds,
+  atoms.push(...thresholdAtoms<EdgeFilterBuilder, Edge>(probes.map(p => p.edge), universe, edgeSideDistances,
     (b, plane, offset) => offset === 0 ? b.above(plane) : b.above(plane, offset),
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
@@ -270,9 +295,49 @@ export function instantiateEdgeAtoms(
     atoms.push(...convexityAtoms(probes));
     atoms.push(...belongsToFaceAtoms(probes, params));
     atoms.push(...wireRefAtoms(probes, faceSources));
+    atoms.push(...bodyKindAtoms<EdgeFilterBuilder>(probes, bodyKinds));
   }
 
   return atoms;
+}
+
+/**
+ * `closed()` / `open()` — whether the picked curves return to their start
+ * (a full circle, a full ellipse, a closed spline), offered when the picks
+ * agree and the universe holds both: a closed loop among open edges, or the
+ * open edges around one.
+ */
+function closedAtoms(probes: EdgeProbe[], universe: Edge[]): EdgeAtom[] {
+  const closed = sharedBoolean(probes.map(p => p.props.closed));
+  if (closed === null || universe.every(e => CurveClassifier.classify(e).closed === closed)) {
+    return [];
+  }
+  return [{
+    code: closed ? '.closed()' : '.open()',
+    addTo: b => closed ? b.closed() : b.open(),
+    weight: 27, constants: 0, needsScope: false,
+  }];
+}
+
+/**
+ * `ofSolid()` / `ofSurface()` — the kind of body every pick belongs to,
+ * offered when the universe holds both kinds: the one thing that separates
+ * a surface's faces and edges from a solid's beside it. Scope-aware: the
+ * predicate looks the owning body up among the bodies in scope.
+ */
+function bodyKindAtoms<B extends { ofSolid(): unknown; ofSurface(): unknown }>(
+  probes: { bodyKind: BodyKind | null }[],
+  bodyKinds: ReadonlySet<BodyKind>,
+): Atom<B>[] {
+  const kind = sharedString(probes.map(p => p.bodyKind ?? undefined));
+  if (kind === null || !bodyKinds.has('solid') || !bodyKinds.has('surface')) {
+    return [];
+  }
+  return [{
+    code: kind === 'solid' ? '.ofSolid()' : '.ofSurface()',
+    addTo: b => kind === 'solid' ? b.ofSolid() : b.ofSurface(),
+    weight: 24, constants: 0, needsScope: true,
+  }];
 }
 
 /**
@@ -294,12 +359,18 @@ function convexityAtoms(probes: EdgeProbe[]): EdgeAtom[] {
   }];
 }
 
+/**
+ * Instantiate candidate face atoms from the picked faces' geometry, as
+ * {@link instantiateEdgeAtoms} does for edges. `bodyKinds` are the kinds of
+ * body the universe's faces belong to.
+ */
 export function instantiateFaceAtoms(
   probes: FaceProbe[],
   universe: Face[],
   params: ParameterLink[] = [],
   faceSources: FaceSource[] = [],
   fromSources: FromSource[] = [],
+  bodyKinds: ReadonlySet<BodyKind> = new Set(),
 ): FaceAtom[] {
   const atoms: FaceAtom[] = [];
   atoms.push(...fromAtoms<FaceFilterBuilder>(fromSources));
@@ -337,6 +408,17 @@ export function instantiateFaceAtoms(
   }
   if (surfaceClass === 'cone') {
     atoms.push({ code: '.cone()', addTo: b => b.cone(), weight: 30, constants: 0, needsScope: false });
+  }
+  if (surfaceClass === 'sphere') {
+    atoms.push({ code: '.sphere()', addTo: b => b.sphere(), weight: 30, constants: 0, needsScope: false });
+    const radius = sharedNumber(probes.map(p => p.props.radius));
+    if (radius !== null) {
+      const c = linkedConstant(radius * 2, params);
+      atoms.push({ code: `.sphere(${c.text})`, addTo: b => b.sphere(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
+    }
+  }
+  if (surfaceClass === 'freeform' || surfaceClass === 'revolved' || surfaceClass === 'extruded') {
+    atoms.push({ code: `.${surfaceClass}()`, addTo: b => b[surfaceClass](), weight: 30, constants: 0, needsScope: false });
   }
   if (surfaceClass === null || !ELEMENTARY_FACE_TYPES.has(surfaceClass)) {
     // Same rationale as the negated edge classes: picks with no plane,
@@ -379,6 +461,9 @@ export function instantiateFaceAtoms(
     }
   }
 
+  atoms.push(...facingAtoms(probes));
+  atoms.push(...bodyKindAtoms<FaceFilterBuilder>(probes, bodyKinds));
+
   const edgeCount = sharedNumber(probes.map(p => p.edgeCount));
   if (edgeCount !== null) {
     atoms.push({
@@ -414,13 +499,52 @@ export function instantiateFaceAtoms(
 
   atoms.push(...rankAtoms<FaceFilterBuilder>(probes, universe));
 
-  const targetPoints = probes.flatMap(p => p.points);
-  const universePoints = universe.map(f => faceBoundaryPoints(f));
-  atoms.push(...thresholdAtoms<FaceFilterBuilder>(targetPoints, universePoints,
+  atoms.push(...thresholdAtoms<FaceFilterBuilder, Face>(probes.map(p => p.face), universe, faceSideDistances,
     (b, plane, offset) => offset === 0 ? b.above(plane) : b.above(plane, offset),
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
   return atoms;
+}
+
+type PrincipalDirection = 'x' | 'y' | 'z' | '-x' | '-y' | '-z';
+
+const PRINCIPAL_DIRECTIONS: { name: PrincipalDirection; vector: Vector3d }[] = [
+  { name: 'z', vector: new Vector3d(0, 0, 1) },
+  { name: '-z', vector: new Vector3d(0, 0, -1) },
+  { name: 'x', vector: new Vector3d(1, 0, 0) },
+  { name: '-x', vector: new Vector3d(-1, 0, 0) },
+  { name: 'y', vector: new Vector3d(0, 1, 0) },
+  { name: '-y', vector: new Vector3d(0, -1, 0) },
+];
+
+/**
+ * How far a picked face's centre normal may lean from a principal direction
+ * for `facing()` to be offered: 20°, well inside the 45° the predicate
+ * allows by default, so the written filter keeps holding after small edits.
+ */
+const FACING_OFFER_DEGREES = 20;
+
+/**
+ * `facing('z')` … `facing('-y')` — the principal direction every picked
+ * face's centre normal points within {@link FACING_OFFER_DEGREES} of. The
+ * qualitative way to name the top of a free-form shape; it works on every
+ * kind of face.
+ */
+function facingAtoms(probes: FaceProbe[]): FaceAtom[] {
+  if (probes.length === 0 || probes.some(p => p.centreNormal === null)) {
+    return [];
+  }
+  const cosine = Math.cos((FACING_OFFER_DEGREES * Math.PI) / 180);
+  const direction = PRINCIPAL_DIRECTIONS.find(d =>
+    probes.every(p => p.centreNormal!.normalize().dot(d.vector) >= cosine));
+  if (!direction) {
+    return [];
+  }
+  return [{
+    code: `.facing('${direction.name}')`,
+    addTo: b => b.facing(direction.name),
+    weight: 23, constants: 0, needsScope: false,
+  }];
 }
 
 /**
@@ -473,6 +597,15 @@ function belongsToFaceAtoms(probes: EdgeProbe[], params: ParameterLink[]): EdgeA
       addTo: b => b.belongsToFace(new FaceFilterBuilder().torus()),
       weight: 18, constants: 0, needsScope: true,
     });
+  }
+  for (const kind of ['sphere', 'freeform'] as const) {
+    if (probes.every(p => p.adjacentFaces.some(f => f.surfaceType === kind))) {
+      atoms.push({
+        code: `.belongsToFace(face().${kind}())`,
+        addTo: b => b.belongsToFace(new FaceFilterBuilder()[kind]()),
+        weight: 18, constants: 0, needsScope: true,
+      });
+    }
   }
   if (probes.every(p => p.adjacentFaces.some(f => f.surfaceType === 'plane'))) {
     atoms.push({
@@ -755,10 +888,12 @@ function rankAtoms<B extends RankBuilder>(probes: RankProbe[], universe: Shape[]
 /**
  * `above`/`below` threshold atoms per principal plane. The threshold is a
  * "nice" number placed in the gap between the picked shapes' extent and the
- * nearest universe vertex beyond it — the classic decision-stump cut, and the
+ * nearest universe shape beyond it — the classic decision-stump cut, and the
  * separator that distinguishes repeat instances from their twins. All cuts
- * are computed in normal-signed coordinates: `above(P, o)` keeps points whose
- * signed distance along P's normal exceeds `o`.
+ * are computed in normal-signed distances from the principal plane, read by
+ * `sideDistances` — the very distances the predicates judge a shape's side
+ * by (end vertices, or a curved shape's extent): `above(P, o)` keeps shapes
+ * whose distances along P's normal all exceed `o`.
  *
  * A cut that lands exactly at 0 is not a synthetic gap number but the datum
  * plane itself: the picks straddle a principal plane, and the rendered form
@@ -767,19 +902,20 @@ function rankAtoms<B extends RankBuilder>(probes: RankProbe[], universe: Shape[]
  * most importantly — while still deferring to the exact-plane and qualitative
  * forms. Synthetic mid-gap cuts keep the low threshold weight.
  */
-function thresholdAtoms<B>(
-  targetPoints: Point[],
-  universePointSets: Point[][],
+function thresholdAtoms<B, S extends Shape>(
+  targets: S[],
+  universe: S[],
+  sideDistances: (shape: S, plane: Plane) => number[],
   above: (b: B, plane: 'xy' | 'xz' | 'yz', offset: number) => unknown,
   below: (b: B, plane: 'xy' | 'xz' | 'yz', offset: number) => unknown,
 ): Atom<B>[] {
   const atoms: Atom<B>[] = [];
   for (const plane of PRINCIPAL_PLANES) {
-    const sign = planeNormalSign(plane);
-    const targetCoords = targetPoints.map(pt => sign * pt[plane.axis]);
+    const datum = toPlane(plane.name);
+    const targetCoords = targets.flatMap(shape => sideDistances(shape, datum));
     const targetLo = Math.min(...targetCoords);
     const targetHi = Math.max(...targetCoords);
-    const universeCoords = universePointSets.flat().map(pt => sign * pt[plane.axis]);
+    const universeCoords = universe.flatMap(shape => sideDistances(shape, datum));
 
     const beyondLo = universeCoords.filter(v => v < targetLo - sharedTolerance());
     if (beyondLo.length > 0) {
@@ -874,6 +1010,13 @@ function cylinderFilterName(props: FaceProperties): CylinderFilterName | undefin
 
 function sharedString<T extends string>(values: (T | undefined)[]): T | null {
   if (values.length === 0 || values[0] === undefined) {
+    return null;
+  }
+  return values.every(v => v === values[0]) ? values[0] : null;
+}
+
+function sharedBoolean(values: boolean[]): boolean | null {
+  if (values.length === 0) {
     return null;
   }
   return values.every(v => v === values[0]) ? values[0] : null;

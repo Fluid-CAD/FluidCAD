@@ -56,6 +56,20 @@ function isJudgedByVertices(face: Face): boolean {
 }
 
 /**
+ * The signed distances from `plane` a face's side of it is judged by. A
+ * face on an elementary surface bounded by lines and circular edges is
+ * judged by its boundary's end vertices. Any other face can bulge past its
+ * boundary vertices, so it is judged by the two extremes of its extent
+ * along the plane's normal. The selection synthesizer places its `above` /
+ * `below` cuts by the same distances.
+ */
+export function faceSideDistances(shape: Face, plane: Plane): number[] {
+  return isJudgedByVertices(shape)
+    ? getBoundaryPoints(shape).map(p => plane.signedDistanceToPoint(p))
+    : extentDistances(shape, plane);
+}
+
+/**
  * Half-space test shared by the face `above`/`below` filters. The reference
  * follows the edge filters' contract: a plane, a plane feature, or a scene
  * object whose first shape is a face, resolved lazily; the offset is applied
@@ -78,17 +92,11 @@ abstract class HalfSpaceFaceFilter extends FilterBase<Face> {
   protected abstract onSide(distance: number): boolean;
 
   /**
-   * A face on an elementary surface bounded by lines and circular edges is
-   * judged by its boundary's end vertices. Any other face can bulge past its
-   * boundary vertices, so it is judged by the two extremes of its extent
-   * along the plane's normal: entirely on a side when both are, partly when
-   * either is.
+   * Judged by {@link faceSideDistances}: entirely on a side when every
+   * distance is, partly when any is.
    */
   match(shape: Face): boolean {
-    const plane = this.resolvedPlane();
-    const distances = isJudgedByVertices(shape)
-      ? getBoundaryPoints(shape).map(p => plane.signedDistanceToPoint(p))
-      : extentDistances(shape, plane);
+    const distances = faceSideDistances(shape, this.resolvedPlane());
     const flags = distances.map(d => this.onSide(d));
     return this.partial ? flags.some(Boolean) : flags.every(Boolean);
   }

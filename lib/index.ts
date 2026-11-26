@@ -245,6 +245,7 @@ export type {
 } from './selection/feature-slots.js';
 export type { FeatureSourcesResult, FeatureSources, SourceSlot } from './selection/feature-sources.js';
 export { Producers } from './selection/producers.js';
+export type { StatementProduct } from './selection/producers.js';
 export type { EntitySummary } from './oc/measure/entity-summary.js';
 export type {
   ValidateSceneRequest, SceneValidationOutcome, SceneValidationReport, SceneValidationFinding, SceneValidationRefusalCode,

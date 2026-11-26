@@ -81,6 +81,7 @@ import {
   PartSite, PickExposureResolution, resolvePickExposure, resolveStatementPart, StatementLoc,
 } from "./selection/expose-lookup.js";
 import { resolvePartDependency } from "./selection/part-dependencies.js";
+import { Producers, type StatementProduct } from "./selection/producers.js";
 import { ContactPickResolution, resolveContactPick } from "./selection/contact-pick.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
@@ -752,6 +753,20 @@ class SceneManager {
       return null;
     }
     return resolveStatementPart(scene, loc);
+  }
+
+  /**
+   * What the statement at `loc` left in the scene: a curve of its own, a
+   * surface (see {@link Producers}). The code-writing layer asks before it
+   * binds a statement to a variable as a wire or a surface input, so no list
+   * of callees decides it. Null when the scene built nothing there; an
+   * assembly scene holds instances, not statements, and answers null too.
+   */
+  resolveStatementProduct(scene: Scene, loc: StatementLoc): StatementProduct | null {
+    if (scene instanceof AssemblyScene) {
+      return null;
+    }
+    return Producers.ofStatement(scene, loc);
   }
 
   /**

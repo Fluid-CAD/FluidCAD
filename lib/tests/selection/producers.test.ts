@@ -165,6 +165,56 @@ describe("Producers", () => {
     });
   });
 
+  describe("ofStatement", () => {
+    it("answers what the statement at a call site left: a curve, a surface, or neither", () => {
+      const s = sketch("xy", () => {
+        line([0, 0], [10, 0]);
+      });
+      setLocation(s, 2);
+      const coil = helix("z").radius(10).pitch(5).turns(2);
+      setLocation(coil, 3);
+      const curve = loadShapes([EdgeOps.makeLineEdge(new Point(0, 0, 50), new Point(10, 0, 50))]);
+      setLocation(curve, 4);
+      const surface = loadShapes([TestSheets.plate(10, 10)]);
+      setLocation(surface, 5);
+      const box = block();
+      setLocation(box, 9);
+      const scene = render();
+
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 2 })).toEqual({ curve: true, surface: false });
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 3 })).toEqual({ curve: true, surface: false });
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 4 })).toEqual({ curve: true, surface: false });
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 5 })).toEqual({ curve: false, surface: true });
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 9 })).toEqual({ curve: false, surface: false });
+    });
+
+    it("answers null where the scene built nothing, and narrows a line by its column", () => {
+      const coil = helix("z").radius(10).pitch(5).turns(2);
+      setLocation(coil, 3);
+      const scene = render();
+
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 40 })).toBeNull();
+      expect(Producers.ofStatement(scene, { filePath: "/ws/other.fluid.js", line: 3 })).toBeNull();
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 3, column: 0 })).toEqual({ curve: true, surface: false });
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 3, column: 7 })).toBeNull();
+    });
+
+    it("still answers a curve for a statement whose curve a sweep took", () => {
+      const spine = loadShapes([EdgeOps.makeLineEdge(new Point(0, 0, 0), new Point(0, 0, 30))]);
+      setLocation(spine, 2);
+      const profile = sketch("xy", () => {
+        circle([0, 0], 2);
+      });
+      setLocation(profile, 4);
+      const swept = asObject(sweep(spine, profile));
+      const scene = render();
+
+      expect(swept.getError()).toBeNull();
+      expect(Producers.isCurveProducer(asObject(spine))).toBe(false);
+      expect(Producers.ofStatement(scene, { filePath: FILE, line: 2 })).toEqual({ curve: true, surface: false });
+    });
+  });
+
   describe("a custom feature's wire value, in its preview", () => {
     it("takes a sketch, a helix and a curve tool's result by their statement", () => {
       const s = sketch("xy", () => {

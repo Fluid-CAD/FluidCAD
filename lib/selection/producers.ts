@@ -1,5 +1,18 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { GhostScene } from "../rendering/ghost-scene.js";
+import type { Scene } from "../rendering/scene.js";
+
+/**
+ * What the statement at a call site left in the scene, by the two questions
+ * of {@link Producers}.
+ */
+export type StatementProduct = {
+  /** It stands as a curve of its own: a wire slot can name it whole. */
+  curve: boolean;
+  /** It holds a surface: a surface slot can name it whole. */
+  surface: boolean;
+};
 
 /**
  * The two questions that decide what a pick of a curve or of a surface
@@ -51,6 +64,29 @@ export class Producers {
       return false;
     }
     return obj.getShapes(undefined, undefined, scope).some(shape => shape.isSheet());
+  }
+
+  /**
+   * What the statement at `loc` left: the two questions asked of the object
+   * built at that call site, for a caller that holds a source location and
+   * no scene object (the code-writing layer, before it binds the statement
+   * to a variable). The column narrows the site when the caller has one.
+   *
+   * The questions are asked with no removal applied: the answer is what the
+   * statement made, whatever took or hid it since. Null when the scene built
+   * nothing at that site.
+   */
+  static ofStatement(scene: Scene, loc: { filePath: string; line: number; column?: number }): StatementProduct | null {
+    const built = GhostScene.objectsAt(scene, loc).filter(obj =>
+      !obj.getCloneSource() && (loc.column === undefined || obj.getSourceLocation()?.column === loc.column));
+    if (built.length === 0) {
+      return null;
+    }
+    const unconsumed = new Set<SceneObject>();
+    return {
+      curve: built.some(obj => Producers.isCurveProducer(obj, unconsumed)),
+      surface: built.some(obj => Producers.holdsSurface(obj, unconsumed)),
+    };
   }
 
   /** A selection and a lazy accessor name what other objects hold. */

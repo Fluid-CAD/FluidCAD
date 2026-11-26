@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
 import { sketch, line, spline, extrude, select } from "../../core/index.js";
 import { edge, face } from "../../filters/index.js";
@@ -17,6 +17,7 @@ import { SurfaceClassifier } from "../../oc/surface-classifier.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { Plane } from "../../math/plane.js";
+import { edgeSideDistances } from "../../filters/edge/above-below.js";
 
 function bezier(poles: number[][]): Edge {
   const curve = Geometry.makeBezierCurve(poles.map(([x, y, z]) => new Point(x, y, z)));
@@ -217,6 +218,20 @@ describe("sampled predicates on curved edges", () => {
       expect(matches(crossingLine, edge().above("xy"))).toBe(false);
       expect(matches(crossingLine, edge().above("xy", { partial: true }))).toBe(true);
       expect(matches(crossingLine, edge().below("xy", { partial: true }))).toBe(true);
+    });
+
+    it("reads a line's end points once per edge", () => {
+      const rising = segment([0, 0, 1], [10, 0, 3]);
+      const ends = vi.spyOn(EdgeOps, "endPointsRaw");
+      try {
+        expect(edgeSideDistances(rising, XY)).toEqual([1, 3]);
+        expect(edgeSideDistances(rising, XY.offset(2))).toEqual([-1, 1]);
+        expect(matches(rising, edge().above("xy", 0.5))).toBe(true);
+        expect(ends).toHaveBeenCalledTimes(1);
+      } finally {
+        ends.mockRestore();
+      }
+      expect(EdgeOps.endPoints(rising).map(p => [p.x, p.y, p.z])).toEqual([[0, 0, 1], [10, 0, 3]]);
     });
 
     it("leaves out a solid's sagging spline edges", () => {

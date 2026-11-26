@@ -13,8 +13,22 @@ import { CurveClass, CurveClassifier } from "./curve-classifier.js";
 import { mmTol } from "../units/tolerance.js";
 import { BooleanBuilders } from "./boolean-builders.js";
 
+// A wrapper's OC shape never changes while it lives, so its two end points
+// are read once.
+const endPoints = new WeakMap<Edge, readonly [Point, Point]>();
+
 export class EdgeOps {
   // Wrapper methods (public API for external callers)
+
+  /** The points of the edge's first and last vertices (see {@link endPointsRaw}), kept per wrapper. */
+  static endPoints(edge: Edge): readonly [Point, Point] {
+    let points = endPoints.get(edge);
+    if (!points) {
+      points = EdgeOps.endPointsRaw(edge.getShape() as TopoDS_Edge);
+      endPoints.set(edge, points);
+    }
+    return points;
+  }
   static getFirstVertex(edge: Edge): Vertex {
     return Vertex.fromTopoDSVertex(EdgeOps.getFirstVertexRaw(edge.getShape() as TopoDS_Edge));
   }
@@ -87,6 +101,18 @@ export class EdgeOps {
   static getLastVertexRaw(edge: TopoDS_Edge): TopoDS_Vertex {
     const oc = getOC();
     return oc.TopExp.LastVertex(edge, true);
+  }
+
+  /** The points of the edge's first and last vertices, in the edge's own direction. */
+  static endPointsRaw(edge: TopoDS_Edge): [Point, Point] {
+    const first = EdgeOps.getFirstVertexRaw(edge);
+    const last = EdgeOps.getLastVertexRaw(edge);
+    try {
+      return [EdgeOps.getVertexPointRaw(first), EdgeOps.getVertexPointRaw(last)];
+    } finally {
+      last.delete();
+      first.delete();
+    }
   }
 
   /**

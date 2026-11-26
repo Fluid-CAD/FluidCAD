@@ -1,4 +1,3 @@
-import type { TopoDS_Edge } from "ocjs-fluidcad";
 import { Matrix4 } from "../../math/matrix4.js";
 import { Plane } from "../../math/plane.js";
 import { Point } from "../../math/point.js";
@@ -11,28 +10,6 @@ import { SurfaceClassifier } from "../../oc/surface-classifier.js";
 import { extentDistances } from "../extent.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneRefSource, comparePlaneRefs, planeRefSceneObject, resolvePlaneRef } from "../plane-ref.js";
-
-// Geometry is immutable per wrapper and the synthesizer runs half-space
-// predicates over the same candidates many times per pick, so the boundary
-// points are read once per face (raw vertex access — no throwaway Vertex
-// wrappers) and memoized for the wrapper's lifetime.
-const boundaryPoints = new WeakMap<Face, Point[]>();
-
-function getBoundaryPoints(face: Face): Point[] {
-  const cached = boundaryPoints.get(face);
-  if (cached) {
-    return cached;
-  }
-  const points = face.getEdges().flatMap(edge => {
-    const raw = edge.getShape() as TopoDS_Edge;
-    return [
-      EdgeOps.getVertexPointRaw(EdgeOps.getFirstVertexRaw(raw)),
-      EdgeOps.getVertexPointRaw(EdgeOps.getLastVertexRaw(raw)),
-    ];
-  });
-  boundaryPoints.set(face, points);
-  return points;
-}
 
 const judgedByVertices = new WeakMap<Face, boolean>();
 
@@ -55,6 +32,20 @@ function isJudgedByVertices(face: Face): boolean {
   return judged;
 }
 
+// The synthesizer runs half-space predicates over the same candidates many
+// times per pick, so a face's boundary points are gathered once per wrapper.
+const boundaryPoints = new WeakMap<Face, Point[]>();
+
+/** The distances of the end points of the face's boundary edges. */
+function boundaryDistances(face: Face, plane: Plane): number[] {
+  let points = boundaryPoints.get(face);
+  if (!points) {
+    points = face.getEdges().flatMap(edge => EdgeOps.endPoints(edge));
+    boundaryPoints.set(face, points);
+  }
+  return points.map(p => plane.signedDistanceToPoint(p));
+}
+
 /**
  * The signed distances from `plane` a face's side of it is judged by. A
  * face on an elementary surface bounded by lines and circular edges is
@@ -64,9 +55,7 @@ function isJudgedByVertices(face: Face): boolean {
  * `below` cuts by the same distances.
  */
 export function faceSideDistances(shape: Face, plane: Plane): number[] {
-  return isJudgedByVertices(shape)
-    ? getBoundaryPoints(shape).map(p => plane.signedDistanceToPoint(p))
-    : extentDistances(shape, plane);
+  return isJudgedByVertices(shape) ? boundaryDistances(shape, plane) : extentDistances(shape, plane);
 }
 
 /**

@@ -1,4 +1,3 @@
-import type { TopoDS_Edge } from "ocjs-fluidcad";
 import { Matrix4 } from "../../math/matrix4.js";
 import { Plane } from "../../math/plane.js";
 import { Edge } from "../../common/shapes.js";
@@ -21,10 +20,8 @@ export function edgeSideDistances(shape: Edge, plane: Plane): [number, number] {
   if (!EdgeQuery.isLineOrCircular(shape)) {
     return extentDistances(shape, plane);
   }
-  const raw = shape.getShape() as TopoDS_Edge;
-  const firstPoint = EdgeOps.getVertexPointRaw(EdgeOps.getFirstVertexRaw(raw));
-  const lastPoint = EdgeOps.getVertexPointRaw(EdgeOps.getLastVertexRaw(raw));
-  return [plane.signedDistanceToPoint(firstPoint), plane.signedDistanceToPoint(lastPoint)];
+  const [first, last] = EdgeOps.endPoints(shape);
+  return [plane.signedDistanceToPoint(first), plane.signedDistanceToPoint(last)];
 }
 
 /**

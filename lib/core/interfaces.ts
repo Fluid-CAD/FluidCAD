@@ -263,6 +263,50 @@ export interface ISelection extends ISceneObject {
 export interface ISelect extends ISelection {}
 
 /**
+ * What every tool that leaves a curve answers: its edges, and where it
+ * starts and ends.
+ */
+export interface ICurveResult extends ISceneObject {
+  /**
+   * The edges of the curve, in the order the curve runs. With no argument,
+   * all of them.
+   * @param args - Edge indices, or edge filters to narrow the edges by.
+   */
+  edges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+
+  /**
+   * The point the curve starts at. When the result is several separate
+   * curves, the first one's.
+   */
+  start(): LazyVertex;
+
+  /**
+   * The point the curve ends at. When the result is several separate
+   * curves, the first one's.
+   */
+  end(): LazyVertex;
+}
+
+/**
+ * What every tool that leaves a surface answers: its faces, and the edges
+ * of its open rim.
+ */
+export interface ISurfaceResult extends ISceneObject {
+  /**
+   * The faces of the surface. With no argument, all of them.
+   * @param args - Face indices, or face filters to narrow the faces by.
+   */
+  faces(...args: (number | FaceFilterBuilder)[]): ISelection;
+
+  /**
+   * The edges of the surface's open rim: those that bound one face only.
+   * With no argument, all of them.
+   * @param args - Edge indices, or edge filters to narrow the edges by.
+   */
+  boundaryEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
+}
+
+/**
  * A mate connector attached to a part — a coordinate frame the assembly
  * pipeline can reference. Returned by the `connector(...)` DSL.
  *

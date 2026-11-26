@@ -2,6 +2,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { AnchorableSelection } from "./anchored-vertex.js";
+import { withUnit } from "../units/registry.js";
 
 export type LazySelectionArg = number | FilterBuilderBase<Shape>;
 
@@ -34,6 +35,31 @@ export class LazySelectionSceneObject extends AnchorableSelection {
 
   override isLazy(): boolean {
     return true;
+  }
+
+  /**
+   * Resolve the lazy selections `object` reaches through lazy references —
+   * itself, an anchor's selection, an accessor's accessor — for a consumer
+   * about to read them. A reference handed over in a chained call
+   * (`.connect(e.endEdges().start())`, `.along(e.sideEdges(0))`) is created
+   * after its consumer's statement and has no earlier build slot in the
+   * scene. Only lazy selections are resolved, never the features that
+   * produce them; the build latch makes the render loop's own slot, where
+   * there is one, a no-op.
+   */
+  static resolveReachable(object: SceneObject, seen = new Set<SceneObject>()): void {
+    if (seen.has(object)) {
+      return;
+    }
+    seen.add(object);
+    for (const dependency of object.getDependencies()) {
+      if (dependency.isLazy()) {
+        LazySelectionSceneObject.resolveReachable(dependency, seen);
+      }
+    }
+    if (object instanceof LazySelectionSceneObject) {
+      withUnit(object.getUnit(), () => object.build());
+    }
   }
 
   override getDependencies(): SceneObject[] {

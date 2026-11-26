@@ -1,9 +1,7 @@
 import { Point, PointLike } from "../math/point.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { SketchPointVertex } from "./sketch-point-ref.js";
-import { SceneObject } from "../common/scene-object.js";
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
-import { withUnit } from "../units/registry.js";
 
 /** Resolves points for consumers outside sketches, where coordinates are world-space. */
 export class PointResolver {
@@ -36,7 +34,7 @@ export class PointResolver {
         resolved = resolved.subtract(plane.origin);
       }
     } else if (point instanceof LazyVertex) {
-      PointResolver.prepareSelections(point);
+      LazySelectionSceneObject.resolveReachable(point);
       resolved = point.asPoint();
     } else if (Array.isArray(point)) {
       resolved = new Point(point[0], point[1], point[2]);
@@ -49,23 +47,5 @@ export class PointResolver {
       throw new Error("Point coordinates must be finite numbers.");
     }
     return resolved;
-  }
-
-  private static prepareSelections(object: SceneObject, seen = new Set<SceneObject>()): void {
-    if (seen.has(object)) {
-      return;
-    }
-    seen.add(object);
-    // Chained .connect() references are created after the loft statement;
-    // inline accessor selections have no earlier scene build slot. Resolve
-    // only those lazy selections, never rebuild their producing features.
-    for (const dependency of object.getDependencies()) {
-      if (dependency.isLazy()) {
-        PointResolver.prepareSelections(dependency, seen);
-      }
-    }
-    if (object instanceof LazySelectionSceneObject) {
-      withUnit(object.getUnit(), () => object.build());
-    }
   }
 }

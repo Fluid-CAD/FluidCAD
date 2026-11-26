@@ -9,13 +9,23 @@ import { curveCallees, readsAsCurve } from '../parse/parsed-statement.ts';
  * Chain-root callees this transform will bind a variable to. Guards against a
  * stale or clone-inherited source line pointing at some unrelated call (e.g.
  * `repeat(...)`): binding `const e = repeat(...)` and emitting `e.endEdges()`
- * would produce broken code, so we refuse instead. A helix binds for its
- * `edges()` bucket (`h.edges(0)`), the first route to a pick on its edge;
- * a fillet or a chamfer refuses such a pick before it gets here.
+ * would produce broken code, so we refuse instead.
  */
 const PRODUCER_CALLEES = new Set([
-  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'hole', 'helix',
+  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'hole',
 ]);
+
+/**
+ * Chain-root callees per curve feature type. A curve binds for its
+ * `edges()` bucket (`h.edges(0)`), the first route to a pick on its edge,
+ * and has none of the accessors the {@link PRODUCER_CALLEES} share
+ * (`endEdges()`, `sideFaces()`), as they have no `edges()`: a helix
+ * produces only for a helix, so a stale line that lands on the other kind of
+ * call is refused, not bound to an accessor the call does not have.
+ */
+const CURVE_PRODUCER_CALLEES: Record<string, string[]> = {
+  helix: ['helix'],
+};
 
 /**
  * Chain-root callees a repeat target may reference — any builder returning a
@@ -76,7 +86,6 @@ export const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
   'copy-circular': ['copy'],
 };
 
-/** The chain-root callees producers of `featureType` may bind. */
 /**
  * Chain-root callees per repeat feature type: a clone's picks bind the
  * `repeat()` statement itself (`r.instance(k).endEdges()`). `mirror` is the
@@ -89,6 +98,7 @@ const REPEAT_PRODUCER_CALLEES: Record<string, string[]> = {
   'mirror': ['repeat', 'mirror'],
 };
 
+/** The chain-root callees producers of `featureType` may bind. */
 export function producerCallees(featureType: string): Set<string> {
   if (featureType === 'connector') {
     return CONNECTOR_CALLEES;
@@ -100,6 +110,10 @@ export function producerCallees(featureType: string): Set<string> {
   const repeatCallees = REPEAT_PRODUCER_CALLEES[featureType];
   if (repeatCallees) {
     return new Set(repeatCallees);
+  }
+  const ownCurveCallees = CURVE_PRODUCER_CALLEES[featureType];
+  if (ownCurveCallees) {
+    return new Set(ownCurveCallees);
   }
   return featureType === 'feature' ? REPEAT_TARGET_CALLEES : PRODUCER_CALLEES;
 }

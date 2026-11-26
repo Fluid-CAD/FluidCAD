@@ -105,8 +105,51 @@ describe('a wire input by what the scene says its statement left', () => {
   });
 
   it('binds a helix for its edges() bucket, and nothing else as a helix', () => {
+    const others = [
+      'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'hole',
+      'fillet', 'chamfer', 'draft', 'repeat', 'mirror', 'copy', 'load', 'select', 'sketch', 'plane', 'axis', 'connector',
+    ];
     expect(FeatureCallees.BUILT_IN.produces('helix', 'helix')).toBe(true);
-    expect(FeatureCallees.BUILT_IN.produces('helix', 'repeat')).toBe(false);
+    expect(others.filter(callee => FeatureCallees.BUILT_IN.produces('helix', callee))).toEqual([]);
+  });
+
+  it('binds no helix as another producer: it has none of their accessors', () => {
+    const solidProducers = ['extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'hole'];
+    expect(solidProducers.filter(type => FeatureCallees.BUILT_IN.produces(type, 'helix'))).toEqual([]);
+    // The solid producers still stand in for one another, and a helix is still a repeat, move and copy target.
+    expect(FeatureCallees.BUILT_IN.produces('extrude', 'cut')).toBe(true);
+    expect(FeatureCallees.BUILT_IN.produces('feature', 'helix')).toBe(true);
+  });
+
+  it('refuses a stale extrude producer whose line now holds a helix, where it bound h.endEdges()', async () => {
+    const code = src(
+      `import { helix, sketch, circle, extrude, fillet } from 'fluidcad/core'`,
+      ``,
+      `helix('z').radius(10)`,
+      `sketch('xy', () => { circle(20) })`,
+      `extrude(10)`,
+    );
+    const filletOf = (line: number, featureType: string, accessor: string): ApplyFeatureEditSpec => ({
+      feature: 'fillet',
+      value: 1,
+      filePath: FILE,
+      producers: [{ line, column: 0, featureType, nameHint: featureType === 'helix' ? 'h' : 'e', bind: true }],
+      parts: [{ producer: 0, accessor, indices: null, filterArgs: null, refs: null }],
+      imports: [],
+    });
+
+    const stale = await applyFeatureEdit(code, filletOf(3, 'extrude', 'endEdges'));
+    expect(stale.error).toContain('helix()');
+    expect(stale.newCode).toBe(code);
+
+    const staleHelix = await applyFeatureEdit(code, filletOf(5, 'helix', 'edges'));
+    expect(staleHelix.error).toContain('extrude()');
+    expect(staleHelix.newCode).toBe(code);
+
+    const bound = await applyFeatureEdit(code, filletOf(5, 'extrude', 'endEdges'));
+    expect(bound.error).toBeUndefined();
+    expect(bound.newCode).toContain('const e = extrude(10)');
+    expect(bound.newCode).toContain('fillet(1, e.endEdges())');
   });
 });
 

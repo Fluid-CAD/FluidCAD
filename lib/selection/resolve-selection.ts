@@ -4,7 +4,6 @@ import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
-import { Solid } from "../common/solid.js";
 import { Part } from "../features/part.js";
 import { SelectSceneObject } from "../features/select.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
@@ -703,11 +702,12 @@ export class SelectionResolver {
 
   /**
    * The list a face/edge index counts along: explorer order with hidden
-   * edges still in their slots (Solid.getIndexedShapes), so an index from
-   * hit_test, measure or a highlight always names the same entity.
+   * edges still in their slots (`Shape.getIndexedShapes`), so an index from
+   * hit_test, measure, the renderer or a highlight names the same entity on
+   * a solid, a surface or a curve.
    */
-  private static indexedShapes(solid: Shape, kind: MeasureEntityKind): Shape[] {
-    return solid instanceof Solid ? solid.getIndexedShapes(kind) : solid.getSubShapes(kind);
+  static indexedShapes(shape: Shape, kind: MeasureEntityKind): Shape[] {
+    return shape.getIndexedShapes(kind);
   }
 
   private static kindOf(shape: Shape): MeasureEntityKind {

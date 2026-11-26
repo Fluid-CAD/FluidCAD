@@ -1,0 +1,217 @@
+import type {
+  TopoDS_Edge,
+  TopoDS_Face,
+  TopoDS_Shape,
+  TopTools_IndexedDataMapOfShapeListOfShape,
+  TopTools_MapOfShape,
+} from "ocjs-fluidcad";
+import { HiddenEdges } from "../oc/hidden-edges.js";
+import { TopologyIndex } from "../oc/topology-index.js";
+import { ShapeType } from "./shape-type.js";
+import { Shape, walkIndexedShapes } from "./shape.js";
+import type { Face } from "./face.js";
+import type { Edge } from "./edge.js";
+
+/**
+ * A body: a shape made of faces that stands on its own in the scene — a
+ * `Solid`, or a `Sheet` (a surface). Holds what both answer the same way:
+ * the face and edge lists, the explorer-order index space, the hidden edges
+ * and the edge→faces index, each built once and freed with the wrapper.
+ */
+export abstract class BodyShape<T extends TopoDS_Shape = TopoDS_Shape> extends Shape<T> {
+  private faces: Face[] = null;
+  private edges: Edge[] = null;
+  /** Every edge in explorer order, hidden ones included — the index space of picks, measure and highlight. */
+  private allEdges: Edge[] = null;
+  private edgeToFacesIndex: TopTools_IndexedDataMapOfShapeListOfShape | null = null;
+  private hiddenEdgeSet: TopTools_MapOfShape | null = null;
+  /** {@link getFacesOfEdge}'s table: edge→faces index slot → this body's face wrappers. */
+  private facesByEdgeSlot: Map<number, Face[]> | null = null;
+  /** {@link getFacesOfEdge}'s answers, per edge wrapper. */
+  private facesOfEdge = new WeakMap<Edge, Face[]>();
+
+  override isBody() {
+    return true;
+  }
+
+  getSubShapes(type: 'face'): Face[];
+  getSubShapes(type: 'edge'): Edge[];
+  getSubShapes(type: ShapeType): Shape[];
+  getSubShapes(type: ShapeType): Shape[] {
+    if (type === "face") {
+      return this.getFaces();
+    }
+    else if (type === "edge") {
+      return this.getEdges();
+    }
+
+    return [];
+  }
+
+  /**
+   * The body's model edges: every edge except the hidden ones (seams and
+   * degenerated edges, see `HiddenEdges`). This list does not preserve the
+   * explorer numbering — index-based lookups go through
+   * {@link getIndexedShapes}.
+   */
+  getEdges() {
+    if (this.edges) {
+      return this.edges;
+    }
+
+    const hidden = this.getHiddenEdgeSet();
+    this.edges = (this.getIndexedShapes('edge') as Edge[]).filter(e => !hidden.Contains(e.getShape()));
+    return this.edges;
+  }
+
+  /**
+   * The face or edge list whose POSITION is the index picks, `measure`,
+   * `hit_test` and highlights carry: explorer order, hidden edges included,
+   * so a seam still occupies its slot and no index shifts when it is left
+   * out of {@link getEdges}.
+   */
+  override getIndexedShapes(kind: 'face' | 'edge'): Shape[] {
+    if (kind === 'face') {
+      return this.getFaces();
+    }
+    if (!this.allEdges) {
+      this.allEdges = walkIndexedShapes(this, 'edge') as Edge[];
+    }
+    return this.allEdges;
+  }
+
+  /** Whether `edge` is a seam or degenerated edge of this body — never drawn, never selectable. */
+  isHiddenEdge(edge: TopoDS_Shape): boolean {
+    return this.getHiddenEdgeSet().Contains(edge);
+  }
+
+  private getHiddenEdgeSet(): TopTools_MapOfShape {
+    if (!this.hiddenEdgeSet) {
+      this.hiddenEdgeSet = HiddenEdges.collect(this.getShape());
+    }
+    return this.hiddenEdgeSet;
+  }
+
+  getFaces() {
+    if (this.faces) {
+      return this.faces;
+    }
+
+    this.faces = walkIndexedShapes(this, 'face') as Face[];
+    return this.faces;
+  }
+
+  getFace(face: TopoDS_Face): Face | null {
+    const faces = this.getFaces();
+    return faces.find(f => f.getShape().IsPartner(face)) || null;
+  }
+
+  hasFace(face: TopoDS_Face): boolean {
+    const faces = this.getFaces();
+    for (const f of faces) {
+      const tpFace = f.getShape();
+      if (tpFace.IsSame(face)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  hasEdge(edge: TopoDS_Edge): TopoDS_Edge {
+    const edges = this.getEdges();
+    for (const e of edges) {
+      const tpEdge = e.getShape();
+      if (tpEdge.IsSame(edge)) {
+        return tpEdge;
+      }
+    }
+
+    return null;
+  }
+
+  getEdgeToFacesIndex(): TopTools_IndexedDataMapOfShapeListOfShape {
+    if (!this.edgeToFacesIndex) {
+      this.edgeToFacesIndex = TopologyIndex.buildEdgeToFaces(this.getShape());
+    }
+    return this.edgeToFacesIndex;
+  }
+
+  /**
+   * This body's faces that `edge` bounds, as the body's own face wrappers
+   * in explorer order (the order its edge→faces index records them) — empty
+   * when the body does not own the edge. The edge-scope filters
+   * (`belongsToFace`, `convex()`…) ask this of every edge in scope against
+   * every scope body, once per candidate atom during selector synthesis,
+   * so the table is built once per body and each edge's answer is kept.
+   */
+  getFacesOfEdge(edge: Edge): Face[] {
+    const known = this.facesOfEdge.get(edge);
+    if (known) {
+      return known;
+    }
+    const faces = this.facesAtEdge(edge.getShape());
+    this.facesOfEdge.set(edge, faces);
+    return faces;
+  }
+
+  /**
+   * {@link getFacesOfEdge} for a raw edge, read from the same table and not
+   * remembered per edge: for questions about an edge no wrapper stands for.
+   */
+  protected facesAtEdge(edge: TopoDS_Shape): Face[] {
+    const index = this.getEdgeToFacesIndex();
+    if (!this.facesByEdgeSlot) {
+      this.facesByEdgeSlot = TopologyIndex.groupFacesByEdgeSlot(index, this.getFaces());
+    }
+    return this.facesByEdgeSlot.get(index.FindIndex(edge)) ?? [];
+  }
+
+  override dispose() {
+    if (this.isReleased()) {
+      return;
+    }
+    this.edgeToFacesIndex?.delete();
+    this.edgeToFacesIndex = null;
+    this.facesByEdgeSlot = null;
+    this.facesOfEdge = new WeakMap();
+    this.hiddenEdgeSet?.delete();
+    this.hiddenEdgeSet = null;
+    super.dispose();
+  }
+
+  protected override disposeSubShapes(): void {
+    for (const face of this.faces ?? []) face.dispose();
+    // `edges` is a subset of `allEdges`.
+    for (const edge of this.allEdges ?? []) edge.dispose();
+    this.faces = null;
+    this.edges = null;
+    this.allEdges = null;
+  }
+
+  override getLinkedShapes(): Shape[] {
+    const linked = super.getLinkedShapes();
+    if (this.faces) {
+      linked.push(...this.faces);
+    }
+    if (this.allEdges) {
+      linked.push(...this.allEdges);
+    }
+    return linked;
+  }
+
+  override release(retainedRaw: ReadonlySet<object>, deletedRaw: Set<object>): void {
+    if (this.isReleased()) {
+      return;
+    }
+    this.edgeToFacesIndex?.delete();
+    this.edgeToFacesIndex = null;
+    this.facesByEdgeSlot = null;
+    this.facesOfEdge = new WeakMap();
+    this.hiddenEdgeSet?.delete();
+    this.hiddenEdgeSet = null;
+    this.faces = null;
+    this.edges = null;
+    this.allEdges = null;
+    super.release(retainedRaw, deletedRaw);
+  }
+}

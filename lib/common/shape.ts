@@ -17,6 +17,31 @@ export interface ShapeFilter {
   includeDisplayHidden?: boolean;
 }
 
+/**
+ * The explorer walk behind {@link Shape.getIndexedShapes} and the body
+ * classes' face and edge lists. Neither this module nor `body-shape.ts` can
+ * import the explorer: the explorer imports the concrete wrappers, which
+ * extend `Shape` and `BodyShape`, so a static import from either would run
+ * `class Face extends Shape` (or `class Solid extends BodyShape`) before its
+ * base exists whenever that module is the first to load. The explorer
+ * installs the walk as it loads, which is before any wrapper can be built:
+ * the factory and the face, wire, solid and sheet modules all import it.
+ */
+type IndexedWalk = (shape: Shape, kind: 'face' | 'edge') => Shape[];
+let indexedWalk: IndexedWalk | null = null;
+
+export function installIndexedWalk(walk: IndexedWalk): void {
+  indexedWalk = walk;
+}
+
+/** A shape's faces or edges in explorer order, as new wrappers the caller owns. */
+export function walkIndexedShapes(shape: Shape, kind: 'face' | 'edge'): Shape[] {
+  if (!indexedWalk) {
+    throw new Error("Shape.getIndexedShapes: the explorer module is not loaded.");
+  }
+  return indexedWalk(shape, kind);
+}
+
 export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   isMetaShapeFlag = false;
   isGuideFlag = false;
@@ -45,6 +70,9 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   private _helixEdges: { edge: TopoDS_Shape; geometry: ResolvedHelixGeometry }[] = [];
   /** Independently owned span boundaries suppressed only in solid line rendering. */
   private _renderSeams: TopoDS_Shape[] = [];
+  /** {@link getIndexedShapes}'s lists, wrapped on first ask and owned by this wrapper. */
+  private indexedFaces: Shape[] | null = null;
+  private indexedEdges: Shape[] | null = null;
 
   getRenderSeams(): readonly TopoDS_Shape[] {
     return this._renderSeams;
@@ -88,6 +116,25 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   abstract getSubShapes(type: 'face'): Face[];
   abstract getSubShapes(type: 'edge'): Edge[];
   abstract getSubShapes(type: ShapeType): Shape[];
+
+  /**
+   * The face or edge list whose POSITION is the index picks, `measure`,
+   * `hit_test` and highlights carry: explorer order, hidden edges included,
+   * the order the hit-tester and the face-patch renderer count in. This can
+   * differ from {@link getSubShapes}, which for a face is wire order with
+   * seams left out. A shape asked for its own kind answers itself.
+   */
+  getIndexedShapes(kind: 'face' | 'edge'): Shape[] {
+    if (this.getType() === kind) {
+      return [this];
+    }
+    if (kind === 'face') {
+      this.indexedFaces ??= walkIndexedShapes(this, 'face');
+      return this.indexedFaces;
+    }
+    this.indexedEdges ??= walkIndexedShapes(this, 'edge');
+    return this.indexedEdges;
+  }
 
   isSame(other: Shape): boolean {
     if (!(other instanceof Shape)) {
@@ -133,6 +180,16 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     return false;
   }
 
+  /** A surface body (`Sheet`). */
+  isSheet() {
+    return false;
+  }
+
+  /** A solid or a surface (`BodyShape`). */
+  isBody() {
+    return false;
+  }
+
   /**
    * Free the underlying OC handle of a wrapper the caller solely owns
    * (build-time temporaries). Scene-owned wrappers are reclaimed through
@@ -144,6 +201,10 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     }
     this._released = true;
     this.disposeSubShapes();
+    for (const shape of this.indexedFaces ?? []) shape.dispose();
+    for (const shape of this.indexedEdges ?? []) shape.dispose();
+    this.indexedFaces = null;
+    this.indexedEdges = null;
     for (const entry of this._helixEdges) entry.edge.delete();
     this._helixEdges = [];
     for (const edge of this._renderSeams) edge.delete();
@@ -180,6 +241,8 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
     }
     this._released = true;
     this.deleteOwnedHandles(retainedRaw, deletedRaw);
+    this.indexedFaces = null;
+    this.indexedEdges = null;
     this._helixEdges = [];
     this._renderSeams = [];
     this.shape = null;
@@ -205,7 +268,14 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
    * are not stored in scene-object state directly.
    */
   getLinkedShapes(): Shape[] {
-    return this._meshSource ? [this._meshSource.shape] : [];
+    const linked = this._meshSource ? [this._meshSource.shape] : [];
+    if (this.indexedFaces) {
+      linked.push(...this.indexedFaces);
+    }
+    if (this.indexedEdges) {
+      linked.push(...this.indexedEdges);
+    }
+    return linked;
   }
 
   protected deleteOwnedHandles(retainedRaw: ReadonlySet<object>, deletedRaw: Set<object>): void {

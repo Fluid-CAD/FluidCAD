@@ -1,6 +1,5 @@
 import type { TopAbs_ShapeEnum, TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopTools_MapOfShape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
-import { Explorer } from "./explorer.js";
 
 /**
  * Which edges of a B-rep are MODEL edges — creases a user can see, pick and
@@ -20,6 +19,11 @@ import { Explorer } from "./explorer.js";
  * so `select(edge())`, the feature accessors (`sideEdges()` …) and
  * `edgeCount()` never see them, and the solid-edge renderer skips them while
  * keeping the raw explorer numbering every index-based lookup uses.
+ *
+ * This module does not import `Explorer`: `BodyShape` reads its hidden edges
+ * here, and the explorer imports the body classes, so that import would
+ * close a cycle that runs `class Solid extends BodyShape` before `BodyShape`
+ * exists whenever a body module is the first to load.
  */
 export class HiddenEdges {
   /**
@@ -36,7 +40,7 @@ export class HiddenEdges {
     try {
       while (explorer.More()) {
         const current = explorer.Current();
-        const edge = Explorer.toEdge(current);
+        const edge = oc.TopoDS.Edge(current);
         // Add() answers false for an edge the face already listed: the seam.
         const firstVisit = seen.Add(current);
         if ((!firstVisit || oc.BRep_Tool.Degenerated(edge)) && hidden.Add(current)) {
@@ -64,10 +68,12 @@ export class HiddenEdges {
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const set = new oc.TopTools_MapOfShape();
     // The map holds its own TShape references; every copy made on the way
-    // is freed once it is in.
-    Explorer.withShapes(shape, FACE, raws => {
-      for (const raw of raws) {
-        const face = Explorer.toFace(raw);
+    // is freed once it is in. A face the walk meets twice adds nothing new.
+    const explorer = new oc.TopExp_Explorer(shape, FACE, oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum);
+    try {
+      while (explorer.More()) {
+        const current = explorer.Current();
+        const face = oc.TopoDS.Face(current);
         try {
           for (const edge of HiddenEdges.ofFace(face)) {
             set.Add(edge);
@@ -75,9 +81,13 @@ export class HiddenEdges {
           }
         } finally {
           face.delete();
+          current.delete();
         }
+        explorer.Next();
       }
-    });
+    } finally {
+      explorer.delete();
+    }
     return set;
   }
 

@@ -9,7 +9,7 @@ import type {
   TopoDS_Vertex,
 } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
-import { Shape } from "../common/shape.js";
+import { Shape, installIndexedWalk } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
@@ -270,3 +270,5 @@ export class Explorer {
     return Explorer.getShapeType(shape.getShape());
   }
 }
+
+installIndexedWalk((shape, kind) => kind === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape));

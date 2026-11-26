@@ -4,6 +4,7 @@ import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
+import type { Sheet } from "../common/sheet.js";
 import { Wire } from "../common/wire.js";
 import { Solid } from "../common/solid.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
@@ -754,8 +755,12 @@ export type Mirror2DGhostRequest = {
  */
 export type GhostSolid = {
   meshes: SceneObjectMesh[];
-  /** `wire` draws the meshes as lines: a curve a move or a copy carries along with the bodies. */
-  kind?: 'add' | 'remove' | 'wire';
+  /**
+   * `wire` draws the meshes as lines: a curve tool's result, or a curve a
+   * move or a copy carries along with the bodies. `surface` draws a surface
+   * tool's result: a body with no inside, seen from both sides.
+   */
+  kind?: 'add' | 'remove' | 'wire' | 'surface';
   /** Loft side-edge polylines, packed xyz. */
   matchLines?: number[][];
   /**
@@ -904,8 +909,27 @@ function buildFeatureGhostInUnit(
 }
 
 /**
- * Mesh the features that build their own geometry — the swept bodies and the
- * helix's curve — then free every shape they were built from.
+ * The preview of a curve tool: each curve (a wire or an edge) as one ghost
+ * body of kind `wire`. Every shape handed in is freed here once meshed —
+ * the curves, and `scratch`, whatever was built on the way to them.
+ */
+export function ghostOfCurves(curves: Shape[], meshConfig: MeshSettings, scratch: Shape[] = []): FeatureGhostResult {
+  return meshGhostBodies({ solids: curves, scratch, kind: 'wire' }, meshConfig);
+}
+
+/**
+ * The preview of a surface tool: each surface as one ghost body of kind
+ * `surface`. Every shape handed in is freed here once meshed — the sheets,
+ * and `scratch`, whatever was built on the way to them.
+ */
+export function ghostOfSheets(sheets: Sheet[], meshConfig: MeshSettings, scratch: Shape[] = []): FeatureGhostResult {
+  return meshGhostBodies({ solids: sheets, scratch, kind: 'surface' }, meshConfig);
+}
+
+/**
+ * Mesh the features that build their own geometry — the swept bodies, a
+ * curve tool's curves, a surface tool's surfaces — then free every shape
+ * they were built from.
  */
 function meshGhostBodies(built: GhostBuild, meshConfig: MeshSettings): FeatureGhostResult {
   if ('reason' in built) {
@@ -918,7 +942,11 @@ function meshGhostBodies(built: GhostBuild, meshConfig: MeshSettings): FeatureGh
     for (const solid of built.solids) {
       const meshes = builder.build(solid);
       if (meshes) {
-        solids.push({ meshes, ...(built.matchLines ? { matchLines: built.matchLines(solid) } : {}) });
+        solids.push({
+          meshes,
+          ...(built.kind ? { kind: built.kind } : {}),
+          ...(built.matchLines ? { matchLines: built.matchLines(solid) } : {}),
+        });
       }
     }
     return { ok: true, solids };
@@ -2775,7 +2803,15 @@ function buildTranslateGhost(
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */
-type GhostBuild = { solids: Shape[]; scratch: Shape[]; matchLines?: (solid: Shape) => number[][] } | { reason: string; surface?: boolean };
+type GhostBuild =
+  | {
+    solids: Shape[];
+    scratch: Shape[];
+    /** What every body is drawn as, when the dialog's own add/remove color is not it. */
+    kind?: GhostSolid['kind'];
+    matchLines?: (solid: Shape) => number[][];
+  }
+  | { reason: string; surface?: boolean };
 
 /** The single-profile features: one sketch in, its swept body out. */
 function buildProfileGhost(

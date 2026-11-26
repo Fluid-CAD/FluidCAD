@@ -41,6 +41,8 @@ import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
 import { buildFeatureGhost, type FeatureGhostRequest, type FeatureGhostResult } from "../../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../../oc/mesh.js";
 import type { Scene } from "../../rendering/scene.js";
+import { synthesizeApplyFeature } from "../../selection/explain.js";
+import type { PickRef } from "../../selection/types.js";
 
 const asObject = (value: unknown) => value as SceneObject;
 
@@ -558,6 +560,98 @@ describe("surfaces and curves in an existing model", () => {
       const [surface] = drawn(result);
       expect(surface.kind).toBe("add");
       expect(Math.min(...surface.xs)).toBeCloseTo(-10, 6);
+    });
+
+    describe("a pick off a solid is refused in one wording by the build, the preview and the pick-to-code synthesis", () => {
+      /** A three-edge curve, loaded the way an imported curve is. */
+      function curve(): SceneObject {
+        return asObject(loadShapes([TestCurves.threeEdges()]));
+      }
+
+      const built = (statement: unknown) => {
+        const error = asObject(statement).getError();
+        return error === null ? null : error.split("\n")[0];
+      };
+      const synthesized = (scene: Scene, tool: "fillet" | "chamfer" | "shell", pick: PickRef) => {
+        const result = synthesizeApplyFeature(scene, [pick], tool, 1);
+        return result.ok === false ? result.reason : null;
+      };
+      const previewed = (result: FeatureGhostResult) => (result.ok === false ? result.reason : null);
+
+      for (const tool of ["fillet", "chamfer"] as const) {
+        const make = tool === "fillet" ? fillet : chamfer;
+
+        it(`${tool}: an edge of a surface`, () => {
+          block();
+          const l = plate();
+          const statement = make(1, select(edge().ofSurface()));
+          const scene = render();
+          const shapeId = l.getShapes()[0].id;
+
+          const words = `${tool}: edge selection 1 holds a surface edge; ${tool} works on solids.`;
+          expect(built(statement)).toBe(words);
+          expect(previewed(preview(scene, {
+            feature: tool, value: 1, distance2: null, isAngle: false, edges: [{ shapeId, index: 0, kind: "edge" }],
+          }))).toBe(words);
+          expect(synthesized(scene, tool, { shapeId, sub: { type: "edge", index: 0 } })).toBe(words);
+        });
+
+        it(`${tool}: an edge of a curve`, () => {
+          block();
+          const c = curve();
+          const statement = make(1, select(edge().from(c as never)));
+          const scene = render();
+          const shapeId = c.getShapes()[0].id;
+
+          const words = `${tool}: edge selection 1 holds a curve edge; ${tool} works on solids.`;
+          expect(built(statement)).toBe(words);
+          expect(previewed(preview(scene, {
+            feature: tool, value: 1, distance2: null, isAngle: false, edges: [{ shapeId, index: 0, kind: "edge" }],
+          }))).toBe(words);
+          expect(synthesized(scene, tool, { shapeId, sub: { type: "edge", index: 0 } })).toBe(words);
+        });
+      }
+
+      it("shell: a face of a surface", () => {
+        block();
+        const l = plate();
+        const statement = shell(1, select(face().ofSurface()));
+        const scene = render();
+        const shapeId = l.getShapes()[0].id;
+
+        const words = "shell: face selection 1 holds a surface face; shell works on solids.";
+        expect(built(statement)).toBe(words);
+        expect(previewed(preview(scene, { feature: "shell", thickness: -1, joinType: "arc", faces: [{ shapeId, index: 0 }] }))).toBe(words);
+        expect(synthesized(scene, "shell", { shapeId, sub: { type: "face", index: 0 } })).toBe(words);
+      });
+
+      it("draft: a face of a surface, by the build and by its preview", () => {
+        block();
+        const l = plate();
+        const statement = draft(5, select(face().ofSurface()));
+        const scene = render();
+        const shapeId = l.getShapes()[0].id;
+
+        const words = "draft: selection 1 holds a surface face; draft works on solids.";
+        expect(built(statement)).toBe(words);
+        // A custom feature's preview gives the build's error whole, hint included.
+        expect(previewed(preview(scene, {
+          feature: "custom", builder: draft, values: {}, operation: null,
+          refs: { faces: [{ kind: "entities", entities: [{ shapeId, index: 0, kind: "face" }] }] },
+        }))).toBe(asObject(statement).getError());
+      });
+
+      it("a solid's edge and face beside a surface and a curve are taken", () => {
+        const b = block();
+        plate();
+        curve();
+        const scene = render();
+        const shapeId = b.getShapes()[0].id;
+
+        for (const [tool, type] of [["fillet", "edge"], ["shell", "face"]] as const) {
+          expect(synthesized(scene, tool, { shapeId, sub: { type, index: 0 } }) ?? "").not.toContain("works on solids");
+        }
+      });
     });
 
     it("fillet refuses an edge of a surface with the build's own words", () => {

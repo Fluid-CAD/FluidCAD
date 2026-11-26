@@ -8,9 +8,10 @@ import { FaceQuery } from "../oc/face-query.js";
 import { BucketHit, BucketRecord, SelectionIndex } from "./selection-index.js";
 import { attributePick, inPartScope, pickPartScope, PickAttribution } from "./attribution.js";
 import {
-  BucketArguments, canBindProducer, checkBindable, isCurveEdgePick, producerBinding, producerFeatureType, synthesizeSelectors, SelectorChain,
+  BucketArguments, canBindProducer, checkBindable, producerBinding, producerFeatureType, synthesizeSelectors, SelectorChain,
   SelectorPart, StatementBindable,
 } from "./synthesis.js";
+import { isSolidReshaper, offSolidPart, offSolidRefusal } from "../common/operand-check.js";
 import {
   ApplyFeatureEditSpec,
   ApplyFeatureKind,
@@ -259,16 +260,16 @@ export function synthesizeApplyFeature(
       seed: attributePick(scene, index, c.seed),
       members: c.members.map(m => attributePick(scene, index, m)),
     }));
-    // A fillet and a chamfer reshape solids: an edge of a curve standing on
-    // its own has no solid to round, and the statement would build nothing.
-    if (feature === 'fillet' || feature === 'chamfer') {
-      const curveEdge = [...attributions, ...chainInputs.flatMap(c => c.members)].find(isCurveEdgePick);
-      if (curveEdge) {
-        return {
-          ok: false,
-          reason: `${feature}: edge selection 1 holds a curve edge; ${feature} works on solids.`,
-          pick: curveEdge.ref,
-        };
+    // A tool that reshapes solids takes a solid's edges and faces only. Its
+    // build refuses a pick made on a surface or a curve, so the pick is
+    // refused here, in the build's words, before a statement is written.
+    if (isSolidReshaper(feature)) {
+      for (const attr of [...attributions, ...chainInputs.flatMap(c => c.members)]) {
+        const part = attr.ref.sub.type;
+        const given = attr.solidShape && part !== 'vertex' ? offSolidPart(attr.solidShape, part) : null;
+        if (given) {
+          return { ok: false, reason: offSolidRefusal(feature, given).diagnostic, pick: attr.ref };
+        }
       }
     }
 

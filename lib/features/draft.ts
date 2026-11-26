@@ -2,7 +2,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Face, Shape } from "../common/shapes.js";
 import { IDraft } from "../core/interfaces.js";
 import { DraftOps } from "../oc/draft-ops.js";
-import { refuseSurfaceParts, requireShapes } from "../common/operand-check.js";
+import { refuseOffSolidParts, requireShapes } from "../common/operand-check.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 import { rad } from "../helpers/math-helpers.js";
 import { Feature, type FeatureBuildContext } from "../sdk/feature.js";
@@ -34,9 +34,7 @@ export class Draft extends Feature<DraftValues> implements IDraft {
   }
 
   override build(context: FeatureBuildContext): void {
-    this.values.faces.forEach((selection, i) => refuseSurfaceParts(
-      "draft", `selection ${i + 1}`, this.shapesOf([selection]), context.getSceneObjects(),
-      "draft tilts the faces of a solid. Select faces of a solid."));
+    this.refuseOffSolid(context);
     const solids = Draft.solidsOf(context, this.parentId, false);
     if (!solids.size) {
       return;
@@ -76,6 +74,7 @@ export class Draft extends Feature<DraftValues> implements IDraft {
    * Nothing in the scene is touched.
    */
   override ghost(context: FeatureBuildContext): Shape[] | null {
+    this.refuseOffSolid(context);
     const solids = Draft.solidsOf(context, this.parentId, true);
     const faceRaws = this.shapesOf(this.values.faces).map(face => face.getShape());
     const angle = rad(this.values.angle);
@@ -87,6 +86,12 @@ export class Draft extends Feature<DraftValues> implements IDraft {
       throw new Error("draft(): none of the faces is on a solid the draft can reach");
     }
     return faces;
+  }
+
+  /** Refuses a selection that holds a surface's face, in the words every tool that reshapes solids gives; the preview says them too. */
+  private refuseOffSolid(context: FeatureBuildContext): void {
+    this.values.faces.forEach((selection, i) => refuseOffSolidParts(
+      "draft", i, this.shapesOf([selection]), context.getSceneObjects()));
   }
 
   /**

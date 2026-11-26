@@ -10,7 +10,7 @@ import { ShapeFilter } from "../filters/filter.js";
 import { applyBucketFilters } from "../filters/bucket-scope.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { IShell, ShellJoinType } from "../core/interfaces.js";
-import { refuseSurfaceParts, requireShapes } from "../common/operand-check.js";
+import { refuseOffSolidParts, requireShapes } from "../common/operand-check.js";
 
 export class Shell extends SceneObject implements IShell {
 
@@ -38,9 +38,8 @@ export class Shell extends SceneObject implements IShell {
   }
 
   build(context: BuildSceneObjectContext): void {
-    this.faceSelections.forEach((selection, i) => refuseSurfaceParts(
-      "shell", `face selection ${i + 1}`, selection.getShapes(), context.getSceneObjects(),
-      "shell hollows a solid; a surface has no inside to hollow. Select faces of a solid."));
+    this.faceSelections.forEach((selection, i) => refuseOffSolidParts(
+      "shell", i, selection.getShapes(), context.getSceneObjects()));
 
     const shapeObjMap = new Map<Shape, SceneObject>();
     for (const obj of context.getSceneObjects()) {

@@ -3,7 +3,7 @@ import { Edge, Shape, Solid } from "../common/shapes.js";
 import { SelectSceneObject } from "./select.js";
 import { FusionScope } from "./extrude-options.js";
 import { FilletOps } from "../oc/fillet-ops.js";
-import { SOLID_EDGES_HINT, refuseSurfaceParts, requireShapes } from "../common/operand-check.js";
+import { refuseOffSolidParts, requireShapes } from "../common/operand-check.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 
 export class Fillet extends SceneObject {
@@ -26,8 +26,8 @@ export class Fillet extends SceneObject {
 
   build(context: BuildSceneObjectContext) {
     const selections = this.targetEdges;
-    selections.forEach((selection, i) => refuseSurfaceParts(
-      "fillet", `edge selection ${i + 1}`, selection.getShapes(), context.getSceneObjects(), SOLID_EDGES_HINT));
+    selections.forEach((selection, i) => refuseOffSolidParts(
+      "fillet", i, selection.getShapes(), context.getSceneObjects()));
 
     let sceneObjects: Map<SceneObject, Shape[]>;
 

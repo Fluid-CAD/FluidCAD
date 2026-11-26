@@ -166,7 +166,7 @@ describe("color paints without owning", () => {
 
       render();
 
-      expect(c.getError()).toMatch(/no solid in scope holds a selected face/);
+      expect(c.getError()).toMatch(/no solid or surface in scope holds a selected face/);
     });
   });
 

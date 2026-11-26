@@ -60,7 +60,7 @@ import { ShapeProps } from "../oc/props.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { SplitOps, type SplitCutter } from "../oc/split-ops.js";
 import { FaceOps } from "../oc/face-ops.js";
-import { WireOps } from "../oc/wire-ops.js";
+import { CurveOperand } from "../helpers/curve-operand.js";
 import { MeshBuilder } from "./mesh-builder.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import { transformMeshes } from "./mesh-transform.js";
@@ -3135,14 +3135,13 @@ function buildSweepGhost(scene: Scene, request: SweepGhostRequest): GhostBuild {
 }
 
 /**
- * The spine a ghost sweep runs along, as `Sweep.getSpineWire` would build it
- * (sweep.ts:224 → `wireFromSceneObjectEdges`): every edge the slot names,
- * joined into one wire. A named source reads back the edges the edited sweep
+ * The spine a ghost sweep runs along, chained as `Sweep.getSpineWire` chains
+ * it (`CurveOperand`): every edge the slot names, joined into one wire. A named source reads back the edges the edited sweep
  * has already consumed, for the same reason {@link profileEdges} does; picked
  * edges are wrapped fresh off the shapes they were picked on. Null means the
- * scene no longer holds what the slot names — and a throw out of the wire
- * maker means the picks don't join up, which mid-composition is ordinary: the
- * apply would refuse it too, so the dialog just shows no ghost.
+ * scene no longer holds what the slot names, or that the picks don't join
+ * into one chain, which mid-composition is ordinary: the apply would refuse
+ * it too, so the dialog just shows no ghost.
  */
 function resolveGhostPath(scene: Scene, ref: GhostPathRef, scratch: Shape[]): Wire | null {
   const edges: Edge[] = [];
@@ -3164,9 +3163,9 @@ function resolveGhostPath(scene: Scene, ref: GhostPathRef, scratch: Shape[]): Wi
   if (edges.length === 0) {
     return null;
   }
-  const wire = WireOps.makeWireFromEdges(edges);
-  scratch.push(wire);
-  return wire;
+  const wires = CurveOperand.chain(edges);
+  scratch.push(...wires);
+  return wires.length === 1 ? wires[0] : null;
 }
 
 /**
@@ -3265,7 +3264,7 @@ function resolvePickedFace(
 
 /**
  * The rails, as the wires `loft.guides()` would build from each statement's
- * edges (loft.ts:229 → `wiresFromSceneObjectEdges`). One guide argument can
+ * edges (`CurveOperand.wires`). One guide argument can
  * carry several separate curves, and each connected chain counts as its own
  * rail — the kernel refuses more than two, and so does the ghost builder.
  */
@@ -3284,7 +3283,7 @@ function resolveGuideWires(
     if (edges.length === 0) {
       return null;
     }
-    const connected = WireOps.connectEdgesToWires(edges);
+    const connected = CurveOperand.chain(edges);
     scratch.push(...connected);
     wires.push(...connected);
   }

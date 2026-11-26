@@ -6,8 +6,9 @@ import { requireShapes } from "../common/operand-check.js";
 import { BuildError } from "../common/build-error.js";
 import { CssColor } from "../common/css-color.js";
 import { heldSolidsOf, liveOperandShapes } from "../helpers/live-solids.js";
+import { FaceOperand } from "../helpers/face-operand.js";
 
-/** One face to paint, with the solid it belongs to and the object holding that solid now. */
+/** One face to paint, with the body it belongs to and the object holding that body now. */
 type PaintTarget = { holder: SceneObject; solid: Shape; face: Face };
 
 /**
@@ -93,7 +94,8 @@ export class Color extends SceneObject {
    * operands' targets in argument order:
    *
    * - a face selection (`select(face()…)`, `e.endFaces()`): each of its
-   *   faces, resolved to the held solid it belongs to in this scope;
+   *   faces, resolved to the held body (solid or surface) it belongs to in
+   *   this scope;
    * - any other object (`color("red", e)`): every face of the bodies the
    *   object built, wherever the features between left them — a fillet
    *   that took `e`'s solid stands for it with the filleted body;
@@ -101,12 +103,12 @@ export class Color extends SceneObject {
    *   scope, matching `select(face())` followed by `color(...)`.
    */
   private resolveTargets(context: BuildSceneObjectContext): PaintTarget[] {
-    const held = heldSolidsOf(context.getSceneObjects());
+    const scope = context.getSceneObjects();
     if (this._selections.length === 0) {
-      return Color.wholeSolids(held.filter(({ solid }) => !solid.isMetaShape()));
+      return Color.wholeSolids(heldSolidsOf(scope).filter(({ solid }) => !solid.isMetaShape()));
     }
     return this._selections.flatMap(selection => Color.isFaceSelection(selection)
-      ? Color.selectedFaces(selection, held)
+      ? Color.selectedFaces(selection, scope)
       : Color.wholeSolids(liveOperandShapes(selection, {}, 'solid').map(({ holder, shape }) => ({ holder, solid: shape }))));
   }
 
@@ -123,25 +125,17 @@ export class Color extends SceneObject {
     return targets;
   }
 
-  /** The selection's faces, each on the held solid that owns it — a face no held solid owns is a build error. */
-  private static selectedFaces(
-    selection: SceneObject,
-    held: ReadonlyArray<{ holder: SceneObject; solid: Shape }>,
-  ): PaintTarget[] {
-    const targets: PaintTarget[] = [];
-    for (const shape of selection.getShapes()) {
-      for (const face of shape.getSubShapes('face') as Face[]) {
-        const owner = held.find(({ solid }) => solid instanceof Solid && solid.hasFace(face.getShape()));
-        if (!owner) {
-          throw new BuildError(
-            `color: no solid in scope holds a selected face.`,
-            `Select faces of a body that exists at this point — a body a later feature builds, or one in another part, cannot be painted here.`,
-          );
-        }
-        targets.push({ holder: owner.holder, solid: owner.solid, face });
+  /** The selection's faces, each on the held body that owns it — a face no held body owns is a build error. */
+  private static selectedFaces(selection: SceneObject, scope: SceneObject[]): PaintTarget[] {
+    return FaceOperand.faces(selection, scope, "color target").map(({ face, body, holder }) => {
+      if (!body || !holder) {
+        throw new BuildError(
+          `color: no solid or surface in scope holds a selected face.`,
+          `Select faces of a body that exists at this point — a body a later feature builds, or one in another part, cannot be painted here.`,
+        );
       }
-    }
-    return targets;
+      return { holder, solid: body, face };
+    });
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

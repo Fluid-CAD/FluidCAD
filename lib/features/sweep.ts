@@ -11,7 +11,8 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { ClassifiedFaces, ExtrudeBase } from "./extrude-base.js";
 import { ISweep, SweepSide } from "../core/interfaces.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
-import { cutWithSceneObjects, wireFromSceneObjectEdges } from "../helpers/scene-helpers.js";
+import { cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { CurveOperand } from "../helpers/curve-operand.js";
 import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
 import { requireShapes } from "../common/operand-check.js";
@@ -256,7 +257,7 @@ export class Sweep extends ExtrudeBase implements ISweep {
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {
-    let wire = wireFromSceneObjectEdges(pathObj, "sweep path");
+    let wire = CurveOperand.wire(pathObj, "sweep path");
     try {
       for (const [side, amount] of [["start", this._extendStart], ["end", this._extendEnd]] as const) {
         if (amount === undefined) continue;

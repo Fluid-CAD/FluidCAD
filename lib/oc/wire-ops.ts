@@ -1,7 +1,7 @@
 import type { TopoDS_Edge, TopoDS_Wire, TopAbs_ShapeEnum, TopoDS_Vertex, TopoDS_Face } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Vector3d } from "../math/vector3d.js";
-import type { Point } from "../math/point.js";
+import { Point } from "../math/point.js";
 import { Wire } from "../common/wire.js";
 import { Edge } from "../common/edge.js";
 import { Vertex } from "../common/vertex.js";
@@ -315,6 +315,47 @@ export class WireOps {
     }
     // The relative part is unit-free; only the absolute floor is a length.
     return Math.max(mmTol(1e-6), size * 1e-3);
+  }
+
+  /**
+   * The plane every edge lies in, or null when there is none — the edges
+   * leave every plane, or they are collinear and lie in all of them. The
+   * origin is the foot of the perpendicular from the world origin, as
+   * `FaceOps` gives a planar face's plane, so the same plane compares equal
+   * however it was found.
+   */
+  static planeOfEdges(edges: Edge[]): Plane | null {
+    if (edges.length === 0) {
+      return null;
+    }
+    const oc = getOC();
+    const compound = ShapeOps.makeCompoundRaw(edges.map(edge => edge.getShape()));
+    const finder = new oc.BRepBuilderAPI_FindPlane(compound, mmTol(1e-6));
+    try {
+      if (!finder.Found()) {
+        return null;
+      }
+      const plane = finder.Plane();
+      const pln = plane.Pln();
+      const location = pln.Location();
+      const axis = pln.Axis();
+      const direction = axis.Direction();
+      try {
+        const normal = new Vector3d(direction.X(), direction.Y(), direction.Z()).normalize();
+        const along = normal.dot(new Vector3d(location.X(), location.Y(), location.Z()));
+        const origin = normal.multiply(along);
+        return Plane.upright(new Point(origin.x, origin.y, origin.z), normal);
+      } finally {
+        direction.delete();
+        axis.delete();
+        location.delete();
+        pln.delete();
+        plane.delete();
+      }
+    } finally {
+      finder.delete();
+      compound.delete();
+    }
   }
 
   static groupConnectedEdges(edges: Edge[], tolerance = mmTol(1e-7)): Edge[][] {

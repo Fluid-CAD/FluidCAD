@@ -9,7 +9,8 @@ import { FaceOps } from "../oc/face-ops.js";
 import { Plane } from "../math/plane.js";
 import { ILoft, LoftConditionType } from "../core/interfaces.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
-import { fuseWithSceneObjects, cutWithSceneObjects, wiresFromSceneObjectEdges } from "../helpers/scene-helpers.js";
+import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
+import { CurveOperand } from "../helpers/curve-operand.js";
 import { ExtrudeBase } from "./extrude-base.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
 import { Shape } from "../common/shape.js";
@@ -283,7 +284,7 @@ export class Loft extends ExtrudeBase implements ILoft {
 
     let guides: Wire[] | undefined;
     if (this._guides.length > 0) {
-      guides = this._guides.flatMap((guide, i) => wiresFromSceneObjectEdges(guide, `loft guide ${i + 1}`));
+      guides = this._guides.flatMap((guide, i) => CurveOperand.wires(guide, `loft guide ${i + 1}`));
       // Chained from the guides' edges for this build only.
       scratch.push(...guides);
       if (guides.length > 2) {

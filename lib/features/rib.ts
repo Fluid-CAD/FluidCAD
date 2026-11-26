@@ -11,7 +11,7 @@ import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { RibOps } from "../oc/rib-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
-import { curveEdgesOf } from "../helpers/scene-helpers.js";
+import { CurveOperand } from "../helpers/curve-operand.js";
 import { Shape } from "../common/shape.js";
 import { requireShapes } from "../common/operand-check.js";
 import { mmTol } from "../units/tolerance.js";
@@ -273,7 +273,7 @@ export class Rib extends ExtrudeBase implements IRib {
   }
 
   private getSpineWire(pathObj: SceneObject): Wire {
-    return WireOps.makeWireFromEdges(curveEdgesOf(pathObj));
+    return WireOps.makeWireFromEdges(CurveOperand.edges(pathObj, "rib path"));
   }
 
 

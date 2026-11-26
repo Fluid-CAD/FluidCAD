@@ -13,49 +13,11 @@ import { getOC } from "../oc/init.js";
 import { ColorTransfer, type SourceColors } from "../oc/color-transfer.js";
 import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { Profiler } from "../common/profiler.js";
-import { Wire } from "../common/wire.js";
-import { WireOps } from "../oc/wire-ops.js";
 import { requireValidSolid } from "../oc/solid-validation.js";
 import { RenderSeams } from "../oc/render-seams.js";
 import { CutToolImages } from "../oc/cut-tool-images.js";
 import { heldSolidsOf, type HeldSolid } from "./live-solids.js";
 import { FuseAttribution } from "../oc/fuse-attribution.js";
-
-/**
- * The edges of the object's geometry, for the inputs that build a curve from
- * them. Meta shapes are never geometry — an axis datum's dashed line inside
- * the sketch (`mirror(yAxis())`) stays readable after the mirror hid it, and
- * must not become part of the curve.
- */
-export function curveEdgesOf(obj: SceneObject): Edge[] {
-  return obj.getShapes().flatMap(s => s.getSubShapes('edge')) as Edge[];
-}
-
-/**
- * Collects every edge of the object's shapes into one connected wire.
- * Used by path-style inputs that need a single curve (sweep paths).
- */
-export function wireFromSceneObjectEdges(obj: SceneObject, label: string): Wire {
-  const edges = curveEdgesOf(obj);
-  if (edges.length === 0) {
-    throw new Error(`${label} has no edges to build a curve from.`);
-  }
-  return WireOps.makeWireFromEdges(edges);
-}
-
-/**
- * Groups the object's edges into connected chains — one wire per chain.
- * Used by inputs that may carry several separate curves (e.g. a loft guide
- * sketch holding a curve and its mirror).
- */
-export function wiresFromSceneObjectEdges(obj: SceneObject, label: string): Wire[] {
-  const edges = curveEdgesOf(obj);
-  if (edges.length === 0) {
-    throw new Error(`${label} has no edges to build a curve from.`);
-  }
-  return WireOps.connectEdgesToWires(edges);
-}
-
 
 /**
  * Fuses `extrusions` into the scope's solids. Each consumed solid comes back

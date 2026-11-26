@@ -14,6 +14,7 @@ import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { mmTol } from "../../units/tolerance.js";
 import { OffsetEdge, type OffsetEdgeRole } from "./offset-edge.js";
+import { CurveOperand } from "../../helpers/curve-operand.js";
 
 export class Offset extends ExtrudableGeometryBase {
 
@@ -79,7 +80,7 @@ export class Offset extends ExtrudableGeometryBase {
 
     // Statement order anchors the edge indices (`o.edge(i)`): the groups, and
     // the walk of every offset wire, start from the earliest drawn source.
-    const allEdges = Offset.statementOrdered(sourceObjects);
+    const allEdges = CurveOperand.statementOrder(sourceObjects);
     const wires: { wire: Wire; sources: Edge[] }[] = [];
 
     // Hand-drawn profiles routinely have endpoints that only nearly meet.
@@ -129,19 +130,6 @@ export class Offset extends ExtrudableGeometryBase {
         this.addShape(closeStart);
       }
     }
-  }
-
-  /** Source edges in statement order: the owner's order, then the edge's position among the owner's edges. */
-  private static statementOrdered(sources: Map<Edge, SceneObject>): Edge[] {
-    const ranks = new Map<Edge, [number, number]>();
-    for (const [edge, owner] of sources) {
-      ranks.set(edge, [owner.getOrder(), owner.getAddedShapes().indexOf(edge)]);
-    }
-    return [...sources.keys()].sort((a, b) => {
-      const [aOrder, aIndex] = ranks.get(a)!;
-      const [bOrder, bIndex] = ranks.get(b)!;
-      return aOrder - bOrder || aIndex - bIndex;
-    });
   }
 
   /**

@@ -5356,8 +5356,12 @@ export async function applyValueFeatureEdit(
   }, options.signal);
 }
 
-/** The callees the name lookup finds a statement by — the `/sketch-names` endpoint's vocabulary. */
-const NAME_LOOKUP_CALLEES = ['sketch', 'plane', 'axis', 'helix', 'offset', 'repeat'] as const;
+/**
+ * The callees the name lookup finds a statement by — the `/sketch-names`
+ * endpoint's vocabulary. `'any'` takes the statement at the line whatever
+ * its callee.
+ */
+const NAME_LOOKUP_CALLEES = ['sketch', 'plane', 'axis', 'helix', 'offset', 'repeat', 'any'] as const;
 
 export type NameLookupCallee = typeof NAME_LOOKUP_CALLEES[number];
 

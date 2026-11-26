@@ -142,16 +142,17 @@ describe('a wire source\'s shapes', () => {
 });
 
 describe('labelWithSketchNames', () => {
-  it('asks for each option by its statement\'s callee, and leaves a callee the lookup does not know alone', async () => {
+  it('asks for each option by its statement\'s callee, and for a curve of any other callee by its line alone', async () => {
     const lookup = vi.fn(async (lines: number[], callee?: string): Promise<(string | null)[]> =>
-      lines.map(line => callee === 'helix' && line === 6 ? 'spring' : null));
+      lines.map(line => (callee === 'helix' && line === 6 ? 'spring' : callee === 'any' && line === 7 ? 'rails' : null)));
     const labeled = await labelWithSketchNames(collectWireSources(SCENE), lookup);
 
     expect(lookup.mock.calls.map(call => [call[1], call[0]])).toEqual([
       ['sketch', [2]],
       ['helix', [6, 12]],
+      ['any', [7]],
       ['offset', [14]],
     ]);
-    expect(labeled.map(o => o.label)).toEqual(['Sketch', 'spring', 'Copy 1', 'Helix 2 · used by Sweep 1', 'Offset 1']);
+    expect(labeled.map(o => o.label)).toEqual(['Sketch', 'spring', 'rails', 'Helix 2 · used by Sweep 1', 'Offset 1']);
   });
 });

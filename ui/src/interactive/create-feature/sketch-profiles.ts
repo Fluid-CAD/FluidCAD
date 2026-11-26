@@ -138,7 +138,7 @@ export function collectWireSources(sceneObjects: SceneObjectRender[]): SketchPro
  * the live buffer server-side, so it's async — callers apply the result if
  * the dialog is still armed on the same options. Each option resolves
  * against its statement's callee, one fetch per callee present; a curve
- * whose callee the lookup does not know keeps its row's name. `lookup` is
+ * whose callee the lookup does not name resolves as `'any'`. `lookup` is
  * the name query, the server's unless a caller brings its own.
  */
 export async function labelWithSketchNames(
@@ -151,8 +151,9 @@ export async function labelWithSketchNames(
   const names = new Array<string | null>(options.length).fill(null);
   const byCallee = new Map<NameLookupCallee, number[]>();
   options.forEach((option, index) => {
-    const callee = option.feature === 'curve' ? option.callee : option.feature;
-    if (isNameLookupCallee(callee)) {
+    const named = option.feature === 'curve' ? option.callee : option.feature;
+    const callee: NameLookupCallee | null = isNameLookupCallee(named) ? named : option.feature === 'curve' ? 'any' : null;
+    if (callee) {
       byCallee.set(callee, [...(byCallee.get(callee) ?? []), index]);
     }
   });

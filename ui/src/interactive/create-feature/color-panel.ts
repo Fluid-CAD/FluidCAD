@@ -37,8 +37,8 @@ const SWATCH_ACTIVE = 'ring-2 ring-primary ring-offset-1 ring-offset-base-100';
  * The Color dialog: a Solid / Face tab row (what the paint lands on) over
  * the colour field — a colour well, the value as text (a hex value, a CSS
  * colour name or an `rgb()` string) and a swatch row — and the tab's pick
- * slot: whole solids picked in the viewport (any face or edge click selects
- * the owning solid) or timeline rows, or the faces to paint, one chip per
+ * slot: whole solids and surfaces picked in the viewport (any face or edge
+ * click selects the owning one) or timeline rows, or the faces to paint, one chip per
  * pick. The Face tab docks the expression-transparency row under the dialog
  * like the fillet dialog's. The colour field takes an expression under its ƒ
  * toggle (`tint`, `left ? 'red' : 'blue'`): the well and the swatch ring then
@@ -48,7 +48,7 @@ const SWATCH_ACTIVE = 'ring-2 ring-primary ring-offset-1 ring-offset-base-100';
 export class ColorPanel extends FeaturePanel {
   /** The tab changed — the service re-aims the viewport picks. */
   onModeChange?: () => void;
-  /** The chip at `index` of the Solids slot was removed. */
+  /** The chip at `index` of the Shapes slot was removed. */
   onRemoveTarget?: (index: number) => void;
   /** The chip at `index` of the Faces slot was removed. */
   onRemoveFace?: (index: number) => void;
@@ -95,7 +95,7 @@ export class ColorPanel extends FeaturePanel {
     });
 
     this.tabs = new ChoiceTabs<ColorPaintMode>(this.role('tabs'), [
-      { key: 'solids', label: 'Solid', title: 'Colour every face of whole solids — color(value, e)' },
+      { key: 'solids', label: 'Shape', title: 'Colour every face of whole solids and surfaces — color(value, e)' },
       { key: 'faces', label: 'Face', title: 'Colour the picked faces — color(value, e.endFaces())' },
     ], 'solids');
     this.tabs.onChange = () => {
@@ -146,7 +146,7 @@ export class ColorPanel extends FeaturePanel {
     });
 
     this.targetsWrap = this.role('targets-slot');
-    this.targetsSlot = new PickSlot(this.targetsWrap, { label: 'Solids', multiple: true });
+    this.targetsSlot = new PickSlot(this.targetsWrap, { label: 'Shapes', multiple: true });
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
     this.targetsSlot.onChipHover = (index) => this.onChipHover?.(index);
     this.facesWrap = this.role('faces-slot');
@@ -195,7 +195,7 @@ export class ColorPanel extends FeaturePanel {
     this.syncSwatches();
   }
 
-  /** A fresh arming: the Solid tab, the last colour, empty slots. */
+  /** A fresh arming: the Shape tab, the last colour, empty slots. */
   show(): void {
     this.shell.setTitle(null);
     this.tabs.setValue('solids');
@@ -235,7 +235,7 @@ export class ColorPanel extends FeaturePanel {
 
   setTargets(chips: PickSlotChip[]): void {
     this.targetsSlot.setChips(chips.map((chip, index) => ({ ...chip, badge: String(index + 1) })));
-    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids in the viewport');
+    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids or surfaces in the viewport');
   }
 
   setFaces(chips: PickSlotChip[]): void {

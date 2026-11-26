@@ -15,13 +15,14 @@ export type MirrorValues = {
 
 /**
  * The mirror dialog: an Add / Remove / New tab row (how the reflected bodies
- * land — fused, cut, or standalone), the solids slot — filled from
- * whole-solid viewport picks (any face or edge click selects the owning
- * solid) or timeline rows, one numbered chip per solid being mirrored — and
+ * land — fused, cut, or standalone), the shapes slot — filled from
+ * whole-shape viewport picks (any face or edge click selects the owning
+ * solid, surface or curve) or timeline rows, one numbered chip per statement
+ * being mirrored — and
  * the plane slot (an origin-plane quad, a plane feature, or a picked face —
  * the repeat mirror's exact picker). Exactly one slot is ARMED at a time —
  * clicked to activate, marked by the primary border — and the viewer's pick
- * channels follow it: the armed Solids slot takes whole-shape picks, the
+ * channels follow it: the armed Shapes slot takes whole-shape picks, the
  * armed Plane slot takes faces, plane quads and the origin planes shown as
  * pick targets. Pure DOM + form state — the service owns scene data, the
  * picked entities, previews, and the apply call.
@@ -60,7 +61,7 @@ export class MirrorPanel extends FeaturePanel {
     ]);
     this.tabs.onChange = () => this.onChange?.();
 
-    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Solids', multiple: true });
+    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Shapes', multiple: true });
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
@@ -77,7 +78,7 @@ export class MirrorPanel extends FeaturePanel {
     this.tabs.setOp('add');
     this.planeSlot.reset();
     this.setTargets([]);
-    // The empty solids list is the first thing to fill — its slot opens
+    // The empty shapes list is the first thing to fill — its slot opens
     // armed, taking whole-shape picks right away.
     this.armSlot('targets');
     this.shell.show();
@@ -100,7 +101,7 @@ export class MirrorPanel extends FeaturePanel {
     this.planeSlot.seedKeep(state.planeLabel);
     this.setTargets([]);
     // The targets list is the seeded statement's — its slot opens armed like
-    // create mode, ready to toggle solids in the viewport.
+    // create mode, ready to toggle shapes in the viewport.
     this.armSlot('targets');
     this.shell.show();
   }
@@ -122,7 +123,7 @@ export class MirrorPanel extends FeaturePanel {
       badge: String(index + 1),
       removable: true,
     })));
-    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids in the viewport');
+    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids, surfaces or curves in the viewport');
   }
 
   planeSelection(): PlaneSelection | null {

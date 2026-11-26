@@ -27,14 +27,15 @@ export type RotateValues =
 
 /**
  * The rotate dialog: a Move / Copy tab row (whether the originals stay — the
- * statement's `true` third argument), the solids slot — filled from
- * whole-solid viewport picks (any face or edge click selects the owning
- * solid) or timeline rows, one numbered chip per solid being rotated — the
+ * statement's `true` third argument), the shapes slot — filled from
+ * whole-shape viewport picks (any face or edge click selects the owning
+ * solid, surface or curve) or timeline rows, one numbered chip per statement
+ * being rotated — the
  * axis slot (a world axis clicked in the viewport, an `axis()` statement,
  * or a picked straight edge — the revolve axis's exact picker),
  * and the angle field. Exactly one slot is ARMED at a time — clicked to
  * activate, marked by the primary border — and the viewer's pick channels
- * follow it: the armed Solids slot takes whole-shape picks, the armed Axis
+ * follow it: the armed Shapes slot takes whole-shape picks, the armed Axis
  * slot takes axis lines and solid edges. Pure DOM + form state — the service
  * owns scene data, the picked entities, previews, and the apply call.
  */
@@ -63,7 +64,7 @@ export class RotatePanel extends FeaturePanel {
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="targets-slot"></div>
         <div data-role="axis-slot"></div>
-        <label class="flex flex-col gap-1.5" title="How far the solids turn around the axis, in degrees">
+        <label class="flex flex-col gap-1.5" title="How far the shapes turn around the axis, in degrees">
           <span class="text-base-content/70">Angle (°)</span>
           <input data-role="angle" type="number" step="5" value="90"
             class="input input-sm input-bordered w-full text-xs" />
@@ -72,12 +73,12 @@ export class RotatePanel extends FeaturePanel {
     });
 
     this.tabs = new ChoiceTabs<RotateMode>(this.role('tabs'), [
-      { key: 'move', label: 'Move', title: 'Turn the solids in place — rotate(axis, angle, …)' },
+      { key: 'move', label: 'Move', title: 'Turn the shapes in place — rotate(axis, angle, …)' },
       { key: 'copy', label: 'Copy', title: 'Keep the originals and add turned copies — rotate(axis, angle, true, …)' },
     ], 'move');
     this.tabs.onChange = () => this.onChange?.();
 
-    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Solids', multiple: true });
+    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Shapes', multiple: true });
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
@@ -104,7 +105,7 @@ export class RotatePanel extends FeaturePanel {
     this.axisSlot.selectStandard('z');
     this.angleField.setValue(90);
     this.setTargets([]);
-    // The empty solids list is the first thing to fill — its slot opens
+    // The empty shapes list is the first thing to fill — its slot opens
     // armed, taking whole-shape picks right away.
     this.armSlot('targets');
     this.shell.show();
@@ -129,7 +130,7 @@ export class RotatePanel extends FeaturePanel {
     this.angleField.setValue(state.angle);
     this.setTargets([]);
     // The targets list is the seeded statement's — its slot opens armed like
-    // create mode, ready to toggle solids in the viewport.
+    // create mode, ready to toggle shapes in the viewport.
     this.armSlot('targets');
     this.shell.show();
   }
@@ -152,7 +153,7 @@ export class RotatePanel extends FeaturePanel {
       badge: String(index + 1),
       removable: true,
     })));
-    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids in the viewport');
+    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids, surfaces or curves in the viewport');
   }
 
   axisSelection(): AxisSelection | null {

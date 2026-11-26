@@ -19,6 +19,7 @@ import { ConnectorOption } from './connector-options';
 import { ConnectorPicks } from './connector-picks';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
+import { MODEL_KINDS } from '../../helpers/scene-utils';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
   AXIS_UNAVAILABLE_MESSAGE, AxisOption, AxisRefs, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
@@ -266,7 +267,7 @@ export class RotateFeatureService {
     // At the boundary: rebuild options from the pre-statement scene.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, MODEL_KINDS);
     this.axes = collectAxisOptions(sceneObjects);
     this.panel.setConnectorOptions(this.connectors.collect(sceneObjects));
     if (this.editSceneStale) {
@@ -306,7 +307,7 @@ export class RotateFeatureService {
 
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, MODEL_KINDS);
     this.axes = collectAxisOptions(sceneObjects);
     this.connectors.collect(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';

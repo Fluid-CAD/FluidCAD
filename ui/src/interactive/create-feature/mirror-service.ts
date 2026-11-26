@@ -16,6 +16,7 @@ import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler } from './option-relabeler';
+import { MODEL_KINDS } from '../../helpers/scene-utils';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
   PLANE_UNAVAILABLE_MESSAGE, collectPlaneOptions, labelWithPlaneNames, PlaneOption,
@@ -255,7 +256,7 @@ export class MirrorFeatureService {
     // At the boundary: rebuild options from the pre-statement scene.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, MODEL_KINDS);
     this.planes = collectPlaneOptions(sceneObjects);
     if (this.editSceneStale) {
       this.editSceneStale = false;
@@ -294,7 +295,7 @@ export class MirrorFeatureService {
 
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, MODEL_KINDS);
     this.planes = collectPlaneOptions(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     // A blank document offers the button too (see {@link Viewer.sceneIsEmpty}).

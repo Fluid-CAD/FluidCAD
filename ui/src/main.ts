@@ -2801,7 +2801,7 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
 // Boolean button — appearance after the shape tools (…, | Boolean, | Color).
 const colorService = new ColorFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: faces alone open the Face tab
-  // picked; anything else resolves to its solids on the Solid tab.
+  // picked; anything else resolves to its solids on the Shape tab.
   // enterPartDialog captures it before its exits clear it.
   onEnter: () => {
     const { selection } = enterPartDialog('color', { clearPendingPlane: true });

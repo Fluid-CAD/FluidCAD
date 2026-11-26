@@ -15,6 +15,7 @@ import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { refreshScopeVariables } from './option-relabeler';
 import { SketchUISuspender } from './sketch-suspender';
+import { BODY_KINDS } from '../../helpers/scene-utils';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
 import { mergeUniqueEntities } from '../../helpers/entities';
@@ -40,14 +41,14 @@ type ColorTargetChoice =
 
 /**
  * The Color dialog on the create rails: paint whole solids or single faces
- * — one button, one dialog, the target kind on tabs. On the Solid tab any
+ * — one button, one dialog, the target kind on tabs. On the Shape tab any
  * face or edge click selects the owning solid whole (the boolean dialog's
  * idiom, shared via {@link SolidPickSelection}), timeline rows too; on the
  * Face tab faces toggle one by one, with the modify tools' right-click
  * groups and double-click bucket expansion. The picks wear the chosen
  * colour in the viewport — the paint previewed where it lands. Arming with
  * a selection already highlighted seeds the dialog: faces open on the Face
- * tab as picks, anything else resolves to its solids on the Solid tab.
+ * tab as picks, anything else resolves to its solids on the Shape tab.
  * Apply writes `color('<value>', e)` / `color('<value>', e.endFaces())` —
  * the re-render is the result, editor undo the rollback.
  */
@@ -57,7 +58,7 @@ export class ColorFeatureService {
   private armed = false;
   private available = false;
   private targetOptions: SolidTargetOption[] = [];
-  /** The Solid tab's chosen solids, in argument order. */
+  /** The Shape tab's chosen solids, in argument order. */
   private targets: ColorTargetChoice[] = [];
   /** The Face tab's picks (chains included, for `.withTangents()` selectors). */
   private faces = new PickSelection();
@@ -65,7 +66,7 @@ export class ColorFeatureService {
   private faceRows: { label: string; members: SelectedEntity[] }[] = [];
   private sceneSketchActive = false;
   private sketchUI: SketchUISuspender;
-  /** The shared whole-solid highlight (the Solid tab's viewport echo). */
+  /** The shared whole-solid highlight (the Shape tab's viewport echo). */
   private solidPick: SolidPickSelection;
   /** Right-click menu of the Face tab: multi-select groups + sibling buckets. */
   private selectionMenu: SelectionContextMenu;
@@ -242,7 +243,7 @@ export class ColorFeatureService {
     // solids re-match by source line; a keep that resolved to a solid
     // statement becomes that statement's option — proper label, create-mode
     // toggling; unresolved keeps stay text-addressed verbatim.
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, BODY_KINDS);
     this.targets = this.targets.flatMap((target): ColorTargetChoice[] => {
       if (target.kind === 'keep') {
         const match = target.loc && this.targetOptions.find(o =>
@@ -259,7 +260,7 @@ export class ColorFeatureService {
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, BODY_KINDS);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     // Visible from the first solid, like Boolean — which is also what a
     // blank document gets (see {@link Viewer.sceneIsEmpty}).
@@ -385,7 +386,7 @@ export class ColorFeatureService {
    * Arm the dialog around whatever was already selected: a selection of
    * faces alone opens the Face tab with those faces picked — the paint the
    * selection asked for; anything else resolves each face/edge to its
-   * owning solid, and the distinct solids open as the Solid tab's chips.
+   * owning solid, and the distinct solids open as the Shape tab's chips.
    */
   private seedFromSelection({ seed }: ColorEnterSeed): void {
     if (seed.length === 0) {
@@ -439,7 +440,7 @@ export class ColorFeatureService {
   }
 
   /**
-   * Routes viewer clicks while the dialog is armed: on the Solid tab any
+   * Routes viewer clicks while the dialog is armed: on the Shape tab any
    * face or edge click selects the owning solid whole; on the Face tab a
    * face click toggles that face. Empty-space clicks keep the selection.
    */
@@ -466,7 +467,7 @@ export class ColorFeatureService {
   }
 
   /**
-   * A timeline row was clicked while the dialog is armed: on the Solid tab
+   * A timeline row was clicked while the dialog is armed: on the Shape tab
    * a solid row toggles as a target. Every row is consumed so the default
    * rollback can't close the dialog mid-flow.
    */
@@ -475,7 +476,7 @@ export class ColorFeatureService {
       return false;
     }
     if (this.panel.mode === 'faces') {
-      this.panel.setMessage('Pick faces in the viewport — a timeline row colours a whole solid on the Solid tab.');
+      this.panel.setMessage('Pick faces in the viewport — a timeline row colours a whole shape on the Shape tab.');
       return true;
     }
     const option = solidTargetForRow(obj, this.targetOptions);
@@ -596,7 +597,7 @@ export class ColorFeatureService {
    * At the rollback boundary, read the statement's own paint off the
    * kernel: faces it paints become the Face tab's picks (the tab switches
    * there if the parse guessed otherwise — a `select()` variable reads as
-   * a solid reference but paints faces); whole objects keep the Solid tab
+   * a solid reference but paints faces); whole objects keep the Shape tab
    * with the chips the parse seeded; a paint of faces the viewport cannot
    * name keeps the Face tab with the argument text alone.
    */
@@ -707,7 +708,7 @@ export class ColorFeatureService {
   }
 
   /**
-   * The edit-mode apply payload. The Solid tab ships its full list —
+   * The edit-mode apply payload. The Shape tab ships its full list —
    * untouched chips as verbatim keeps, re-picked solids by call site — and
    * an argument-less statement left empty stays implicit. The Face tab
    * ships re-picked faces for synthesis against the pre-statement boundary
@@ -756,7 +757,7 @@ export class ColorFeatureService {
     return { value: read.value, ...sessionFields };
   }
 
-  /** One Solid tab chip's edit ref (create mode never carries keeps). */
+  /** One Shape tab chip's edit ref (create mode never carries keeps). */
   private targetRef(choice: ColorTargetChoice): ColorEditTargetRef {
     return choice.kind === 'keep'
       ? { kind: 'verbatim', sourceIndex: choice.sourceIndex }
@@ -767,7 +768,7 @@ export class ColorFeatureService {
   // Viewport reflection + sketch-editing suspension
   // -------------------------------------------------------------------------
 
-  /** The Solid tab takes any face or edge (its whole solid); the Face tab faces only. */
+  /** The Shape tab takes any face or edge (its whole solid); the Face tab faces only. */
   private syncViewport(): void {
     if (!this.armed) {
       return;

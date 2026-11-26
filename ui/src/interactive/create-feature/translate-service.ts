@@ -25,6 +25,7 @@ import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { refreshScopeVariables } from './option-relabeler';
+import { MODEL_KINDS } from '../../helpers/scene-utils';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
 
@@ -252,7 +253,7 @@ export class TranslateFeatureService {
     // At the boundary: rebuild options from the pre-statement scene.
     this.clearGhost();
     this.stamp = null;
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, MODEL_KINDS);
     if (this.editSceneStale) {
       // A scene rebuild may have moved what the kept chips name — re-fetch
       // the statement's own sources.
@@ -281,7 +282,7 @@ export class TranslateFeatureService {
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, MODEL_KINDS);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
     // A blank document offers the button too (see {@link Viewer.sceneIsEmpty}).
     this.available = this.targetOptions.length > 0 || this.viewer.sceneIsEmpty;

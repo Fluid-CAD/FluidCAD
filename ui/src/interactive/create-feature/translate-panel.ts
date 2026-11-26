@@ -24,9 +24,10 @@ const AXIS_NAMES = ['X', 'Y', 'Z'] as const;
 
 /**
  * The translate dialog: a Move / Copy tab row (whether the originals stay —
- * the statement's `true` after the distances), the solids slot — filled from
- * whole-solid viewport picks (any face or edge click selects the owning
- * solid) or timeline rows, one numbered chip per solid being moved — and the
+ * the statement's `true` after the distances), the shapes slot — filled from
+ * whole-shape viewport picks (any face or edge click selects the owning
+ * solid, surface or curve) or timeline rows, one numbered chip per statement
+ * being moved — and the
  * X, Y and Z distance fields the viewport gizmo drives. The slot is the only
  * one, so it stays armed. Pure DOM + form state — the service owns scene
  * data, the gizmo, previews, and the apply call.
@@ -48,7 +49,7 @@ export class TranslatePanel extends FeaturePanel {
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="targets-slot"></div>
         <div class="flex flex-col gap-1.5"
-          title="How far the solids move along the world axes — drag the gizmo's arrows, planes or center, or click an arrow to type">
+          title="How far the shapes move along the world axes — drag the gizmo's arrows, planes or center, or click an arrow to type">
           <span class="text-base-content/70">Distance (X, Y, Z)</span>
           <div class="flex items-center gap-1.5">
             ${AXIS_NAMES.map(name => `
@@ -60,12 +61,12 @@ export class TranslatePanel extends FeaturePanel {
     });
 
     this.tabs = new ChoiceTabs<TranslateMode>(this.role('tabs'), [
-      { key: 'move', label: 'Move', title: 'Move the solids — translate(x, y, z, …)' },
+      { key: 'move', label: 'Move', title: 'Move the shapes — translate(x, y, z, …)' },
       { key: 'copy', label: 'Copy', title: 'Keep the originals and add moved copies — translate(x, y, z, true, …)' },
     ], 'move');
     this.tabs.onChange = () => this.onChange?.();
 
-    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Solids', multiple: true });
+    this.targetsSlot = new PickSlot(this.role('targets-slot'), { label: 'Shapes', multiple: true });
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
     this.distanceFields = AXIS_NAMES.map(name => this.enhance(`distance-${name.toLowerCase()}`));
@@ -105,7 +106,7 @@ export class TranslatePanel extends FeaturePanel {
       badge: String(index + 1),
       removable: true,
     })));
-    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids in the viewport');
+    this.targetsSlot.setPrompt(chips.length > 0 ? null : 'Pick solids, surfaces or curves in the viewport');
   }
 
   /** One distance field as it reads right now; null while it holds no valid value. */
@@ -156,7 +157,7 @@ export class TranslatePanel extends FeaturePanel {
 
   private openWithTargets(): void {
     this.setTargets([]);
-    // The solids slot is the dialog's only pick target — always armed.
+    // The shapes slot is the dialog's only pick target — always armed.
     this.targetsSlot.setArmed(true);
     this.shell.show();
   }

@@ -21,6 +21,7 @@ import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
+import { MODEL_KINDS } from '../../helpers/scene-utils';
 import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
 import {
   AXIS_UNAVAILABLE_MESSAGE, AxisOption, AxisRefs, axisLineShapeIds, axisOptionForLocation, axisOptionForShape,
@@ -318,7 +319,7 @@ export class CopyFeatureService {
     // At the boundary: rebuild options from the pre-statement scene.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, MODEL_KINDS);
     this.connectors.collect(sceneObjects);
     this.patternOptions = PatternOptions.collect(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
@@ -372,7 +373,7 @@ export class CopyFeatureService {
 
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
-    this.targetOptions = collectSolidTargets(sceneObjects);
+    this.targetOptions = collectSolidTargets(sceneObjects, MODEL_KINDS);
     this.connectors.collect(sceneObjects);
     this.patternOptions = PatternOptions.collect(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);

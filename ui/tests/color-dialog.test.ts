@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// The Color dialog: the Solid tab paints whole solids picked by any face or
-// edge click, the Face tab single faces with the synthesized selectors in
+// The Color dialog: the Shape tab paints whole solids and surfaces picked by
+// any face or edge click, the Face tab single faces with the synthesized selectors in
 // the expression row; the picks wear the chosen colour in the viewport; a
 // selection seeds the tab it fits; the colour field takes hex values,
 // names and swatches and blocks a value that is no colour; and the edit
@@ -100,7 +100,7 @@ function mount(seed: SelectedEntity[] = []) {
     setScene: (next: SceneObjectRender[]) => { rows = next; },
     chips,
     message: () => q('[data-role="message"]').textContent,
-    tab: (label: 'Solid' | 'Face') =>
+    tab: (label: 'Shape' | 'Face') =>
       [...container.querySelectorAll<HTMLButtonElement>('[data-role="tabs"] button')].find(b => b.textContent === label)!.click(),
     value: () => q<HTMLInputElement>('[data-role="value"]'),
     well: () => q<HTMLInputElement>('[data-role="well"]'),
@@ -150,7 +150,7 @@ describe('ColorValues', () => {
 });
 
 describe('ColorFeatureService', () => {
-  it('opens on the Solid tab: a face click picks the whole solid, tinted with the colour, and the apply names its statement', async () => {
+  it('opens on the Shape tab: a face click picks the whole solid, tinted with the colour, and the apply names its statement', async () => {
     const rig = mount();
     rig.service.enter();
     expect(rig.viewer.pickFilter).toBe('all');
@@ -220,7 +220,7 @@ describe('ColorFeatureService', () => {
     expect(vi.mocked(applyColor).mock.calls.filter(([options]) => !options.preview)).toHaveLength(0);
   });
 
-  it('seeds the Face tab from a face selection and the Solid tab from anything else', () => {
+  it('seeds the Face tab from a face selection and the Shape tab from anything else', () => {
     const faces = mount([FACE(1), FACE(3)]);
     faces.service.enter();
     expect(faces.chips('faces')).toHaveLength(2);

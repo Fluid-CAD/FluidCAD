@@ -425,7 +425,7 @@ describe('PartFeatureDialogs', () => {
     fakes.sweep.exit();
     fakes.sweep.edgePicking = false;
 
-    // The Color dialog's Face tab takes both as well; its Solid tab does not.
+    // The Color dialog's Face tab takes both as well; its Shape tab does not.
     arm('color');
     expect(registry.routeContextMenu('s1', FACE, 1, 2)).toBe(false);
     expect(registry.routeDoubleClick('s1', FACE)).toBe(false);

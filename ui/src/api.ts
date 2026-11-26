@@ -3766,7 +3766,7 @@ export async function applyBoolean(options: BooleanApplyOptions): Promise<ApplyF
 
 /**
  * What a colour paints: whole objects — the solid-bearing statements picked
- * in the viewport, by call site (the dialog's Solid tab) — or picked faces
+ * in the viewport, by call site (the dialog's Shape tab) — or picked faces
  * synthesized into selectors like a shell's (the Face tab).
  */
 export type ColorPaint =
@@ -5129,7 +5129,7 @@ export async function applyBooleanEdit(
 }
 
 /**
- * One target of an edited colour's Solid tab, in argument order: an
+ * One target of an edited colour's Shape tab, in argument order: an
  * untouched target by its position in the statement's own argument list, or
  * a re-picked solid statement by call site.
  */
@@ -5141,7 +5141,7 @@ export type ColorEditOptions = EditSessionFields & {
   /** The CSS colour to write, or the expression computing it; the dialog owns it outright. */
   value: string | FeatureExprValue;
   /**
-   * What replaces the statement's arguments, if anything: the Solid tab's
+   * What replaces the statement's arguments, if anything: the Shape tab's
    * full target list (empty makes the paint implicit), or the Face tab's
    * re-picked faces and/or edited expression. Absent keeps the statement's
    * own arguments.

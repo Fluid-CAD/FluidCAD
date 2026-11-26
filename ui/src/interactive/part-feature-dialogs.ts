@@ -295,7 +295,7 @@ export class PartFeatureDialogs {
     registry.register(new ServiceDialog('color', s.color, {
       edit: { rowTypes: ['color'], kind: 'color', open: (t, p, i) => s.color.enterEdit(t, p, i) },
       picking: (d) => d.isPicking,
-      // A face or edge selects its whole solid (Solid tab) or the face
+      // A face or edge selects its whole solid (Shape tab) or the face
       // itself (Face tab); the Face tab also takes the modify tools'
       // right-click groups and double-click bucket expansion.
       claims: {

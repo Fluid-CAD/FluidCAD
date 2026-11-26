@@ -80,9 +80,10 @@ export type CopyPanelOptions = {
 
 /**
  * The copy dialog: a Linear / Circular / Along a repeat type dropdown (the
- * copy kind), the targets slot — filled from whole-solid viewport picks (any
- * face or edge click selects the owning solid), connector gizmos, or timeline
- * rows, one numbered chip per solid or connector being copied — plus the
+ * copy kind), the targets slot — filled from whole-shape viewport picks (any
+ * face or edge click selects the owning solid, surface or curve), connector
+ * gizmos, or timeline rows, one numbered chip per statement or connector
+ * being copied — plus the
  * kind's inputs. "Along a repeat" (`copy(holes, bolt)`) copies connectors
  * onto a repeat's own instances: it shows a Pattern slot for the repeat and
  * none of the count, spacing, axis or skip fields, and is offered only while
@@ -96,7 +97,7 @@ export type CopyPanelOptions = {
  * angle. Both kinds end on a Skip field naming the instances to leave out by
  * index ({@link parseSkipEntries}). Exactly one slot is ARMED at a time —
  * clicked to activate, marked by the primary border (the sweep/loft idiom) —
- * and the viewer's pick channels follow it: the armed Solids slot takes
+ * and the viewer's pick channels follow it: the armed Shapes slot takes
  * whole-shape picks, an armed axis slot takes axis lines and solid edges.
  * Pure DOM + form state — the service owns scene data, the picked entities,
  * previews, and the apply call.
@@ -255,9 +256,9 @@ export class CopyPanel extends FeaturePanel {
       this.onChange?.();
     });
 
-    this.targetsPrompt = options.targetsPrompt ?? 'Pick solids or connectors in the viewport';
+    this.targetsPrompt = options.targetsPrompt ?? 'Pick solids, surfaces, curves or connectors in the viewport';
     this.targetsSlot = new PickSlot(this.role('targets-slot'), {
-      label: options.targetsLabel ?? 'Solids & connectors',
+      label: options.targetsLabel ?? 'Shapes & connectors',
       multiple: true,
     });
     this.targetsSlot.onArm = () => this.armSlot('targets');
@@ -658,7 +659,7 @@ export class CopyPanel extends FeaturePanel {
 
   /**
    * Arm one slot: it wears the primary border and the viewer's pick
-   * channels follow it — the armed Solids slot takes whole-shape picks, an
+   * channels follow it — the armed Shapes slot takes whole-shape picks, an
    * armed axis slot takes axis lines and solid edges. The service re-aims
    * the channels on every actual change.
    */

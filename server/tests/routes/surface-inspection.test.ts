@@ -8,7 +8,13 @@ import { TestCurves } from '../../../lib/tests/helpers/curves.ts';
 import { getSceneManager } from '../../../lib/scene-manager.ts';
 import sketch from '../../../lib/core/sketch.ts';
 import extrude from '../../../lib/core/extrude.ts';
-import { circle } from '../../../lib/core/2d/index.ts';
+import { circle, ellipse, line, spline } from '../../../lib/core/2d/index.ts';
+import loft from '../../../lib/core/loft.ts';
+import plane from '../../../lib/core/plane.ts';
+import { Explorer } from '../../../lib/oc/explorer.ts';
+import { SurfaceClassifier } from '../../../lib/oc/surface-classifier.ts';
+import { CurveClassifier } from '../../../lib/oc/curve-classifier.ts';
+import type { SceneObject } from '../../../lib/common/scene-object.ts';
 import { FluidCadServer } from '../../src/fluidcad-server/index.ts';
 import { createSceneRouter } from '../../src/routes/scene.ts';
 import { createPropertiesRouter } from '../../src/routes/properties.ts';
@@ -136,5 +142,42 @@ describe('surface and curve inspection routes', () => {
 
     const missing = await fetch(`${baseUrl}/api/edge-properties?shapeId=${curveId}&edgeIndex=3`);
     expect(missing.status).toBe(404);
+  });
+
+  it('face and edge properties name a free-form face and a spline, with recovered, closed and planar', async () => {
+    const base = sketch(plane('xy', 0), () => {
+      circle([0, 0], 40);
+    });
+    const top = sketch(plane('xy', 30), () => {
+      ellipse([0, 0], 5, 9);
+    });
+    const lofted = loft(base, top) as unknown as SceneObject;
+    sketch('xy', () => {
+      line([100, 0], [140, 0]);
+      line([140, 0], [140, 20]);
+      spline([140, 20], [126, 26], [114, 16], [100, 20]);
+      line([100, 20], [100, 0]);
+    });
+    const slab = extrude(10) as unknown as SceneObject;
+    fluidCadServer._setSceneForTesting(FIXTURE_FILE, render(), -1);
+
+    const loftShape = lofted.getShapes()[0];
+    const wall = Explorer.findFacesWrapped(loftShape).findIndex(f => SurfaceClassifier.classify(f).kind === 'freeform');
+    expect(wall).toBeGreaterThanOrEqual(0);
+    const face = await (await fetch(`${baseUrl}/api/face-properties?shapeId=${loftShape.id}&faceIndex=${wall}`)).json() as any;
+    expect(face).toMatchObject({ surfaceType: 'freeform', recovered: false, unit: 'mm' });
+    expect(face.areaMm2).toBeGreaterThan(0);
+
+    const slabShape = slab.getShapes()[0];
+    const edges = Explorer.findEdgesWrapped(slabShape);
+    const splineEdge = edges.findIndex(e => CurveClassifier.classify(e).kind === 'spline');
+    expect(splineEdge).toBeGreaterThanOrEqual(0);
+    const edge = await (await fetch(`${baseUrl}/api/edge-properties?shapeId=${slabShape.id}&edgeIndex=${splineEdge}`)).json() as any;
+    expect(edge).toMatchObject({ curveType: 'spline', closed: false, planar: true, unit: 'mm' });
+    expect(edge.length).toBeGreaterThan(0);
+
+    const rim = edges.findIndex(e => CurveClassifier.classify(e).kind === 'line');
+    const lineEdge = await (await fetch(`${baseUrl}/api/edge-properties?shapeId=${slabShape.id}&edgeIndex=${rim}`)).json() as any;
+    expect(lineEdge).toMatchObject({ curveType: 'line', closed: false, planar: true });
   });
 });

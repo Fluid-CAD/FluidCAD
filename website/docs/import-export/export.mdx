@@ -9,23 +9,35 @@ FluidCAD writes STEP, STL, DXF, SVG and PNG files. Export from the top bar, from
 
 ## From the top bar
 
-1. Click **Export** (the download icon at the right end of the top bar). The menu lists every solid in the scene with a thumbnail. In an assembly it leads with **Whole assembly**, and a part that holds more than one solid gets a **Whole part** entry above the solids.
+1. Click **Export** (the download icon at the right end of the top bar). The menu lists every solid and surface in the scene with a thumbnail. In an assembly it leads with **Whole assembly**, and a part that holds more than one of them gets a **Whole part** entry above the list.
 
    ![Export menu in a part](/img/docs/ui/export-menu.png)
 
-2. Choose a solid. The export dialog opens: pick **STEP**, **STL**, **DXF**, **SVG** or **PNG**, keep or drop colors, set the STL resolution, the DXF or SVG view or the PNG size, and click **Export**. The file downloads through the browser.
+2. Choose a solid or a surface. The export dialog opens: pick **STEP**, **STL**, **DXF**, **SVG** or **PNG**, keep or drop colors, set the STL resolution, the DXF or SVG view or the PNG size, and click **Export**. The file downloads through the browser.
 
 A STEP file includes geometry and color information and opens in any standard CAD tool (Fusion 360, SolidWorks, FreeCAD, etc.). A [DXF or SVG](#dxf-and-svg) is a 2D drawing of the solid seen from one side.
 
+## Surfaces and curves
+
+| Format | Solids | Surfaces | Curves |
+|--------|--------|----------|--------|
+| STEP | Yes | Yes, with their colors | No |
+| STL | Yes | No | No |
+| DXF, SVG | Yes | No | No |
+
+A surface encloses no volume, so an STL mesh or a drawing has nothing to show of it. When an STL, DXF or SVG export leaves surfaces out, the dialog says how many after the export, for example "1 surface left out: a surface encloses no volume." Exporting surfaces alone to one of those formats is refused with a message to export them as STEP.
+
+Curves are construction geometry and are never exported.
+
 ## Parts with several solids
 
-A part can build more than one solid, such as a box and its lid modelled in place. The Export menu then leads with **Whole part**, above the solids. Choosing it writes all of the part's solids into one file, placed as the part has them: **STEP** keeps them as separate solids, **STL** merges them into one mesh. Choosing a solid below still writes that solid alone.
+A part can build more than one solid, such as a box and its lid modelled in place. The Export menu then leads with **Whole part**, above the solids. Choosing it writes all of the part's solids and surfaces into one file, placed as the part has them: **STEP** keeps them as separate solids and surfaces, **STL** merges the solids into one mesh. Choosing a solid below still writes that solid alone.
 
 When a file holds several parts, each part with more than one solid gets its own entry, named after it: **Whole part (Lid)**. In an assembly these entries follow **Whole assembly**.
 
 ## From the Shapes panel
 
-Open the **Shapes** panel, hover the solid's row, and choose **Export** from its menu. It opens the same dialog with that solid preselected.
+Open the **Shapes** panel, hover the solid's or surface's row, and choose **Export** from its menu. It opens the same dialog with that shape preselected.
 
 ## Assemblies
 
@@ -45,7 +57,7 @@ An assembly with [configurations](/docs/assembly/configurations) adds a **Config
 
 A part with [configurations](/docs/part/configurations) gets the same **Configuration** select in its export dialog, set to the row on screen, with **All configurations (.zip)** after the rows. The files are named after the part's file: `bracket.step`, `bracket-M8.step`, `bracket-configurations.zip`.
 
-- **File ▸ Export…** in the desktop app exports every solid the chosen configuration builds, so a row that adds or leaves out a body exports exactly its own bodies.
+- **File ▸ Export…** in the desktop app exports every solid and surface the chosen configuration builds, so a row that adds or leaves out a body exports exactly its own bodies.
 - **Whole part** does the same when the part's solids are all the file builds. When other parts of the file build solids too, it exports the part's solids on screen, each found in the chosen configuration like a picked solid.
 - A solid picked from the top bar's Export menu or the Shapes panel is found in the chosen configuration by its history. If that configuration does not build it, the export is refused with a message naming the solid, rather than exporting a different body.
 - **All configurations** is all or nothing: if any row fails, no zip is delivered.
@@ -115,7 +127,7 @@ STEP files carry their unit, so a STEP export is physically correct whatever the
 The same exports run from a terminal, which is what you want for build scripts and CI:
 
 ```bash
-npx fluidcad export step                     # every solid → <entry>.step
+npx fluidcad export step                     # every solid and surface → <entry>.step
 npx fluidcad export stl --resolution fine -o parts/bracket.stl
 npx fluidcad export dxf --plane top          # the top view → <entry>-top.dxf
 npx fluidcad export svg --plane front        # the front view → <entry>-front.svg

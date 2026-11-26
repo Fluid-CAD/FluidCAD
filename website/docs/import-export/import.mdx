@@ -13,7 +13,7 @@ A 2D drawing is imported into a sketch instead: the sketch toolbar's **DXF** and
 
 1. Click **Import** (the file icon at the right end of the top bar, next to Export). On a narrow window it sits in the **Actions** menu.
 2. Pick a `.step` or `.stp` file. FluidCAD converts it and saves it as `imports/<filename>.brep` in your project folder.
-3. A `load()` statement is appended to the current file and the imported solid appears in the viewport with a **Load** row in the History panel. Colors stored in the STEP file are kept.
+3. A `load()` statement is appended to the current file and the imported geometry appears in the viewport with a **Load** row in the History panel. Colors stored in the STEP file are kept.
 
 The project structure looks like this after importing:
 
@@ -25,6 +25,21 @@ my-hinge/
 └── package.json
 ```
 
+## What is imported
+
+| In the STEP file | In FluidCAD |
+|------------------|-------------|
+| Solids | One solid each. |
+| Surfaces: connected faces that enclose no volume | One surface each, shaded, with its open rim drawn in the accent color. You can hover and pick its faces and edges from either side. |
+| A face on its own | A surface of one face. |
+| Curves: edges that bound no face | One curve each. |
+| Face colors | Kept on solids and surfaces. |
+| Loose points and annotations | Not imported. |
+
+A STEP file stores a curve of several edges as separate edges, so a curve that was one chain in the program that wrote it arrives as one curve per edge.
+
+The cached `.brep` is what the file held when you imported it. A cache that holds only solids gains the file's surfaces and curves when you import the file again: click **Import** and pick the same file. The `load()` statement stays as it is.
+
 ## The code behind it
 
 ```js
@@ -34,6 +49,18 @@ const bracket = load("bracket");   // loads imports/bracket.brep
 ```
 
 `load()` takes the file name without its extension and returns a scene object you can transform, select from, and mate against like a modelled solid.
+
+## Loading part of a file
+
+`.include()` keeps only the shapes at the indices you list, and `.exclude()` drops them. The indices count every solid of the file first, then every surface, then every curve, so a solid keeps its index whatever else the file holds:
+
+```js
+import { load } from 'fluidcad/core';
+
+load("pump").include(0);      // the first solid only
+load("pump").exclude(2, 3);   // everything but the shapes at 2 and 3
+load("pump").noColors();      // the geometry without the file's colors
+```
 
 ## Placing the imported geometry
 

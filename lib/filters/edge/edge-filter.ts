@@ -6,6 +6,11 @@ import { FilterBuilderBase } from "../filter-builder-base.js";
 import { CircleFilter, NotCircleFilter } from "./circle-filter.js";
 import { ArcFilter, NotArcFilter } from "./curve-filter.js";
 import { LineFilter, NotLineFilter } from "./line-filter.js";
+import { EllipseFilter, NotEllipseFilter } from "./ellipse-filter.js";
+import { SplineFilter, NotSplineFilter } from "./spline-filter.js";
+import { ClosedFilter, NotClosedFilter } from "./closed-filter.js";
+import { OpenFilter, NotOpenFilter } from "./open-filter.js";
+import { PlanarCurveFilter, NotPlanarCurveFilter } from "./planar-filter.js";
 import { NotOnPlaneFilter, OnPlaneFilter } from "./on-plane.js";
 import { ParallelPlaneFilter, NotParallelPlaneFilter } from "./parallel.js";
 import { NotVerticalFilter, VerticalFilter } from "./vertical-plane.js";
@@ -297,6 +302,87 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   notLine(length?: number) {
     const filter = new NotLineFilter(length);
     this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects elliptical edges — a full ellipse or an arc of one, such as the
+   * rim of a cylinder cut at a slant. Combine with {@link closed} or
+   * {@link open} to tell the two apart. Geometry decides, not the kernel's
+   * storage: a B-spline edge that traces an ellipse counts as one.
+   */
+  ellipse() {
+    this.filters.push(new EllipseFilter());
+    return this;
+  }
+
+  /** Excludes elliptical edges, full or arcs. */
+  notEllipse() {
+    this.filters.push(new NotEllipseFilter());
+    return this;
+  }
+
+  /**
+   * Selects free-form edges — the curve of a sketch spline, a loft's or a
+   * sweep's free-form rim, a helix — that are no line, arc, circle or
+   * ellipse. A B-spline edge that traces one of those is that kind, not a
+   * spline.
+   */
+  spline() {
+    this.filters.push(new SplineFilter());
+    return this;
+  }
+
+  /** Excludes free-form (spline) edges. */
+  notSpline() {
+    this.filters.push(new NotSplineFilter());
+    return this;
+  }
+
+  /**
+   * Selects closed edges — ones that return to their start: a full circle,
+   * a full ellipse, a closed spline. The complement of {@link open}.
+   */
+  closed() {
+    this.filters.push(new ClosedFilter());
+    return this;
+  }
+
+  /** Excludes closed edges; the same as {@link open}. */
+  notClosed() {
+    this.filters.push(new NotClosedFilter());
+    return this;
+  }
+
+  /**
+   * Selects open edges — ones whose ends are apart: every line, every arc,
+   * an open spline. The complement of {@link closed}.
+   */
+  open() {
+    this.filters.push(new OpenFilter());
+    return this;
+  }
+
+  /** Excludes open edges; the same as {@link closed}. */
+  notOpen() {
+    this.filters.push(new NotOpenFilter());
+    return this;
+  }
+
+  /**
+   * Selects edges that lie in one plane. Every line, arc, circle and ellipse
+   * does, so it earns its keep next to {@link spline}: `edge().spline().planar()`
+   * keeps the splines drawn in a sketch and leaves out a helix or a curve
+   * that winds through space.
+   */
+  planar() {
+    this.filters.push(new PlanarCurveFilter());
+    return this;
+  }
+
+  /** Excludes edges that lie in one plane, keeping the curves that wind through space. */
+  notPlanar() {
+    this.filters.push(new NotPlanarCurveFilter());
     return this;
   }
 

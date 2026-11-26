@@ -427,15 +427,6 @@ export function renderConnectorAdjustments(options: ConnectorSynthesisOptions | 
   return out;
 }
 
-/**
- * Chain-root callees the code transform accepts at a producer's source line.
- * Guards against binding a variable to a wrapper call (e.g. `repeat(...)`)
- * whose line a clone inherited.
- */
-export const PRODUCER_CALLEES = [
-  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'helix',
-] as const;
-
 /** Idiomatic variable base name per producer feature type. */
 export function nameHintFor(featureType: string): string {
   switch (featureType) {

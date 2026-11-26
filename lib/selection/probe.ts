@@ -92,7 +92,7 @@ export function probeEdge(edge: Edge, owner: Shape | null): EdgeProbe {
     props,
     lineOrCircular: EdgeQuery.isLineOrCircular(edge),
     bodyKind: body ? bodyKindOf(body) : null,
-    ends: edgeEndPoints(edge),
+    ends: [...EdgeOps.endPoints(edge)],
     mid: EdgeOps.getEdgeMidPoint(edge),
     center: ShapeMeasure.centerOfMass(edge),
     size: ShapeMeasure.size(edge),
@@ -111,7 +111,7 @@ export function probeFace(face: Face, owner: Shape | null): FaceProbe {
   const points: Point[] = [];
   for (const edge of edges) {
     edgeProps.push(EdgeProps.of(edge));
-    points.push(...edgeEndPoints(edge));
+    points.push(...EdgeOps.endPoints(edge));
     points.push(EdgeOps.getEdgeMidPoint(edge));
   }
   return {
@@ -131,17 +131,4 @@ function bodyOf(owner: Shape | null): BodyShape | null {
 /** A body's kind, as `BodyKindFilter` reads it. */
 export function bodyKindOf(body: Shape): BodyKind {
   return body.isSolid() ? 'solid' : 'surface';
-}
-
-/** Endpoint samples of an edge — the points `above`/`below` filters test. */
-export function edgeEndPoints(edge: Edge): Point[] {
-  return [
-    EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(edge)),
-    EdgeOps.getVertexPoint(EdgeOps.getLastVertex(edge)),
-  ];
-}
-
-/** Boundary vertex samples of a face — what its `above`/`below` filters test. */
-export function faceBoundaryPoints(face: Face): Point[] {
-  return face.getEdges().flatMap(edge => edgeEndPoints(edge));
 }

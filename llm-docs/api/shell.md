@@ -38,6 +38,12 @@ at the cornered end: for `l = loft(square, round)`,
 fails. A loft between round profiles (circles, ellipses) has no such corner
 and hollows from either end.
 
+**Solids only.** A face selection that holds a face of a surface (an
+imported STEP surface from [[api/load]]) is a build error: `shell: face
+selection 1 holds a surface face; shell works on solids.` Add `.ofSolid()`
+to an unscoped face filter (`select(face().ofSolid()…)`, see
+[[api/face-filter]]) to keep only the solids' faces.
+
 ## Example
 
 ```fluid.js

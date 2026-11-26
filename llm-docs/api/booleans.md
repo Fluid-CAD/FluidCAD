@@ -23,6 +23,13 @@ The no-argument forms operate on the implicit last objects in scope; the
 explicit forms operate on the arguments you pass. These are 3D-only —
 inside a sketch they throw (the 2D booleans were removed).
 
+**Solids only.** A named operand that stands for a surface and no solid
+(an imported STEP surface from [[api/load]]) is a build error:
+`fuse: operand 2 is a surface; fuse works on solids.` (`subtract` names
+its operands `first operand` / `second operand`). An operand holding a
+solid beside a surface gives its solids. The no-argument forms read the
+solids in scope and leave surfaces alone.
+
 A named operand stands for the body it built wherever later features
 left it: `subtract(e, tool)` after a fillet or a move of `e` cuts the
 body as it is now (see [[concepts/scene-graph]]).

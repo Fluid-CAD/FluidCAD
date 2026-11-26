@@ -1,12 +1,12 @@
 ---
 sidebar_position: 9
 title: "fuse"
-description: "Fuses all shapes in the current context."
+description: "Fuses all solids in the current context; surfaces are left alone."
 ---
 
 # fuse()
 
-Fuses all shapes in the current context.
+Fuses all solids in the current context; surfaces are left alone.
 
 **Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
 
@@ -20,7 +20,7 @@ See the [guide](/docs/booleans/introduction) for detailed usage examples.
 fuse(): Fuse
 ```
 
-Fuses all shapes in the current context.
+Fuses all solids in the current context; surfaces are left alone.
 
 ---
 
@@ -28,8 +28,8 @@ Fuses all shapes in the current context.
 fuse(...objects: SceneObject[]): Fuse
 ```
 
-Fuses the given shapes into one.
+Fuses the given solids into one.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to fuse together *(optional)* |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to fuse together — solids; an object that stands for a surface and no solid is refused *(optional)* |

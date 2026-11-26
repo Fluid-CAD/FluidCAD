@@ -1,7 +1,7 @@
 ---
 id: api/color
 title: color(value, ...selections)
-summary: Paints faces or whole objects — any number of face selections and scene objects. Accepts CSS color strings (named, hex, rgb). Without a target, paints the last selection, or every face in the current context when there is no selection. Changes no geometry and never consumes a selection; the last color() wins per face.
+summary: Paints faces or whole objects — any number of face selections and scene objects; a whole object paints every face of its solids and surfaces. Accepts CSS color strings (named, hex, rgb). Without a target, paints the last selection, or every face of every solid and surface in scope when there is no selection. Changes no geometry and never consumes a selection; the last color() wins per face.
 tags: [api, utility, appearance]
 symbols: [color]
 seeAlso: [api/select, api/face-filter]
@@ -19,10 +19,16 @@ color(value: string, ...selections: SceneObject[])  // face selections and/or wh
 Accepts named CSS colors (`"red"`), hex (`"#3498db"`), or `rgb(...)`.
 With no explicit target, paints the last selection — pair with
 `select(...)` or a direct accessor like `e.endFaces()`. When there is no
-selection at all, it paints every face in the current context, exactly as if
-you had written `select(face())` first. Several targets paint in one
-statement: `color("silver", body, lid)` paints both solids whole,
+selection at all, it paints every face of every solid and surface in scope,
+exactly as if you had written `select(face())` first. Several targets paint
+in one statement: `color("silver", body, lid)` paints both solids whole,
 `color("gold", body.endFaces(), lid.endFaces())` their end faces.
+
+Surfaces (from [[api/load]]) paint like solids: a whole object paints every
+face of its solids and surfaces, and a face selection on a surface paints
+that face. A curve has no face, so it takes no colour. A selected face that
+no body in scope holds is a build error: `color: no solid or surface in
+scope holds a selected face.`
 
 A colour changes no geometry, so `color()` holds no solid and never consumes
 a selection: `const top = select(face().top()); color("red", top);

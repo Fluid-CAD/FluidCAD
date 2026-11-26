@@ -80,6 +80,13 @@ axis, options, bolt), or copy(<this repeat>, bolt) to follow it`. Repeat
 the hole, then lay the connector on its instances with
 `copy(holes, bolt)` (see [[api/copy]]).
 
+## Repeating a load
+
+`repeat()` also takes a `load()` statement ([[api/load]]): each instance
+reads the imported asset again and places it by the instance's transform,
+so `repeat("circular", "z", { count: 4, angle: 360 }, load("bolt"))` puts
+four copies of the file's shapes around Z.
+
 ## One instance's faces and edges
 
 `r.instance(k)` is the geometry the repeat placed at slot `k` (see

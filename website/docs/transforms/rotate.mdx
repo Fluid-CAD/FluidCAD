@@ -42,13 +42,15 @@ For more than a couple of copies use a circular [copy](/docs/patterns/copy) or [
 ```js
 import { rotate } from 'fluidcad/core';
 
-rotate("z", 45)                    // turn the last object 45° around world Z
+rotate("z", 45)                    // turn every solid and surface in scope 45° around world Z
 rotate("z", 45, body)              // turn a specific solid
 rotate("z", 45, true, body)        // copy instead of move
 rotate(a, 90, p1, p2)              // around an axis() feature, several targets
 ```
 
 The axis is anything axis-like: `"x"` / `"y"` / `"z"`, an `axis()` feature (offset or tilted from a world axis, read from an edge, or midway between two — see [Axes](/docs/datums/axes)), or an edge selection. Angles are in degrees.
+
+Targets follow the same rule as [translate](/docs/transforms/translate#code-forms): with none, every solid and surface in scope turns, and sketch geometry and curves stay where they are; a named target turns its bodies and any curves it holds (a helix, an imported curve, a sketch). A target that holds only a face selection or a point is an error on the row.
 
 ## Inside a sketch
 

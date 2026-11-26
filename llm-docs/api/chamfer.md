@@ -21,6 +21,20 @@ chamfer(d1, d2, isAngle, ...sceneObjects)
 Returns a `SceneObject`. Operates on the last selection when no edges
 are passed, just like [[api/fillet]].
 
+## Surface edges are refused
+
+`chamfer()` works on solids. An edge selection that holds an edge of a surface
+(an imported STEP surface from [[api/load]]) is a build error —
+`chamfer: edge selection 1 holds a surface edge; chamfer works on solids.` An
+unscoped `select(edge()…)` in a model with a surface picks up its edges
+too; keep only the solids' edges with `.ofSolid()` (see
+[[api/edge-filter]]):
+
+```js
+select(edge().ofSolid().verticalTo("xy"));
+chamfer(2);
+```
+
 ## When to reach for chamfer vs fillet
 
 Chamfers are cheaper computationally and faster to spec from a drawing —

@@ -38,6 +38,8 @@ my-hinge/
 
 A STEP file stores a curve of several edges as separate edges, so a curve that was one chain in the program that wrote it arrives as one curve per edge.
 
+Translate, rotate and mirror move surfaces and curves, and [color](/docs/appearance/color) paints surfaces; a sketch can [project](/docs/sketching/tools/project) a surface's rim or a curve. Booleans, fillet, chamfer, shell, draft and split work on solids only and report an error when handed a surface. Moves without targets take the surfaces with the solids, but curves move only when named — see [Translate](/docs/transforms/translate#code-forms).
+
 The cached `.brep` is what the file held when you imported it. A cache that holds only solids gains the file's surfaces and curves when you import the file again: click **Import** and pick the same file. The `load()` statement stays as it is.
 
 ## The code behind it
@@ -75,6 +77,8 @@ translate(0, -50, 25)
 ```
 
 See [Transforms](/docs/transforms/introduction).
+
+A `load()` can also be repeated or mirrored with [repeat](/docs/patterns/repeat): each instance reads the file again and places it by the instance's move.
 
 ## Sharing
 

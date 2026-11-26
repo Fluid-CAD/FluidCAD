@@ -73,6 +73,8 @@ project(layout, e.endEdges())      // a previous sketch next to 3D sources
 
 Projections usually carry `.guide()` so the outline stays out of the profile and only the geometry built against it is extruded or cut.
 
+A curve made of several edges projects every edge. A surface from an [imported STEP file](/docs/import-export/import), passed whole, projects its open rim — its boundary edges. Projecting a solid or a surface never uses it up: it stays in the model for later features.
+
 ## Constraining against a projection
 
 A projection is a first-class constraint target:

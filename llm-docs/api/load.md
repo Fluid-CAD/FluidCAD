@@ -71,6 +71,14 @@ out ("1 surface left out: a surface encloses no volume."); asking them for
 surfaces alone is refused with a hint to export as STEP. Curves are never
 exported.
 
+## Repeating a load
+
+A `load()` statement can be repeated or mirrored like a feature:
+`repeat("linear", "x", { count: 3, offset: 50 }, l)` or
+`repeat("mirror", "yz", l)` for `const l = load("bracket")`. Each instance
+reads the asset again and is placed by the instance's transform, with the
+file's colours.
+
 ## Example
 
 ```js

@@ -13,21 +13,21 @@ interface TranslateFunction {
   /**
    * Translates objects along the X axis.
    * @param x - The X distance
-   * @param targets - The objects to translate (defaults to last object)
+   * @param targets - The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named)
    */
   (x: NumberParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects along the X axis, optionally making a copy.
    * @param x - The X distance
    * @param copy - Whether to copy instead of move
-   * @param targets - The objects to translate (defaults to last object)
+   * @param targets - The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named)
    */
   (x: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects along the X and Y axes.
    * @param x - The X distance
    * @param y - The Y distance
-   * @param targets - The objects to translate (defaults to last object)
+   * @param targets - The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named)
    */
   (x: NumberParam, y: NumberParam, ...targets: ISceneObject[]): ITranslate;
   /**
@@ -35,7 +35,7 @@ interface TranslateFunction {
    * @param x - The X distance
    * @param y - The Y distance
    * @param copy - Whether to copy instead of move
-   * @param targets - The objects to translate (defaults to last object)
+   * @param targets - The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named)
    */
   (x: NumberParam, y: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): ITranslate;
   /**
@@ -43,7 +43,7 @@ interface TranslateFunction {
    * @param x - The X distance
    * @param y - The Y distance
    * @param z - The Z distance
-   * @param targets - The objects to translate (defaults to last object)
+   * @param targets - The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named)
    */
   (x: NumberParam, y: NumberParam, z: NumberParam, ...targets: ISceneObject[]): ITranslate;
   /**
@@ -52,20 +52,20 @@ interface TranslateFunction {
    * @param y - The Y distance
    * @param z - The Z distance
    * @param copy - Whether to copy instead of move
-   * @param targets - The objects to translate (defaults to last object)
+   * @param targets - The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named)
    */
   (x: NumberParam, y: NumberParam, z: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects by a point-like offset.
    * @param distance - The offset as a point
-   * @param targets - The objects to translate (defaults to last object)
+   * @param targets - The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named)
    */
   (distance: PointLike, ...targets: ISceneObject[]): ITranslate;
   /**
    * Translates objects by a point-like offset, optionally making a copy.
    * @param distance - The offset as a point
    * @param copy - Whether to copy instead of move
-   * @param targets - The objects to translate (defaults to last object)
+   * @param targets - The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named)
    */
   (distance: PointLike, copy: boolean, ...targets: ISceneObject[]): ITranslate;
 }

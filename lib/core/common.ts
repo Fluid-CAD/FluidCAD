@@ -4,11 +4,11 @@ import { Common } from "../features/common.js";
 import { ICommon, ISceneObject } from "./interfaces.js";
 
 interface CommonFunction {
-  /** Computes the common (intersection) of all shapes in the current context. */
+  /** Computes the common (intersection) of all solids in the current context; surfaces are left alone. */
   (): ICommon;
   /**
-   * Computes the common (intersection) of the given shapes.
-   * @param objects - The objects to intersect
+   * Computes the common (intersection) of the given solids.
+   * @param objects - The objects to intersect — solids; an object that stands for a surface and no solid is refused
    */
   (...objects: ISceneObject[]): ICommon;
 }

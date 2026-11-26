@@ -65,6 +65,15 @@ fillet(5)                      // fillets the selected vertical edges
 
 See [Selection and filters](/docs/3d-operations/selection-and-filters) for the filters.
 
+:::note[Only edges of solids]
+Fillet rounds solids. In a model that also holds a surface — from an [imported STEP file](/docs/import-export/import) — an unscoped `select(edge())` picks up the surface's edges too, and the fillet stops with `fillet: edge selection 1 holds a surface edge; fillet works on solids.` Add `.ofSolid()` to the filter to keep only the solids' edges:
+
+```js
+select(edge().ofSolid().verticalTo("xy"))
+fillet(5)
+```
+:::
+
 :::tip[Rounding a sketch corner instead]
 This page is about rounding the edges of a solid. To round a corner *inside* a sketch — trimming two lines and inserting a tangent arc before anything is extruded — use the sketcher's own tool, described on the [sketch Fillet tool](/docs/sketching/tools/fillet) page.
 :::

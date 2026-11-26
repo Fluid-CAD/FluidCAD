@@ -89,6 +89,20 @@ select(edge().verticalTo("xy"));
 fillet(2);                                // last-selection form
 ```
 
+## Surface edges are refused
+
+`fillet()` works on solids. An edge selection that holds an edge of a surface
+(an imported STEP surface from [[api/load]]) is a build error —
+`fillet: edge selection 1 holds a surface edge; fillet works on solids.` An
+unscoped `select(edge()…)` in a model with a surface picks up its edges
+too; keep only the solids' edges with `.ofSolid()` (see
+[[api/edge-filter]]):
+
+```js
+select(edge().ofSolid().verticalTo("xy"));
+fillet(2);
+```
+
 ## When to reach for chamfer instead
 
 For a manufacturing edge break, `chamfer` is usually faster computationally

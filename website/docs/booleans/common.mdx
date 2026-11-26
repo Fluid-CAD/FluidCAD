@@ -49,7 +49,9 @@ import { common } from 'fluidcad/core';
 
 common(a, b)        // the overlap of two solids
 common(a, b, c)     // the volume inside all three
-common()            // every solid in the current context
+common()            // every solid in the current context; surfaces are left alone
 ```
+
+Common works on solids. An operand that stands for a surface and no solid — an [imported](/docs/import-export/import) surface — is an error on the row: `common: operand 1 is a surface; common works on solids.`
 
 Solids that do not overlap have nothing in common, so the result would be empty. Rather than leave you with a silently missing body, the feature reports it as an error on its timeline row.

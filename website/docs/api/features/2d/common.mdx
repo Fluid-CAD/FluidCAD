@@ -1,12 +1,12 @@
 ---
 sidebar_position: 32
 title: "common"
-description: "Computes the common (intersection) of all shapes in the current context."
+description: "Computes the common (intersection) of all solids in the current context; surfaces are left alone."
 ---
 
 # common()
 
-Computes the common (intersection) of all shapes in the current context.
+Computes the common (intersection) of all solids in the current context; surfaces are left alone.
 
 **Returns**: [**`Common`**](/docs/api/types/common)
 
@@ -20,7 +20,7 @@ See the [guide](/docs/booleans/introduction) for detailed usage examples.
 common(): Common
 ```
 
-Computes the common (intersection) of all shapes in the current context.
+Computes the common (intersection) of all solids in the current context; surfaces are left alone.
 
 ---
 
@@ -28,8 +28,8 @@ Computes the common (intersection) of all shapes in the current context.
 common(...objects: SceneObject[]): Common
 ```
 
-Computes the common (intersection) of the given shapes.
+Computes the common (intersection) of the given solids.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to intersect *(optional)* |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to intersect — solids; an object that stands for a surface and no solid is refused *(optional)* |

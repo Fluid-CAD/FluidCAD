@@ -20,6 +20,11 @@ Returns `Draft`. Tilts the selected faces by `angle` degrees. Use it for
 mold-release surfaces or any side wall that needs a taper distinct from
 its base extrusion.
 
+`draft()` works on solids. A selection that holds a face of a surface (an
+imported STEP surface from [[api/load]]) is a build error: `draft:
+selection 1 holds a surface face; draft works on solids.` Scope an unscoped
+face filter with `.ofSolid()` ([[api/face-filter]]).
+
 For draft applied during the pull itself, reach for
 `extrude(d).draft(angle)` — the inline form is usually less plumbing.
 

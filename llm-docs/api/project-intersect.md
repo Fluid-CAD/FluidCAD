@@ -27,6 +27,10 @@ Both operate inside a sketch context and return `ExtrudableGeometry`.
 - `intersect(obj)` cuts the sketch plane through `obj` and returns the
   cross-section edges where they meet.
 
+`project()` of a curve made of several edges projects every edge. `project()` of a surface (an imported STEP surface
+from [[api/load]]) projects its open rim — its boundary edges. Projecting
+a body never consumes it: the solid or surface stays in the model.
+
 In a constraint sketch the result registers as a **fixed reference
 entity**: the solver never moves it, and your sketch geometry can be
 constrained against it — `tangent(bore, l)` when the reference is a

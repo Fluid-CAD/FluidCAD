@@ -67,6 +67,8 @@ shell(-3, e.endFaces(), e.startFaces())   // open on top and bottom
 
 With no faces at all, `shell()` takes the last selection — the [Selection and filters](/docs/3d-operations/selection-and-filters) page covers how those are written.
 
+Shell hollows solids only. A face of a surface — from an [imported STEP file](/docs/import-export/import) — in the selection is an error on the row: `shell: face selection 1 holds a surface face; shell works on solids.` In a model that holds a surface, add `.ofSolid()` to a face filter (`select(face().ofSolid()…)`) to keep only the solids' faces.
+
 ## Accessing geometry
 
 ```js

@@ -65,6 +65,10 @@ Fuse and Common have one **Solids** slot that holds as many chips as you like, n
 
 Every boolean uses up its inputs. The solids you picked leave the Shapes panel and the result takes their place, so a solid can only feed one boolean.
 
+:::note[Booleans work on solids]
+A surface from an [imported STEP file](/docs/import-export/import) encloses no volume, so there is nothing to add, keep or remove. Naming one as an operand is an error on the row, such as `fuse: operand 2 is a surface; fuse works on solids.` A boolean with no operands reads only the solids in scope and leaves surfaces alone. Features made on the **Add** or **Remove** tab never touch a surface either.
+:::
+
 ## Which one do I want?
 
 | What you are doing | Use this |

@@ -25,7 +25,7 @@ Translates objects along the X axis.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `x` | NumberParam | The X distance |
-| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named) *(optional)* |
 
 ---
 
@@ -39,7 +39,7 @@ Translates objects along the X axis, optionally making a copy.
 |-----------|------|-------------|
 | `x` | NumberParam | The X distance |
 | `copy` | BooleanParam | Whether to copy instead of move |
-| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named) *(optional)* |
 
 ---
 
@@ -53,7 +53,7 @@ Translates objects along the X and Y axes.
 |-----------|------|-------------|
 | `x` | NumberParam | The X distance |
 | `y` | NumberParam | The Y distance |
-| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named) *(optional)* |
 
 ---
 
@@ -68,7 +68,7 @@ Translates objects along the X and Y axes, optionally making a copy.
 | `x` | NumberParam | The X distance |
 | `y` | NumberParam | The Y distance |
 | `copy` | BooleanParam | Whether to copy instead of move |
-| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named) *(optional)* |
 
 ---
 
@@ -83,7 +83,7 @@ Translates objects along all three axes.
 | `x` | NumberParam | The X distance |
 | `y` | NumberParam | The Y distance |
 | `z` | NumberParam | The Z distance |
-| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named) *(optional)* |
 
 ---
 
@@ -99,7 +99,7 @@ Translates objects along all three axes, optionally making a copy.
 | `y` | NumberParam | The Y distance |
 | `z` | NumberParam | The Z distance |
 | `copy` | BooleanParam | Whether to copy instead of move |
-| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named) *(optional)* |
 
 ---
 
@@ -112,7 +112,7 @@ Translates objects by a point-like offset.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `distance` | [PointLike](/docs/api/types/point-like) | The offset as a point |
-| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named) *(optional)* |
 
 ---
 
@@ -126,4 +126,4 @@ Translates objects by a point-like offset, optionally making a copy.
 |-----------|------|-------------|
 | `distance` | [PointLike](/docs/api/types/point-like) | The offset as a point |
 | `copy` | boolean | Whether to copy instead of move |
-| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate (defaults to last object) *(optional)* |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The objects to translate: their solids, surfaces and curves move (defaults to every solid and surface in scope; curves move only when named) *(optional)* |

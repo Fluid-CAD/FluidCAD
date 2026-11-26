@@ -32,7 +32,7 @@ To change an existing colour, double-click its timeline row. The dialog reopens 
 
 ## Colouring a selection
 
-`color()` with one argument paints the last selection. With no selection at all it paints every face in the current context:
+`color()` with one argument paints the last selection. With no selection at all it paints every face of every solid and surface in scope:
 
 ```js
 select(face().parallelTo("xy"))
@@ -44,7 +44,7 @@ color("silver")                // every cylindrical face
 
 ## Colouring a whole object
 
-Pass a scene object instead of faces and every face of its solids is painted — the quickest way to give a part a base colour, which single faces can then override:
+Pass a scene object instead of faces and every face of its solids and surfaces is painted — the quickest way to give a part a base colour, which single faces can then override:
 
 ```js
 const body = extrude(30)
@@ -60,6 +60,8 @@ One statement takes any number of targets — several objects, several selection
 color("silver", body, lid)              // both solids
 color("gold", body.endFaces(), lid.endFaces())
 ```
+
+A surface from an [imported STEP file](/docs/import-export/import) paints like a solid: passing the object paints every face of its solids and surfaces, and a face picked on a surface paints that face. A curve has no faces and takes no colour. A selected face that no solid or surface in scope holds is an error on the row: `color: no solid or surface in scope holds a selected face.`
 
 ## Colour and appearance
 

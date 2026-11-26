@@ -70,12 +70,14 @@ mirror(axis: AxisLike, ...geometries: SceneObject[]): IMirror2D
 mirror(plane: PlaneLike, ...objects: SceneObject[]): Mirror
 ```
 
-[3D] Mirror given shapes across a given plane.
+[3D] Mirror given shapes across a given plane. A mirrored solid follows the
+add / new / remove mode; the image of a surface or a curve is always a
+separate body.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The plane to mirror across |
-| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The shapes to mirror *(optional)* |
+| `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to mirror: their solids, surfaces and the curves they hold *(optional)* |
 
 
 :::note

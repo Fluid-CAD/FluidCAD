@@ -12,7 +12,7 @@ interface RotateFunction {
    * Rotates objects around an axis by an angle.
    * @param axis - The axis to rotate around — a world axis, an `axis()`, or a connector (its Z axis through its origin)
    * @param angle - The rotation angle in degrees
-   * @param targets - The objects to rotate (defaults to last object)
+   * @param targets - The objects to rotate: their solids, surfaces and curves turn (defaults to every solid and surface in scope; curves turn only when named)
    */
   (axis: AxisLike | IConnector, angle: NumberParam, ...targets: ISceneObject[]): IRotate;
   /**
@@ -20,7 +20,7 @@ interface RotateFunction {
    * @param axis - The axis to rotate around — a world axis, an `axis()`, or a connector (its Z axis through its origin)
    * @param angle - The rotation angle in degrees
    * @param copy - Whether to copy instead of move
-   * @param targets - The objects to rotate (defaults to last object)
+   * @param targets - The objects to rotate: their solids, surfaces and curves turn (defaults to every solid and surface in scope; curves turn only when named)
    */
   (axis: AxisLike | IConnector, angle: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): IRotate;
 }

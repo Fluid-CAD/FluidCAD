@@ -1,12 +1,13 @@
 ---
 sidebar_position: 10
 title: "subtract"
-description: "Subtracts the second shape from the first (boolean difference)."
+description: "Subtracts the second solid from the first (boolean difference). Both operands are solids; one that stands for a surface and no solid is refused."
 ---
 
 # subtract()
 
-Subtracts the second shape from the first (boolean difference).
+Subtracts the second solid from the first (boolean difference). Both
+operands are solids; one that stands for a surface and no solid is refused.
 
 **Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
 
@@ -20,9 +21,10 @@ See the [guide](/docs/booleans/introduction) for detailed usage examples.
 subtract(object1: SceneObject, object2: SceneObject): SceneObject
 ```
 
-Subtracts the second shape from the first (boolean difference).
+Subtracts the second solid from the first (boolean difference). Both
+operands are solids; one that stands for a surface and no solid is refused.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `object1` | [SceneObject](/docs/api/types/scene-object) | The base shape |
-| `object2` | [SceneObject](/docs/api/types/scene-object) | The shape to subtract |
+| `object1` | [SceneObject](/docs/api/types/scene-object) | The base solid |
+| `object2` | [SceneObject](/docs/api/types/scene-object) | The solid to subtract |

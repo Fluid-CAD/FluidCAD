@@ -50,15 +50,17 @@ interface MirrorFunction {
   (axis: AxisLike, ...geometries: ISceneObject[]): IMirror2D;
 
   /**
-  * [3D] Mirror all scene shapes across a given plane.
+  * [3D] Mirror the last statement's bodies (solids and surfaces) across a given plane.
   * @param plane The plane to mirror across
   */
   (plane: PlaneLike): IMirror;
 
   /**
-  * [3D] Mirror given shapes across a given plane.
+  * [3D] Mirror given shapes across a given plane. A mirrored solid follows the
+  * add / new / remove mode; the image of a surface or a curve is always a
+  * separate body.
   * @param plane The plane to mirror across
-  * @param objects The shapes to mirror
+  * @param objects The objects to mirror: their solids, surfaces and the curves they hold
   */
   (plane: PlaneLike, ...objects: ISceneObject[]): IMirror;
 

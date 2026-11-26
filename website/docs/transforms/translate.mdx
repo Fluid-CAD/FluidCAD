@@ -41,7 +41,11 @@ translate(x, y, z, true)           // COPY: keep the original, add a moved dupli
 translate([x, y, z], true, target) // copy a specific solid
 ```
 
-The trailing targets are optional; without them `translate()` moves the object built last. The boolean before the targets switches from moving to copying. Distances are in the file's [unit](/docs/extra/units).
+The trailing targets are optional; without them `translate()` moves every solid and surface in scope. A named target moves its bodies wherever later features left them, plus any curves it holds — naming a helix, an imported curve or a sketch moves its curves, and curves never move unless named. The boolean before the targets switches from moving to copying. Distances are in the file's [unit](/docs/extra/units).
+
+:::note
+A target that holds no solid, surface or curve — a face selection, a point — is an error on the row: `translate: target 1 is a face selection; translate works on solids or surfaces or curves.` Name the feature that built the body instead.
+:::
 
 ## Moving a feature that fused
 

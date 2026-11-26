@@ -53,7 +53,7 @@ import { subtract } from 'fluidcad/core';
 subtract(base, tool)     // keep base, remove tool's volume
 ```
 
-Both arguments are required, and swapping them gives a different solid. The faces the cut leaves behind are the tool's surfaces where they ran through the base:
+Both arguments are required, and swapping them gives a different solid. Both must be solids: an operand that stands for a surface and no solid — an [imported](/docs/import-export/import) surface — is an error on the row, such as `subtract: second operand is a surface; subtract works on solids.` The faces the cut leaves behind are the tool's surfaces where they ran through the base:
 
 ```js
 const s = subtract(box, cyl)

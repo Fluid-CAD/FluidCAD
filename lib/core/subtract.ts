@@ -6,9 +6,10 @@ import { ISceneObject } from "./interfaces.js";
 
 interface SubtractFunction {
   /**
-   * Subtracts the second shape from the first (boolean difference).
-   * @param object1 - The base shape
-   * @param object2 - The shape to subtract
+   * Subtracts the second solid from the first (boolean difference). Both
+   * operands are solids; one that stands for a surface and no solid is refused.
+   * @param object1 - The base solid
+   * @param object2 - The solid to subtract
    */
   (object1: ISceneObject, object2: ISceneObject): ISceneObject;
 }

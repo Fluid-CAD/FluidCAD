@@ -209,7 +209,7 @@ export interface ISection extends ISceneObject {
  * reads all of them.
  */
 export interface ISplit extends ISceneObject {
-  /** The cut plane as built (origin, normal, x-direction); null when the cut is a sketched curve's sheet, which has no plane. */
+  /** The cut plane as built (origin, normal, x-direction); null when the cut is the curved surface a sketched curve sweeps, which has no plane. */
   getPlane(): Plane | null;
 }
 

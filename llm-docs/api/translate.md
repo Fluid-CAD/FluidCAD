@@ -1,7 +1,7 @@
 ---
 id: api/translate
 title: translate(x, y?, z?, ...targets?)
-summary: "Moves one or more objects by a vector. With no targets, operates on the last object. Pass `copy: true` to clone instead of moving."
+summary: "Moves solids, surfaces and curves by a vector. With no targets, moves every solid and surface in scope (curves stay put); a named target moves its bodies and the curves it holds. Pass `copy: true` to clone instead of moving."
 tags: [api, 3d, transform]
 symbols: [translate]
 seeAlso: [api/rotate, api/mirror, api/copy]
@@ -19,9 +19,17 @@ translate(point: PointLike, ...targets)
 translate(x, y, z, copy: boolean, ...targets)    // copy flag at any arity
 ```
 
-Returns the translated `SceneObject`. With no explicit target it operates
-on the last object — the same implicit-context model as the rest of the
-API.
+Returns the translated `SceneObject`.
+
+**What moves.** With no targets, every body in scope moves — solids and
+surfaces (an imported STEP surface from [[api/load]]) alike. Curves never
+move unless named. A named target moves its bodies and the curves it
+holds: naming a helix, a loaded curve or a sketch moves its curves. Meta
+and guide shapes (a plane's quad, a guide sketch) never move. A named
+target that holds only something else — a face selection, a point — is a
+build error: `translate: target 1 is a face selection; translate works on
+solids or surfaces or curves.` [[api/rotate]] reads targets by the same
+rule; [[api/mirror]] reads named targets the same way.
 
 A named target stands for the body it built wherever later features left
 it: after `const e = extrude(30); fillet(3, e.endEdges());` the call

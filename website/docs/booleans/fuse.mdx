@@ -47,8 +47,10 @@ import { fuse } from 'fluidcad/core';
 
 fuse(a, b)          // join two solids
 fuse(a, b, c)       // any number
-fuse()              // every solid in the current context
+fuse()              // every solid in the current context; surfaces are left alone
 ```
+
+Fuse works on solids. An operand that stands for a surface and no solid — an [imported](/docs/import-export/import) surface — is an error on the row: `fuse: operand 2 is a surface; fuse works on solids.`
 
 The result is a single solid that later features treat as one body. Its new geometry — the faces and edges that only exist because the solids met — is reachable through the feature's accessors:
 

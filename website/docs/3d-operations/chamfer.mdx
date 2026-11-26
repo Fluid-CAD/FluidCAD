@@ -72,3 +72,7 @@ Several edge selections at once:
 ```js
 chamfer(2, e.endEdges(), e.sideEdges())
 ```
+
+:::note[Only edges of solids]
+Chamfer bevels solids. In a model that also holds a surface — from an [imported STEP file](/docs/import-export/import) — an unscoped `select(edge())` picks up the surface's edges too, and the chamfer stops with `chamfer: edge selection 1 holds a surface edge; chamfer works on solids.` Add `.ofSolid()` to the filter to keep only the solids' edges: `select(edge().ofSolid().onPlane("xy", 30))`.
+:::

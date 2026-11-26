@@ -31,6 +31,14 @@ A named 3D target stands for the body it built wherever later features
 left it: after `const e = extrude(30); fillet(3, e.endEdges());` the call
 `mirror("xz", e)` reflects the filleted body (see [[concepts/scene-graph]]).
 
+Without targets the 3D mirror reflects the last statement's bodies, a
+surface included. Named targets follow the [[api/translate]] rule: the
+target's bodies (solids and surfaces) plus the curves it holds; a target
+that holds only a face selection or a point is a build error. A mirrored
+solid fuses, cuts or stays new by the operation mode as usual; the image
+of a surface or a curve is always added as a separate body, never fused,
+whatever the mode.
+
 **`"x"` is the world X axis, even inside a sketch.** To mirror across
 the sketch plane's own X, use the sketch datum: `mirror(xAxis(), g)`.
 See [[concepts/coordinate-system]] for the full convention.

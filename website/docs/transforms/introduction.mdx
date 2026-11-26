@@ -5,7 +5,7 @@ title: "Introduction"
 
 # Transforms
 
-Transforms move, rotate and mirror geometry that already exists. Each one is a step in the timeline: it takes the solids you name (or the last one built) and places them somewhere else, or adds moved copies.
+Transforms move, rotate and mirror geometry that already exists. Each one is a step in the timeline: it takes the solids you name and places them somewhere else, or adds moved copies.
 
 | Transform | Viewport | Code |
 |-----------|----------|------|
@@ -13,13 +13,15 @@ Transforms move, rotate and mirror geometry that already exists. Each one is a s
 | [Rotate](/docs/transforms/rotate) | **Rotate** dialog: Move / Copy, Solids, Axis, Angle | `rotate(axis, degrees, ...targets)` |
 | [Mirror](/docs/transforms/mirror) | **Mirror** dialog: Add / Remove / New, Solids, Plane | `mirror(plane, ...targets)` |
 
-All three take an optional list of targets at the end. Without one they act on the object built last, which keeps the common case short:
+All three take an optional list of targets at the end. Without one, translate and rotate act on every solid and surface in scope, and mirror reflects the bodies of the statement just before it, which keeps the common case short:
 
 ```js
 extrude(20)
-translate(50)          // moves the extrude
-rotate("z", 45)        // turns the moved extrude
+translate(50)          // moves the extrude — the only solid so far
+rotate("z", 45)        // turns it
 ```
+
+A named target moves its bodies and any curves it holds (a helix, an imported curve, a sketch); curves never move unless named.
 
 Patterns — several copies at once — are their own section: [Copy](/docs/patterns/copy) and [Repeat](/docs/patterns/repeat). Inside a sketch, `mirror`, `copy` and `rotate` have 2D forms that act on sketch geometry: see the [sketch tools](/docs/sketching/tools/mirror).
 

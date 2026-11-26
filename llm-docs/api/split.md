@@ -1,7 +1,7 @@
 ---
 id: api/split
 title: split(plane | edge, options?, ...targets?)
-summary: Splits solids with a plane — an origin plane, a plane() statement, a planar face — or along a sketched edge, which is swept out of its sketch into the cutter (a line gives a plane, an arc, circle, ellipse or spline a curved sheet). Every body the cut crosses becomes the pieces on either side; keep one side or both.
+summary: Splits solids with a plane — an origin plane, a plane() statement, a planar face — or along a sketched edge, which is swept out of its sketch into the cutter (a line gives a plane, an arc, circle, ellipse or spline a curved surface). Every body the cut crosses becomes the pieces on either side; keep one side or both.
 tags: [api, 3d, modify]
 symbols: [split]
 seeAlso: [api/types/split, api/plane, api/mirror, api/remove, api/select]
@@ -18,7 +18,7 @@ split(edge: Geometry, ...targets?: SceneObject[])
 split(edge: Geometry, options: { keep? }, ...targets?: SceneObject[])
 ```
 
-Cuts solids along an infinite plane, or along the sheet a sketched edge
+Cuts solids along an infinite plane, or along the surface a sketched edge
 sweeps out of its sketch. Each solid the cut crosses is replaced by the
 pieces on either side, every piece a body of its own capped where the cut
 went. The split statement then holds the pieces: a
@@ -33,7 +33,7 @@ edges, `remove(s)`) reads all of them, and a `.scope()` follows them too.
   `ellipse()` or spline, usually a construction edge (`.guide()`). The cut
   is what the edge would sweep if it were extruded out of the sketch both
   ways: a straight line gives the infinite plane that contains it and
-  stands normal to the sketch; any curve gives a curved sheet, bounded by
+  stands normal to the sketch; any curve gives a curved surface, bounded by
   the curve's ends, so a curve must run all the way across a body to split
   it (a curve that stops inside splits nothing). The sketch is consumed for
   display, as an extrude's profile is — its wires leave the screen from the
@@ -46,7 +46,9 @@ edges, `remove(s)`) reads all of them, and a `.scope()` follows them too.
 - **`targets`**: the solids to split. Without targets every solid in scope
   is a candidate; inside `part()`, this means that part’s preceding solids.
   A solid the cut misses, or only touches along a face or an edge, stays
-  unchanged.
+  unchanged. A target that stands for a surface and no solid (an imported
+  STEP surface from [[api/load]]) is a build error: `split: target 1 is a
+  surface; split works on solids.`
 - **`keep`**: `'both'` (the default) keeps every piece; `'front'` keeps the
   pieces on the side the plane normal points to, `'back'` the other side.
   Only pieces of solids the plane actually crosses are removed; missed or

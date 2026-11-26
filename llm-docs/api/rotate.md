@@ -1,7 +1,7 @@
 ---
 id: api/rotate
 title: rotate(axis, angle, ...targets?)
-summary: Rotates one or more solids around an axis. 3D-only — inside a sketch it throws; orient sketch geometry with angle()/horizontal()/vertical() constraints instead. Degrees, not radians.
+summary: Rotates solids, surfaces and curves around an axis. With no targets, turns every solid and surface in scope (curves and sketch geometry stay put). 3D-only — inside a sketch it throws; orient sketch geometry with angle()/horizontal()/vertical() constraints instead. Degrees, not radians.
 tags: [api, 3d, transform]
 symbols: [rotate]
 seeAlso: [api/translate, api/mirror]
@@ -23,6 +23,13 @@ edge, or a world axis offset and tilted); a direction vector is refused.
 `copy: true` clones the source rather than rotating it in place. A named
 target stands for the body it built wherever later features left it — a
 filleted or moved body turns as it is now (see [[concepts/scene-graph]]).
+
+Targets follow the [[api/translate]] rule. With no targets, every body in
+scope turns — solids and surfaces, never curves or sketch geometry. A
+named target turns its bodies and the curves it holds (a helix, a loaded
+curve, a sketch). Meta and guide shapes never turn, and a named target that
+holds only a face selection or a point is a build error (`rotate: target 1
+is a face selection; rotate works on solids or surfaces or curves.`).
 
 `rotate()` is 3D-only — inside a sketch it throws (the 2D rotate was
 removed). Sketch geometry is oriented by constraints: `angle(xAxis(), l,

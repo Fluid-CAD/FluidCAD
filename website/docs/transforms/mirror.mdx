@@ -29,7 +29,7 @@ The block starts at x = 10, so its mirror image starts at x = −10 and the two 
 ```js
 import { mirror } from 'fluidcad/core';
 
-mirror("yz")                     // mirror every solid across the YZ plane
+mirror("yz")                     // mirror the last statement's bodies across the YZ plane
 mirror("front", body)            // mirror specific solids
 mirror(p, a, b)                  // across a plane() feature — offset, tilted, from a face
 mirror("yz").new()               // keep the image as a separate solid
@@ -37,6 +37,8 @@ mirror("yz").remove()            // cut the image out of the model
 ```
 
 The plane is any plane-like value: a name or alias (`"xy"`, `"top"`, `"-xz"` …), a `plane()` feature, or a face selection wrapped in `plane(…)` — see [Planes](/docs/datums/planes).
+
+Named targets follow the same rule as [translate](/docs/transforms/translate#code-forms): the target's bodies plus any curves it holds. A mirrored solid fuses, cuts or stays separate by the tab as above. A surface or a curve — from an [imported STEP file](/docs/import-export/import) — has no material to join, so its image is always added as a separate body, whichever tab is chosen.
 
 ## Mirror versus mirror repeat
 

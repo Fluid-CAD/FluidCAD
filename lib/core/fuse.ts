@@ -4,11 +4,11 @@ import { Fuse } from "../features/fuse.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface FuseFunction {
-  /** Fuses all shapes in the current context. */
+  /** Fuses all solids in the current context; surfaces are left alone. */
   (): Fuse;
   /**
-   * Fuses the given shapes into one.
-   * @param objects - The objects to fuse together
+   * Fuses the given solids into one.
+   * @param objects - The objects to fuse together — solids; an object that stands for a surface and no solid is refused
    */
   (...objects: ISceneObject[]): Fuse;
 }

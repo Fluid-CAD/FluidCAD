@@ -187,7 +187,8 @@ export type ObjectType =
 // Shape types — the geometric representation of a scene object
 // ---------------------------------------------------------------------------
 
-export type ShapeType = 'solid' | 'face' | 'wire' | 'edge' | 'vertex';
+/** `sheet` is a surface body: faces and edges like a solid's, with an open rim and no inside. */
+export type ShapeType = 'solid' | 'sheet' | 'face' | 'wire' | 'edge' | 'vertex';
 
 // ---------------------------------------------------------------------------
 // Mesh render options
@@ -208,6 +209,12 @@ export type FaceMeshOptions = {
    * which draw at their centerline depth. See face-depth-offset.ts.
    */
   slopeOffset?: boolean;
+  /**
+   * The colour an unpainted face rests in, in place of the theme's solid
+   * face colour — a surface's faces. Unlike `color` it is no overlay: the
+   * faces stay opaque and write depth.
+   */
+  restColor?: string;
   /**
    * Draw a mesh the page's mesh cache holds with the geometry the cache
    * shares (S6b, P6: every instance of a template, every render keeping the
@@ -255,6 +262,8 @@ export type SceneObjectMesh = {
   edgeIndex?: number;
   /** solid-edges only — a tangent (G1) junction between two faces (dimmed when dimTangentEdges is on). */
   smooth?: boolean;
+  /** solid-edges only — the edge bounds one face: the open rim of a surface, drawn in the rim style. */
+  boundary?: boolean;
   /**
    * solid-edges only — per segment (`indices` pair), the vectors into the
    * faces either side of it, as long as each face runs flat, six numbers,

@@ -2,7 +2,7 @@ import { Group } from 'three';
 import { EdgeMeshOptions, MeshRenderOptions, SceneObjectPart, SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { FaceMesh } from '../shape-meshes/face-mesh';
-import { SolidMesh } from '../shape-meshes/solid-mesh';
+import { BodyMesh } from '../shape-meshes/body-mesh';
 import { MetaEdgeMesh, MetaEdgeOptions } from '../shape-meshes/meta-edge-mesh';
 import { RegionMetaFaceMesh } from '../shape-meshes/region-meta-face-mesh';
 import { PickEdgeMesh } from '../shape-meshes/pick-edge-mesh';
@@ -50,7 +50,7 @@ export class ShapeGroup extends Group {
       return;
     }
 
-    // Check if this object contains only wire/edge shapes (no face or solid).
+    // Check if this object contains only wire/edge shapes (no face or body).
     const isStandaloneWireEdge = sceneObject.sceneShapes.every(
       s => s.isMetaShape || s.shapeType === 'wire' || s.shapeType === 'edge',
     );
@@ -82,12 +82,12 @@ export class ShapeGroup extends Group {
             const edgeOpts = options?.edge
               ?? (isStandaloneWireEdge ? STANDALONE_EDGE_STYLE : undefined);
             mesh = new EdgeMesh(shape, edgeOpts);
-            // A bare single-edge shape (a helix wire) serializes without a
-            // per-edge index (renderEdge — only solid edges carry one), which
+            // A wire serializes one line per edge, each with its edge index,
+            // so every edge of a curve picks on its own. A bare single-edge
+            // shape (a helix) serializes without one (renderEdge), which
             // keeps it out of the edge pick bucket. It IS exactly one edge,
             // so give its lines the pick identity {edge, 0} — that is what
-            // makes a helix clickable in the viewport. Multi-edge wires stay
-            // unpickable: one merged line can't claim a single edge index.
+            // makes a helix clickable in the viewport.
             if (shape.shapeType === 'edge') {
               mesh.traverse(child => {
                 if (child.userData.isEdgeLine && child.userData.edgeIndex === undefined) {
@@ -101,7 +101,10 @@ export class ShapeGroup extends Group {
             mesh = new FaceMesh(shape, options?.face);
             break;
           case 'solid':
-            mesh = new SolidMesh(shape, options);
+            mesh = new BodyMesh(shape, options);
+            break;
+          case 'sheet':
+            mesh = new BodyMesh(shape, { ...options, body: 'sheet' });
             break;
         }
       }

@@ -1,10 +1,16 @@
 import { Group } from 'three';
 import { MeshRenderOptions, SceneObjectMesh, SceneObjectPart } from '../../types';
+import { themeColors } from '../../scene/theme-colors';
 import { FaceMesh } from './face-mesh';
 import { EdgeMesh } from './edge-mesh';
 import type { GrainAxis } from '../appearance/appearance-material';
 
-/** The axis of the solid's longest extent over its face groups — x when they carry no vertices. */
+/** The kind of body drawn: a solid, or a surface (an open sheet of faces). */
+export type BodyKind = 'solid' | 'sheet';
+
+export type BodyMeshOptions = MeshRenderOptions & { body?: BodyKind };
+
+/** The axis of the body's longest extent over its face groups — x when they carry no vertices. */
 function longestAxisOf(meshes: SceneObjectMesh[]): GrainAxis {
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
@@ -29,15 +35,25 @@ function longestAxisOf(meshes: SceneObjectMesh[]): GrainAxis {
 }
 
 /**
- * A solid is represented as two sub-meshes: triangulated faces and edge line
- * segments.  The backend labels them `solid-faces` and `solid-edges` so we
- * can split them and apply independent materials / render order.
+ * A body — a solid or a surface — is represented as two sub-meshes:
+ * triangulated faces and edge line segments. The backend labels them
+ * `solid-faces` and `solid-edges` (for either kind) so we can split them and
+ * apply independent materials / render order.
+ *
+ * The group says which kind it draws: `userData.isSolid` for a solid, which
+ * the solid-only readers (section caps, the interference overlay) rely on,
+ * and `userData.isSheet` for a surface, which picking reads to take its back
+ * side as a front. Readers of "model geometry" take both.
  */
-export class SolidMesh extends Group {
-  constructor(shape: SceneObjectPart, options?: MeshRenderOptions) {
+export class BodyMesh extends Group {
+  constructor(shape: SceneObjectPart, options?: BodyMeshOptions) {
     super();
-    // What "solids only" screenshots keep (see screenshot.ts isolateSolids).
-    this.userData.isSolid = true;
+    const sheet = options?.body === 'sheet';
+    if (sheet) {
+      this.userData.isSheet = true;
+    } else {
+      this.userData.isSolid = true;
+    }
 
     // A wood appearance's grain runs along the body's longest extent, read
     // over every face group so a painted group does not skew it.
@@ -46,11 +62,13 @@ export class SolidMesh extends Group {
     // centerline depth: the faces keep the slope offset that kept them in
     // front (see face-depth-offset.ts).
     const edges = shape.meshes.filter(m => m.label === 'solid-edges');
-    // A solid's geometry is never rewritten in place: every object drawing
+    // A surface's unpainted faces rest in their own theme colour.
+    const restColor = sheet ? '#' + themeColors.sheetFace.getHexString() : undefined;
+    // A body's geometry is never rewritten in place: every object drawing
     // the same mesh shares one geometry (the page's mesh cache, P6).
     const faceOptions = edges.length > 0 && !edges.some(m => m.faceSides?.length)
-      ? { ...options?.face, slopeOffset: true, sharedGeometry: true }
-      : { ...options?.face, sharedGeometry: true };
+      ? { restColor, ...options?.face, slopeOffset: true, sharedGeometry: true }
+      : { restColor, ...options?.face, sharedGeometry: true };
     const edgeOptions = { ...options?.edge, sharedGeometry: true };
     for (const meshData of shape.meshes) {
       if (meshData.label === 'solid-faces') {

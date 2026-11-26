@@ -258,20 +258,21 @@ export function isRollbackViewTruncated(
   return false;
 }
 
-/** The object carries real material: a solid, not a meta or guide shape. */
-function hasSolidShape(obj: SceneObjectRender): boolean {
-  return obj.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide) === true;
+/** The object carries real material: a body (a solid or a surface), not a meta or guide shape. */
+function hasBodyShape(obj: SceneObjectRender): boolean {
+  return obj.sceneShapes?.some(s => (s.shapeType === 'solid' || s.shapeType === 'sheet') && !s.isMetaShape && !s.isGuide) === true;
 }
 
 /**
- * Nothing in the render is material a feature could work *on* — no solids.
- * Everything else a document can hold at this point is an input: planes,
- * axes, a `select()` overlay, a helix (a wire — you sweep a profile along it),
- * or a sketch (a profile — you extrude it). Those leave the scene as empty as
- * a blank file, so the toolbar treats them the same: a document that holds
- * only a finished (`.close()`d) sketch gets the same whole toolbar the blank
- * document offered before that sketch was drawn. See {@link Viewer.sceneIsEmpty}.
+ * Nothing in the render is material a feature could work *on* — no solids
+ * and no surfaces. Everything else a document can hold at this point is an
+ * input: planes, axes, a `select()` overlay, a helix (a wire — you sweep a
+ * profile along it), or a sketch (a profile — you extrude it). Those leave
+ * the scene as empty as a blank file, so the toolbar treats them the same: a
+ * document that holds only a finished (`.close()`d) sketch gets the same
+ * whole toolbar the blank document offered before that sketch was drawn.
+ * See {@link Viewer.sceneIsEmpty}.
  */
 export function isSceneEmpty(sceneObjects: SceneObjectRender[]): boolean {
-  return !sceneObjects.some(hasSolidShape);
+  return !sceneObjects.some(hasBodyShape);
 }

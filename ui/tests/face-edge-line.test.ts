@@ -14,7 +14,7 @@ import {
 } from '../src/meshes/shape-meshes/face-edge-line';
 import { faceDepthOffset } from '../src/meshes/shape-meshes/face-depth-offset';
 import { EdgeMesh } from '../src/meshes/shape-meshes/edge-mesh';
-import { SolidMesh } from '../src/meshes/shape-meshes/solid-mesh';
+import { BodyMesh } from '../src/meshes/shape-meshes/body-mesh';
 import type { SceneObjectMesh } from '../src/types';
 
 /**
@@ -138,7 +138,7 @@ describe('face depth offset', () => {
   const tri = { vertices: [0, 0, 0, 1, 0, 0, 1, 1, 0], normals: [0, 0, 1, 0, 0, 1, 0, 0, 1], indices: [0, 1, 2] };
 
   function faceMaterial(edges: SceneObjectMesh[]): MeshPhongMaterial {
-    const solid = new SolidMesh({ shapeType: 'solid', meshes: [{ ...tri, label: 'solid-faces', faceMapping: [0] }, ...edges] });
+    const solid = new BodyMesh({ shapeType: 'solid', meshes: [{ ...tri, label: 'solid-faces', faceMapping: [0] }, ...edges] });
     let material: MeshPhongMaterial | null = null;
     solid.traverse(o => {
       if ((o as Mesh).isMesh && o.userData.faceMapping) {

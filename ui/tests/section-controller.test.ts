@@ -18,7 +18,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { SectionCaps, SectionController, SectionPlaneMath, SectionPlanes, SectionStyles } from '../src/scene/section-controller';
 import { geometryBoundsOf } from '../src/scene/scene-geometry-bounds';
 
-/** A solid the way SolidMesh builds one: an `isSolid` group holding a face-mesh group holding the mesh. */
+/** A solid the way BodyMesh builds one: an `isSolid` group holding a face-mesh group holding the mesh. */
 function solid(size: number, color = '#ff8800'): { solid: Group; mesh: Mesh; material: MeshPhongMaterial } {
   const group = new Group();
   group.userData.isSolid = true;
@@ -144,7 +144,7 @@ describe('SectionController.apply', () => {
   it('counts only the face meshes of a solid: its fat-line edges contribute no stencil marker', () => {
     const root = new Group();
     const body = solid(10);
-    // The edges the way SolidMesh holds them: fat lines, which extend Mesh
+    // The edges the way BodyMesh holds them: fat lines, which extend Mesh
     // and carry the line shader's 2×3 template quad as their `position`.
     const edges = new Group();
     edges.position.set(1, 2, 3);
@@ -386,7 +386,7 @@ describe('draw order under grouped models', () => {
   it('draws every cap object from one group ordered below the model\'s face groups, at the mesh\'s world transform', () => {
     const root = new Group();
     const body = solid(10);
-    // The viewer's SolidMesh puts faces in a Group with renderOrder 1 — three
+    // The viewer's BodyMesh puts faces in a Group with renderOrder 1 — three
     // sorts by that group order before any child's own renderOrder.
     (body.mesh.parent as Group).renderOrder = 1;
     body.solid.position.set(3, 4, 5);

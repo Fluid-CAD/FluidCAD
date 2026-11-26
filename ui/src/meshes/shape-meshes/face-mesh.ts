@@ -20,6 +20,7 @@ const DEFAULTS: Required<FaceMeshOptions> = {
   opacity: 1,
   depthTest: true,
   slopeOffset: false,
+  restColor: '',
   sharedGeometry: false,
 };
 
@@ -39,7 +40,7 @@ export class FaceMesh extends Group {
         ? meshCache.geometryOf(meshData, () => FaceMesh.buildGeometry(meshData))
         : FaceMesh.buildGeometry(meshData);
 
-      const faceColor = options?.color ?? meshData.color ?? '#' + themeColors.faceColor.getHexString();
+      const faceColor = options?.color ?? meshData.color ?? (opts.restColor || '#' + themeColors.faceColor.getHexString());
 
       const isOverlay = options?.color !== undefined || options?.opacity !== undefined;
       const material = appearance && !isOverlay && meshData.color === undefined

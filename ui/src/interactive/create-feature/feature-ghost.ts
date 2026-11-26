@@ -1,7 +1,7 @@
 import { Group, Object3D, Vector3 } from 'three';
 import { GhostFrame, GhostSolid } from '../../api';
 import { EdgeMesh } from '../../meshes/shape-meshes/edge-mesh';
-import { SolidMesh } from '../../meshes/shape-meshes/solid-mesh';
+import { BodyMesh } from '../../meshes/shape-meshes/body-mesh';
 import { buildConnectorGizmo } from '../../meshes/containers/connector-mesh';
 import { buildPlaneVisual, PLANE_OPACITY } from '../../meshes/containers/plane-mesh';
 import { themeColors } from '../../scene/theme-colors';
@@ -97,7 +97,7 @@ export class FeatureGhostOverlay {
         // A curve has no faces to split off: its meshes go straight to the
         // line renderer, which draws whatever it is handed.
         ? new EdgeMesh({ shapeType: 'edge', meshes: solid.meshes }, wireOptions())
-        : new SolidMesh(
+        : new BodyMesh(
           { shapeId: `ghost-${index}`, shapeType: 'solid', meshes: solid.meshes },
           bodyOptions(bodyKind),
         ));

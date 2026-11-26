@@ -32,7 +32,7 @@ import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates, pickInstanceId } from './interactive/pick-candidates';
 import { VertexPicking, type VertexPickScope } from './interactive/vertex-picking';
-import { hitIsClipped, hitIsSectioned, pointIsVisible } from './interactive/pick-visibility';
+import { hitIsClipped, hitIsOnSheet, hitIsSectioned, pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
 import { carryShownKeys, findActiveSketch, isSceneEmpty, isShowableConsumedRow, sourceLocKey } from './helpers/scene-utils';
@@ -1181,6 +1181,7 @@ export class Viewer {
     // view removed is skipped — the screen shows what lies behind it. Once
     // a section view has cut a solid open, the first kept hit is what the
     // screen shows even when it is the inside of a far wall (back-facing).
+    // A surface has no inside: its back side is on screen like its front.
     const viewDir = new Vector3();
     camera.getWorldDirection(viewDir);
     let bestFace: (typeof faceHits)[number] | undefined;
@@ -1188,7 +1189,7 @@ export class Viewer {
       if (hitIsClipped(hit)) {
         continue;
       }
-      if (!hit.face || hitIsSectioned(hit)) {
+      if (!hit.face || hitIsSectioned(hit) || hitIsOnSheet(hit)) {
         bestFace = hit;
         break;
       }
@@ -1864,7 +1865,7 @@ export class Viewer {
     this.ctx.render();
   }
 
-  /** Tint one whole shape (all faces of a solid, or its edges) in place. */
+  /** Tint one whole shape (all faces of a body, or its edges) in place. */
   private applyShapeHighlight(shapeId: string, instanceId: string | null = null, tint: Color | null = null): void {
     const part = this.findShapeById(shapeId);
     if (!part) return;
@@ -1874,7 +1875,7 @@ export class Viewer {
     const group = this.findMeshByShapeId(shapeId, scope);
     if (!group) return;
 
-    const isFaceHighlight = part.shapeType === 'solid' || part.shapeType === 'face';
+    const isFaceHighlight = part.shapeType === 'solid' || part.shapeType === 'sheet' || part.shapeType === 'face';
 
     group.traverse((child) => {
       if (!(child as any).material) return;
@@ -2047,6 +2048,7 @@ export class Viewer {
       switch (part.shapeType) {
         case 'face':
         case 'solid':
+        case 'sheet':
           group = new FaceMesh(part, { color });
           break;
         case 'edge':
@@ -3073,13 +3075,13 @@ export class Viewer {
     }
   }
 
-  private tintForGhosting(node: Object3D, bg: Color, insideSolid: boolean): void {
+  private tintForGhosting(node: Object3D, bg: Color, insideBody: boolean): void {
     if (node.userData.isSketchRoot) { return; }
     if (node.renderOrder >= 999) { return; }
-    const factor = insideSolid && node.userData.isEdgeLine
+    const factor = insideBody && node.userData.isEdgeLine
       ? SKETCH_GHOST_EDGE_TINT_FACTOR
       : SKETCH_GHOST_TINT_FACTOR;
-    insideSolid = insideSolid || !!node.userData.isSolid;
+    insideBody = insideBody || !!node.userData.isSolid || !!node.userData.isSheet;
 
     const mat = (node as any).material;
     if (mat) {
@@ -3094,7 +3096,7 @@ export class Viewer {
     }
 
     for (const c of node.children) {
-      this.tintForGhosting(c, bg, insideSolid);
+      this.tintForGhosting(c, bg, insideBody);
     }
   }
 

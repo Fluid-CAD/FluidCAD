@@ -58,12 +58,13 @@ export interface ScreenshotOptions {
   margin: number;
   view: ScreenshotView;
   /**
-   * Render the model's solids and nothing else: sketches, construction
-   * planes/axes, connectors, standalone wires, selection and hover overlays
-   * are hidden for the duration, and sketch-mode ghost tinting is lifted so
-   * the solids keep their real colours. Fitting and auto-crop then frame the
-   * solids alone. This is what thumbnails want — a picture of the part, not
-   * of whatever the user was editing.
+   * Render the model's bodies — its solids and surfaces — and nothing else:
+   * sketches, construction planes/axes, connectors, standalone wires,
+   * selection and hover overlays are hidden for the duration, and
+   * sketch-mode ghost tinting is lifted so the bodies keep their real
+   * colours. Fitting and auto-crop then frame the bodies alone. This is what
+   * thumbnails want — a picture of the part, not of whatever the user was
+   * editing.
    */
   solidsOnly: boolean;
   /**
@@ -223,7 +224,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // --- Save state ---
   // Solids-only goes first so the grid/axes toggles below still win over it,
   // and its restore runs last so everything lands back where it started.
-  const restoreSolidsOnly = solidsOnly ? isolateSolids(scene) : null;
+  const restoreSolidsOnly = solidsOnly ? isolateBodies(scene) : null;
   const restoreConstraintVisibility = withSketchConstraintVisibility(scene, {
     dimensions: showDimensions,
     positional: showPositional,
@@ -460,26 +461,26 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
 }
 
 /**
- * Hide every renderable that is not part of a solid, and lift the sketch-mode
+ * Hide every renderable that is not part of a body, and lift the sketch-mode
  * ghost tint off the materials that carry one. Returns the undo.
  *
- * A solid is a {@link SolidMesh} subtree (`userData.isSolid`); a select
- * overlay's copy of one (render order 999) and meta shapes are overlays, not
- * model, so they go too. Lights, cameras and bare groups are left alone —
- * only objects that draw something are toggled, which is all the bounds
- * fitting and the renderer look at.
+ * A body is a {@link BodyMesh} subtree (`userData.isSolid` or
+ * `userData.isSheet`); a select overlay's copy of one (render order 999) and
+ * meta shapes are overlays, not model, so they go too. Lights, cameras and
+ * bare groups are left alone — only objects that draw something are
+ * toggled, which is all the bounds fitting and the renderer look at.
  */
-function isolateSolids(scene: Object3D): () => void {
+function isolateBodies(scene: Object3D): () => void {
   const hidden: Object3D[] = [];
   const tinted: Array<{ material: any; color: Color }> = [];
 
-  const prune = (node: Object3D, insideSolid: boolean): void => {
+  const prune = (node: Object3D, insideBody: boolean): void => {
     if (!node.visible) {
       return;
     }
     const o = node as any;
-    let inside = insideSolid;
-    if (!inside && node.userData.isSolid) {
+    let inside = insideBody;
+    if (!inside && (node.userData.isSolid || node.userData.isSheet)) {
       inside = !node.userData.isMetaShape && node.renderOrder < 999;
     }
     const drawsSomething = !!(o.isMesh || o.isLine || o.isPoints || o.isSprite);

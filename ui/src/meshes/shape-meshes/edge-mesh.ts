@@ -14,6 +14,9 @@ import { createEdgeLineMaterial, faceSidesOf, FaceEdgeGeometry } from './face-ed
  */
 const SMOOTH_EDGE_BLEND = 0.75;
 
+/** How much wider than a model edge a surface's open rim draws. */
+const BOUNDARY_EXTRA_WIDTH = 1;
+
 const DEFAULTS: Required<EdgeMeshOptions> = {
   color: '',
   lineWidth: 1,
@@ -33,9 +36,12 @@ export class EdgeMesh extends Group {
         ? meshCache.geometryOf(meshData, () => EdgeMesh.buildGeometry(meshData))
         : EdgeMesh.buildGeometry(meshData);
 
+      // A surface's open rim draws in its own colour, a step wider, unless an
+      // explicit colour (a highlight, a ghost) restyles every line alike.
+      const rim = meshData.boundary === true && !opts.color;
       const material = createEdgeLineMaterial(geometry, {
-        color: EdgeMesh.lineColor(meshData.smooth === true, opts.color),
-        linewidth: opts.lineWidth,
+        color: rim ? themeColors.sheetBoundary.getHex() : EdgeMesh.lineColor(meshData.smooth === true, opts.color),
+        linewidth: rim ? opts.lineWidth + BOUNDARY_EXTRA_WIDTH : opts.lineWidth,
         transparent: opts.transparent || opts.opacity < 1,
         opacity: opts.opacity,
         side: DoubleSide,
@@ -51,6 +57,9 @@ export class EdgeMesh extends Group {
       }
       if (meshData.smooth) {
         ls.userData.smoothEdge = true;
+      }
+      if (meshData.boundary) {
+        ls.userData.boundaryEdge = true;
       }
       this.add(ls);
     }

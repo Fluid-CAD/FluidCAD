@@ -43,7 +43,7 @@ const GHOST_OPACITY = 0.55;
  * identity (the controller's drag pick never claims it).
  *
  * Walks the hierarchy by hand rather than `Object3D.clone()`: the scene's
- * mesh containers (`ShapeGroup`, `SolidMesh`, `FaceMesh`, `EdgeMesh`) are
+ * mesh containers (`ShapeGroup`, `BodyMesh`, `FaceMesh`, `EdgeMesh`) are
  * Group subclasses whose constructors take the shape data, and three's
  * `clone()` re-invokes the constructor with no arguments.
  */

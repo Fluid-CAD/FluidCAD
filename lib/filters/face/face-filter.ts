@@ -72,6 +72,10 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * face is only read to derive its plane (no plane feature is created, and
    * the referenced geometry is not consumed), so the reference stays valid
    * even when a later feature reshaped or consumed the face.
+   *
+   * Only a flat face lies on a plane, and geometry decides what is flat,
+   * as for {@link planar}: a flat wall a loft or an import stores as a
+   * B-spline surface is kept. A curved face is on no plane.
    * @param plane - The reference plane, plane feature, or face selection.
    * @param offset - Optional distance to offset a standard plane before matching.
    */
@@ -114,10 +118,14 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects circular (flat, disc-shaped) faces, optionally matching a specific diameter.
+   * Selects round flat faces: flat faces whose outer boundary is one full
+   * circle. Holes are ignored, so a washer and a disc with a square hole
+   * are kept along with a plain disc, and the diameter matched is the
+   * outer circle's. A half disc, or a disc whose rim a cut has split into
+   * arcs, has no full circle around it and is left out.
    * Geometry decides, not the kernel's storage: a B-spline face that lies flat,
-   * bounded by B-spline edges that trace circles, counts as one.
-   * @param diameter - Optional diameter to match.
+   * bounded by a B-spline edge that traces a circle, counts as one.
+   * @param diameter - Optional diameter of the outer circle to match.
    */
   circle(diameter?: number) {
     const filter = new CircleFilter(diameter);
@@ -186,8 +194,9 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects planar faces whose normal is parallel to the given plane. A
-   * B-spline face that lies flat counts as planar, as for {@link planar}.
+   * Selects flat faces that are parallel to the given plane. A B-spline
+   * face that lies flat counts as flat, as for {@link planar}; a curved
+   * face is parallel to no plane.
    * @param plane - The reference plane.
    */
   parallelTo(plane: PlaneLike | PlaneObjectBase) {
@@ -297,7 +306,7 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * Selects spherical faces — a ball, a domed cap, a ball-end fillet's
    * corner — optionally matching a specific diameter. A B-spline face that
    * traces a sphere counts as one.
-   * @param diameter - Optional diameter to match.
+   * @param diameter - Optional diameter to match: exactly for a true sphere, and within 0.001 mm for one traced by a B-spline, as {@link cylinder} matches its diameter.
    */
   sphere(diameter?: number) {
     this.filters.push(new SphereFilter(diameter));
@@ -529,6 +538,14 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * a face works as the reference — a bucket accessor like `base.endFaces()`
    * — so the half-space follows the referenced feature through edits. The
    * offset runs along the resolved plane's normal.
+   *
+   * A face on a plane, cylinder, cone, sphere or torus that is bounded by
+   * lines and circular edges is judged by the vertices of its boundary.
+   * Any other face — one bounded by a spline or an ellipse, or a free-form
+   * one — is judged by how far it reaches along the plane's normal, so a
+   * face that bulges below the plane between its corners is not above it.
+   * A flat face lying in the plane is on neither side. With `partial`, a
+   * face is kept when any of it is above.
    * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */
@@ -553,7 +570,10 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * standard plane or a plane feature, any scene object whose first shape is
    * a face works as the reference — a bucket accessor like `base.endFaces()`
    * — so the half-space follows the referenced feature through edits. The
-   * offset runs along the resolved plane's normal.
+   * offset runs along the resolved plane's normal. Faces are judged as for
+   * {@link above}: by their boundary's vertices when the surface is a
+   * plane, cylinder, cone, sphere or torus bounded by lines and circular
+   * edges, and by how far they reach along the plane's normal otherwise.
    * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */

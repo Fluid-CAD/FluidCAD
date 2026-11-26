@@ -27,6 +27,10 @@ face is only read to derive its plane (no plane feature is created, and
 the referenced geometry is not consumed), so the reference stays valid
 even when a later feature reshaped or consumed the face.
 
+Only a flat face lies on a plane, and geometry decides what is flat,
+as for `planar`: a flat wall a loft or an import stores as a
+B-spline surface is kept. A curved face is on no plane.
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The reference plane, plane feature, or face selection. |
@@ -54,13 +58,17 @@ as `onPlane`, including a face selection to read the plane from.
 .circle(diameter?: number): this
 ```
 
-Selects circular (flat, disc-shaped) faces, optionally matching a specific diameter.
+Selects round flat faces: flat faces whose outer boundary is one full
+circle. Holes are ignored, so a washer and a disc with a square hole
+are kept along with a plain disc, and the diameter matched is the
+outer circle's. A half disc, or a disc whose rim a cut has split into
+arcs, has no full circle around it and is left out.
 Geometry decides, not the kernel's storage: a B-spline face that lies flat,
-bounded by B-spline edges that trace circles, counts as one.
+bounded by a B-spline edge that traces a circle, counts as one.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `diameter` | number | Optional diameter to match. *(optional)* |
+| `diameter` | number | Optional diameter of the outer circle to match. *(optional)* |
 
 ### .notCircle()
 
@@ -144,8 +152,9 @@ optionally matching a specific diameter.
 .parallelTo(plane: PlaneLike): this
 ```
 
-Selects planar faces whose normal is parallel to the given plane. A
-B-spline face that lies flat counts as planar, as for `planar`.
+Selects flat faces that are parallel to the given plane. A B-spline
+face that lies flat counts as flat, as for `planar`; a curved
+face is parallel to no plane.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -244,7 +253,7 @@ traces a sphere counts as one.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `diameter` | number | Optional diameter to match. *(optional)* |
+| `diameter` | number | Optional diameter to match: exactly for a true sphere, and within 0.001 mm for one traced by a B-spline, as `cylinder` matches its diameter. *(optional)* |
 
 ### .notSphere()
 
@@ -328,17 +337,24 @@ Excludes extruded faces.
 .facing(direction: DirectionLike, within?: number): this
 ```
 
-Selects faces that face a direction: the outward normal at the face's
-centre lies within `within` degrees of it. Works on every kind of face,
-so it is the way to say "the top of this free-form shape":
-`face().facing('z')` keeps a box's top and a dome's upper faces, and
-leaves out the walls. A surface's faces face the way the surface is
-oriented. Under a repeat or a mirror the direction moves with the copy.
+Selects faces that face a direction. A face faces along its mean
+outward normal — the average of its normals over its whole surface,
+weighted by area — and is kept when that lies within `within` degrees
+of the direction. A flat face faces along its normal, a half-round end
+faces its middle, a dome faces straight out of its pole. It works on
+every kind of face, so it is the way to say "the top of this free-form
+shape": `face().facing('z')` keeps a box's top and a dome, and leaves
+out the walls.
+
+A face whose normals cancel out faces nowhere and is never kept,
+whatever the angle: a bore, the wall of a round boss, a whole sphere
+or torus. A surface's faces face the way the surface is oriented. Under
+a repeat or a mirror the direction moves with the copy.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
-| `within` | number | The largest angle, in degrees, between the normal and the direction (default 45). *(optional)* |
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. A plane name such as `'xy'` is not a direction and throws. |
+| `within` | number | The largest angle, in degrees, between the face's mean normal and the direction (default 45). *(optional)* |
 
 ### .notFacing()
 
@@ -346,12 +362,14 @@ oriented. Under a repeat or a mirror the direction moves with the copy.
 .notFacing(direction: DirectionLike, within?: number): this
 ```
 
-Excludes faces that face a direction (see `facing`).
+Excludes faces that face a direction (see `facing`). A face that
+faces nowhere — a bore, a whole sphere — faces no direction, so it is
+kept.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. |
-| `within` | number | The largest angle, in degrees, between the normal and the direction (default 45). *(optional)* |
+| `direction` | DirectionLike | `'x'`, `'y'`, `'z'`, `'-x'`, `'-y'`, `'-z'`, a vector, or an axis. A plane name such as `'xy'` is not a direction and throws. |
+| `within` | number | The largest angle, in degrees, between the face's mean normal and the direction (default 45). *(optional)* |
 
 ---
 
@@ -443,6 +461,14 @@ a face works as the reference — a bucket accessor like `base.endFaces()`
 — so the half-space follows the referenced feature through edits. The
 offset runs along the resolved plane's normal.
 
+A face on a plane, cylinder, cone, sphere or torus that is bounded by
+lines and circular edges is judged by the vertices of its boundary.
+Any other face — one bounded by a spline or an ellipse, or a free-form
+one — is judged by how far it reaches along the plane's normal, so a
+face that bulges below the plane between its corners is not above it.
+A flat face lying in the plane is on neither side. With `partial`, a
+face is kept when any of it is above.
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The reference plane, plane feature, or face selection. |
@@ -460,7 +486,10 @@ Selects faces that are entirely below the given plane (opposite to its normal di
 standard plane or a plane feature, any scene object whose first shape is
 a face works as the reference — a bucket accessor like `base.endFaces()`
 — so the half-space follows the referenced feature through edits. The
-offset runs along the resolved plane's normal.
+offset runs along the resolved plane's normal. Faces are judged as for
+`above`: by their boundary's vertices when the surface is a
+plane, cylinder, cone, sphere or torus bounded by lines and circular
+edges, and by how far they reach along the plane's normal otherwise.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

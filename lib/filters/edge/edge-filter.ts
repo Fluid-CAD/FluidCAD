@@ -72,6 +72,12 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * face is only read to derive its plane (no plane feature is created, and
    * the referenced geometry is not consumed), so the reference stays valid
    * even when a later feature reshaped or consumed the face.
+   *
+   * A line, a circle or an arc is checked at its ends and its middle. Any
+   * other curve — an ellipse, a spline — is on the plane when the one plane
+   * it lies in is that plane; a curve that winds through space, such as a
+   * helix, is on none. With `partial`, an edge is kept when either of its
+   * ends is on the plane.
    * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset`, `bothDirections`, and `partial` (offsets apply to standard planes only).
    */
@@ -145,7 +151,11 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   }
 
   /**
-   * Selects edges that are parallel to the given plane.
+   * Selects edges that are parallel to the given plane. A line is parallel
+   * when it runs along the plane, and a circle or an arc when its tangent
+   * at its middle does. Any other curve — an ellipse, a spline — is
+   * parallel when it lies in a plane parallel to the given one; a curve
+   * that winds through space lies in no plane and is parallel to none.
    * @param plane - The reference plane.
    */
   parallelTo(plane: PlaneLike | PlaneObjectBase) {
@@ -192,7 +202,10 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
 
 
   /**
-   * Selects edges that are perpendicular (vertical) to the given plane.
+   * Selects edges that are perpendicular (vertical) to the given plane: a
+   * line that runs along the plane's normal. An arc is judged by the
+   * straight line between its ends. No other curve can be perpendicular to
+   * a plane, so an ellipse or a spline never matches.
    * @param plane - The reference plane.
    */
   verticalTo(plane: PlaneLike | PlaneObjectBase) {
@@ -373,7 +386,8 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * Selects edges that lie in one plane. Every line, arc, circle and ellipse
    * does, so it earns its keep next to {@link spline}: `edge().spline().planar()`
    * keeps the splines drawn in a sketch and leaves out a helix or a curve
-   * that winds through space.
+   * that winds through space. A spline counts as lying in a plane when no
+   * point of it strays more than a millionth of a millimetre from it.
    */
   planar() {
     this.filters.push(new PlanarCurveFilter());
@@ -525,6 +539,12 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * a face works as the reference — a bucket accessor like `base.endFaces()`
    * — so the half-space follows the referenced feature through edits. The
    * offset runs along the resolved plane's normal.
+   *
+   * A line, a circle or an arc is judged by its two end vertices. Any other
+   * curve — an ellipse, a spline — is judged by how far it reaches along
+   * the plane's normal, so a spline that sags below the plane between its
+   * ends is not above it. An edge that lies in the plane is on neither
+   * side. With `partial`, an edge is kept when any of it is above.
    * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */
@@ -549,7 +569,9 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * standard plane or a plane feature, any scene object whose first shape is
    * a face works as the reference — a bucket accessor like `base.endFaces()`
    * — so the half-space follows the referenced feature through edits. The
-   * offset runs along the resolved plane's normal.
+   * offset runs along the resolved plane's normal. Edges are judged as for
+   * {@link above}: a line, a circle or an arc by its two end vertices, any
+   * other curve by how far it reaches along the plane's normal.
    * @param plane - The reference plane, plane feature, or face selection.
    * @param offsetOrOptions - Offset distance, or an options object with `offset` and `partial`.
    */

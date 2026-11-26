@@ -2,6 +2,8 @@ import { Shape } from "../common/shape.js";
 import { Explorer } from "../oc/explorer.js";
 import { EdgeProps } from "../oc/edge-props.js";
 import type { EdgeProperties } from "../oc/edge-props.js";
+import { FaceProps } from "../oc/face-props.js";
+import type { FaceProperties } from "../oc/face-props.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
 import { attributePick, resolvePickShape } from "./attribution.js";
 import { bucketMembers, buildPickUniverse, expandTangentChain } from "./expand.js";
@@ -38,12 +40,23 @@ export type SelectionGroupsResult =
  */
 const EQUAL_MEASURE_TOLERANCE = 1e-6;
 
-/** Menu vocabulary per curve type; `other` (B-splines etc.) offers no geometric groups. */
-const CURVE_TYPE_NAMING: Partial<Record<EdgeProperties['curveType'], { plural: string; equal: string }>> = {
+/**
+ * Menu vocabulary per curve type; `equal` names the group that also shares
+ * the defining measure, absent where a type has none (a spline). `other`
+ * (a hyperbola, a parabola, an offset curve) offers no geometric groups.
+ */
+const CURVE_TYPE_NAMING: Partial<Record<EdgeProperties['curveType'], { plural: string; equal?: string }>> = {
   line: { plural: 'Lines', equal: 'Equal Length' },
   arc: { plural: 'Arcs', equal: 'Equal Radius' },
   circle: { plural: 'Circles', equal: 'Equal Radius' },
   ellipse: { plural: 'Ellipses', equal: 'Equal Radii' },
+  spline: { plural: 'Splines' },
+};
+
+/** Menu vocabulary per surface type, for the faces of one kind a pick offers. */
+const SURFACE_TYPE_NAMING: Partial<Record<FaceProperties['surfaceType'], { plural: string }>> = {
+  sphere: { plural: 'Spheres' },
+  freeform: { plural: 'Freeform Faces' },
 };
 
 function nearlyEqual(a: number | undefined, b: number | undefined): boolean {
@@ -96,6 +109,8 @@ export function listSelectionGroups(scene: SelectionScene, ref: PickRef): Select
 
   if (ref.sub.type === 'edge') {
     groups.push(...geometricEdgeGroups(resolved.shape, ref));
+  } else {
+    groups.push(...geometricFaceGroups(resolved.shape, ref));
   }
 
   return { ok: true, groups };
@@ -191,8 +206,33 @@ function geometricEdgeGroups(solid: Shape, ref: PickRef): SelectionGroup[] {
   if (sameType.length > 1) {
     groups.push({ kind: 'same-type', label: `All ${naming.plural}`, members: sameType });
   }
-  if (equal.length > 1 && equal.length < sameType.length) {
+  if (naming.equal && equal.length > 1 && equal.length < sameType.length) {
     groups.push({ kind: 'equal', label: `${naming.equal} ${naming.plural}`, members: equal });
   }
   return groups;
+}
+
+/**
+ * Every face of the picked body of the seed's surface type, for the types
+ * {@link SURFACE_TYPE_NAMING} names: the spheres of a body, its free-form
+ * faces.
+ */
+function geometricFaceGroups(body: Shape, ref: PickRef): SelectionGroup[] {
+  const faces = Explorer.findFacesWrapped(body);
+  const seed = faces[ref.sub.index];
+  if (!seed) {
+    return [];
+  }
+  const type = FaceProps.getProperties(seed.getShape()).surfaceType;
+  const naming = SURFACE_TYPE_NAMING[type];
+  if (!naming) {
+    return [];
+  }
+  const members: PickRef[] = [];
+  faces.forEach((face, index) => {
+    if (FaceProps.getProperties(face.getShape()).surfaceType === type) {
+      members.push({ shapeId: ref.shapeId, sub: { type: 'face', index } });
+    }
+  });
+  return members.length > 1 ? [{ kind: 'same-type', label: `All ${naming.plural}`, members }] : [];
 }

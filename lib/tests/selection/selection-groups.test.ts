@@ -4,7 +4,12 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import fillet from "../../core/fillet.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, line, arc, spline } from "../../core/2d/index.js";
+import revolve from "../../core/revolve.js";
+import loft from "../../core/loft.js";
+import plane from "../../core/plane.js";
+import { FaceProps } from "../../oc/face-props.js";
+import type { PickRef } from "../../selection/types.js";
 import { Explorer } from "../../oc/explorer.js";
 import { EdgeProps } from "../../oc/edge-props.js";
 import { Extrude } from "../../features/extrude.js";
@@ -202,6 +207,86 @@ describe("selection groups (right-click multi-select menu)", () => {
     expect(byKind(groups, 'same-type')).toBeUndefined();
     expect(byKind(groups, 'equal')).toBeUndefined();
     expect(byKind(groups, 'tangent')).toBeUndefined();
+  });
+
+  it("offers All Splines for a spline edge, with no equal group", () => {
+    sketch("xy", () => {
+      line([0, 0], [40, 0]);
+      spline([40, 0], [44, 10], [36, 20], [40, 30]);
+      line([40, 30], [0, 30]);
+      spline([0, 30], [4, 20], [-4, 10], [0, 0]);
+    });
+    extrude(10);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const splines: PickRef[] = [];
+    Explorer.findEdgesWrapped(solid).forEach((e, index) => {
+      if (EdgeProps.getProperties(e.getShape()).curveType === 'spline') {
+        splines.push({ shapeId: solid.id, sub: { type: 'edge', index } });
+      }
+    });
+    expect(splines).toHaveLength(4);
+
+    const groups = groupsFor(listSelectionGroups(scene, splines[0]));
+    const sameType = byKind(groups, 'same-type')!;
+    expect(sameType.label).toBe('All Splines');
+    expect(sameType.members.map(m => m.sub.index).sort()).toEqual(splines.map(m => m.sub.index).sort());
+    expect(byKind(groups, 'equal')).toBeUndefined();
+  });
+
+  /** The refs of every face of `solid` whose surface type is `type`. */
+  function facesOfType(solid: Solid, type: string): PickRef[] {
+    const refs: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      if (FaceProps.getProperties(f.getShape()).surfaceType === type) {
+        refs.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    return refs;
+  }
+
+  it("offers All Spheres for a spherical face", () => {
+    // A capsule: two hemispherical ends around a cylindrical middle.
+    sketch("xz", () => {
+      arc([0, -10], [10, 0], [0, 0]);
+      line([10, 0], [10, 20]);
+      arc([10, 20], [0, 30], [0, 20]);
+      line([0, 30], [0, -10]);
+    });
+    revolve("z");
+
+    const scene = render();
+    const solid = findSolid(scene) as Solid;
+    const spheres = facesOfType(solid, 'sphere');
+    expect(spheres).toHaveLength(2);
+
+    const sameType = byKind(groupsFor(listSelectionGroups(scene, spheres[0])), 'same-type')!;
+    expect(sameType.label).toBe('All Spheres');
+    expect(sameType.members).toEqual(spheres);
+  });
+
+  it("offers All Freeform Faces for a free-form face, and nothing for a plane", () => {
+    // A loft from a square to a circle: four free-form walls between flat ends.
+    const base = sketch(plane("xy", 0), () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const top = sketch(plane("xy", 20), () => {
+      circle([0, 0], 12);
+    });
+    loft(base, top);
+
+    const scene = render();
+    const solid = findSolid(scene) as Solid;
+    const walls = facesOfType(solid, 'freeform');
+    expect(walls.length).toBeGreaterThan(1);
+
+    const sameType = byKind(groupsFor(listSelectionGroups(scene, walls[0])), 'same-type')!;
+    expect(sameType.label).toBe('All Freeform Faces');
+    expect(sameType.members).toEqual(walls);
+
+    const ends = facesOfType(solid, 'plane');
+    expect(byKind(groupsFor(listSelectionGroups(scene, ends[0])), 'same-type')).toBeUndefined();
   });
 
   it("reports a clear reason for an unresolvable pick", () => {

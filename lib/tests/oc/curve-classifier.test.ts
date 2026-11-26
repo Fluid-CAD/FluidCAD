@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Geom_Curve, TopoDS_Edge } from "ocjs-fluidcad";
+import type { Geom2d_Curve, Geom_Curve, Geom_Surface, TopoDS_Edge } from "ocjs-fluidcad";
 import { setupOC, render } from "../setup.js";
 import { getOC } from "../../oc/init.js";
 import { CurveClass, CurveClassifier } from "../../oc/curve-classifier.js";
@@ -341,6 +341,24 @@ describe("CurveClassifier", () => {
       expect(CurveClassifier.planarityTolerance()).toBeCloseTo(1e-6, 15);
       // 1e-6 mm is 1e-9 m, under the 1e-7 no edge's tolerance goes below.
       expect(withUnit("m", () => CurveClassifier.planarityTolerance())).toBe(1e-7);
+    });
+  });
+
+  describe("closure", () => {
+    it("calls an edge closed when it starts and ends on one vertex", () => {
+      // A full turn drawn on a cylinder as a curve on the surface only: the
+      // edge has no 3D curve whose end points could be compared.
+      const oc = getOC();
+      withOwned(own => {
+        const cylinder = own(new oc.Geom_CylindricalSurface(own(new oc.gp_Ax3()), 5)) as unknown as Geom_Surface;
+        const across = own(new oc.Geom2d_Line(own(new oc.gp_Pnt2d(0, 3)), own(new oc.gp_Dir2d(1, 0)))) as unknown as Geom2d_Curve;
+        const edge = own(own(new oc.BRepBuilderAPI_MakeEdge(across, cylinder, 0, 2 * Math.PI)).Edge());
+        const adaptor = own(new oc.BRepAdaptor_Curve(edge));
+        expect(adaptor.IsClosed()).toBe(false);
+        const curve = CurveClassifier.classifyRaw(edge);
+        expect(curve).toMatchObject({ kind: "circle", closed: true });
+        expect(curve.radius).toBeCloseTo(5, 9);
+      });
     });
   });
 

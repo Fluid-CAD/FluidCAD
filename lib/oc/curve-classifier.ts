@@ -15,7 +15,11 @@ export type CurveClass = {
   readonly kind: CurveKind;
   /** True when the kind was recovered from a B-spline or Bezier curve. */
   readonly recovered: boolean;
-  /** The edge returns to its start: a full circle, a full ellipse, a closed spline. */
+  /**
+   * The edge returns to its start: a full circle, a full ellipse, a closed
+   * spline. Its ends meet within OCCT's confusion tolerance, or are one
+   * vertex.
+   */
   readonly closed: boolean;
   /**
    * The edge lies in one plane. A line, a circle, an arc and an ellipse do
@@ -131,7 +135,7 @@ export class CurveClassifier {
     try {
       const adaptor = new oc.BRepAdaptor_Curve(ocEdge);
       try {
-        const closed = adaptor.IsClosed();
+        const closed = adaptor.IsClosed() || CurveClassifier.endsOnOneVertex(ocEdge);
         const first = adaptor.FirstParameter();
         const last = adaptor.LastParameter();
         const type = adaptor.GetType();
@@ -152,6 +156,24 @@ export class CurveClassifier {
       }
     } finally {
       ocEdge.delete();
+    }
+  }
+
+  /**
+   * Whether the edge starts and ends on one vertex. The adaptor's own
+   * closure test compares the curve's end points, which an edge carrying
+   * only a curve on a surface does not answer: a full circle drawn that
+   * way would read as an open arc.
+   */
+  private static endsOnOneVertex(edge: TopoDS_Edge): boolean {
+    const oc = getOC();
+    const first = oc.TopExp.FirstVertex(edge, false);
+    const last = oc.TopExp.LastVertex(edge, false);
+    try {
+      return !first.IsNull() && first.IsSame(last);
+    } finally {
+      last.delete();
+      first.delete();
     }
   }
 

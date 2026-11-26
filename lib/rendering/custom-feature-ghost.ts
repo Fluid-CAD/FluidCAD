@@ -22,6 +22,7 @@ import type { FeatureOperation } from "../sdk/call-shape.js";
 import type { FeatureScalar } from "../sdk/feature-inputs.js";
 import { FeatureMetas, type PickerKind, type PickerParamSpec, type ResolvedFeatureMeta } from "../sdk/meta.js";
 import { ValueSchema } from "../sdk/value-schema.js";
+import { Producers } from "../selection/producers.js";
 import { VertexPointSynthesizer } from "../selection/vertex-synthesis.js";
 import type { FeatureGhostResult, GhostEntityRef, GhostSolid } from "./feature-ghost.js";
 import { GhostScene } from "./ghost-scene.js";
@@ -481,7 +482,8 @@ export class CustomFeatureGhost {
       return plane ? new PlaneObject(plane.getPlane()) : null;
     }
     const object = kind === 'sketch'
-      ? candidates.find(obj => obj.getType() === 'sketch' || ((spec as { wire?: boolean }).wire === true && obj.getType() === 'helix'))
+      ? candidates.find(obj => obj.getType() === 'sketch'
+        || ((spec as { wire?: boolean }).wire === true && Producers.isCurveProducer(obj, this.before)))
       : candidates.find(obj => !obj.isInternal() && !(obj instanceof AxisObjectBase) && !(obj instanceof PlaneObjectBase));
     if (!object) {
       return null;

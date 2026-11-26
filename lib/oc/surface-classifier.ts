@@ -1,4 +1,4 @@
-import type { Adaptor3d_Surface, gp_Ax1, gp_Ax3, gp_Cone, gp_Cylinder, gp_Pln, gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
+import type { Adaptor3d_Surface, Geom_Surface, gp_Ax1, gp_Ax3, gp_Cone, gp_Cylinder, gp_Pln, gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -322,10 +322,10 @@ export class SurfaceClassifier {
     const owned: { delete(): void }[] = [surface];
     try {
       const tolerance = SurfaceClassifier.tolerance();
-      const bounds = oc.BRepTools.UVBounds(face);
+      const { uMin, uMax, vMin, vMax } = SurfaceClassifier.convertibleBounds(face, surface);
       const converter = new oc.GeomConvert_SurfToAnaSurf(surface);
       owned.push(converter);
-      const recovered = converter.ConvertToAnalytical(tolerance, bounds.UMin, bounds.UMax, bounds.VMin, bounds.VMax);
+      const recovered = converter.ConvertToAnalytical(tolerance, uMin, uMax, vMin, vMax);
       if (!recovered) {
         return null;
       }
@@ -343,6 +343,39 @@ export class SurfaceClassifier {
         object.delete();
       }
     }
+  }
+
+  /**
+   * The face's UV bounds as the converter takes them: within the surface's
+   * own. A face on a periodic surface may be parametrized any number of
+   * periods away from the surface's base range (an import's bore with u in
+   * [5, 8] on a surface defined over [0, 2π]), which the converter refuses;
+   * such a range is shifted back by whole periods, and one that still
+   * crosses the seam is widened to the full period, so the gap is measured
+   * over at least the face.
+   */
+  private static convertibleBounds(face: TopoDS_Face, surface: Geom_Surface): { uMin: number; uMax: number; vMin: number; vMax: number } {
+    const oc = getOC();
+    const bounds = oc.BRepTools.UVBounds(face);
+    const own = surface.Bounds(0, 0, 0, 0);
+    const [uMin, uMax] = SurfaceClassifier.withinPeriod(bounds.UMin, bounds.UMax, own.U1, own.U2, surface.IsUPeriodic());
+    const [vMin, vMax] = SurfaceClassifier.withinPeriod(bounds.VMin, bounds.VMax, own.V1, own.V2, surface.IsVPeriodic());
+    return { uMin, uMax, vMin, vMax };
+  }
+
+  /** A parameter range brought into `[first, last]`, one period of a periodic direction. */
+  private static withinPeriod(min: number, max: number, first: number, last: number, periodic: boolean): [number, number] {
+    const period = last - first;
+    // unit: dimensionless (surface parameter)
+    const slack = 1e-9;
+    if (!periodic || !(period > 0) || !Number.isFinite(period) || (min >= first - slack && max <= last + slack)) {
+      return [min, max];
+    }
+    const shift = Math.floor((min - first + slack) / period) * period;
+    if (max - shift > last + slack) {
+      return [first, last];
+    }
+    return [min - shift, max - shift];
   }
 
   /** An elementary surface's kind, frame and sizes; null for any other surface. */

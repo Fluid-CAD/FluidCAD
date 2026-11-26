@@ -256,6 +256,33 @@ describe("SurfaceClassifier", () => {
     });
   });
 
+  describe("a face on a periodic surface", () => {
+    /** A cylinder of radius 5 around z as a B-spline surface closed and periodic in u, over `[0, 2π]`. */
+    function periodicCylinder(own: Own): Geom_Surface {
+      const oc = getOC();
+      const cylinder = own(new oc.Geom_CylindricalSurface(own(new oc.gp_Ax3()), 5)) as unknown as Geom_Surface;
+      const band = own(new oc.Geom_RectangularTrimmedSurface(cylinder, 0, 10, false, true));
+      const bspline = own(oc.GeomConvert.SurfaceToBSplineSurface(band));
+      expect(bspline.IsUPeriodic()).toBe(true);
+      return bspline as unknown as Geom_Surface;
+    }
+
+    it("is recovered wherever its parameters sit against the surface's base period", () => {
+      const oc = getOC();
+      withOwned(own => {
+        const surface = periodicCylinder(own);
+        // Within the base period, a period and more away from it, across its seam, and before it.
+        for (const [u1, u2] of [[1, 3], [5, 8], [7, 9], [-2, -1]]) {
+          const face = own(own(new oc.BRepBuilderAPI_MakeFace(surface, u1, u2, 0, 10, 1e-6)).Face());
+          const cls = SurfaceClassifier.classifyRaw(face);
+          expect(cls).toMatchObject({ kind: "cylinder", recovered: true });
+          expect(cls.radius).toBeCloseTo(5, 9);
+          expect(cls.gap).toBeLessThan(1e-9);
+        }
+      });
+    });
+  });
+
   it("keeps a wrapper's class", () => {
     const oc = getOC();
     withOwned(own => {

@@ -11,7 +11,7 @@ import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import type { ConnectorPickDetail } from '../feature-dialog-registry';
 import { HelixPanel } from './helix-panel';
-import { FeatureButton } from './feature-button';
+import { detachedLauncher, type FeatureLauncher } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { FeatureGhostOverlay } from './feature-ghost';
 import { SketchUISuspender } from './sketch-suspender';
@@ -23,7 +23,6 @@ import {
 } from './axis-options';
 import { ConnectorOption } from './connector-options';
 import { ConnectorPicks } from './connector-picks';
-import { iconUrl } from '../../ui/icon-url';
 import { hasSolid } from '../../helpers/scene-utils';
 
 /**
@@ -39,10 +38,13 @@ import { hasSolid } from '../../helpers/scene-utils';
  * writes `helix(<source>)` with the chained geometry configurators
  * (`.radius()`, `.pitch()`, `.turns()`, …); the re-render is the preview,
  * editor undo the rollback.
+ *
+ * The dialog opens from the launcher it is given: the Helix cell of the
+ * toolbar's Curves menu.
  */
 export class HelixFeatureService {
   private panel: HelixPanel;
-  private button: FeatureButton;
+  private launcher: FeatureLauncher;
   private armed = false;
   private available = false;
   private axes: AxisOption[] = [];
@@ -73,7 +75,8 @@ export class HelixFeatureService {
   constructor(
     container: HTMLElement,
     private viewer: Viewer,
-    private navbar: Navbar,
+    navbar: Navbar,
+    launcher: FeatureLauncher = detachedLauncher(),
     private hooks: {
       onEnter?: () => void;
       /** Armed or disarmed — lets the Sketch button owner re-check `isActive`. */
@@ -82,14 +85,8 @@ export class HelixFeatureService {
       onResumeSketchUI?: () => void;
     } = {},
   ) {
-    const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
-    this.button = new FeatureButton(group, {
-      icon: iconUrl('helix'),
-      label: 'Helix',
-      tip: 'Build a helix around an axis or on a cylindrical face',
-      ariaLabel: 'Build a helix around an axis or on a cylindrical face',
-    });
-    this.button.onClick = () => {
+    this.launcher = launcher;
+    this.launcher.onClick = () => {
       if (this.armed) {
         this.exit();
       } else {
@@ -166,11 +163,6 @@ export class HelixFeatureService {
 
   get isActive(): boolean {
     return this.armed;
-  }
-
-  /** The toolbar button, hidden by the Finish Sketch button during sketch mode. */
-  get toolbarButton(): FeatureButton {
-    return this.button;
   }
 
   /** An edit session is open (the viewport shows the pre-statement rollback). */
@@ -271,7 +263,7 @@ export class HelixFeatureService {
     // sketch to sweep the helix with — like Revolve's availability signal —
     // and on a blank document (see {@link Viewer.sceneIsEmpty}).
     this.available = this.hasSolid || this.hasSketch || this.viewer.sceneIsEmpty;
-    this.syncButton();
+    this.syncLauncher();
     if (!this.armed) {
       return;
     }
@@ -326,7 +318,7 @@ export class HelixFeatureService {
     this.sourceFaceEntity = null;
     this.sourceSlot = null;
     this.editSceneStale = false;
-    this.syncButton();
+    this.syncLauncher();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
     void this.loadEditSources();
@@ -386,7 +378,7 @@ export class HelixFeatureService {
     if (this.sceneSketchActive) {
       this.sketchUI.suspend();
     }
-    this.syncButton();
+    this.syncLauncher();
     void this.refreshScopeVariables();
     this.panel.show(this.axes);
     this.syncPickChannels();
@@ -415,7 +407,7 @@ export class HelixFeatureService {
     this.editSceneStale = false;
     this.sourceEdgeEntity = null;
     this.sourceFaceEntity = null;
-    this.syncButton();
+    this.syncLauncher();
     this.runner.cancelPreview();
     this.ghost.clear();
     this.connectors.close();
@@ -778,23 +770,9 @@ export class HelixFeatureService {
     }
   }
 
-  /**
-   * The create group is `immune`, so its buttons survive the sketch toolbar's
-   * takeover — Extrude and friends must stay reachable to finish a sketch.
-   * Helix is not one of them: it is a solid-level feature, so its button hides
-   * while a sketch is being edited. An armed session keeps the button (it
-   * suspends the sketch UI and doubles as the exit toggle).
-   */
-  private get buttonVisible(): boolean {
-    return this.available && (this.armed || !this.sceneSketchActive);
-  }
-
-  private syncButton(): void {
-    this.button.setActive(this.armed);
-    // Arming/exiting flips the button's visibility too, so the group vote
-    // rides along here rather than only on the render path.
-    this.navbar.setGroupVisible('create', this.buttonVisible, 'helix');
-    this.button.setVisible(this.buttonVisible);
+  private syncLauncher(): void {
+    this.launcher.setActive(this.armed);
+    this.launcher.setDisabled(!this.available);
     this.hooks.onActiveChange?.();
   }
 }

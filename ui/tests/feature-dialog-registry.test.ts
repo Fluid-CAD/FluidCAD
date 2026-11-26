@@ -497,9 +497,9 @@ describe('PartFeatureDialogs', () => {
     expect(registry.sketchUISuspended).toBe(true);
   });
 
-  it('hands Finish Sketch the create-group buttons', () => {
+  it('hands Finish Sketch the create-group buttons (Helix opens from the Curves menu, which hides whole)', () => {
     const names = registry.toolbarButtons.map((b) => (b as unknown as { name: string }).name);
-    expect(names).toEqual(['extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'plane']);
+    expect(names).toEqual(['extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'plane']);
   });
 
   it('edits the rows each dialog owns, and opens the dialog for its parsed kind', () => {

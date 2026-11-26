@@ -185,7 +185,6 @@ export class PartFeatureDialogs {
     }));
     registry.register(new ServiceDialog('helix', s.helix, {
       edit: { rowTypes: ['helix'], kind: 'helix', open: (t, p, i) => s.helix.enterEdit(t, p, i) },
-      toolbarButton: s.helix.toolbarButton,
       picking: (d) => d.isPicking,
       // An edge or a connector gizmo (axis mode) or a face (face mode) is the helix's source.
       claims: { click: (d) => d.isPicking, axis: (d) => d.isAxisPicking, connector: (d) => d.isConnectorPicking },

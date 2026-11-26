@@ -22,8 +22,33 @@
 /** A typed-in value a clause compares: what one row holds. */
 export type ConditionScalar = string | number | boolean;
 
-/** What a picked face is, as a pick condition tells picked faces apart. */
-export type ConditionSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
+/**
+ * The surfaces a face picker may restrict its picks to (`surface: 'planar'`),
+ * each the face filter of that name: the one list the schema checks, the
+ * engine filters picks by and a pick condition names.
+ */
+export const SLOT_SURFACES = ['planar', 'cylinder', 'cone', 'sphere', 'torus', 'freeform'] as const;
+
+/** A surface a face picker may restrict its picks to. */
+export type SlotSurface = typeof SLOT_SURFACES[number];
+
+/**
+ * The curves an edge picker may restrict its picks to (`curve: 'arc'`), each
+ * the edge filter of that name.
+ */
+export const SLOT_CURVES = ['line', 'circle', 'arc', 'ellipse', 'spline'] as const;
+
+/** A curve an edge picker may restrict its picks to. */
+export type SlotCurve = typeof SLOT_CURVES[number];
+
+/**
+ * What a picked face is, as a pick condition tells picked faces apart: one
+ * of the {@link SLOT_SURFACES}, or `other` (a revolved or an extruded face).
+ */
+export type ConditionSurface = SlotSurface | 'other';
+
+/** The surfaces a pick condition may name. */
+export const CONDITION_SURFACES: readonly ConditionSurface[] = [...SLOT_SURFACES, 'other'];
 
 /** A condition on a picked value (see `PickCondition` in the feature metadata). */
 export type ConditionOnPicks = {

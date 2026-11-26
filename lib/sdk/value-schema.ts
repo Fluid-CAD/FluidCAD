@@ -12,14 +12,14 @@ import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
 import { Locations, type LocationKind } from "../features/locations.js";
 import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
 import type { FeatureLayoutChecks } from "./layout.js";
-import { ValueConditions } from "./value-conditions.js";
+import { CONDITION_SURFACES, SLOT_CURVES, SLOT_SURFACES, ValueConditions } from "./value-conditions.js";
 import type {
   ChoiceOption, ConditionalDefault, MultiSelectParamSpec, NumberParamSpec, OptionCase, OptionWhen, ParamSpec, ParamSpecSnapshot, PickCondition,
   PickedSurface, PickerKind, PickerParamSpec, RadioParamSpec, ScalarParamSpec, ScalarParamType, SelectParamSpec, TextParamSpec, VisibleWhen,
 } from "./meta.js";
 
 /** The surfaces a {@link PickCondition} may name. */
-export const PICKED_SURFACES: readonly PickedSurface[] = ['planar', 'cylinder', 'cone', 'sphere', 'torus', 'other'];
+export const PICKED_SURFACES: readonly PickedSurface[] = CONDITION_SURFACES;
 
 /** What a picker that may pick several things declares (see `ParamSpec`). */
 type ListPicker = {
@@ -111,8 +111,8 @@ export class SchemaValidator {
   };
 
   private static readonly ENUMS: Record<string, readonly string[]> = {
-    surface: ['planar', 'cylinder', 'cone', 'torus'],
-    curve: ['line', 'circle', 'arc'],
+    surface: SLOT_SURFACES,
+    curve: SLOT_CURVES,
   };
 
   private static readonly BOOLEAN_FIELDS = new Set([

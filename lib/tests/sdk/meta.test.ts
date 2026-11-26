@@ -211,8 +211,8 @@ describe("feature metadata refusals", () => {
     refuses(withParam('face', { picker: 'face', max: 3, multiple: false }), /'max' makes the value a list, so it can't be 'multiple: false'/);
     refuses(withParam('face', { picker: 'face', ordered: true }), /param 'face': only a list can be 'ordered'/);
     refuses(withParam('face', { picker: 'sketch', implicitDefault: true, multiple: true }), /only a single sketch can default to the active one/);
-    refuses(withParam('face', { picker: 'face', surface: 'sphere' }), "feature 'acme.boss': param 'face': 'surface' must be one of planar, cylinder, cone, torus, got 'sphere'");
-    refuses(withParam('face', { picker: 'edge', curve: 'spline' }), /'curve' must be one of line, circle, arc, got 'spline'/);
+    refuses(withParam('face', { picker: 'face', surface: 'revolved' }), "feature 'acme.boss': param 'face': 'surface' must be one of planar, cylinder, cone, sphere, torus, freeform, got 'revolved'");
+    refuses(withParam('face', { picker: 'edge', curve: 'helix' }), /'curve' must be one of line, circle, arc, ellipse, spline, got 'helix'/);
     refuses(withParam('face', { picker: 'face', multiple: 'yes' }), "feature 'acme.boss': param 'face': 'multiple' must be true or false, got 'yes'");
     refuses(withParam('face', { picker: 'feature', types: [] }), /param 'face': 'types' must be a non-empty list/);
     refuses(withParam('face', { picker: 'anchor', anchors: ['center', 'middle'] }), /param 'face': 'anchors' must be one of center, start, end, offset, got 'middle'/);
@@ -273,7 +273,7 @@ describe("feature metadata refusals", () => {
     refuses(params({ face: { count: 1.5 } }), "feature 'acme.boss': param 'ribs': 'visibleWhen': 'face': 'count' takes a whole number of picks, 0 or more, or a list of them, got 1.5");
     refuses(params({ face: { count: [2, -1] } }), /'face': 'count' takes a whole number of picks, 0 or more, or a list of them, got -1/);
     refuses(params({ face: { not: { count: [] } } }), "feature 'acme.boss': param 'ribs': 'visibleWhen': 'face': 'not': the counts listed are empty");
-    refuses(params({ face: { surface: 'cube' } }), /'face': 'surface' takes 'planar', 'cylinder', 'cone', 'sphere', 'torus', 'other', got 'cube'/);
+    refuses(params({ face: { surface: 'cube' } }), /'face': 'surface' takes 'planar', 'cylinder', 'cone', 'sphere', 'torus', 'freeform', 'other', got 'cube'/);
     refuses(params({ face: { not: { surface: [] } } }), "feature 'acme.boss': param 'ribs': 'visibleWhen': 'face': 'not': the surfaces listed are empty");
     refuses(params({ face: { kind: 'face' } }), "feature 'acme.boss': param 'ribs': 'visibleWhen': 'face': unknown field 'kind' — a picked value's condition takes 'picked', 'count', 'surface' and 'not'");
     refuses(params({ style: [] }), /the values listed for 'style' are empty/);

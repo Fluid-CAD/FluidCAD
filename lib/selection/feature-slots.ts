@@ -11,6 +11,7 @@ import {
   allocateNames, collectImports, makeStatementBindable, rehomePlaneFacePick, renderPartArgs,
 } from "./explain.js";
 import { VertexPointSynthesizer } from "./vertex-synthesis.js";
+import { SLOT_CURVES, SLOT_SURFACES, type SlotCurve, type SlotSurface } from "../sdk/value-conditions.js";
 import { renderSolvedTarget, type SolvedEmissionTarget } from "./sketch-target.js";
 import {
   ApplyFeatureEditSpec, nameHintFor, PickRef, renderConnectorAnchorSuffix, SelectionScene, SynthesizeOptions,
@@ -34,9 +35,9 @@ export type FeatureSlotOptions = {
   /** The list's order matters: each pick is its own element, in pick order. */
   ordered?: boolean;
   /** Only faces of this surface. */
-  surface?: 'planar' | 'cylinder' | 'cone' | 'torus';
+  surface?: SlotSurface;
   /** Only edges of this curve. */
-  curve?: 'line' | 'circle' | 'arc';
+  curve?: SlotCurve;
   /** A picked face stands for all of its edges. */
   facesAsEdges?: boolean;
   /** An anchor picker's: the well-known points it takes; every one when left out. */
@@ -130,18 +131,17 @@ class SlotRefusal extends Error {
  */
 export class FeatureSlotSynthesizer {
 
-  private static readonly SURFACE_FILTERS: Record<NonNullable<FeatureSlotOptions['surface']>, { code: string; filter: () => FaceFilterBuilder }> = {
-    planar: { code: 'face().planar()', filter: () => new FaceFilterBuilder().planar() },
-    cylinder: { code: 'face().cylinder()', filter: () => new FaceFilterBuilder().cylinder() },
-    cone: { code: 'face().cone()', filter: () => new FaceFilterBuilder().cone() },
-    torus: { code: 'face().torus()', filter: () => new FaceFilterBuilder().torus() },
-  };
+  /** Each of the {@link SLOT_SURFACES}, as the face filter of its name. */
+  private static readonly SURFACE_FILTERS = Object.fromEntries(SLOT_SURFACES.map(name => [name, {
+    code: `face().${name}()`,
+    filter: () => new FaceFilterBuilder()[name](),
+  }])) as Record<SlotSurface, { code: string; filter: () => FaceFilterBuilder }>;
 
-  private static readonly CURVE_FILTERS: Record<NonNullable<FeatureSlotOptions['curve']>, { code: string; filter: () => EdgeFilterBuilder }> = {
-    line: { code: 'edge().line()', filter: () => new EdgeFilterBuilder().line() },
-    circle: { code: 'edge().circle()', filter: () => new EdgeFilterBuilder().circle() },
-    arc: { code: 'edge().arc()', filter: () => new EdgeFilterBuilder().arc() },
-  };
+  /** Each of the {@link SLOT_CURVES}, as the edge filter of its name. */
+  private static readonly CURVE_FILTERS = Object.fromEntries(SLOT_CURVES.map(name => [name, {
+    code: `edge().${name}()`,
+    filter: () => new EdgeFilterBuilder()[name](),
+  }])) as Record<SlotCurve, { code: string; filter: () => EdgeFilterBuilder }>;
 
   static synthesize(scene: SelectionScene, request: FeatureSlotRequest, options: SynthesizeOptions = {}): FeatureSlotSynthesis {
     const entries = Object.entries(request?.slots ?? {});
@@ -469,10 +469,13 @@ export class FeatureSlotSynthesizer {
     return new ShapeFilter([shape], filter).apply().length > 0;
   }
 
-  /** `planar`, `a cylinder`, `an arc`: what a filter names, as the message reads it. */
+  /** `planar`, `free-form`, `a cylinder`, `an arc`: what a filter names, as the message reads it. */
   private static article(name: string): string {
     if (name === 'planar') {
       return 'planar';
+    }
+    if (name === 'freeform') {
+      return 'free-form';
     }
     return `${/^[aeiou]/.test(name) ? 'an' : 'a'} ${name}`;
   }

@@ -7,6 +7,7 @@ import { FeatureNamespaces } from "./feature-namespaces.js";
 import { SceneTypes } from "../common/scene-types.js";
 import { FeatureLayouts, type FeatureDialogWidth, type FeatureLayout, type FeatureStaticItem } from "./layout.js";
 import { SchemaValidator, ValueSchema } from "./value-schema.js";
+import type { ConditionSurface, SlotCurve, SlotSurface } from "./value-conditions.js";
 
 /** Where a feature's button sits: with the features that make solids, or those that change them. */
 export type FeatureGroup = 'create' | 'modify';
@@ -34,8 +35,8 @@ export type ScalarParamType = 'number' | 'integer' | 'length' | 'angle' | 'boole
 /** A value the dialog picks in the viewport or the timeline. */
 export type PickerKind = 'sketch' | 'face' | 'edge' | 'axis' | 'plane' | 'solid' | 'feature' | 'connector' | 'point' | 'anchor';
 
-/** What a picked face is, as a `visibleWhen` tells picked faces apart: a face picker's `surface` names and a few more. */
-export type PickedSurface = 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'other';
+/** What a picked face is, as a `visibleWhen` tells picked faces apart: a face picker's `surface` names, and `other`. */
+export type PickedSurface = ConditionSurface;
 
 /** The surfaces a {@link PickCondition} may name. */
 export { PICKED_SURFACES } from "./value-schema.js";
@@ -288,7 +289,7 @@ export type SketchPickerSpec = ParamCommon & ListPicker & {
 export type FacePickerSpec = ParamCommon & ListPicker & {
   picker: 'face';
   /** Only faces of this surface; checked by the engine. */
-  surface?: 'planar' | 'cylinder' | 'cone' | 'torus';
+  surface?: SlotSurface;
   /** Only faces of the model's own file (the default). */
   sameFile?: boolean;
 };
@@ -296,7 +297,7 @@ export type FacePickerSpec = ParamCommon & ListPicker & {
 export type EdgePickerSpec = ParamCommon & ListPicker & {
   picker: 'edge';
   /** Only edges of this curve; checked by the engine. */
-  curve?: 'line' | 'circle' | 'arc';
+  curve?: SlotCurve;
   /** A picked face stands for all of its edges. */
   facesAsEdges?: boolean;
 };

@@ -40,8 +40,8 @@ type ParamSpec = ScalarParamSpec | PickerParamSpec;
 
 // Picked — no default; a list with multiple: true or max: n (n ≥ 2); ordered: true for a list whose order matters
 { picker: 'sketch'; implicitDefault?: boolean; hasGeometry?: boolean; wire?: boolean }
-{ picker: 'face'; surface?: 'planar' | 'cylinder' | 'cone' | 'torus'; sameFile?: boolean }
-{ picker: 'edge'; curve?: 'line' | 'circle' | 'arc'; facesAsEdges?: boolean }
+{ picker: 'face'; surface?: 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'freeform'; sameFile?: boolean }
+{ picker: 'edge'; curve?: 'line' | 'circle' | 'arc' | 'ellipse' | 'spline'; facesAsEdges?: boolean }
 { picker: 'axis' }                      // one only; takes connectors too
 { picker: 'plane' }                     // one only
 { picker: 'solid' }
@@ -73,7 +73,7 @@ hold:
 |---|---|
 | `picked: true` / `false` | the value holds a pick / nothing |
 | `count: 3` (or a list) | the value holds that many picks, or one of the counts listed: whole numbers, 0 or more. A statement's faces count each face, as `facesOf()` hands them to the feature. |
-| `surface: 'cylinder'` (or a list) | the value holds picks and each is a face of that surface: `'planar'`, `'cylinder'`, `'cone'`, `'sphere'`, `'torus'` or `'other'`. Only for a value that takes faces. |
+| `surface: 'cylinder'` (or a list) | the value holds picks and each is a face of that surface: `'planar'`, `'cylinder'`, `'cone'`, `'sphere'`, `'torus'`, `'freeform'` or `'other'` (a revolved or an extruded face). Only for a value that takes faces. |
 | `not: { … }` | the condition given does not hold |
 
 ```js

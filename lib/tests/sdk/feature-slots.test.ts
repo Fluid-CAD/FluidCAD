@@ -3,7 +3,7 @@ import { setupOC, render } from "../setup.js";
 import { getSceneManager } from "../../scene-manager.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, line, spline } from "../../core/2d/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { Shape } from "../../common/shape.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -108,6 +108,53 @@ describe("custom feature picked values", () => {
       slots: { rim: { picker: "edge", entities: [round[0]], options: { curve: "circle" } } },
     });
     expect(taken.ok).toBe(true);
+  });
+
+  it("restricts an edge to a spline and a face to a sphere or a free-form surface", () => {
+    sketch("xy", () => {
+      line([0, 0], [40, 0]);
+      line([40, 0], [40, 20]);
+      spline([40, 20], [26, 26], [14, 16], [0, 20]);
+      line([0, 20], [0, 0]);
+    });
+    const e = extrude(10) as unknown as SceneObject;
+    setLocation(e, 2);
+    const scene = render();
+    const solid = solidAt(scene, 2);
+    const curved = edgeRefsWhere(solid, mid => top(mid) && mid.y > 20 + 1e-6);
+    const straight = edgeRefsWhere(solid, mid => top(mid) && Math.abs(mid.y) < 1e-6);
+    expect(curved).toHaveLength(1);
+
+    const taken = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { rim: { picker: "edge", entities: curved, options: { curve: "spline" } } },
+    });
+    expect(taken.ok).toBe(true);
+    const refused = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { rim: { picker: "edge", entities: straight, options: { curve: "spline" } } },
+    });
+    expect(refused.ok === false && refused.reason).toBe(
+      "rim: the picked edge is not a spline — this value takes edges that match edge().spline()",
+    );
+    const ellipse = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { rim: { picker: "edge", entities: curved, options: { curve: "ellipse" } } },
+    });
+    expect(ellipse.ok === false && ellipse.reason).toBe(
+      "rim: the picked edge is not an ellipse — this value takes edges that match edge().ellipse()",
+    );
+
+    const flat = faceRefsWhere(solid, top);
+    const freeform = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { face: { picker: "face", entities: flat, options: { surface: "freeform", label: "Wall" } } },
+    });
+    expect(freeform.ok === false && freeform.reason).toBe(
+      "Wall: the picked face is not free-form — this value takes faces that match face().freeform()",
+    );
+    const sphere = FeatureSlotSynthesizer.synthesize(scene, {
+      slots: { face: { picker: "face", entities: flat, options: { surface: "sphere", label: "Ball" } } },
+    });
+    expect(sphere.ok === false && sphere.reason).toBe(
+      "Ball: the picked face is not a sphere — this value takes faces that match face().sphere()",
+    );
   });
 
   it("refuses a sub-shape the picker does not take", () => {

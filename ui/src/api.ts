@@ -1345,7 +1345,8 @@ export type CustomGhostRequest = {
  */
 export type GhostSolid = {
   meshes: SceneObjectMesh[];
-  kind?: 'add' | 'remove';
+  /** `wire` draws the meshes as lines: a curve a move or a copy carries along with the bodies. */
+  kind?: 'add' | 'remove' | 'wire';
   /** Loft side-edge polylines, packed xyz. */
   matchLines?: number[][];
   /**

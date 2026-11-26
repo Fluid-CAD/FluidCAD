@@ -617,7 +617,8 @@ export type KernelGhostRequest = Exclude<FeatureGhostRequest, CustomGhostRequest
  */
 export type GhostSolid = {
   meshes: any[];
-  kind?: 'add' | 'remove';
+  /** `wire` draws the meshes as lines: a curve a move or a copy carries along with the bodies. */
+  kind?: 'add' | 'remove' | 'wire';
   /** Loft side-edge polylines, packed xyz. */
   matchLines?: number[][];
   plane?: { normal: { x: number; y: number; z: number }; center: { x: number; y: number; z: number } };

@@ -38,6 +38,9 @@ import { TestSheets } from "../helpers/sheets.js";
 import { TestCurves } from "../helpers/curves.js";
 import { testRect } from "../helpers/profiles.js";
 import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
+import { buildFeatureGhost, type FeatureGhostRequest, type FeatureGhostResult } from "../../rendering/feature-ghost.js";
+import { DEFAULT_MESH_CONFIG } from "../../oc/mesh.js";
+import type { Scene } from "../../rendering/scene.js";
 
 const asObject = (value: unknown) => value as SceneObject;
 
@@ -475,5 +478,86 @@ describe("surfaces and curves in an existing model", () => {
     expect(live.map(({ holder }) => holder)).toEqual([r]);
     const [x, y, z] = center(live[0].body);
     expect([x, y, z].map(v => Number(v.toFixed(6)))).toEqual([-5, 5, 5]);
+  });
+
+  describe("previews", () => {
+    const FILE = "/tmp/surface-previews.fluid.js";
+
+    function at<T>(value: T, line: number): T {
+      asObject(value).setSourceLocation({ filePath: FILE, line, column: 0 });
+      return value;
+    }
+
+    function preview(scene: Scene, request: FeatureGhostRequest): FeatureGhostResult {
+      return buildFeatureGhost(scene, request, DEFAULT_MESH_CONFIG);
+    }
+
+    /** The ghost's bodies by how the overlay draws them, with every vertex of each. */
+    function drawn(result: FeatureGhostResult): Array<{ kind: string | undefined; xs: number[]; zs: number[] }> {
+      if (!result.ok) {
+        throw new Error(`preview refused: ${"reason" in result ? result.reason : ""}`);
+      }
+      return result.solids.map(solid => {
+        const vertices = solid.meshes.flatMap(mesh => mesh.vertices);
+        return {
+          kind: solid.kind,
+          xs: vertices.filter((_, i) => i % 3 === 0),
+          zs: vertices.filter((_, i) => i % 3 === 2),
+        };
+      });
+    }
+
+    it("translate draws a named surface as a body and a named curve as lines", () => {
+      at(plate(), 3);
+      at(loadShapes([TestCurves.threeEdges()]), 4);
+      const scene = render();
+
+      const result = preview(scene, {
+        feature: "translate",
+        translation: [0, 0, 5],
+        targets: [{ filePath: FILE, line: 3 }, { filePath: FILE, line: 4 }],
+      });
+
+      const [surface, curve] = drawn(result);
+      expect(surface.kind).toBe("add");
+      expect(curve.kind).toBe("wire");
+      for (const body of [surface, curve]) {
+        expect(Math.min(...body.zs)).toBeCloseTo(5, 6);
+        expect(Math.max(...body.zs)).toBeCloseTo(5, 6);
+      }
+    });
+
+    it("rotate and copy draw a surface", () => {
+      at(plate(), 3);
+      const scene = render();
+      const targets = [{ filePath: FILE, line: 3 }];
+
+      const turned = drawn(preview(scene, { feature: "rotate", axis: { kind: "standard", axis: "z" }, angle: 180, targets }));
+      expect(turned).toHaveLength(1);
+      expect(Math.min(...turned[0].xs)).toBeCloseTo(-10, 6);
+
+      const copied = drawn(preview(scene, {
+        feature: "copy", kind: "linear", targets,
+        axes: [{ kind: "standard", axis: "x" }],
+        directions: [{ count: 3, offset: 30, length: null }],
+        centered: false, count: null, sweep: null,
+      }));
+      expect(copied).toHaveLength(2);
+    });
+
+    it("a removing mirror adds a surface's image: a surface has no material to cut", () => {
+      block();
+      at(plate(), 3);
+      const scene = render();
+
+      const result = preview(scene, {
+        feature: "mirror", op: "remove", plane: { kind: "standard", plane: "yz" },
+        targets: [{ filePath: FILE, line: 3 }],
+      });
+
+      const [surface] = drawn(result);
+      expect(surface.kind).toBe("add");
+      expect(Math.min(...surface.xs)).toBeCloseTo(-10, 6);
+    });
   });
 });

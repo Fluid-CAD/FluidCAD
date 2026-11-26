@@ -2268,14 +2268,16 @@ describe("feature ghost — copy", () => {
     expect(copyGhost(scene, [99]).ok).toBe(false);
   });
 
-  it("refuses a target with nothing solid to clone", () => {
-    locatedSketch(7, () => { testRect(20, 20); });
+  it("refuses a target with nothing to clone", () => {
+    // A construction plane holds no solid, surface or curve: nothing to copy.
+    const datum = plane("xy", { offset: 5 }) as unknown as SceneObject;
+    datum.setSourceLocation({ filePath: FILE, line: 7, column: 0 });
     const scene = render();
 
     const result = copyGhost(scene, [7]);
 
     expect(result.ok).toBe(false);
-    expect(refusal(result)).toContain('no solid');
+    expect(refusal(result)).toContain('nothing to copy');
     // Ordinary refusals stay silent — the dialog clears and says nothing.
     expect('surface' in result && result.surface).toBeFalsy();
   });

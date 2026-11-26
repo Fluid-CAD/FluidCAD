@@ -18,7 +18,7 @@ import {
 import { buildExtrudeGhostSolids, type ExtrudeGhostTarget } from "../features/extrude-ghost.js";
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
 import { buildHoleTool, fastenedAxis, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
-import { liveSolidsIn } from "../helpers/live-solids.js";
+import { liveBodiesIn, liveSolidsIn } from "../helpers/live-solids.js";
 import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildShellGhostWalls } from "../features/shell-ghost.js";
@@ -752,7 +752,8 @@ export type Mirror2DGhostRequest = {
  */
 export type GhostSolid = {
   meshes: SceneObjectMesh[];
-  kind?: 'add' | 'remove';
+  /** `wire` draws the meshes as lines: a curve a move or a copy carries along with the bodies. */
+  kind?: 'add' | 'remove' | 'wire';
   /** Loft side-edge polylines, packed xyz. */
   matchLines?: number[][];
   /**
@@ -2202,25 +2203,23 @@ function buildCopyGhost(
   // A copy that follows a repeat copies connectors only — the statement
   // refuses anything else, so nothing else is ever stamped.
   const following = request.kind === 'pattern';
-  const meshes = following ? [] : stampMeshes(
-    copyTargetSolids(scene, targets.filter(target => !(target instanceof Connector)), request.exclude),
+  const stamp = following ? EMPTY_STAMP : targetStamp(
+    copyTargetShapes(scene, targets.filter(target => !(target instanceof Connector)), request.exclude),
     new MeshBuilder(meshConfig),
   );
-  if (meshes.length === 0 && seeds.length === 0) {
+  if (isEmptyStamp(stamp) && seeds.length === 0) {
     return {
       ok: false,
-      reason: following ? 'That statement has no connector to copy.' : 'That statement has no solid to copy.',
+      reason: following ? 'That statement has no connector to copy.' : 'That statement has nothing to copy.',
     };
   }
-  // Every target rides in one body per instance: they move together, and the
-  // overlay draws a mesh list whatever it was gathered from. A connector
-  // target comes back as frames instead — each copy is its seed's frame
-  // moved by the slot's matrix, exactly what `ConnectorCopy.build` does.
+  // Every target rides in the same bodies per instance: they move together,
+  // and the overlay draws a mesh list whatever it was gathered from. A
+  // connector target comes back as frames instead — each copy is its seed's
+  // frame moved by the slot's matrix, exactly what `ConnectorCopy.build` does.
   return {
     ok: true,
-    solids: meshes.length === 0
-      ? []
-      : placed.matrices.map(matrix => ({ meshes: transformMeshes(meshes, matrix) })),
+    solids: placed.matrices.flatMap(matrix => placeStamp(stamp, matrix)),
     frames: placed.matrices.flatMap(matrix => seeds.map(frame => toGhostFrame(frame.applyMatrix(matrix)))),
   };
 }
@@ -2343,8 +2342,71 @@ function followedRepeatMatrices(
 }
 
 /**
- * The bodies a copy's, mirror's or rotate's targets hand it — what the
- * statement reads at its own point in the file. A named target stands for
+ * What a move or a copy carries, meshed once and split by how the overlay
+ * draws it: solids, surfaces, and curves drawn as lines.
+ */
+type TargetStamp = { solids: SceneObjectMesh[]; surfaces: SceneObjectMesh[]; curves: SceneObjectMesh[] };
+
+const EMPTY_STAMP: TargetStamp = { solids: [], surfaces: [], curves: [] };
+
+function targetStamp(shapes: Shape[], builder: MeshBuilder): TargetStamp {
+  return {
+    solids: stampMeshes(shapes.filter(shape => shape.isSolid()), builder),
+    surfaces: stampMeshes(shapes.filter(shape => shape.isBody() && !shape.isSolid()), builder),
+    curves: stampMeshes(shapes.filter(shape => !shape.isBody()), builder),
+  };
+}
+
+function isEmptyStamp(stamp: TargetStamp): boolean {
+  return stamp.solids.length === 0 && stamp.surfaces.length === 0 && stamp.curves.length === 0;
+}
+
+/**
+ * One instance of a stamp under `matrix`. `solidKind` colours the solids
+ * (and the surfaces, except red: a surface has no material to cut, so a
+ * removing mirror adds its image like any other); without it the overlay's
+ * own kind applies.
+ */
+function placeStamp(stamp: TargetStamp, matrix: Matrix4, solidKind?: 'add' | 'remove'): GhostSolid[] {
+  const placed: GhostSolid[] = [];
+  if (stamp.solids.length > 0) {
+    placed.push({ meshes: transformMeshes(stamp.solids, matrix), ...(solidKind ? { kind: solidKind } : {}) });
+  }
+  if (stamp.surfaces.length > 0) {
+    const kind = solidKind === 'remove' ? 'add' : solidKind;
+    placed.push({ meshes: transformMeshes(stamp.surfaces, matrix), ...(kind ? { kind } : {}) });
+  }
+  if (stamp.curves.length > 0) {
+    placed.push({ meshes: transformMeshes(stamp.curves, matrix), kind: 'wire' });
+  }
+  return placed;
+}
+
+/**
+ * The shapes a move or a copy takes from its targets, read as
+ * {@link copyTargetSolids} reads solids: every body — solids and surfaces —
+ * wherever the features since left it, and the curves each target shows at
+ * the statement's point (a helix a sweep used and hid is not carried).
+ */
+function copyTargetShapes(
+  scene: Scene,
+  targets: SceneObject[],
+  exclude: { filePath: string; line: number } | undefined,
+): Shape[] {
+  const blocked = builtFrom(scene, exclude);
+  const live = liveBodiesIn(targets, blocked ? { through: remover => !blocked.has(remover) } : {});
+  const bodies = live.length > 0
+    ? live.map(held => held.body)
+    : targets.flatMap(target => target.getShapes(undefined, undefined, new Set<SceneObject>()).filter(shape => shape.isBody()));
+  const shown = new Set(scene.getAllSceneObjects().filter(obj => !blocked?.has(obj)));
+  const curves = targets.flatMap(target => target.getShapes(undefined, undefined, shown)
+    .filter(shape => shape.isEdge() || shape.isWire()));
+  return [...new Set([...bodies, ...curves])];
+}
+
+/**
+ * The solids a statement's targets hand it — what the statement reads at its
+ * own point in the file. A named target stands for
  * the body it built wherever the features since left it (`liveOperandShapes`
  * in the build; `liveSolidsIn` here), so a target a later fillet or move
  * took is read as that feature left it. The ghost reads the finished scene,
@@ -2402,7 +2464,7 @@ function builtFrom(scene: Scene, ref: { filePath: string; line: number } | undef
  * (mirror-shape.ts:78-86), so the stamp is the targets' own meshes through
  * `transformMeshes` — which flips the winding a negative-determinant matrix
  * inverts, exactly as the applied mirror's mesh path does. The targets read
- * through {@link copyTargetSolids}: a body a later feature took is read as
+ * through {@link copyTargetShapes}: a body a later feature took is read as
  * that feature left it, and in the edit dialog `exclude` keeps the applied
  * mirror — whose default op FUSES the very bodies its ghost draws — from
  * handing the ghost its own result.
@@ -2425,20 +2487,14 @@ function buildMirrorGhost(
     if (targets.length === 0) {
       return { ok: false, reason: 'That solid is not in the rendered scene.' };
     }
-    const meshes = stampMeshes(copyTargetSolids(scene, targets, request.exclude), new MeshBuilder(meshConfig));
-    if (meshes.length === 0) {
-      return { ok: false, reason: 'That statement has no solid to mirror.' };
+    const stamp = targetStamp(copyTargetShapes(scene, targets, request.exclude), new MeshBuilder(meshConfig));
+    if (isEmptyStamp(stamp)) {
+      return { ok: false, reason: 'That statement has nothing to mirror.' };
     }
     const [matrix] = buildMirrorGhostMatrices(plane);
-    return {
-      ok: true,
-      solids: [{
-        meshes: transformMeshes(meshes, matrix),
-        // A removing mirror carves its reflection out of the scene — the
-        // ghost wears the cut's red. Fused and standalone bodies both arrive.
-        kind: request.op === 'remove' ? 'remove' : 'add',
-      }],
-    };
+    // A removing mirror carves its reflection out of the scene — the ghost
+    // wears the cut's red. Fused and standalone bodies both arrive.
+    return { ok: true, solids: placeStamp(stamp, matrix, request.op === 'remove' ? 'remove' : 'add') };
   } finally {
     for (const shape of scratch) {
       shape.dispose();
@@ -2598,7 +2654,7 @@ function splitGhostTool(cutter: SplitCutter, solids: Shape[]): { shape: Shape; n
  * (rotate.ts:63-78), so the stamp is the targets' own meshes through
  * `transformMeshes` — the exact `ghostRotation` matrix the repeat's rotate
  * kind stamps with, which is itself the apply's `Matrix4.fromRotationAroundAxis`.
- * The targets read through {@link copyTargetSolids}: a body a later feature
+ * The targets read through {@link copyTargetShapes}: a body a later feature
  * took is read as that feature left it, and in the edit dialog `exclude`
  * keeps the applied rotate — a move CONSUMES its targets' bodies — from
  * handing the ghost its own turned body. A full-turn angle stamps nothing — the bodies land exactly where they
@@ -2627,18 +2683,15 @@ function buildRotateGhost(
   if (targets.length === 0) {
     return { ok: false, reason: 'That solid is not in the rendered scene.' };
   }
-  const meshes = stampMeshes(copyTargetSolids(scene, targets, request.exclude), new MeshBuilder(meshConfig));
-  if (meshes.length === 0) {
-    return { ok: false, reason: 'That statement has no solid to rotate.' };
+  const stamp = targetStamp(copyTargetShapes(scene, targets, request.exclude), new MeshBuilder(meshConfig));
+  if (isEmptyStamp(stamp)) {
+    return { ok: false, reason: 'That statement has nothing to rotate.' };
   }
-  return {
-    ok: true,
-    solids: [{ meshes: transformMeshes(meshes, matrix), kind: 'add' }],
-  };
+  return { ok: true, solids: placeStamp(stamp, matrix, 'add') };
 }
 
 /**
- * The translate: the target solids' own bodies, every target stamped into one
+ * The translate: the targets' own bodies and curves, every target stamped into one
  * instance under the single translation the apply itself uses. Targets are
  * read where the features since left them, and in the edit dialog `exclude`
  * keeps the applied translate — a move CONSUMES its targets' bodies — from
@@ -2659,15 +2712,12 @@ function buildTranslateGhost(
   if (targets.length === 0) {
     return { ok: false, reason: 'That solid is not in the rendered scene.' };
   }
-  const meshes = stampMeshes(copyTargetSolids(scene, targets, request.exclude), new MeshBuilder(meshConfig));
-  if (meshes.length === 0) {
-    return { ok: false, reason: 'That statement has no solid to translate.' };
+  const stamp = targetStamp(copyTargetShapes(scene, targets, request.exclude), new MeshBuilder(meshConfig));
+  if (isEmptyStamp(stamp)) {
+    return { ok: false, reason: 'That statement has nothing to translate.' };
   }
   const [x, y, z] = request.translation;
-  return {
-    ok: true,
-    solids: [{ meshes: transformMeshes(meshes, Matrix4.fromTranslation(x, y, z)), kind: 'add' }],
-  };
+  return { ok: true, solids: placeStamp(stamp, Matrix4.fromTranslation(x, y, z), 'add') };
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */

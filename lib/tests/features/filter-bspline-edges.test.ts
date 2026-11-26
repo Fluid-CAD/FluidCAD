@@ -5,6 +5,7 @@ import { edge } from "../../filters/index.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { Edge } from "../../common/edge.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
+import { CurveClassifier } from "../../oc/curve-classifier.js";
 import { testRect } from "../helpers/profiles.js";
 
 /**
@@ -40,7 +41,10 @@ describe("line/arc/circle filters on B-spline edges", () => {
     const edges = base.getShapes() as Edge[];
     expect(edges).toHaveLength(8);
     for (const e of edges) {
-      expect(EdgeQuery.getEdgeCurveType(e)).toBe("other");
+      // Recovered: the kernel stores a B-spline, which the classifier reads
+      // as the line or arc it traces.
+      expect(CurveClassifier.classify(e).recovered).toBe(true);
+      expect(EdgeQuery.getEdgeCurveType(e)).not.toBe("other");
     }
   });
 

@@ -9,6 +9,7 @@ import { Shape } from "../common/shape.js";
 import { Vertex } from "../common/vertex.js";
 import { Explorer } from "./explorer.js";
 import { EdgeQuery } from "./edge-query.js";
+import { CurveClass, CurveClassifier } from "./curve-classifier.js";
 import { mmTol } from "../units/tolerance.js";
 import { BooleanBuilders } from "./boolean-builders.js";
 
@@ -22,8 +23,9 @@ export class EdgeOps {
     return Vertex.fromTopoDSVertex(EdgeOps.getLastVertexRaw(edge.getShape() as TopoDS_Edge));
   }
 
+  /** {@link edgeToAxisRaw}, answered from the wrapper's cached class. */
   static edgeToAxis(edge: Edge): Axis {
-    return EdgeOps.edgeToAxisRaw(edge.getShape() as TopoDS_Edge);
+    return EdgeOps.axisOf(CurveClassifier.classify(edge));
   }
 
   static axisToEdge(axis: Axis): Edge {
@@ -87,38 +89,19 @@ export class EdgeOps {
     return oc.TopExp.LastVertex(edge, true);
   }
 
+  /**
+   * The line a straight edge lies on, as an axis: a native line's own, or
+   * the one {@link CurveClassifier} recovers from a straight B-spline.
+   */
   static edgeToAxisRaw(edge: TopoDS_Edge): Axis {
-    const oc = getOC();
+    return EdgeOps.axisOf(CurveClassifier.classifyRaw(edge));
+  }
 
-    const topoEdge = oc.TopoDS.Edge(edge);
-    const curveAdaptor = new oc.BRepAdaptor_Curve(topoEdge);
-    // The adaptor holds its own reference to the edge; the typed copy goes.
-    topoEdge.delete();
-
-    if (curveAdaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Line) {
-      const line = curveAdaptor.Line();
-      const axis = line.Position();
-
-      curveAdaptor.delete();
-      line.delete();
-
-      const axisLocation = axis.Location();
-      const axisDirection = axis.Direction();
-
-      const result = new Axis(
-        Convert.toPoint(axisLocation),
-        Convert.toVector3dFromGpDir(axisDirection)
-      );
-
-      axisLocation.delete();
-      axisDirection.delete();
-      axis.delete();
-
-      return result;
+  private static axisOf(curve: CurveClass): Axis {
+    if (curve.kind !== 'line' || !curve.origin || !curve.direction) {
+      throw new Error("Edge does not represent a line and cannot be converted to an axis");
     }
-
-    curveAdaptor.delete();
-    throw new Error("Edge does not represent a line and cannot be converted to an axis");
+    return new Axis(curve.origin, curve.direction);
   }
 
   static axisToEdgeRaw(axis: Axis): TopoDS_Edge {

@@ -222,7 +222,7 @@ export class SpineAnalysis {
     try {
       return {
         edge,
-        isLine: EdgeQuery.getEdgeCurveTypeRaw(edge) === "line",
+        isLine: EdgeQuery.isStoredLineRaw(edge),
         start: EdgeOps.getVertexPointRaw(first),
         end: EdgeOps.getVertexPointRaw(last),
         startTangent: EdgeOps.getEdgeTangentAtStartRaw(edge),

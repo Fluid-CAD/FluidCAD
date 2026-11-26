@@ -16,6 +16,8 @@ import { classifyEdge, classifyFace } from "../../oc/measure/classify.js";
 import { SurfaceClassifier } from "../../oc/surface-classifier.js";
 import { CurveClassifier } from "../../oc/curve-classifier.js";
 import { SelectSceneObject } from "../../features/select.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
+import { resolveHelixEdgeSource } from "../../features/helix-geometry.js";
 
 /**
  * The filters, the properties and measure read a face's or an edge's kind
@@ -191,6 +193,34 @@ describe("classifier agreement", () => {
       expect(fit()).toBeDefined();
       expect(typeof curveProps.planar).toBe("boolean");
       expect(fit()).toBeUndefined();
+    });
+  });
+
+  describe("edges stored as B-splines", () => {
+    it("are lines and circles to every reader of the edge's curve type", () => {
+      const lofted = loft(roundedRect(0), roundedRect(20)) as unknown as SceneObject;
+      render();
+      const edges = (lofted.getShapes()[0] as Solid).getEdges().filter(e => CurveClassifier.classify(e).recovered);
+      const lines = edges.filter(e => CurveClassifier.classify(e).kind === "line");
+      const arcs = edges.filter(e => CurveClassifier.classify(e).kind === "arc");
+      expect(lines.length).toBeGreaterThan(0);
+      expect(arcs.length).toBeGreaterThan(0);
+      for (const e of lines) {
+        expect(EdgeQuery.getEdgeCurveType(e)).toBe("line");
+        // The kernel stores no line: constructions exact on a true line only pass these by.
+        expect(EdgeQuery.isStoredLineRaw(e.getShape())).toBe(false);
+        const axis = EdgeOps.edgeToAxis(e);
+        const along = e.getFirstVertex().toPoint().vectorTo(e.getLastVertex().toPoint());
+        expect(along.normalize().cross(axis.direction.normalize()).length()).toBeLessThan(1e-9);
+        const source = resolveHelixEdgeSource(e);
+        expect(source.kind).toBe("line-edge");
+        expect(source.kind === "line-edge" && source.length).toBeCloseTo(along.length(), 6);
+      }
+      for (const e of arcs) {
+        expect(EdgeQuery.getEdgeCurveType(e)).toBe("circle");
+        expect(EdgeQuery.isEdgeClosedCurve(e)).toBe(false);
+        expect(EdgeQuery.getCircleDataFromEdge(e).radius).toBeCloseTo(4, 6);
+      }
     });
   });
 

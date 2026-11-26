@@ -5,6 +5,7 @@ import { HelixOps } from "../oc/helix-ops.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { EdgeQuery } from "../oc/edge-query.js";
 import { EdgeOps } from "../oc/edge-ops.js";
+import { CurveClassifier } from "../oc/curve-classifier.js";
 import { Convert } from "../oc/convert.js";
 import { CoordinateSystem } from "../math/coordinate-system.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -268,8 +269,8 @@ export function resolveHelixEdgeSource(edge: Edge): HelixSourceKind {
 
   if (curveType === 'line') {
     const axis = EdgeOps.edgeToAxis(edge);
-    const params = EdgeQuery.getEdgeCurveParams(edge);
-    const length = Math.abs(params.last - params.first);
+    // Not the parameter range: a straight B-spline's parameters are not lengths.
+    const length = CurveClassifier.classify(edge).length;
     return { kind: 'line-edge', axis, length };
   }
 

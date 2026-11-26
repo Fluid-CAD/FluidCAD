@@ -110,12 +110,18 @@ export class EdgeQuery {
     return EdgeQuery.geometryOf(CurveClassifier.classify(edge as Edge));
   }
 
+  /** Whether the edge returns to its start; see {@link CurveClass.closed}. */
   static isEdgeClosedCurve(edge: Edge): boolean {
-    return EdgeQuery.isEdgeClosedCurveRaw(edge.getShape());
+    return CurveClassifier.classify(edge).closed;
   }
 
+  /**
+   * The edge as a line, a circle (full or an arc) or anything else, read
+   * off its {@link CurveClassifier} class: a B-spline the classifier
+   * recovers as a line or a circle is one here too.
+   */
   static getEdgeCurveType(edge: Edge): "line" | "circle" | "other" {
-    return EdgeQuery.getEdgeCurveTypeRaw(edge.getShape());
+    return EdgeQuery.geometryOf(CurveClassifier.classify(edge)).kind;
   }
 
   static getEdgeCurveParams(edge: Edge): { first: number; last: number } {
@@ -342,23 +348,20 @@ export class EdgeQuery {
     return equals;
   }
 
-  static isEdgeClosedCurveRaw(edge: TopoDS_Edge): boolean {
+  /**
+   * Whether the kernel stores the edge as a line. For constructions that
+   * are exact only on a true line (a sweep's mitred corner, its constant
+   * frame along a straight spine); everything else asks
+   * {@link getEdgeCurveType}, which also knows a straight B-spline.
+   */
+  static isStoredLineRaw(edge: TopoDS_Edge): boolean {
     const oc = getOC();
     const curve = new oc.BRepAdaptor_Curve(edge);
-    const result = curve.IsClosed();
-    curve.delete();
-    return result;
-  }
-
-  static getEdgeCurveTypeRaw(edge: TopoDS_Edge): "line" | "circle" | "other" {
-    const oc = getOC();
-    const curve = new oc.BRepAdaptor_Curve(edge);
-    const curveType = curve.GetType();
-    curve.delete();
-
-    if (curveType === oc.GeomAbs_CurveType.GeomAbs_Line) return "line";
-    if (curveType === oc.GeomAbs_CurveType.GeomAbs_Circle) return "circle";
-    return "other";
+    try {
+      return curve.GetType() === oc.GeomAbs_CurveType.GeomAbs_Line;
+    } finally {
+      curve.delete();
+    }
   }
 
   static getEdgeCurveParamsRaw(edge: TopoDS_Edge): { first: number; last: number } {

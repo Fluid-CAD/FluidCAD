@@ -103,6 +103,11 @@ describe('a wire input by what the scene says its statement left', () => {
     expect(FeatureCallees.BUILT_IN.produces('wire', 'extrude')).toBe(false);
     expect(FeatureCallees.BUILT_IN.produces('wire', 'load')).toBe(false);
   });
+
+  it('binds a helix for its edges() bucket, and nothing else as a helix', () => {
+    expect(FeatureCallees.BUILT_IN.produces('helix', 'helix')).toBe(true);
+    expect(FeatureCallees.BUILT_IN.produces('helix', 'repeat')).toBe(false);
+  });
 });
 
 describe('a surface input by what the scene says its statement left', () => {

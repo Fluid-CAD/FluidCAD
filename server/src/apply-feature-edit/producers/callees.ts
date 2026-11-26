@@ -9,10 +9,12 @@ import { curveCallees, readsAsCurve } from '../parse/parsed-statement.ts';
  * Chain-root callees this transform will bind a variable to. Guards against a
  * stale or clone-inherited source line pointing at some unrelated call (e.g.
  * `repeat(...)`): binding `const e = repeat(...)` and emitting `e.endEdges()`
- * would produce broken code, so we refuse instead.
+ * would produce broken code, so we refuse instead. A helix binds for its
+ * `edges()` bucket (`h.edges(0)`), the first route to a pick on its edge;
+ * a fillet or a chamfer refuses such a pick before it gets here.
  */
 const PRODUCER_CALLEES = new Set([
-  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'hole',
+  'extrude', 'cut', 'revolve', 'sweep', 'loft', 'rib', 'wrap', 'shell', 'hole', 'helix',
 ]);
 
 /**

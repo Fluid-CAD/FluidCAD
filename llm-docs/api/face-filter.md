@@ -1,7 +1,7 @@
 ---
 id: api/face-filter
 title: face() — face filter builder
-summary: Chainable predicate builder for selecting faces by shape, orientation, position, topology, or source. Each chained call narrows the set (AND). Every predicate has a `.notX()` counterpart.
+summary: Chainable predicate builder for selecting faces by shape, orientation, position, topology, source, or the kind of body they belong to. Each chained call narrows the set (AND). Shape, position and topology predicates have a `.notX()` counterpart.
 tags: [api, selection, filter]
 symbols: [face]
 seeAlso: [api/edge-filter, api/select, concepts/last-selection]
@@ -50,6 +50,16 @@ bore — pick by whether the face closes on itself, not by its radius.
 
 - `.from(...sceneObjects)` — restrict to faces from those objects
   (recurses into containers).
+
+## By body
+
+- `.ofSolid()` — faces of solids only
+- `.ofSurface()` — faces of surfaces only
+
+`select(face())` reaches the faces of every solid and every surface in
+scope, so in a model that holds both, `select(face().planar().ofSolid())`
+keeps to the solid's faces and `select(face().ofSurface())` to the
+surface's. The two are each other's complement: there is no `notOfSolid()`.
 
 ## Example
 

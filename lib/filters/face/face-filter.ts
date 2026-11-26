@@ -27,6 +27,7 @@ import { PlaneRefSource } from "../plane-ref.js";
 import { DirectionLike } from "../direction.js";
 import { ExtremalFilter } from "../rank/extremal.js";
 import { MeasureExtremeFilter, SizeMeasure } from "../rank/measure.js";
+import { BodyKindFilter } from "../body-kind.js";
 
 export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   constructor() {
@@ -457,6 +458,26 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
     // time, so the donor's geometry precedes the consuming select().
     const filter = new FromSceneObjectFilter<Face>(materializePartArgs(sceneObjects) as SceneObject[], "face");
     this.filters.push(filter);
+    return this;
+  }
+
+  /**
+   * Selects faces of solids only, leaving out the faces of surfaces —
+   * `select(face().planar().ofSolid())` in a model that also holds an
+   * imported surface. The complement of {@link ofSurface}.
+   */
+  ofSolid() {
+    this.filters.push(new BodyKindFilter<Face>('solid'));
+    return this;
+  }
+
+  /**
+   * Selects faces of surfaces only — bodies of faces that enclose no
+   * volume, such as an imported surface — leaving out the faces of solids.
+   * The complement of {@link ofSolid}.
+   */
+  ofSurface() {
+    this.filters.push(new BodyKindFilter<Face>('surface'));
     return this;
   }
 

@@ -352,6 +352,30 @@ Recursive: passing a container picks up faces from its descendants.
 
 ---
 
+### .ofSolid()
+
+```ts
+.ofSolid(): this
+```
+
+Selects faces of solids only, leaving out the faces of surfaces —
+`select(face().planar().ofSolid())` in a model that also holds an
+imported surface. The complement of `ofSurface`.
+
+---
+
+### .ofSurface()
+
+```ts
+.ofSurface(): this
+```
+
+Selects faces of surfaces only — bodies of faces that enclose no
+volume, such as an imported surface — leaving out the faces of solids.
+The complement of `ofSolid`.
+
+---
+
 ### .farthest()
 
 ```ts

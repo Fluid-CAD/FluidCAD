@@ -413,6 +413,31 @@ Excludes smooth (tangent-transition) edges.
 
 ---
 
+### .ofSolid()
+
+```ts
+.ofSolid(): this
+```
+
+Selects edges of solids only, leaving out the edges of surfaces — what
+a solid-only tool needs in a model that also holds a surface:
+`fillet(2, select(edge().ofSolid()))`. The complement of `ofSurface`.
+
+---
+
+### .ofSurface()
+
+```ts
+.ofSurface(): this
+```
+
+Selects edges of surfaces only — their open rims and the edges between
+their faces — leaving out the edges of solids. A curve's edges, reached
+through `.from()`, belong to no body and are of neither kind. The
+complement of `ofSolid`.
+
+---
+
 ### .farthest()
 
 ```ts

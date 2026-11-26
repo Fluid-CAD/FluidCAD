@@ -1,7 +1,7 @@
 ---
 id: api/edge-filter
 title: edge() — edge filter builder
-summary: Chainable predicate builder for selecting edges by shape, orientation, position, or parent face/object. Like `face()`, chained calls AND together and `.notX()` negates.
+summary: Chainable predicate builder for selecting edges by shape, orientation, position, parent face/object, or the kind of body they belong to. Like `face()`, chained calls AND together and `.notX()` negates.
 tags: [api, selection, filter]
 symbols: [edge]
 seeAlso: [api/face-filter, api/select]
@@ -47,6 +47,24 @@ circular (an ellipse's arcs, a free-form spline) matches none of the three.
 
 - `.belongsToFace(...filtersOrObjects)`
 - `.from(...sceneObjects)`
+
+## By body
+
+- `.ofSolid()` — edges of solids only
+- `.ofSurface()` — edges of surfaces only: their open rims and the edges
+  between their faces
+
+`select(edge())` reaches the edges of every solid and every surface in
+scope. In a model that also holds a surface (an imported STEP surface, say),
+a tool that only works on solids needs `.ofSolid()`:
+`fillet(2, select(edge().line().ofSolid()))`. The two are each other's
+complement, so there is no `notOfSolid()`. A curve (a helix, a curve in an
+imported file) is never part of the candidates unless `.from(curve)` names
+it, and its edges are of neither kind.
+
+On a surface, `.convex()` / `.concave()` / `.smooth()` judge an edge between
+two of its faces by the faces' normals as they point; an edge of the open
+rim bounds one face and matches none of them.
 
 ## By loop
 

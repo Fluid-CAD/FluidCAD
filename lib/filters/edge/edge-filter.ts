@@ -26,6 +26,7 @@ import { DirectionLike } from "../direction.js";
 import { ConvexityFilter } from "./convexity.js";
 import { ExtremalFilter } from "../rank/extremal.js";
 import { MeasureExtremeFilter, SizeMeasure } from "../rank/measure.js";
+import { BodyKindFilter } from "../body-kind.js";
 
 
 export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
@@ -539,6 +540,27 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   /** Excludes smooth (tangent-transition) edges. */
   notSmooth() {
     this.filters.push(new ConvexityFilter('smooth', true));
+    return this;
+  }
+
+  /**
+   * Selects edges of solids only, leaving out the edges of surfaces — what
+   * a solid-only tool needs in a model that also holds a surface:
+   * `fillet(2, select(edge().ofSolid()))`. The complement of {@link ofSurface}.
+   */
+  ofSolid() {
+    this.filters.push(new BodyKindFilter<Edge>('solid'));
+    return this;
+  }
+
+  /**
+   * Selects edges of surfaces only — their open rims and the edges between
+   * their faces — leaving out the edges of solids. A curve's edges, reached
+   * through `.from()`, belong to no body and are of neither kind. The
+   * complement of {@link ofSolid}.
+   */
+  ofSurface() {
+    this.filters.push(new BodyKindFilter<Edge>('surface'));
     return this;
   }
 

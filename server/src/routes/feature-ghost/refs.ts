@@ -386,7 +386,7 @@ export function parsePlaneBases(value: unknown, type: 'offset' | 'mid' | 'edge')
     const isEdgeSource = base.kind === 'wire' || base.kind === 'edge';
     if (isEdgeSource !== (type === 'edge')) {
       return type === 'edge'
-        ? 'An edge plane takes an edge, a sketch curve or a helix'
+        ? 'An edge plane takes an edge, a sketch curve or a curve'
         : 'That plane type takes a face or a plane';
     }
     bases.push(base);

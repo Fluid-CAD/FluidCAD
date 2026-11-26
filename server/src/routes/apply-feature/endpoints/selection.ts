@@ -99,8 +99,8 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
       return;
     }
     if (callee !== undefined && callee !== 'sketch' && callee !== 'plane' && callee !== 'axis'
-      && callee !== 'helix' && callee !== 'offset' && callee !== 'repeat') {
-      res.status(400).json({ error: 'callee must be "sketch", "plane", "axis", "helix", "offset" or "repeat"' });
+      && callee !== 'helix' && callee !== 'offset' && callee !== 'repeat' && callee !== 'any') {
+      res.status(400).json({ error: 'callee must be "sketch", "plane", "axis", "helix", "offset", "repeat" or "any"' });
       return;
     }
     const lineNumbers = lines as number[];

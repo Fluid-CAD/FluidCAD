@@ -2486,6 +2486,24 @@ describe('apply-feature route validation', () => {
     expect((await res.json()).names).toEqual([null, 'holes', null]);
   });
 
+  it('resolves a bound name whatever the callee with the any callee — a loaded or copied curve', async () => {
+    currentCode = [
+      `import { load, copy } from 'fluidcad/core'`,
+      ``,
+      `const rail = load('rail.step')`,
+      `const rails = copy('linear', 'x', { count: 2, offset: 40 }, rail)`,
+      `load('other.step')`,
+      ``,
+    ].join('\n');
+    const res = await fetch(`${baseUrl}/api/sketch-names`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lines: [3, 4, 5], callee: 'any' }),
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).names).toEqual(['rail', 'rails', null]);
+  });
+
   it('returns all-null sketch names without a code buffer', async () => {
     const res = await fetch(`${baseUrl}/api/sketch-names`, {
       method: 'POST',

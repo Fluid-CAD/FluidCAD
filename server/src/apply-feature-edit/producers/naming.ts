@@ -131,7 +131,8 @@ export async function makeProducerBoundProbe(
  * The variable names statements of `callee` are bound to, for dialog labels:
  * `const spine = sketch(…)` at one of `lines` resolves to `'spine'`; a bare
  * statement, a different callee at the line, or an unparsable one resolves to
- * null. Purely cosmetic — the transform re-resolves bindings at apply time.
+ * null. `'any'` takes the statement at the line whatever its callee — a
+ * curve the scene holds, from a load, a copy or a curve tool. Purely cosmetic — the transform re-resolves bindings at apply time.
  */
 export async function resolveSketchNames(
   code: string,
@@ -143,7 +144,7 @@ export async function resolveSketchNames(
   const srcLines = splitLines(code);
   return lines.map(line => {
     const call = findEditableCallAt(tree, srcLines, line);
-    if (!call || chainRootCallee(call) !== callee) {
+    if (!call || (callee !== 'any' && chainRootCallee(call) !== callee)) {
       return null;
     }
     const resolved = resolveStatement(call);

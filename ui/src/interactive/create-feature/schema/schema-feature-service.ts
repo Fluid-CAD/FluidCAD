@@ -782,6 +782,8 @@ export class SchemaFeatureService implements FeatureDialogService {
   /**
    * The engine's face classification in a `visibleWhen`'s words: a plane
    * (round or not) is planar, and a revolved or extruded face is `other`.
+   * A free-form face is told as `freeform`; a condition naming `other`
+   * holds for it too (the engine's `ValueConditions`).
    */
   private static pickedSurface(props: FaceProperties | null): FeaturePickedSurface {
     switch (props?.surfaceType) {

@@ -73,7 +73,7 @@ hold:
 |---|---|
 | `picked: true` / `false` | the value holds a pick / nothing |
 | `count: 3` (or a list) | the value holds that many picks, or one of the counts listed: whole numbers, 0 or more. A statement's faces count each face, as `facesOf()` hands them to the feature. |
-| `surface: 'cylinder'` (or a list) | the value holds picks and each is a face of that surface: `'planar'`, `'cylinder'`, `'cone'`, `'sphere'`, `'torus'`, `'freeform'` or `'other'` (a revolved or an extruded face). Only for a value that takes faces. |
+| `surface: 'cylinder'` (or a list) | the value holds picks and each is a face of that surface: `'planar'`, `'cylinder'`, `'cone'`, `'sphere'`, `'torus'`, `'freeform'` or `'other'`. `'other'` is every face that is none of the first five: a revolved, an extruded or a free-form face; `'freeform'` holds for the free-form ones alone. Only for a value that takes faces. |
 | `not: { … }` | the condition given does not hold |
 
 ```js

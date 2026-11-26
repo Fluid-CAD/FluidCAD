@@ -337,6 +337,21 @@ describe("feature metadata refusals", () => {
     expect(FeatureMetas.pickHolds({ not: { surface: 'cylinder' } }, ['cylinder'])).toBe(false);
   });
 
+  it("hold `other` for every face that is none of the analytic ones, a free-form one too, and `freeform` for those alone", () => {
+    // A loft wall was `other` before `freeform` had a name: a feature written then still sees it.
+    expect(FeatureMetas.pickHolds({ surface: 'other' }, ['other'])).toBe(true);
+    expect(FeatureMetas.pickHolds({ surface: 'other' }, ['freeform'])).toBe(true);
+    expect(FeatureMetas.pickHolds({ surface: 'other' }, ['freeform', 'other'])).toBe(true);
+    expect(FeatureMetas.pickHolds({ surface: ['planar', 'other'] }, ['freeform', 'planar'])).toBe(true);
+    expect(FeatureMetas.pickHolds({ not: { surface: 'other' } }, ['freeform'])).toBe(false);
+    for (const analytic of ['planar', 'cylinder', 'cone', 'sphere', 'torus'] as const) {
+      expect(FeatureMetas.pickHolds({ surface: 'other' }, [analytic])).toBe(false);
+    }
+    expect(FeatureMetas.pickHolds({ surface: 'freeform' }, ['freeform'])).toBe(true);
+    expect(FeatureMetas.pickHolds({ surface: 'freeform' }, ['other'])).toBe(false);
+    expect(FeatureMetas.pickHolds({ surface: 'freeform' }, ['freeform', 'other'])).toBe(false);
+  });
+
   it("refuse a call shape that names a missing value or leaves one out", () => {
     refuses(bossMeta({ call: ['face', { height: 'heigth' }] }), "feature 'acme.boss': the call shape names 'heigth', which is not one of the feature's values");
     refuses(bossMeta({ call: ['face'] }), "feature 'acme.boss': the value 'height' has no place in the call shape");

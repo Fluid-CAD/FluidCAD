@@ -48,7 +48,8 @@ export { PICKED_SURFACES } from "./value-schema.js";
  * - `count`: the value holds this many picks (or one of these counts) — a
  *   face picked as a statement's faces counts each face;
  * - `surface`: the value holds picks, and each is a face of this surface (or
- *   of one of these);
+ *   of one of these) — `other` being every face that is no plane, cylinder,
+ *   cone, sphere or torus, a free-form one included;
  * - `not`: the condition given does not hold.
  *
  * `{ at: { not: { surface: 'cylinder' } } }` shows a row until a cylindrical

@@ -128,6 +128,33 @@ describe('the schema dialog', () => {
     expect(panel.pickStates().at.picks).toEqual(['planar']);
   });
 
+  it("shows a row that waits on an `other` face for a free-form pick too, and one that waits on `freeform` for that alone", () => {
+    const meta: BareFeatureMeta = {
+      ...VENT,
+      id: 'acme.skin',
+      params: {
+        on: { picker: 'face', label: 'On', optional: true },
+        blend: { type: 'length', label: 'Blend', default: 2, visibleWhen: { on: { surface: 'other' } } },
+        patch: { type: 'length', label: 'Patch', default: 1, visibleWhen: { on: { surface: 'freeform' } } },
+      },
+    };
+    const { root, panel } = mount(meta);
+    const surfaces: Record<number, 'freeform' | 'other' | 'planar'> = { 0: 'freeform', 1: 'other', 2: 'planar' };
+    panel.faceSurface = face => surfaces[face.index];
+    const on = panel.pickers.get('on')!;
+    const rows = () => ['blend', 'patch'].map(name => shown(root.querySelector(`[data-param="${name}"]`)));
+    const pick = (index: number) => {
+      on.reset();
+      on.takeClick('body', { type: 'face', index });
+      panel.syncVisibility();
+      return rows();
+    };
+
+    expect(pick(0)).toEqual([true, true]);
+    expect(pick(1)).toEqual([true, false]);
+    expect(pick(2)).toEqual([false, false]);
+  });
+
   it('arms one pick slot at a time, never one on a pane out of view', () => {
     const { root, panel } = mount();
     expect(panel.armedSlot).toBe('face');

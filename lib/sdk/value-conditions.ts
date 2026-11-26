@@ -44,6 +44,9 @@ export type SlotCurve = typeof SLOT_CURVES[number];
 /**
  * What a picked face is, as a pick condition tells picked faces apart: one
  * of the {@link SLOT_SURFACES}, or `other` (a revolved or an extruded face).
+ * A condition that names `other` holds for a free-form face too: `other` is
+ * every face that is no plane, cylinder, cone, sphere or torus, as it was
+ * before `freeform` had a name of its own, and `freeform` only narrows it.
  */
 export type ConditionSurface = SlotSurface | 'other';
 
@@ -128,11 +131,19 @@ export class ValueConditions {
     }
     if (condition.surface !== undefined) {
       const wanted: readonly ConditionSurface[] = typeof condition.surface === 'string' ? [condition.surface] : condition.surface;
-      if (picks.length === 0 || !picks.every(surface => surface !== null && wanted.includes(surface))) {
+      if (picks.length === 0 || !picks.every(surface => surface !== null && ValueConditions.surfaceIs(surface, wanted))) {
         return false;
       }
     }
     return condition.not === undefined || !ValueConditions.pickHolds(condition.not, picks);
+  }
+
+  /**
+   * Whether a picked face of `surface` is one of the surfaces a condition
+   * names: itself, or `other` for a free-form face (see {@link ConditionSurface}).
+   */
+  private static surfaceIs(surface: ConditionSurface, wanted: readonly ConditionSurface[]): boolean {
+    return wanted.includes(surface) || (surface === 'freeform' && wanted.includes('other'));
   }
 
   /**

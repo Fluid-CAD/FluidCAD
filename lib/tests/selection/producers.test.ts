@@ -11,7 +11,13 @@ import { circle, line, point } from "../../core/2d/index.js";
 import { edge, face } from "../../filters/index.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Extrude } from "../../features/extrude.js";
+import { Shape } from "../../common/shape.js";
 import { Producers } from "../../selection/producers.js";
+import { buildFeatureGhost, type FeatureGhostResult } from "../../rendering/feature-ghost.js";
+import type { Scene } from "../../rendering/scene.js";
+import { DEFAULT_MESH_CONFIG } from "../../oc/mesh.js";
+import { Feature, defineFeature } from "../../sdk/index.js";
+import { Primitives } from "../../sdk/kernel.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { Point } from "../../math/point.js";
 import { TestCurves } from "../helpers/curves.js";
@@ -19,6 +25,37 @@ import { TestSheets } from "../helpers/sheets.js";
 import { testRect } from "../helpers/profiles.js";
 import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
 import { chord, patch } from "../helpers/result-fixtures.js";
+import { setLocation } from "./pick-helpers.js";
+
+const FILE = "/ws/model.fluid.js";
+
+/** How many edges the `trace` feature read off its path in its last preview. */
+let traced = 0;
+
+/** `trace(path)`: a custom feature whose one value takes a sketch or any other wire source. */
+class Trace extends Feature.with({
+  path: { picker: "sketch", wire: true },
+}) {
+  static id = "acme.trace";
+
+  buildTool(): Shape[] {
+    traced = this.edgesOf(this.values.path).length;
+    return [Primitives.makeCylinder(1, 1)];
+  }
+}
+const trace = defineFeature(Trace, { label: "Trace", group: "create", call: ["path"] });
+
+/** The preview of `trace` over the statement at `line`. */
+function tracePreview(scene: Scene, line: number): FeatureGhostResult {
+  traced = 0;
+  return buildFeatureGhost(scene, {
+    feature: "custom",
+    builder: trace,
+    values: {},
+    refs: { path: [{ kind: "statement", filePath: FILE, line }] },
+    operation: null,
+  }, DEFAULT_MESH_CONFIG);
+}
 
 const asObject = (value: unknown) => value as SceneObject;
 
@@ -125,6 +162,37 @@ describe("Producers", () => {
       expect(Producers.isCurveProducer(coil, before)).toBe(true);
       // To the finished scene the sweep took the curve: nothing after it can read it.
       expect(Producers.isCurveProducer(coil, new Set(all))).toBe(false);
+    });
+  });
+
+  describe("a custom feature's wire value, in its preview", () => {
+    it("takes a sketch, a helix and a curve tool's result by their statement", () => {
+      const s = sketch("xy", () => {
+        line([0, 0], [10, 0]);
+        line([10, 0], [10, 10]);
+      });
+      setLocation(s, 2);
+      const coil = helix("z").radius(10).pitch(5).turns(2);
+      setLocation(coil, 3);
+      const c = chord([0, 0, 0], [10, 0, 0]);
+      setLocation(c, 4);
+      const scene = render();
+
+      expect(tracePreview(scene, 2).ok).toBe(true);
+      expect(traced).toBe(2);
+      expect(tracePreview(scene, 3).ok).toBe(true);
+      expect(traced).toBe(1);
+      expect(tracePreview(scene, 4).ok).toBe(true);
+      expect(traced).toBe(1);
+    });
+
+    it("does not take a solid's statement for a wire", () => {
+      const box = block();
+      setLocation(box, 5);
+      const scene = render();
+
+      expect(tracePreview(scene, 5).ok).toBe(false);
+      expect(traced).toBe(0);
     });
   });
 

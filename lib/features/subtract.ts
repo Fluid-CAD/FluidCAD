@@ -3,7 +3,7 @@ import { BooleanOps } from "../oc/boolean-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Solid } from "../common/shapes.js";
-import { requireShapes } from "../common/operand-check.js";
+import { BOOLEAN_SURFACE_HINT, requireShapes, requireSolidOperand } from "../common/operand-check.js";
 import { liveOperandShapes } from "../helpers/live-solids.js";
 
 export class Subtract extends SceneObject {
@@ -15,14 +15,16 @@ export class Subtract extends SceneObject {
   override validate() {
     requireShapes(this.solid1, "first operand", "subtract");
     requireShapes(this.solid2, "second operand", "subtract");
+    requireSolidOperand(this.solid1, "first operand", "subtract", BOOLEAN_SURFACE_HINT);
+    requireSolidOperand(this.solid2, "second operand", "subtract", BOOLEAN_SURFACE_HINT);
   }
 
   build(context: BuildSceneObjectContext) {
     const p = context.getProfiler();
     // Each operand's body as the features since left it, with its holder
     // (liveOperandShapes) — the holder is what loses it to the cut.
-    const stock = liveOperandShapes(this.solid1);
-    const toBeRemoved = liveOperandShapes(this.solid2);
+    const stock = liveOperandShapes(this.solid1, {}, 'solid');
+    const toBeRemoved = liveOperandShapes(this.solid2, {}, 'solid');
 
     const stockCompound = ShapeOps.makeCompound(stock.map(held => held.shape));
     const toBeRemovedCompound = ShapeOps.makeCompound(toBeRemoved.map(held => held.shape));

@@ -2,7 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Shape } from "../common/shape.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
-import { requireShapes } from "../common/operand-check.js";
+import { BOOLEAN_SURFACE_HINT, requireShapes, requireSolidOperand } from "../common/operand-check.js";
 import { liveOperandShapes } from "../helpers/live-solids.js";
 import { fusedInto } from "../helpers/scene-helpers.js";
 
@@ -21,6 +21,7 @@ export class Fuse extends SceneObject {
   override validate() {
     for (let i = 0; i < this._sceneObjects.length; i++) {
       requireShapes(this._sceneObjects[i], `operand ${i + 1}`, "fuse");
+      requireSolidOperand(this._sceneObjects[i], `operand ${i + 1}`, "fuse", BOOLEAN_SURFACE_HINT);
     }
   }
 

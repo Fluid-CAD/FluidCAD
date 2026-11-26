@@ -3,7 +3,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { BuildError } from "../common/build-error.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
-import { requireShapes } from "../common/operand-check.js";
+import { requireShapes, requireSolidOperand } from "../common/operand-check.js";
 import { ShapeHistoryTracker, type ShapeHistory } from "../common/shape-history-tracker.js";
 import { Plane } from "../math/plane.js";
 import { getOC } from "../oc/init.js";
@@ -71,6 +71,7 @@ export class Split extends SceneObject implements ISplit {
     }
     for (let i = 0; i < this.targetObjects.length; i++) {
       requireShapes(this.targetObjects[i], `target ${i + 1}`, "split");
+      requireSolidOperand(this.targetObjects[i], `target ${i + 1}`, "split", "Pick the solid to split as the target.");
     }
   }
 

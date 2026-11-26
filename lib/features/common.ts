@@ -2,7 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Shape } from "../common/shape.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { ShapeOps } from "../oc/shape-ops.js";
-import { requireShapes } from "../common/operand-check.js";
+import { BOOLEAN_SURFACE_HINT, requireShapes, requireSolidOperand } from "../common/operand-check.js";
 import { liveOperandShapes } from "../helpers/live-solids.js";
 
 export class Common extends SceneObject {
@@ -29,6 +29,7 @@ export class Common extends SceneObject {
     // specific operands.
     for (let i = 0; i < this._sceneObjects.length; i++) {
       requireShapes(this._sceneObjects[i], `operand ${i + 1}`, "common");
+      requireSolidOperand(this._sceneObjects[i], `operand ${i + 1}`, "common", BOOLEAN_SURFACE_HINT);
     }
   }
 

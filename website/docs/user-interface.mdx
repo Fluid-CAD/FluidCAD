@@ -92,15 +92,15 @@ The **Shapes** panel lists the solids the model produced, grouped by part: one c
 
 Hiding a body or making it transparent follows the body itself, not the row: the setting stays through later features that reshape it (a fillet, a chamfer, a shell, a cut), through edits to earlier features that rebuild it, and both halves of a split inherit it. A body whose feature was removed loses the setting with it.
 
-The scale icon at the bottom right opens **Shape properties**. The **Part | Solid** tabs at the top choose what the numbers describe, and **Calculate** fills **Kind**, **Volume**, **Surface Area**, **Mass** and **Center of Mass** in the chosen length and mass units — for a surface only its area and center, for a curve its **Length** and center. A density is never typed: mass comes from a material, and **Density** under it is read-only.
+The scale icon at the bottom right opens **Shape properties**. The **Part | Shape** tabs at the top choose what the numbers describe, and **Calculate** fills **Kind**, **Volume**, **Surface Area**, **Mass** and **Center of Mass** in the chosen length and mass units — for a surface only its area and center, for a curve its **Length** and center. A density is never typed: mass comes from a material, and **Density** under it is read-only.
 
-- **Solid** (the default) measures one solid: click a face or edge in the viewport, or a row in the Shapes panel. A solid inside a part that declares a material shows **Material** and **Density** read-only — the part owns them.
+- **Shape** (the default) measures one shape — a solid, a surface or a curve: click a face or edge in the viewport, or a row in the Shapes panel. A solid inside a part that declares a material shows **Material** and **Density** read-only — the part owns them.
 
-  ![Shape properties, Solid tab, a solid inside a part](/img/docs/ui/shape-properties-solid.png)
+  ![Shape properties, Shape tab, a solid inside a part](/img/docs/ui/shape-properties-solid.png)
 
   A solid outside any part has a **Material** dropdown instead, grouped **Built-in** and **Custom** — the project's `fluidcad.json` entries and your own from Settings → Materials. The pick is for this calculation only; nothing is written to the file. **Manage materials…** under it opens [Settings → Materials](#your-own-materials).
 
-  ![Shape properties, Solid tab, a solid outside any part](/img/docs/ui/shape-properties-top-level.png)
+  ![Shape properties, Shape tab, a solid outside any part](/img/docs/ui/shape-properties-top-level.png)
 
 - **Part** measures a whole part: click any of its solids in the viewport — every solid of the part highlights — or click the part's row in the History panel; in an assembly, click an instance. **Calculate** sums the part's final solids, the ones the Shapes panel lists under it. The material is read-only here; it is set from the History panel.
 

@@ -559,5 +559,22 @@ describe("surfaces and curves in an existing model", () => {
       expect(surface.kind).toBe("add");
       expect(Math.min(...surface.xs)).toBeCloseTo(-10, 6);
     });
+
+    it("fillet refuses an edge of a surface with the build's own words", () => {
+      block();
+      const l = plate();
+      const scene = render();
+
+      const result = preview(scene, {
+        feature: "fillet", value: 1, distance2: null, isAngle: false,
+        edges: [{ shapeId: l.getShapes()[0].id, index: 0, kind: "edge" }],
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: "fillet: edge selection 1 holds a surface edge; fillet works on solids.",
+        surface: true,
+      });
+    });
   });
 });

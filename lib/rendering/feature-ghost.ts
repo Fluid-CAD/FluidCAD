@@ -19,6 +19,8 @@ import { buildExtrudeGhostSolids, type ExtrudeGhostTarget } from "../features/ex
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
 import { buildHoleTool, fastenedAxis, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
 import { liveBodiesIn, liveSolidsIn } from "../helpers/live-solids.js";
+import { SOLID_EDGES_HINT, refuseSurfaceParts } from "../common/operand-check.js";
+import { BuildError } from "../common/build-error.js";
 import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildShellGhostWalls } from "../features/shell-ghost.js";
@@ -942,6 +944,10 @@ function buildBandGhost(
   request: FilletGhostRequest,
   meshConfig: MeshSettings,
 ): FeatureGhostResult {
+  const surfaceRefusal = surfacePickRefusal(scene, request);
+  if (surfaceRefusal) {
+    return { ok: false, reason: surfaceRefusal, surface: true };
+  }
   const groups = resolvePickedEdgeGroups(scene, request.edges);
   if (!groups) {
     return { ok: false, reason: 'Those edges are not in the rendered scene.' };
@@ -979,6 +985,44 @@ function buildBandGhost(
       for (const edge of group.edges) {
         edge.dispose();
       }
+    }
+  }
+}
+
+/**
+ * Why the build would refuse the picks for lying on a surface, or null. The
+ * build's own check runs on the picked edges and faces — the statement takes
+ * the picks as one selection — so the dialog reads the words the apply would
+ * give, rather than drawing nothing with no reason.
+ */
+function surfacePickRefusal(scene: Scene, request: FilletGhostRequest): string | null {
+  const picked: Shape[] = [];
+  try {
+    for (const ref of request.edges) {
+      const shape = findShapeById(scene, ref.shapeId);
+      if (!shape?.isSheet()) {
+        continue;
+      }
+      const subs = ref.kind === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape);
+      subs.forEach((sub, i) => {
+        if (i === ref.index) {
+          picked.push(sub);
+        } else {
+          sub.dispose();
+        }
+      });
+    }
+    refuseSurfaceParts(request.feature, 'edge selection 1', picked, scene.getAllSceneObjects(), SOLID_EDGES_HINT);
+    return null;
+  } catch (error) {
+    // The hint speaks to a filter in code; the dialog's picks need only the reason.
+    if (error instanceof BuildError) {
+      return error.diagnostic;
+    }
+    throw error;
+  } finally {
+    for (const shape of picked) {
+      shape.dispose();
     }
   }
 }

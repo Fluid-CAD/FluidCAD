@@ -1,5 +1,5 @@
 import {
-  applyFeature, applyValueFeatureEdit, continueBreakpoint, expandBucket, featureGhostScope, fetchFeatureGhost,
+  applyFeature, applyValueFeatureEdit, continueBreakpoint, expandBucket, featureGhostScope, fetchFeatureGhostResult,
   fetchFeatureSources, parseFeatureAt, removeFeature, setSketchClosed, ApplyFeatureResponse,
   FeatureEditTarget, FeatureExprValue, FeatureGhostRequest, NewVariable, ParsedFeatureStatement, SelectionGroupKind,
   ShellJoinType, SketchSourceRef, ValueExpr,
@@ -222,6 +222,8 @@ export class ModifyPickService {
   private ghostTimer: number | null = null;
   private ghostAbort: AbortController | null = null;
   private ghostSeq = 0;
+  /** The ghost refusal the panel shows now, if any. */
+  private ghostNotice: string | null = null;
 
   private tooltip: TeachTooltip;
   private selectionMenu: SelectionContextMenu;
@@ -430,6 +432,7 @@ export class ModifyPickService {
     }
     if (state === 'gone') {
       this.panel.setMessage(null);
+      this.ghostNotice = null;
       this.exit({ editEnd: 'gone' });
       return;
     }
@@ -610,6 +613,7 @@ export class ModifyPickService {
     this.syncExprPrefix();
     this.panel.setVisible(true);
     this.panel.setMessage(null);
+    this.ghostNotice = null;
     this.refresh();
     this.syncButtons();
   }
@@ -733,6 +737,7 @@ export class ModifyPickService {
     this.syncExprSuffix();
     this.panel.setVisible(true);
     this.panel.setMessage(null);
+    this.ghostNotice = null;
     this.refresh();
     this.viewer.highlightEntities(this.selection.entities);
   }
@@ -771,6 +776,7 @@ export class ModifyPickService {
       this.selectionMenu.hide();
       this.panel.setVisible(false);
       this.panel.setMessage(null);
+      this.ghostNotice = null;
     }
     const seed = this.hooks.onEnter?.();
     const faces = (Array.isArray(seed) ? seed : []).filter(e => e.sub.type === 'face');
@@ -1913,12 +1919,14 @@ export class ModifyPickService {
       return;
     }
 
-    const solids = await fetchFeatureGhost(request, featureGhostScope(this.editTarget), abort.signal)
+    const result = await fetchFeatureGhostResult(request, featureGhostScope(this.editTarget), abort.signal)
       .catch(() => null);
 
     if (seq !== this.ghostSeq || this.ghostFeature() !== feature) {
       return;
     }
+    this.showGhostNotice(result?.notice ?? null);
+    const solids = result?.solids;
     if (solids) {
       // The modify features take material away by default; a body that
       // knows better (a concave fillet, an outward shell) names its own kind.
@@ -1926,6 +1934,20 @@ export class ModifyPickService {
     } else {
       this.ghost.clear();
     }
+  }
+
+  /**
+   * Put a refusal the user can act on in the panel (a pick on a surface,
+   * which the apply would refuse), and take it down again once the picks no
+   * longer draw it. Ordinary refusals carry no notice and leave the panel be.
+   */
+  private showGhostNotice(notice: string | null): void {
+    if (notice) {
+      this.panel.setMessage(notice);
+    } else if (this.ghostNotice) {
+      this.panel.setMessage(null);
+    }
+    this.ghostNotice = notice;
   }
 
   /**

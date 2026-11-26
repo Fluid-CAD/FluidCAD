@@ -5,6 +5,7 @@ import { Edge } from "../../common/edge.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { ProjectionOps } from "../../oc/intersection.js";
 import { Wire } from "../../common/wire.js";
+import { Sheet } from "../../common/sheet.js";
 import { Shape } from "../../common/shape.js";
 import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
@@ -104,8 +105,15 @@ export class Projection extends ExtrudableGeometryBase {
         if (shape instanceof Face) {
           allEdges.push(...ProjectionOps.projectFaceOntoPlane(plane, shape as Face));
         } else if (shape instanceof Wire) {
-          const firstEdge = shape.getEdges()[0];
-          allEdges.push(...ProjectionOps.projectEdgeOntoPlane(plane, firstEdge));
+          for (const edge of shape.getEdges()) {
+            allEdges.push(...ProjectionOps.projectEdgeOntoPlane(plane, edge));
+          }
+        } else if (shape instanceof Sheet) {
+          // A surface stands for its outline: the open rim, as a face
+          // stands for its boundary.
+          for (const edge of shape.getBoundaryEdges()) {
+            allEdges.push(...ProjectionOps.projectEdgeOntoPlane(plane, edge));
+          }
         } else if (shape instanceof Edge) {
           allEdges.push(...ProjectionOps.projectEdgeOntoPlane(plane, shape));
         }
@@ -173,8 +181,9 @@ export class Projection extends ExtrudableGeometryBase {
     for (const obj of this.sourceObjects) {
       // Sketch geometry is referenced, never consumed (see sourceShapes):
       // the source sketch stays on screen and available to its own
-      // consumers.
-      if (!sketchGeometryOwner(obj)) {
+      // consumers. So is a body: projecting a surface's outline (or naming
+      // a solid) must not take it out of the model.
+      if (!sketchGeometryOwner(obj) && !obj.getShapes().some(shape => shape.isBody())) {
         obj.removeShapes(this);
       }
     }

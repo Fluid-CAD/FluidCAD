@@ -11,6 +11,11 @@ import { testRect } from "../../helpers/profiles.js";
 import { circle } from "../../../core/2d/index.js";
 import { Projection } from "../../../features/2d/projection.js";
 import { Vertex } from "../../../common/vertex.js";
+import plane from "../../../core/plane.js";
+import { SceneObject } from "../../../common/scene-object.js";
+import { TestCurves } from "../../helpers/curves.js";
+import { TestSheets } from "../../helpers/sheets.js";
+import { useLoadedBodies, loadShapes } from "../../helpers/loaded-bodies.js";
 
 describe("project", () => {
   setupOC();
@@ -165,6 +170,40 @@ describe("project", () => {
       render();
 
       expect(s.getShapes().length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("project a curve or a surface object", () => {
+    useLoadedBodies();
+
+    it("projects every edge of a three-edge curve", () => {
+      const curve = loadShapes([TestCurves.threeEdges()]);
+
+      let p!: Projection;
+      const s = sketch(plane("xy", 20), () => {
+        p = project(curve) as unknown as Projection;
+      }) as Sketch;
+
+      render();
+
+      expect(p.getError()).toBeNull();
+      expect(s.getShapes().filter(shape => shape.isEdge()).length).toBe(3);
+      expect(p.referenceEntities()).toHaveLength(3);
+    });
+
+    it("projects a surface as its rim and leaves the surface in the model", () => {
+      const l = loadShapes([TestSheets.openBox(10, 20, 10)]);
+
+      let p!: Projection;
+      const s = sketch(plane("xy", 30), () => {
+        p = project(l) as unknown as Projection;
+      }) as Sketch;
+
+      render();
+
+      expect(p.getError()).toBeNull();
+      expect(s.getShapes().filter(shape => shape.isEdge()).length).toBe(4);
+      expect((l as unknown as SceneObject).getShapes().length).toBe(1);
     });
   });
 

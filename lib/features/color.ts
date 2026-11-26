@@ -1,20 +1,20 @@
 import { Face } from "../common/face.js";
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
-import { Solid } from "../common/solid.js";
+import type { BodyShape } from "../common/body-shape.js";
 import { requireShapes } from "../common/operand-check.js";
 import { BuildError } from "../common/build-error.js";
 import { CssColor } from "../common/css-color.js";
-import { heldSolidsOf, liveOperandShapes } from "../helpers/live-solids.js";
+import { heldBodiesOf, liveOperandShapes } from "../helpers/live-solids.js";
 import { FaceOperand } from "../helpers/face-operand.js";
 
 /** One face to paint, with the body it belongs to and the object holding that body now. */
-type PaintTarget = { holder: SceneObject; solid: Shape; face: Face };
+type PaintTarget = { holder: SceneObject; body: Shape; face: Face };
 
 /**
  * `color(value, ...selections)`: a face attribute, not a body owner. The
  * statement holds no shapes, removes none and copies none — it writes
- * face-colour records on the holder of each target solid, each naming this
+ * face-colour records on the holder of each target body, each naming this
  * statement as its author, and the scene shows a record exactly as it shows
  * a shape: when its author is in scope. Rolling back before the paint shows
  * the same wrapper unpainted; between two paints, the earlier colour.
@@ -68,8 +68,8 @@ export class Color extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
-    for (const { holder, solid, face } of this.resolveTargets(context)) {
-      holder.recordFaceColor(solid, face, this.color, this);
+    for (const { holder, body, face } of this.resolveTargets(context)) {
+      holder.recordFaceColor(body, face, this.color, this);
     }
 
     // A selection is claimed, never consumed: its highlight leaves the
@@ -90,7 +90,7 @@ export class Color extends SceneObject {
   }
 
   /**
-   * Every face this colour applies to, with the solid holding it now — the
+   * Every face this colour applies to, with the body holding it now — the
    * operands' targets in argument order:
    *
    * - a face selection (`select(face()…)`, `e.endFaces()`): each of its
@@ -99,27 +99,32 @@ export class Color extends SceneObject {
    * - any other object (`color("red", e)`): every face of the bodies the
    *   object built, wherever the features between left them — a fillet
    *   that took `e`'s solid stands for it with the filleted body;
-   * - no operand at all: every face of every non-meta solid held in this
+   * - no operand at all: every face of every non-meta body held in this
    *   scope, matching `select(face())` followed by `color(...)`.
+   *
+   * Bodies are solids and surfaces alike; a curve the object also holds has
+   * no face to paint.
    */
   private resolveTargets(context: BuildSceneObjectContext): PaintTarget[] {
     const scope = context.getSceneObjects();
     if (this._selections.length === 0) {
-      return Color.wholeSolids(heldSolidsOf(scope).filter(({ solid }) => !solid.isMetaShape()));
+      return Color.wholeBodies(heldBodiesOf(scope)
+        .filter(({ body }) => !body.isMetaShape())
+        .map(({ holder, body }) => ({ holder, shape: body })));
     }
     return this._selections.flatMap(selection => Color.isFaceSelection(selection)
       ? Color.selectedFaces(selection, scope)
-      : Color.wholeSolids(liveOperandShapes(selection, {}, 'solid').map(({ holder, shape }) => ({ holder, solid: shape }))));
+      : Color.wholeBodies(liveOperandShapes(selection)));
   }
 
-  private static wholeSolids(held: ReadonlyArray<{ holder: SceneObject; solid: Shape }>): PaintTarget[] {
+  private static wholeBodies(held: ReadonlyArray<{ holder: SceneObject; shape: Shape }>): PaintTarget[] {
     const targets: PaintTarget[] = [];
-    for (const { holder, solid } of held) {
-      if (!(solid instanceof Solid)) {
+    for (const { holder, shape } of held) {
+      if (!shape.isBody()) {
         continue;
       }
-      for (const face of solid.getFaces()) {
-        targets.push({ holder, solid, face });
+      for (const face of (shape as BodyShape).getFaces()) {
+        targets.push({ holder, body: shape, face });
       }
     }
     return targets;
@@ -134,7 +139,7 @@ export class Color extends SceneObject {
           `Select faces of a body that exists at this point — a body a later feature builds, or one in another part, cannot be painted here.`,
         );
       }
-      return { holder, solid: body, face };
+      return { holder, body, face };
     });
   }
 

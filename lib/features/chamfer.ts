@@ -3,7 +3,7 @@ import { Edge, Face, Shape, Solid } from "../common/shapes.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { CleanShapeLineage, ShapeOps } from "../oc/shape-ops.js";
 import { ColorTransfer, type CarriedColor } from "../oc/color-transfer.js";
-import { requireShapes } from "../common/operand-check.js";
+import { SOLID_EDGES_HINT, refuseSurfaceParts, requireShapes } from "../common/operand-check.js";
 import { recordModifierHistory, trackReplaced } from "../helpers/scene-helpers.js";
 import { ShapeHistory } from "../common/shape-history-tracker.js";
 
@@ -26,6 +26,9 @@ export class Chamfer extends SceneObject {
   }
 
   build(context: BuildSceneObjectContext): void {
+    this.selections.forEach((selection, i) => refuseSurfaceParts(
+      "chamfer", `edge selection ${i + 1}`, selection.getShapes(), context.getSceneObjects(), SOLID_EDGES_HINT));
+
     let sceneObjects: Map<SceneObject, Shape[]>;
 
     sceneObjects = new Map<SceneObject, Shape[]>();

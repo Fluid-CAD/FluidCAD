@@ -2,7 +2,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Face, Shape } from "../common/shapes.js";
 import { IDraft } from "../core/interfaces.js";
 import { DraftOps } from "../oc/draft-ops.js";
-import { requireShapes } from "../common/operand-check.js";
+import { refuseSurfaceParts, requireShapes } from "../common/operand-check.js";
 import { recordModifierHistory } from "../helpers/scene-helpers.js";
 import { rad } from "../helpers/math-helpers.js";
 import { Feature, type FeatureBuildContext } from "../sdk/feature.js";
@@ -34,6 +34,9 @@ export class Draft extends Feature<DraftValues> implements IDraft {
   }
 
   override build(context: FeatureBuildContext): void {
+    this.values.faces.forEach((selection, i) => refuseSurfaceParts(
+      "draft", `selection ${i + 1}`, this.shapesOf([selection]), context.getSceneObjects(),
+      "draft tilts the faces of a solid. Select faces of a solid."));
     const solids = Draft.solidsOf(context, this.parentId, false);
     if (!solids.size) {
       return;

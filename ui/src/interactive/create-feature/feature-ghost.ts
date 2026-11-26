@@ -1,7 +1,7 @@
 import { Group, Object3D, Vector3 } from 'three';
 import { GhostFrame, GhostSolid } from '../../api';
 import { EdgeMesh } from '../../meshes/shape-meshes/edge-mesh';
-import { BodyMesh } from '../../meshes/shape-meshes/body-mesh';
+import { BodyMesh, type BodyMeshOptions } from '../../meshes/shape-meshes/body-mesh';
 import { buildConnectorGizmo } from '../../meshes/containers/connector-mesh';
 import { buildPlaneVisual, PLANE_OPACITY } from '../../meshes/containers/plane-mesh';
 import { themeColors } from '../../scene/theme-colors';
@@ -9,12 +9,13 @@ import { Viewer } from '../../viewer';
 
 /**
  * What the ghost is showing. Green for the body an apply would add, red for
- * the tool a cut would sweep — and two kinds for the features that put no
- * material anywhere at all: `wire` for one that is a curve (a helix), which
- * wears the blue a standalone wire renders in once applied, and `plane` for a
- * construction plane, which wears the plane's own yellow.
+ * the tool a cut would sweep — and three kinds for the features that add no
+ * solid material: `wire` for one that is a curve (a helix), which wears the
+ * blue a standalone wire renders in once applied, `surface` for one that is
+ * a surface, which wears the added body's green and is seen from both sides,
+ * and `plane` for a construction plane, which wears the plane's own yellow.
  */
-export type GhostKind = 'add' | 'remove' | 'wire' | 'plane';
+export type GhostKind = 'add' | 'remove' | 'wire' | 'surface' | 'plane';
 
 const FACE_OPACITY = 0.45;
 const EDGE_OPACITY = 0.9;
@@ -98,7 +99,7 @@ export class FeatureGhostOverlay {
         // line renderer, which draws whatever it is handed.
         ? new EdgeMesh({ shapeType: 'edge', meshes: solid.meshes }, wireOptions())
         : new BodyMesh(
-          { shapeId: `ghost-${index}`, shapeType: 'solid', meshes: solid.meshes },
+          { shapeId: `ghost-${index}`, shapeType: bodyKind === 'surface' ? 'surface' : 'solid', meshes: solid.meshes },
           bodyOptions(bodyKind),
         ));
     });
@@ -144,7 +145,10 @@ export class FeatureGhostOverlay {
 }
 
 /**
- * Green for material an apply would add, red for material it takes away.
+ * Green for material an apply would add, red for material it takes away. A
+ * surface is material added: it wears the green too, as the surface body it
+ * is — its faces show from both sides, and its rim draws in the ghost's edge
+ * colour like every other line of it.
  *
  * Depth testing off, on the faces as well as the edges: a cut tool sits buried
  * inside the material it removes, an extrusion can sweep back into the model,
@@ -152,10 +156,11 @@ export class FeatureGhostOverlay {
  * would vanish behind the very solid they act on, leaving only their outline.
  * The ghost is an overlay, so it always draws over the scene.
  */
-function bodyOptions(kind: GhostKind) {
+function bodyOptions(kind: GhostKind): BodyMeshOptions {
   const face = kind === 'remove' ? themeColors.ghostRemoveFaceColor : themeColors.ghostAddFaceColor;
   const edge = kind === 'remove' ? themeColors.ghostRemoveEdgeColor : themeColors.ghostAddEdgeColor;
   return {
+    body: kind === 'surface' ? 'surface' : 'solid',
     face: { color: `#${face.getHexString()}`, opacity: FACE_OPACITY, depthTest: false },
     edge: { color: `#${edge.getHexString()}`, opacity: EDGE_OPACITY, depthWrite: false },
   };

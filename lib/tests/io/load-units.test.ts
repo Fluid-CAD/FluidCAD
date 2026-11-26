@@ -72,7 +72,7 @@ describe("load() units", () => {
   it("caches the import in mm with a sidecar naming the file's units", () => {
     const result = FileImport.importFile(workspace, "meta.step", stepBytes);
     expect(result.unit).toBe("mm");
-    expect(result.solids.length).toBe(1);
+    expect(result.contents).toEqual({ solids: 1, surfaces: 0, curves: 0 });
     expect(result.sourceUnits).toEqual({ length: ["MILLIMETRE"], angle: ["RADIAN"] });
 
     const meta = JSON.parse(fs.readFileSync(join(workspace, "imports", "meta.import.json"), "utf8"));
@@ -80,7 +80,7 @@ describe("load() units", () => {
     expect(meta.unit).toBe("mm");
     expect(meta.sourceUnits).toEqual(result.sourceUnits);
     expect(typeof meta.importedAt).toBe("string");
-    // The colour sidecar keeps its old shape: a bare array indexed by solid.
+    // The colour sidecar is a bare array indexed by body.
     const colors = JSON.parse(fs.readFileSync(join(workspace, "imports", "meta.colors.json"), "utf8"));
     expect(Array.isArray(colors)).toBe(true);
     expect(FileImport.readAssetUnit("meta")).toBe("mm");
@@ -91,7 +91,7 @@ describe("load() units", () => {
     try {
       expect(fs.existsSync(join(fresh, "imports"))).toBe(false);
       const result = FileImport.importFile(fresh, "first.step", stepBytes);
-      expect(result.solids.length).toBe(1);
+      expect(result.contents).toEqual({ solids: 1, surfaces: 0, curves: 0 });
       for (const name of ["first.brep", "first.colors.json", "first.import.json"]) {
         expect(fs.existsSync(join(fresh, "imports", name))).toBe(true);
       }

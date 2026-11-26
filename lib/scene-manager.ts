@@ -25,7 +25,8 @@ import { MM_PER_UNIT } from "./units/units.js";
 import { Shape } from "./common/shape.js";
 import type { LengthUnit } from "./units/units.js";
 import { createProjectUnitLookup, resolveProjectUnit } from "./project-unit.js";
-import { FileImport } from "./io/file-import.js";
+import { FileImport, type ImportContents } from "./io/file-import.js";
+import { BuildError } from "./common/build-error.js";
 import { FileExport } from "./io/file-export.js";
 import type { ExportOptions, ExportResult } from "./io/file-export.js";
 import { collectAssemblyExportTree, exportAssemblyTree } from "./io/assembly-export/index.js";
@@ -46,6 +47,8 @@ export type GeneratedRenderReport = GeneratedBuildReport & { cache: GeneratedCac
 
 export type ImportReport = {
   solidCount: number;
+  /** What the import cached: solids, surfaces and curves. */
+  contents: ImportContents;
   /** The unit the cached geometry is in (always mm). */
   unit: LengthUnit;
   /** The unit names the source file declared. */
@@ -93,7 +96,8 @@ import { RenderedSolidPool } from "./validation/rendered-pool.js";
 import { SceneBounds } from "./validation/scene-bounds.js";
 import type { WorldBounds } from "./oc/shape-interference.js";
 import { MeshBuilder } from "./rendering/mesh-builder.js";
-import { ColoredSolids, type ColoredSolid } from "./common/colored-solid.js";
+import { ColoredBodies, type ColoredBody } from "./common/colored-body.js";
+import type { BodyShape } from "./common/body-shape.js";
 import type { SceneObjectMesh } from "./rendering/scene.js";
 import type {
   ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
@@ -377,8 +381,8 @@ class SceneManager {
   }
 
   importFile(workspacePath: string, fileName: string, data: Uint8Array): ImportReport {
-    const { solids, unit, sourceUnits } = FileImport.importFile(workspacePath, fileName, data);
-    return { solidCount: solids.length, unit, sourceUnits };
+    const { contents, unit, sourceUnits } = FileImport.importFile(workspacePath, fileName, data);
+    return { solidCount: contents.solids, contents, unit, sourceUnits };
   }
 
   getShapeProperties(scene: Scene, shapeId: string): ShapeProperties | null {
@@ -595,23 +599,24 @@ class SceneManager {
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): ExportResult {
-    // Each solid leaves with the colours its holder resolves for it (the
-    // final state, scope-less).
-    const solids: ColoredSolid[] = [];
+    // Each body leaves with the colours its holder resolves for it (the
+    // final state, scope-less). Curves are construction geometry and are
+    // never exported.
+    const bodies: ColoredBody<BodyShape>[] = [];
     for (const obj of scene.getAllSceneObjects()) {
       for (const shape of obj.getAddedShapes()) {
-        if (shapeIds.includes(shape.id) && shape.isSolid()) {
-          solids.push(ColoredSolids.fromHolder(obj, shape as Solid));
+        if (shapeIds.includes(shape.id) && shape.isBody()) {
+          bodies.push(ColoredBodies.fromHolder(obj, shape as BodyShape));
         }
       }
     }
 
-    if (solids.length === 0) {
-      throw new Error('No matching solids found for export');
+    if (bodies.length === 0) {
+      throw new BuildError('Nothing to export: no solid or surface matches.', 'Pick a solid or a surface to export.');
     }
 
     // The shapes' numbers are in the scene's unit unless the caller asserts otherwise.
-    return FileExport.exportShapes(solids, { ...options, unit: options.unit ?? scene.unit });
+    return FileExport.exportShapes(bodies, { ...options, unit: options.unit ?? scene.unit });
   }
 
   /**

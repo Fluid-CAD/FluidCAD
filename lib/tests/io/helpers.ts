@@ -8,8 +8,9 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { testRect } from "../helpers/profiles.js";
 import { render } from "../setup.js";
-import { coloredSolids } from "../utils.js";
-import type { ColoredSolid } from "../../common/colored-solid.js";
+import { coloredBodies } from "../utils.js";
+import type { ColoredBody } from "../../common/colored-body.js";
+import type { BodyShape } from "../../common/body-shape.js";
 import type { Scene } from "../../rendering/scene.js";
 
 export type Bounds = { min: [number, number, number]; max: [number, number, number] };
@@ -44,9 +45,9 @@ export function drawnSolids(scene: Scene): Solid[] {
   return sceneSolids().filter((solid) => drawn.has(solid.id));
 }
 
-/** `solids` with the colours their holders in the current scene resolve — the export's input. */
-export function exportable(solids: Solid[]): ColoredSolid[] {
-  return coloredSolids(getCurrentScene(), solids);
+/** `bodies` with the colours their holders in the current scene resolve — the export's input. */
+export function exportable<B extends BodyShape>(bodies: B[]): ColoredBody<B>[] {
+  return coloredBodies(getCurrentScene(), bodies);
 }
 
 /** An axis-aligned `size`³ box at the origin, built and rendered in the current scene. */

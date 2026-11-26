@@ -3,12 +3,13 @@ import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
+import { Sheet } from "../common/sheet.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Vertex } from "../common/vertex.js";
 import { ShapeFactory } from "../common/shape-factory.js";
-import type { ColoredSolid } from "../common/colored-solid.js";
+import type { ColoredBody } from "../common/colored-body.js";
 
 /**
  * Uniform scaling about the origin — the one transform a unit change is.
@@ -35,7 +36,7 @@ export class ScaleOps {
 
   /**
    * Uniformly scales `solids` about the origin by `factor` — geometry only;
-   * face colours are holder records, carried by {@link scaleColoredSolids}
+   * face colours are holder records, carried by {@link scaleColoredBodies}
    * or, for records already in a scene, by `StateScaler`. Returns the input
    * untouched when the factor is 1 so an mm document loading an mm asset
    * stays bit-identical to an unscaled load.
@@ -48,21 +49,22 @@ export class ScaleOps {
   }
 
   /**
-   * {@link scaleSolids} for solids travelling with their colours (an import):
-   * each painted face is remapped through its solid's own transform, so it
-   * stays `IsSame` with a face of the scaled solid. Factor 1 hands the input
-   * back untouched.
+   * {@link scaleSolids} for bodies travelling with their colours (an
+   * import): each painted face is remapped through its body's own
+   * transform, so it stays `IsSame` with a face of the scaled body. Each
+   * body keeps its wrapper class (a solid stays a Solid, a surface a Sheet,
+   * a curve a Wire or an Edge). Factor 1 hands the input back untouched.
    */
-  static scaleColoredSolids(solids: ColoredSolid[], factor: number): ColoredSolid[] {
+  static scaleColoredBodies<B extends Shape>(bodies: ColoredBody<B>[], factor: number): ColoredBody<B>[] {
     if (factor === 1) {
-      return solids;
+      return bodies;
     }
     const scaler = new ShapeScaler(factor);
     try {
-      return solids.map(({ solid, colors }) => ({
-        solid: scaler.scale(solid) as Solid,
+      return bodies.map(({ body, colors }) => ({
+        body: scaler.scale(body) as B,
         colors: colors.map(({ face, color }) => ({
-          face: Face.fromTopoDSFace(Explorer.toFace(scaler.remapSub(solid, face.getShape()))),
+          face: Face.fromTopoDSFace(Explorer.toFace(scaler.remapSub(body, face.getShape()))),
           color,
         })),
       }));
@@ -90,12 +92,15 @@ export class ScaleOps {
 
   /**
    * Wrap `raw` in the same class as `like` — a scaled solid must stay a
-   * Solid (topology index, face cache) rather than whatever the generic
-   * factory picks for a compound.
+   * Solid and a scaled surface a Sheet (topology index, face cache) rather
+   * than whatever the generic factory picks for a compound.
    */
   static wrapLike(like: Shape, raw: TopoDS_Shape): Shape {
     if (like instanceof Solid) {
       return Solid.fromTopoDSSolid(Explorer.toSolid(raw));
+    }
+    if (like instanceof Sheet) {
+      return Sheet.fromTopoDSShell(Explorer.toShell(raw));
     }
     if (like instanceof Face) {
       return Face.fromTopoDSFace(Explorer.toFace(raw));

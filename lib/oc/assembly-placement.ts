@@ -35,8 +35,8 @@ export class OcAssemblyPlacement {
         }
         const [trsf, disposeTrsf] = Convert.toGpTrsfPose(world.position, world.quaternion);
         const location = new oc.TopLoc_Location(trsf);
-        for (const { solid } of part.solids) {
-          const moved = solid.getShape().Moved(location, false);
+        for (const { body } of part.solids) {
+          const moved = body.getShape().Moved(location, false);
           placed.push(moved);
           disposers.push(() => moved.delete());
         }

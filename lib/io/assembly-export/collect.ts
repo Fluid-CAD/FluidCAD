@@ -1,7 +1,7 @@
 import { AssemblyScene } from "../../rendering/assembly-scene.js";
 import { Part } from "../../features/part.js";
 import { Solid } from "../../common/solid.js";
-import { ColoredSolids } from "../../common/colored-solid.js";
+import { ColoredBodies } from "../../common/colored-body.js";
 import { IDENTITY_POSE, relativePose } from "../../math/pose.js";
 import type { Pose } from "../../math/pose.js";
 import type { AssemblyExportNode, AssemblyExportPart, AssemblyExportPose, AssemblyExportTree } from "./tree.js";
@@ -70,7 +70,7 @@ export function collectAssemblyExportTree(scene: AssemblyScene, options: Collect
     }
     const solids = part.getShapes(undefined, "solid")
       .filter((s): s is Solid => s.isSolid())
-      .map(solid => ColoredSolids.fromHolder(part, solid));
+      .map(solid => ColoredBodies.fromHolder(part, solid));
     parts.set(inst.partId, { partId: inst.partId, name: configuredName(inst.partName, inst.configuration), solids });
   }
 

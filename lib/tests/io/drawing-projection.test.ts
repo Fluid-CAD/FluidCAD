@@ -1132,7 +1132,7 @@ describe("FileExport — DXF", () => {
   });
 
   it("still refuses an export with no solids, and leaves STEP and STL as they were", () => {
-    expect(() => FileExport.exportShapes([], { format: 'dxf', plane: 'top' })).toThrow(/No solids/);
+    expect(() => FileExport.exportShapes([], { format: 'dxf', plane: 'top' })).toThrow(/Nothing to export: no solid or surface matches/);
     const solids = exportable(box(10));
     expect(FileExport.exportShapes(solids, { format: 'step' }).fileName).toBe('export.step');
     expect(FileExport.exportShapes(solids, { format: 'stl' }).fileName).toBe('export.stl');
@@ -1202,7 +1202,7 @@ describe("FileExport — SVG", () => {
     expect(FileExport.isDrawing({ format: 'svg', plane: 'top' })).toBe(true);
     expect(FileExport.isDrawing({ format: 'dxf', plane: 'top' })).toBe(true);
     expect(FileExport.isDrawing({ format: 'step' })).toBe(false);
-    expect(() => FileExport.exportShapes([], { format: 'svg', plane: 'top' })).toThrow(/No solids/);
+    expect(() => FileExport.exportShapes([], { format: 'svg', plane: 'top' })).toThrow(/Nothing to export: no solid or surface matches/);
   });
 });
 

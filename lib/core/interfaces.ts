@@ -81,17 +81,19 @@ export interface ILoadFile extends ISceneObject {
   noColors(): this;
 
   /**
-   * Keep only the solids at the given 0-based indices (in load order).
-   * Combined with {@link exclude} by applying include first, then exclude.
-   * Repeated calls accumulate.
-   * @param indices - The 0-based solid indices to keep.
+   * Keep only the shapes at the given 0-based indices. Shapes are counted
+   * in this order: every solid of the file first, then every surface, then
+   * every curve. Combined with {@link exclude} by applying include first,
+   * then exclude. Repeated calls accumulate.
+   * @param indices - The 0-based indices to keep.
    */
   include(...indices: number[]): this;
 
   /**
-   * Drop the solids at the given 0-based indices. Applied after {@link include}.
-   * Repeated calls accumulate.
-   * @param indices - The 0-based solid indices to drop.
+   * Drop the shapes at the given 0-based indices, counted as
+   * {@link include} counts them (solids, then surfaces, then curves).
+   * Applied after {@link include}. Repeated calls accumulate.
+   * @param indices - The 0-based indices to drop.
    */
   exclude(...indices: number[]): this;
 }

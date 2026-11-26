@@ -8,7 +8,8 @@ import { Face } from "../common/face.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { BoundingBox } from "../helpers/types.js";
 import { SceneObject } from "../common/scene-object.js";
-import { ColoredSolids, type ColoredSolid } from "../common/colored-solid.js";
+import { ColoredBodies, type ColoredBody } from "../common/colored-body.js";
+import type { BodyShape } from "../common/body-shape.js";
 import type { FaceColorEntry } from "../common/face-color-view.js";
 
 export function countShapes(scene: Scene): number {
@@ -87,7 +88,7 @@ export function colorOf(scene: Scene, solid: Shape, face: Face): string | undefi
   return holderOf(scene, solid).faceColorOf(solid, face);
 }
 
-/** `solids` with the colours their holders resolve — what an export takes. */
-export function coloredSolids(scene: Scene, solids: Solid[]): ColoredSolid[] {
-  return solids.map(solid => ColoredSolids.fromHolder(holderOf(scene, solid), solid));
+/** `bodies` with the colours their holders resolve — what an export takes. */
+export function coloredBodies<B extends BodyShape>(scene: Scene, bodies: B[]): ColoredBody<B>[] {
+  return bodies.map(body => ColoredBodies.fromHolder(holderOf(scene, body), body));
 }

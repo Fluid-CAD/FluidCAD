@@ -1,4 +1,4 @@
-import type { TDocStd_Document, TopoDS_Shape } from "ocjs-fluidcad";
+import type { TDocStd_Document, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { ShapeHasher } from "./shape-hash.js";
 import { StepConform } from "./step-conform.js";
@@ -6,14 +6,32 @@ import { ScaleOps } from "./scale-ops.js";
 import { Explorer } from "./explorer.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
-import type { ColoredSolid } from "../common/colored-solid.js";
+import type { ColoredBody } from "../common/colored-body.js";
+import type { BodyShape } from "../common/body-shape.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
+import { SheetOps } from "./sheet-ops.js";
 import { Mesh } from "./mesh.js";
 import { MM_PER_UNIT, unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import { parseStepFileUnits } from "./step-units.js";
 import type { StepFileUnits } from "./step-units.js";
+
+/** What a body read from a file is to the user: a solid, a surface, or a curve. */
+export type ImportedBodyKind = 'solid' | 'surface' | 'curve';
+
+/** One painted face of an imported body, by its index among the body's faces. */
+export type ImportedFaceColor = { faceIndex: number; color: string };
+
+/**
+ * One body read from a file: a solid, a shell, a loose face, a wire or an
+ * edge, with the colours of its faces by face index (none for a curve).
+ */
+export type ImportedBody = {
+  shape: TopoDS_Shape;
+  kind: ImportedBodyKind;
+  faceColors: ImportedFaceColor[];
+};
 
 export class OcIO {
   // Wrapper methods (public API for external callers)
@@ -79,34 +97,46 @@ export class OcIO {
     return ShapeFactory.fromShape(raw);
   }
 
-  static readBRepSolids(fileName: string, content: string): Solid[] {
-    const raw = OcIO.readBRepRaw(fileName, content);
-    if (Explorer.isSolid(raw)) {
-      return [OcIO.wrapSolid(raw)];
+  /**
+   * The bodies of an imported asset's `.brep` cache, in body order (see
+   * {@link extractBodiesAndColorsRaw}). A cache holding only solids reads
+   * as those solids, whatever wrote it.
+   */
+  static readBRepBodies(fileName: string, content: string): Shape[] {
+    return ShapeFactory.adoptAll(OcIO.readBRepRaw(fileName, content));
+  }
+
+  /** `bodies` as one compound in `.brep` text, in the order given. */
+  static writeBodiesAsBRep(bodies: Shape[], fileName: string): string {
+    const compound = OcIO.makeCompoundRaw(bodies.map(b => b.getShape()));
+    try {
+      return OcIO.writeBRepRaw(compound, fileName);
+    } finally {
+      compound.delete();
     }
-    const oc = getOC();
-    const rawSolids = Explorer.findShapes(raw, oc.TopAbs_ShapeEnum.TopAbs_SOLID);
-    // The solids keep their TShapes alive on their own; the compound read
-    // from the file is only the container they were found in.
-    raw.delete();
-    return rawSolids.map(s => OcIO.wrapSolid(s));
   }
 
-  static writeSolidsAsBRep(solids: Solid[], fileName: string): string {
-    const compound = OcIO.makeCompoundRaw(solids.map(s => s.getShape()));
-    return OcIO.writeBRepRaw(compound, fileName);
-  }
-
-  static extractSolidsAndColors(docHandle: TDocStd_Document): {
-    solids: Array<{ shape: Solid; faceColors: Array<{ faceIndex: number; color: string }> }>;
+  /** {@link extractBodiesAndColorsRaw} with each body wrapped: a loose face becomes a one-face surface. */
+  static extractBodiesAndColors(docHandle: TDocStd_Document): {
+    bodies: Array<{ shape: Shape; kind: ImportedBodyKind; faceColors: ImportedFaceColor[] }>;
   } {
-    const rawResult = OcIO.extractSolidsAndColorsRaw(docHandle);
+    const rawResult = OcIO.extractBodiesAndColorsRaw(docHandle);
     return {
-      solids: rawResult.solids.map(entry => ({
-        shape: OcIO.wrapSolid(entry.shape),
+      bodies: rawResult.bodies.map(entry => ({
+        shape: Explorer.isFace(entry.shape) ? OcIO.wrapLooseFace(entry.shape) : ShapeFactory.adopt(entry.shape),
+        kind: entry.kind,
         faceColors: entry.faceColors,
       })),
     };
+  }
+
+  /** The one-face sheet makes its own shell around the face; the explorer's copy is freed here. */
+  private static wrapLooseFace(raw: TopoDS_Shape): Shape {
+    try {
+      return SheetOps.fromRawFace(raw);
+    } finally {
+      raw.delete();
+    }
   }
 
   // Raw methods (for oc-internal use)
@@ -250,9 +280,17 @@ export class OcIO {
     return compound;
   }
 
-  static extractSolidsAndColorsRaw(docHandle: TDocStd_Document): {
-    solids: Array<{ shape: TopoDS_Shape; faceColors: Array<{ faceIndex: number; color: string }> }>;
-  } {
+  /**
+   * Every body of a STEP document with the colours of its faces, in body
+   * order: all solids, then the shells no solid owns, the faces no shell
+   * owns, the wires no face owns and the edges no wire owns — each group
+   * across every free shape before the next starts. The order is the
+   * asset's index space (`load().include(i)`, the colour sidecar), and it
+   * is the order {@link readBRepBodies} reads a compound back in, so solids
+   * keep the indices a solids-only import gave them. A shell or a loose face
+   * is a surface; a wire or a loose edge is a curve and has no colours.
+   */
+  static extractBodiesAndColorsRaw(docHandle: TDocStd_Document): { bodies: ImportedBody[] } {
     const oc = getOC();
     const doc = docHandle;
     const shapeToolHandle = oc.XCAFDoc_DocumentTool.ShapeTool(doc.Main());
@@ -327,32 +365,42 @@ export class OcIO {
     const freeLabels = new oc.TDF_LabelSequence();
     shapeTool.GetFreeShapes(freeLabels);
 
-    const solids: Array<{ shape: TopoDS_Shape; faceColors: Array<{ faceIndex: number; color: string }> }> = [];
+    const type = oc.TopAbs_ShapeEnum;
+    const groups: Array<{ kind: ImportedBodyKind; lookFor: TopAbs_ShapeEnum; avoid?: TopAbs_ShapeEnum; shapes: TopoDS_Shape[] }> = [
+      { kind: 'solid', lookFor: type.TopAbs_SOLID, shapes: [] },
+      { kind: 'surface', lookFor: type.TopAbs_SHELL, avoid: type.TopAbs_SOLID, shapes: [] },
+      { kind: 'surface', lookFor: type.TopAbs_FACE, avoid: type.TopAbs_SHELL, shapes: [] },
+      { kind: 'curve', lookFor: type.TopAbs_WIRE, avoid: type.TopAbs_FACE, shapes: [] },
+      { kind: 'curve', lookFor: type.TopAbs_EDGE, avoid: type.TopAbs_WIRE, shapes: [] },
+    ];
 
     for (let i = 1; i <= freeLabels.Length(); i++) {
       const label = freeLabels.Value(i);
       const rootShape = oc.XCAFDoc_ShapeTool.GetShape(label);
       label.delete();
-
-      // The solids go to the caller; their faces and the root are only read.
-      const solidShapes = OcIO.findSolidsRaw(rootShape);
+      // The bodies go to the caller; the root is only read.
+      for (const group of groups) {
+        group.shapes.push(...Explorer.findShapes(rootShape, group.lookFor, group.avoid));
+      }
       rootShape.delete();
+    }
 
-      for (const solidShape of solidShapes) {
-        const faces = OcIO.findFacesRaw(solidShape);
-        const faceColors: Array<{ faceIndex: number; color: string }> = [];
-
-        for (let fi = 0; fi < faces.length; fi++) {
-          const face = faces[fi];
-          const color = OcIO.findFaceColor(face, solidShape, colorTool, shapeTool, oc, surfType, faceColorByHash, solidColorByHash, shapeHasher);
-
-          if (color) {
-            faceColors.push({ faceIndex: fi, color });
+    const bodies: ImportedBody[] = [];
+    for (const group of groups) {
+      for (const bodyShape of group.shapes) {
+        const faceColors: ImportedFaceColor[] = [];
+        if (group.kind !== 'curve') {
+          const faces = OcIO.findFacesRaw(bodyShape);
+          for (let fi = 0; fi < faces.length; fi++) {
+            const face = faces[fi];
+            const color = OcIO.findFaceColor(face, bodyShape, colorTool, shapeTool, oc, surfType, faceColorByHash, solidColorByHash, shapeHasher);
+            if (color) {
+              faceColors.push({ faceIndex: fi, color });
+            }
+            face.delete();
           }
-          face.delete();
         }
-
-        solids.push({ shape: solidShape, faceColors });
+        bodies.push({ shape: bodyShape, kind: group.kind, faceColors });
       }
     }
 
@@ -361,20 +409,23 @@ export class OcIO {
     colorToolHandle.delete();
     shapeHasher.delete();
 
-    return { solids };
+    return { bodies };
   }
 
   /**
-   * Raw (colorless) STEP of `solids`, each made STEP-conformant first.
-   * `unit` is the unit the solids' numbers are in. The plain writer has no
-   * document to carry a unit, so the compound is pre-scaled into the MM the
-   * header declares; the result is physically the same size as the model.
+   * Raw (colorless) STEP of `bodies`: each solid made STEP-conformant first,
+   * each surface written as it is. `unit` is the unit the bodies' numbers
+   * are in. The plain writer has no document to carry a unit, so the
+   * compound is pre-scaled into the MM the header declares; the result is
+   * physically the same size as the model.
    */
-  static writeStep(solids: Solid[], fileName: string, unit: LengthUnit = 'mm'): string {
+  static writeStep(bodies: BodyShape[], fileName: string, unit: LengthUnit = 'mm'): string {
     // A rebuilt (conformed) solid lives only as long as its ConformedSolid,
     // so every one stays alive until the writer is done with the compound.
-    const conformed = solids.map(solid => StepConform.conformSolid(solid.getShape()));
-    const compound = OcIO.makeCompoundRaw(conformed.map(c => c.shape));
+    const conformed = bodies.filter(b => b.isSolid()).map(solid => StepConform.conformSolid(solid.getShape()));
+    let next = 0;
+    const shapes = bodies.map(b => b.isSolid() ? conformed[next++].shape : b.getShape());
+    const compound = OcIO.makeCompoundRaw(shapes);
     const factor = unitFactor(unit, 'mm');
     const scaled = factor === 1 ? null : OcIO.scaleShapeRaw(compound, factor);
     try {
@@ -413,13 +464,17 @@ export class OcIO {
   }
 
   /**
-   * Coloured STEP via XCAF. `unit` is the unit the solids' numbers are in:
+   * Coloured STEP via XCAF. `unit` is the unit the bodies' numbers are in:
    * the document is told its length unit and OCCT's writer scales the model
    * into the file's MM itself (verified: a 1-inch box reads back as 25.4 mm).
    * Writing an INCH header instead would need Interface_Static
    * ("write.step.unit"), which the binding does not expose.
+   *
+   * A solid is made STEP-conformant first; a surface goes in as it is (the
+   * conform rebuilds solids from their shells and has nothing to do on one),
+   * and the writer gives it a shell-based surface model.
    */
-  static writeStepXCAF(solids: ColoredSolid[], fileName: string, unit: LengthUnit = 'mm'): string {
+  static writeStepXCAF(bodies: ColoredBody<BodyShape>[], fileName: string, unit: LengthUnit = 'mm'): string {
     const oc = getOC();
 
     const app = new oc.TDocStd_Application();
@@ -435,24 +490,25 @@ export class OcIO {
     const colorTool = colorToolHandle;
     const surfType = oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf;
 
-    // NewShape + SetShape (per OCC docs) rather than AddShape: each solid
+    // NewShape + SetShape (per OCC docs) rather than AddShape: each body
     // becomes its own free top-level shape, with no compound wrapped around
     // the set. (The multi-file output this once tried to dodge came from the
     // `multi` argument below, not from AddShape.)
-    for (const { solid, colors } of solids) {
-      const conformed = StepConform.conformSolid(solid.getShape());
+    for (const { body, colors } of bodies) {
+      const conformed = body.isSolid() ? StepConform.conformSolid(body.getShape()) : null;
       const label = shapeTool.NewShape();
-      shapeTool.SetShape(label, conformed.shape);
+      shapeTool.SetShape(label, conformed ? conformed.shape : body.getShape());
       label.delete();
 
       for (const entry of colors) {
         const [r, g, b] = OcIO.hexToRgb(entry.color);
         const color = new oc.Quantity_Color(r, g, b, oc.Quantity_TypeOfColor.Quantity_TOC_RGB);
-        colorTool.SetColor(conformed.replacement(entry.face.getShape()), color, surfType);
+        const face = entry.face.getShape();
+        colorTool.SetColor(conformed ? conformed.replacement(face) : face, color, surfType);
         color.delete();
       }
       // The document holds the shape and its colours now.
-      conformed.delete();
+      conformed?.delete();
     }
 
     shapeTool.UpdateAssemblies();
@@ -532,7 +588,7 @@ export class OcIO {
 
   private static findFaceColor(
     face: TopoDS_Shape,
-    solidShape: TopoDS_Shape,
+    body: TopoDS_Shape,
     colorTool: any,
     shapeTool: any,
     oc: any,
@@ -579,12 +635,12 @@ export class OcIO {
     }
     color.delete();
 
-    const solidHash = solidColorByHash.get(shapeHasher.key(solidShape));
+    const solidHash = solidColorByHash.get(shapeHasher.key(body));
     if (solidHash) return solidHash;
 
     const solidColor = new oc.Quantity_Color();
-    if (colorTool.GetColor(solidShape, surfType, solidColor) ||
-        colorTool.GetInstanceColor(solidShape, surfType, solidColor)) {
+    if (colorTool.GetColor(body, surfType, solidColor) ||
+        colorTool.GetInstanceColor(body, surfType, solidColor)) {
       const hex = OcIO.rgbToHex(solidColor.Red(), solidColor.Green(), solidColor.Blue());
       solidColor.delete();
       return hex;

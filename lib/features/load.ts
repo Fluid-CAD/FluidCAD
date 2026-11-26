@@ -74,14 +74,23 @@ export class LoadFile extends SceneObject {
     // (mm into mm) returns the shapes untouched, keeping existing projects
     // bit-identical.
     const factor = unitFactor(this.assetUnit(), this.getUnit());
-    // The sidecar's colours are this statement's paint: it holds the solids
+    // The sidecar's colours are this statement's paint: it holds the bodies
     // and is the author of their colours.
-    for (const { solid, colors } of ScaleOps.scaleColoredSolids(imported, factor)) {
-      this.addShape(solid);
+    const counts = { solids: 0, surfaces: 0, curves: 0 };
+    for (const { body, colors } of ScaleOps.scaleColoredBodies(imported, factor)) {
+      this.addShape(body);
       for (const { face, color } of colors) {
-        this.recordFaceColor(solid, face, color, this);
+        this.recordFaceColor(body, face, color, this);
+      }
+      if (body.isSolid()) {
+        counts.solids++;
+      } else if (body.isBody()) {
+        counts.surfaces++;
+      } else {
+        counts.curves++;
       }
     }
+    this.setState('contents', counts);
   }
 
   compareTo(other: LoadFile): boolean {
@@ -137,9 +146,10 @@ export class LoadFile extends SceneObject {
     return 'load';
   }
 
+  /** `contents`: how many solids, surfaces and curves the last build added, for whoever reads the scene. */
   serialize() {
-    return {
-    }
+    const contents = this.getState('contents');
+    return contents ? { contents } : {};
   }
 }
 

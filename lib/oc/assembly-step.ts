@@ -100,7 +100,7 @@ export class OcAssemblyStep {
     disposers: (() => void)[],
   ): TDF_Label {
     const oc = getOC();
-    const conformed = part.solids.map(({ solid }) => StepConform.conformSolid(solid.getShape()));
+    const conformed = part.solids.map(({ body }) => StepConform.conformSolid(body.getShape()));
     disposers.push(() => {
       for (const c of conformed) {
         c.delete();

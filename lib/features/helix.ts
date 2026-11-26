@@ -1,15 +1,17 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { BuildError } from "../common/build-error.js";
 import { requireShapes } from "../common/operand-check.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
+import { CurveObject } from "./curve-object.js";
 import { IHelix } from "../core/interfaces.js";
 import {
   buildHelixEdge, HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
 } from "./helix-geometry.js";
 
-export class Helix extends SceneObject implements IHelix {
+export class Helix extends CurveObject implements IHelix {
   private _pitch?: number;
   private _turns?: number;
   private _startOffset: number = 0;
@@ -70,11 +72,11 @@ export class Helix extends SceneObject implements IHelix {
     requireShapes(this.source, "source", "helix");
   }
 
-  override build(_context?: BuildSceneObjectContext) {
+  protected buildCurves(_context: BuildSceneObjectContext): Shape[] {
     // The curve itself is scene-free (helix-geometry.ts) — the live dialog
     // preview builds it from the same call, so the ghost can't drift from
     // what an apply produces.
-    const edge = buildHelixEdge(
+    return [buildHelixEdge(
       this.resolveSource(),
       {
         pitch: this._pitch,
@@ -87,10 +89,7 @@ export class Helix extends SceneObject implements IHelix {
         ccw: this._ccw,
       },
       message => console.warn(message),
-    );
-    this.addShape(edge);
-
-    this.source.removeShapes(this);
+    )];
   }
 
   private resolveSource(): HelixSourceKind {

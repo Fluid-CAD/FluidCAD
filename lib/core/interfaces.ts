@@ -1777,7 +1777,7 @@ export interface IShell extends ISceneObject {
  * - A line edge: axis = the line, height = line length.
  * - A circular edge: axis = circle normal, radius = circle radius.
  */
-export interface IHelix extends ISceneObject {
+export interface IHelix extends ICurveResult {
   /**
    * Axial rise per turn (distance along the helix axis covered per full revolution).
    * If unset, derived from `height / turns`.

@@ -3,6 +3,8 @@
 import { anyValueArg, stringArgValue } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
 import { renderOpChains, renderRegionChain } from '../render/chains.ts';
+import type { EditPathSource } from '../spec.ts';
+import type { OperandEdit } from './operand-picks.ts';
 import { formatValue, type RegionName, type RegionPickSpec, type ValueExpr } from '../value-expr.ts';
 
 /**
@@ -41,6 +43,21 @@ export type SweepEditOptions = {
   /** The profile sketch statement the picks belong to — where their declarations are written. */
   regionSketch?: { line: number; column: number };
 };
+
+/**
+ * A sweep path source as the curve operand edit it is: the statement's own
+ * path kept, or one pick — the bound wire statement, or the selector the
+ * single part renders.
+ */
+export function sweepPathEdit(path: EditPathSource | undefined): OperandEdit {
+  if (path === undefined || path.kind === 'keep') {
+    return { kind: 'keep' };
+  }
+  return {
+    kind: 'picks',
+    picks: [path.kind === 'sketch' ? { kind: 'producer', producer: path.producer } : { kind: 'selector', part: 0 }],
+  };
+}
 
 /**
  * Render a sweep statement: `sweep(<path>[, <profile>])` plus `.extend(…)`,

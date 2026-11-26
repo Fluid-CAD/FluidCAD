@@ -27,7 +27,8 @@ import { renderEditedRotate } from '../features/rotate.ts';
 import { renderEditedTranslate } from '../features/translate.ts';
 import { renderEditedSplit } from '../features/split.ts';
 import { renderShellJoinChain, validShellJoin } from '../features/shell.ts';
-import { renderSweepStatement } from '../features/sweep.ts';
+import { OperandPicks } from '../features/operand-picks.ts';
+import { renderSweepStatement, sweepPathEdit } from '../features/sweep.ts';
 import { renderTextStatement, textLiteralBlank, textOptionsNeedPath, validTextStatementOptions } from '../features/text.ts';
 import { renderWrapStatement } from '../features/wrap.ts';
 import { CustomFeatureStatement } from '../features/custom.ts';
@@ -305,24 +306,25 @@ export function renderEditedStatement(
       || !validEditExtend(opts.extendStart) || !validEditExtend(opts.extendEnd)) {
       return { error: 'malformed sweep edit spec' };
     }
-    let pathText = parsed.pathText;
-    if (opts.path !== undefined && opts.path.kind !== 'keep') {
-      if (opts.path.kind === 'selector') {
-        if (spec.parts.length !== 1) {
-          return { error: 'malformed sweep edit spec: a selector path is exactly one part' };
-        }
-        const part = spec.parts[0];
-        pathText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
-      } else {
-        const varName = editSourceVar(spec, opts.path.producer, varFor);
-        if (typeof varName !== 'string') {
-          return varName;
-        }
-        pathText = varName;
+    // The path is one curve operand: kept, a wire statement, or the single
+    // selector part.
+    const path = sweepPathEdit(opts.path);
+    if (path.kind === 'keep') {
+      if (spec.parts.length > 0) {
+        return { error: 'malformed sweep edit spec: selector parts without a re-sourced path' };
       }
-    } else if (spec.parts.length > 0) {
-      return { error: 'malformed sweep edit spec: selector parts without a re-sourced path' };
+    } else {
+      if (path.picks[0].kind === 'selector' && spec.parts.length !== 1) {
+        return { error: 'malformed sweep edit spec: a selector path is exactly one part' };
+      }
+      const picks = OperandPicks.validate('curve', path.picks, 'the path', spec);
+      if ('error' in picks) {
+        return { error: `malformed sweep edit spec: ${picks.error}` };
+      }
     }
+    const [pathText] = OperandPicks.edited(
+      path, [parsed.pathText], spec.parts, producer => varFor(producer) ?? spec.producers[producer].nameHint ?? 's',
+    );
     let profileText = parsed.profileText;
     if (opts.profile !== undefined && opts.profile.kind !== 'keep') {
       const varName = editSourceVar(spec, opts.profile.producer, varFor);

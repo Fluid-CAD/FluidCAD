@@ -1,9 +1,9 @@
 // fuse() / subtract() / common(): option types, statement rendering, chain parsing and the edit renderer.
 
 import type { TSNode } from '../../code-editor/index.ts';
-import { resolveRepeatTargetRef } from '../ast/args.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
 import { isFeatureProducer } from '../producers/predicates.ts';
+import { OperandPicks } from './operand-picks.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 
 /** The three boolean operations — each its own callee, one shared dialog. */
@@ -38,20 +38,16 @@ export function parseBooleanChain(
   start: number,
   end: number,
 ): ChainParse {
-  let nodes = args;
-  if (kind !== 'subtract' && args.length === 1 && args[0].type === 'array') {
-    nodes = args[0].namedChildren.filter(a => a.type !== 'comment');
-  }
-  if (kind === 'subtract' && nodes.length !== 2) {
+  // A fuse or a common may take its targets as one list; a subtract's two
+  // arguments are always its base and its tool.
+  const targets = kind !== 'subtract' && args.length === 1
+    ? OperandPicks.parse(args[0], start)
+    : OperandPicks.parseArguments(args, start);
+  if (kind === 'subtract' && targets.texts.length !== 2) {
     return { error: 'a subtract takes exactly a base and a tool — edit it in the source' };
   }
   return {
-    parsed: {
-      feature: 'boolean',
-      kind,
-      targetTexts: nodes.map(n => n.text),
-      targetRefs: nodes.map(n => resolveRepeatTargetRef(n, start)),
-    },
+    parsed: { feature: 'boolean', kind, targetTexts: targets.texts, targetRefs: targets.refs },
     start,
     end,
   };
@@ -96,7 +92,10 @@ export function renderEditedBoolean(
         if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
           return { error: 'malformed boolean edit spec: a target references a non-feature producer' };
         }
-        exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
+        exprs.push(...OperandPicks.render(
+          [{ kind: 'producer', producer: target.producer }], spec.parts,
+          producer => varFor(producer) ?? spec.producers[producer].nameHint ?? null,
+        ));
       } else {
         return { error: 'malformed boolean edit spec: unknown target kind' };
       }

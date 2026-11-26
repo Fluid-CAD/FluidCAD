@@ -10,7 +10,7 @@ import { resolveHelixFaceSource } from "../../features/helix-geometry.js";
 import { Face } from "../../common/face.js";
 import { Solid } from "../../common/solid.js";
 import { SceneObject } from "../../common/scene-object.js";
-import { sketch, line, loft, plane, fillet } from "../../core/index.js";
+import { sketch, line, loft, plane, circle, fillet, cut } from "../../core/index.js";
 
 type Bound = { delete(): void };
 type Own = <B extends Bound>(object: B) => B;
@@ -215,5 +215,28 @@ describe("building on a recovered surface", () => {
       expect(Math.abs(face.getPlane().normal.z)).toBeCloseTo(1, 9);
       expect(Math.abs(FaceQuery.getSurfacePlane(face).normal.z)).toBeCloseTo(1, 9);
     });
+  });
+
+  it("reads a recovered cylinder's extent along its axis exactly on a slanted cut", () => {
+    // A lofted r = 10 cylinder, 40 tall, cut off along the plane z = x + 20:
+    // the wall runs from z = 0 up to z = 30 at x = 10. Points sampled along
+    // the slanted rim stop short of that top.
+    const base = sketch(plane("xy", 0), () => { circle([0, 0], 20); });
+    const top = sketch(plane("xy", 40), () => { circle([0, 0], 20); });
+    loft(base, top);
+    sketch("xz", () => {
+      line([-15, 5], [15, 35]);
+      line([15, 35], [15, 60]);
+      line([15, 60], [-15, 60]);
+      line([-15, 60], [-15, 5]);
+    });
+    const slanted = cut().symmetric();
+    render();
+    const wall = facesOf(slanted).find(f => SurfaceClassifier.classify(f).kind === "cylinder")!;
+    expect(SurfaceClassifier.classify(wall).recovered).toBe(true);
+    const { vMin, vMax } = FaceQuery.getSurfaceVBounds(wall);
+    expect(vMax - vMin).toBeCloseTo(30, 5);
+    const source = resolveHelixFaceSource(wall);
+    expect(source.kind).toBe("cylinder-face");
   });
 });

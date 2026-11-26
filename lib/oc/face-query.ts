@@ -2,6 +2,7 @@ import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Face, TopoD
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
+import { ShapeOps } from "./shape-ops.js";
 import { Convert } from "./convert.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Point } from "../math/point.js";
@@ -373,22 +374,17 @@ export class FaceQuery {
    * The V-bounds of `face` on its surface. For a cylindrical surface V is
    * the axial coordinate; for a conical surface V is along the slant
    * (caller multiplies by `cos(semiAngle)` to get axial Z). A cylinder or
-   * cone recovered from a B-spline reports the V-bounds its boundary spans
-   * on the recovered surface.
+   * cone recovered from a B-spline has no parameters of its own on the
+   * recovered surface, so its bounds are the face's exact extent along the
+   * recovered axis.
    */
   static getSurfaceVBounds(face: Shape): { vMin: number; vMax: number } {
     const surface = FaceQuery.buildingClassOf(face);
     if (surface.recovered && surface.axis && (surface.kind === 'cylinder' || surface.kind === 'cone')) {
       const slant = surface.kind === 'cone' ? Math.cos(surface.semiAngle ?? 0) : 1;
-      const { origin, direction } = surface.axis;
-      let vMin = Infinity;
-      let vMax = -Infinity;
-      for (const point of FaceQuery.boundarySamples(face.getShape())) {
-        const v = point.subtract(origin).toVector3d().dot(direction) / slant;
-        vMin = Math.min(vMin, v);
-        vMax = Math.max(vMax, v);
-      }
-      return { vMin, vMax };
+      const across = Plane.fromPointAndNormal(surface.axis.origin, surface.axis.direction);
+      const extent = ShapeOps.extentAlongRaw(face.getShape(), across);
+      return { vMin: extent.min / slant, vMax: extent.max / slant };
     }
     const oc = getOC();
     const typed = oc.TopoDS.Face(face.getShape());
@@ -399,27 +395,6 @@ export class FaceQuery {
       adaptor.delete();
       typed.delete();
     }
-  }
-
-  /** Points along every boundary edge of a face, its vertices included. */
-  private static boundarySamples(face: TopoDS_Shape): Point[] {
-    const oc = getOC();
-    const steps = 8;
-    return Explorer.withShapes(face, oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum, edges => {
-      const points: Point[] = [];
-      for (const edge of edges) {
-        const typed = oc.TopoDS.Edge(edge);
-        const adaptor = new oc.BRepAdaptor_Curve(typed);
-        typed.delete();
-        const first = adaptor.FirstParameter();
-        const last = adaptor.LastParameter();
-        for (let i = 0; i <= steps; i++) {
-          points.push(Convert.toPoint(adaptor.Value(first + ((last - first) * i) / steps), true));
-        }
-        adaptor.delete();
-      }
-      return points;
-    });
   }
 
   // Raw methods (for oc-internal and common/ use). Each classifies the face

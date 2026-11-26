@@ -19,7 +19,7 @@ import { buildExtrudeGhostSolids, type ExtrudeGhostTarget } from "../features/ex
 import { buildRibGhostSolids } from "../features/rib-ghost.js";
 import { buildHoleTool, fastenedAxis, resolveHoleDimensions, type HoleDimensions } from "../features/hole/hole-profile.js";
 import { liveBodiesIn, liveSolidsIn } from "../helpers/live-solids.js";
-import { SOLID_EDGES_HINT, refuseSurfaceParts } from "../common/operand-check.js";
+import { refuseSurfaceParts } from "../common/operand-check.js";
 import { BuildError } from "../common/build-error.js";
 import { Vector3d } from "../math/vector3d.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
@@ -944,7 +944,7 @@ function buildBandGhost(
   request: FilletGhostRequest,
   meshConfig: MeshSettings,
 ): FeatureGhostResult {
-  const surfaceRefusal = surfacePickRefusal(scene, request);
+  const surfaceRefusal = surfacePickRefusal(scene, request.feature, 'edge selection 1', request.edges);
   if (surfaceRefusal) {
     return { ok: false, reason: surfaceRefusal, surface: true };
   }
@@ -992,13 +992,18 @@ function buildBandGhost(
 /**
  * Why the build would refuse the picks for lying on a surface, or null. The
  * build's own check runs on the picked edges and faces — the statement takes
- * the picks as one selection — so the dialog reads the words the apply would
- * give, rather than drawing nothing with no reason.
+ * the picks as one selection, named `label` — so the dialog reads the words
+ * the apply would give, rather than drawing nothing with no reason.
  */
-function surfacePickRefusal(scene: Scene, request: FilletGhostRequest): string | null {
+function surfacePickRefusal(
+  scene: Scene,
+  feature: string,
+  label: string,
+  refs: readonly GhostEntityRef[],
+): string | null {
   const picked: Shape[] = [];
   try {
-    for (const ref of request.edges) {
+    for (const ref of refs) {
       const shape = findShapeById(scene, ref.shapeId);
       if (!shape?.isSheet()) {
         continue;
@@ -1012,10 +1017,10 @@ function surfacePickRefusal(scene: Scene, request: FilletGhostRequest): string |
         }
       });
     }
-    refuseSurfaceParts(request.feature, 'edge selection 1', picked, scene.getAllSceneObjects(), SOLID_EDGES_HINT);
+    // The hint speaks to code; the dialog's picks need only the reason.
+    refuseSurfaceParts(feature, label, picked, scene.getAllSceneObjects(), '');
     return null;
   } catch (error) {
-    // The hint speaks to a filter in code; the dialog's picks need only the reason.
     if (error instanceof BuildError) {
       return error.diagnostic;
     }
@@ -1113,6 +1118,11 @@ function buildShellGhost(
   request: ShellGhostRequest,
   meshConfig: MeshSettings,
 ): FeatureGhostResult {
+  const surfaceRefusal = surfacePickRefusal(
+    scene, 'shell', 'face selection 1', request.faces.map(face => ({ ...face, kind: 'face' as const })));
+  if (surfaceRefusal) {
+    return { ok: false, reason: surfaceRefusal, surface: true };
+  }
   const groups = resolvePickedFaceGroups(scene, request.faces);
   if (!groups) {
     return { ok: false, reason: 'Those faces are not in the rendered scene.' };

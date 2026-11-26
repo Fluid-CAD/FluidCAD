@@ -576,5 +576,22 @@ describe("surfaces and curves in an existing model", () => {
         surface: true,
       });
     });
+
+    it("shell refuses a face of a surface with the build's own words", () => {
+      block();
+      const l = plate();
+      const scene = render();
+
+      const result = preview(scene, {
+        feature: "shell", thickness: -1, joinType: "arc",
+        faces: [{ shapeId: l.getShapes()[0].id, index: 0 }],
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        reason: "shell: face selection 1 holds a surface face; shell works on solids.",
+        surface: true,
+      });
+    });
   });
 });

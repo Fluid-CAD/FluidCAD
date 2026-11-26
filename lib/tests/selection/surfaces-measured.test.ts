@@ -9,6 +9,9 @@ import { setupOC, render } from "../setup.js";
 import { getSceneManager } from "../../scene-manager.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
+import loft from "../../core/loft.js";
+import plane from "../../core/plane.js";
+import { circle, ellipse, line, spline } from "../../core/2d/index.js";
 import { testRect } from "../helpers/profiles.js";
 import { TestSheets } from "../helpers/sheets.js";
 import { TestCurves } from "../helpers/curves.js";
@@ -183,5 +186,37 @@ describe("surfaces and curves measured and addressed", () => {
     } finally {
       index.dispose();
     }
+  });
+
+  it("resolve_selection names a free-form face and a spline edge by their kind", () => {
+    const base = sketch(plane("xy", 0), () => {
+      circle([0, 0], 40);
+    });
+    const top = sketch(plane("xy", 30), () => {
+      ellipse([0, 0], 5, 9);
+    });
+    loft(base, top);
+    sketch("xy", () => {
+      line([100, 0], [140, 0]);
+      line([140, 0], [140, 20]);
+      spline([140, 20], [126, 26], [114, 16], [100, 20]);
+      line([100, 20], [100, 0]);
+    });
+    extrude(10);
+    const scene = render();
+
+    const walls = resolved(SelectionResolver.resolve(scene, { expression: "face().freeform()" }));
+    expect(walls.matches).toHaveLength(1);
+    expect(walls.matches[0].summary).toMatchObject({ form: "surface", kind: "freeform" });
+
+    const splines = resolved(SelectionResolver.resolve(scene, { expression: "edge().spline()" }));
+    expect(splines.matches).toHaveLength(2);
+    expect(splines.matches.map(m => m.summary)).toEqual([
+      expect.objectContaining({ form: "curve", kind: "spline" }),
+      expect.objectContaining({ form: "curve", kind: "spline" }),
+    ]);
+
+    const lines = resolved(SelectionResolver.resolve(scene, { expression: "edge().line()" }));
+    expect(lines.matches.every(m => m.summary.kind === undefined)).toBe(true);
   });
 });

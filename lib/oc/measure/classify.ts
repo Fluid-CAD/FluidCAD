@@ -11,6 +11,9 @@ import { mmTol } from "../../units/tolerance.js";
 export type FaceForm = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'surface';
 export type EdgeForm = 'line' | 'circle' | 'arc' | 'ellipse' | 'curve';
 
+/** What a `surface` or `curve` form is, in the classifiers' words: the kind no measure form names. */
+export type FreeKind = 'revolved' | 'extruded' | 'freeform' | 'spline' | 'other';
+
 /**
  * Geometric summary of a selected face or edge, in plain JS values so all the
  * pair math (angles, parallel distances, projections) runs without further
@@ -46,6 +49,8 @@ export interface ClassifiedEntity {
   radius?: number;
   area?: number;
   length?: number;
+  /** For a `surface` or `curve` form: the classifier's kind. */
+  freeKind?: FreeKind;
   shape: TopoDS_Shape;
 }
 
@@ -170,6 +175,10 @@ export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
     result.dirKind = 'normal';
   }
 
+  if (result.form === 'surface' && !SurfaceClassifier.isAnalytic(surface.kind)) {
+    result.freeKind = surface.kind as FreeKind;
+  }
+
   if (result.form === 'plane' && result.dir) {
     const outward = FaceOps.outwardNormalRaw(face);
     if (outward && dot(result.dir, outward) < 0) {
@@ -230,6 +239,10 @@ export function classifyEdge(shape: TopoDS_Shape): ClassifiedEntity {
     result.center = center;
     result.dir = vecFromPoint(curve.axisDirection);
     result.dirKind = 'normal';
+  }
+
+  if (result.form === 'curve' && (curve.kind === 'spline' || curve.kind === 'other')) {
+    result.freeKind = curve.kind;
   }
 
   adaptor.delete();

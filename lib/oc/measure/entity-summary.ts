@@ -1,5 +1,5 @@
 import type { LengthUnit } from "../../units/units.js";
-import type { ClassifiedEntity, EdgeForm, FaceForm } from "./classify.js";
+import type { ClassifiedEntity, EdgeForm, FaceForm, FreeKind } from "./classify.js";
 
 /** A rounded world-space vector, compact for tool payloads. */
 export type SummaryVec = [number, number, number];
@@ -13,6 +13,12 @@ export type SummaryVec = [number, number, number];
 export type EntitySummary = {
   /** Surface kind for a face, curve kind for an edge. */
   form: FaceForm | EdgeForm | 'vertex';
+  /**
+   * What a `surface` or `curve` form is: a revolved, extruded or free-form
+   * face, a spline or another curve — the words of `face().revolved()`,
+   * `edge().spline()` and the other kind filters.
+   */
+  kind?: FreeKind;
   /** The entity's center, else its area centroid / midpoint. */
   center: SummaryVec;
   /**
@@ -74,6 +80,9 @@ export class EntitySummaryBuilder {
       form: entity.form,
       center: EntitySummaryBuilder.roundVec(entity.center ?? entity.anchor, decimals),
     };
+    if (entity.freeKind) {
+      summary.kind = entity.freeKind;
+    }
     if (entity.dir && entity.dirKind === 'normal') {
       summary.normal = EntitySummaryBuilder.roundVec(entity.dir, EntitySummaryBuilder.DIRECTION_DECIMALS);
     } else if (entity.dir && entity.dirKind === 'axis') {

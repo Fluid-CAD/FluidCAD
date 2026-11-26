@@ -212,6 +212,37 @@ describe('statement values', () => {
     expect(chips(picker)).toEqual(['Fillet']);
   });
 
+  it('light every body and curve a picked feature holds, not its solids alone', () => {
+    const objects: SceneObjectRender[] = [
+      ...scene(),
+      {
+        id: 'coil', type: 'helix', name: 'Helix', parentId: 'part', ownShapes: [], sourceLocation: at(14, 14),
+        sceneShapes: [{ shapeId: 'coil-edge', shapeType: 'edge', meshes: MESH }],
+      },
+      {
+        id: 'skin', type: 'loft', name: 'Loft', parentId: 'part', ownShapes: [], sourceLocation: at(15, 14),
+        sceneShapes: [
+          { shapeId: 'skin-surface', shapeType: 'surface', meshes: MESH },
+          { shapeId: 'skin-quad', shapeType: 'face', isMetaShape: true, meshes: MESH },
+        ],
+      },
+    ];
+    const picker = mount({ picker: 'feature', multiple: true, label: 'Follow' });
+    picker.setScene(inPart(objects), { dropEntities: true });
+    expect(picker.takeRow(row('coil', objects))).toBe('taken');
+    expect(picker.takeRow(row('skin', objects))).toBe('taken');
+    expect(picker.takeRow(row('boss', objects))).toBe('taken');
+    const lit = new PickHighlight();
+    picker.highlight(lit);
+    expect(lit.solidIds).toEqual(['coil-edge', 'skin-surface', 'boss-solid']);
+
+    // A solid value still takes solids only: a curve's row is not one.
+    const bodies = mount({ picker: 'solid', multiple: true, label: 'Bodies' });
+    bodies.setScene(inPart(objects), { dropEntities: true });
+    expect(bodies.takeRow(row('coil', objects))).toBe('ignored');
+    expect(bodies.takeRow(row('skin', objects))).toBe('ignored');
+  });
+
   it('open on the sketch being edited, and refuse it while it is empty where the value wants geometry', () => {
     // A top-level sketch the file ends in is the one being edited — drawn on or not.
     const objects = [

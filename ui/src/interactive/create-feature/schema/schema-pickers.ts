@@ -2,7 +2,7 @@ import type {
   ConnectorAnchor, CustomPickInput, FeaturePickerKind, FeaturePickerParam, GhostCustomRef, ParsedCustomPick, SourceSlotRef,
 } from '../../../api';
 import { sameEntity } from '../../../helpers/entities';
-import { findEnclosingPartRow } from '../../../helpers/scene-utils';
+import { findEnclosingPartRow, modelShapeIdsOf } from '../../../helpers/scene-utils';
 import type { StandardAxisId } from '../../../scene/standard-axes';
 import type { StandardPlaneId } from '../../../scene/standard-planes';
 import type { SceneObjectRender, SourceLocation, SubSelection } from '../../../types';
@@ -41,7 +41,7 @@ export type PickerOption = {
   hasGeometry?: boolean;
   /** A sketch: it is the one being edited. */
   active?: boolean;
-  /** A solid or a feature: its rendered solids, lit while it is picked. */
+  /** A solid: its rendered solids; a feature: every body and curve it holds. Lit while it is picked. */
   shapeIds?: string[];
   /** The kind it is picked as — a value of several kinds offers each kind's statements. */
   picker: FeaturePickerKind;
@@ -545,7 +545,7 @@ export class SchemaPicker {
           : 'ignored';
       }
       case 'solid': {
-        if (!obj.sourceLocation || !SchemaPicker.solidIdsOf(obj).length) {
+        if (!obj.sourceLocation || !modelShapeIdsOf(obj, objects, ['solid']).length) {
           return 'ignored';
         }
         return this.addStatementAt(kind, obj.sourceLocation, 'That solid is in another part — this statement cannot reference it.');
@@ -567,7 +567,7 @@ export class SchemaPicker {
     }
   }
 
-  /** A sketch wire (or helix) clicked in the viewport. */
+  /** A sketch wire (or, for a wire value, a curve object's) clicked in the viewport. */
   takeSketchWire(shapeId: string): PickOutcome {
     if (!this.takes('sketch')) {
       return 'ignored';
@@ -1148,10 +1148,6 @@ export class SchemaPicker {
     return words.length < 2 ? words.join('') : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`;
   }
 
-  private static solidIdsOf(obj: SceneObjectRender): string[] {
-    return (obj.sceneShapes ?? []).filter(s => s.shapeId && s.shapeType === 'solid').map(s => s.shapeId!);
-  }
-
   private static typeAllowed(row: SceneObjectRender, types: readonly string[] | undefined): boolean {
     return !types || types.length === 0
       || (row.type !== undefined && types.includes(row.type))
@@ -1189,7 +1185,7 @@ export class SchemaPicker {
       const key = `${loc.filePath}:${loc.line}`;
       const existing = byLine.get(key);
       if (existing) {
-        existing.shapeIds!.push(...SchemaPicker.solidIdsOf(row));
+        existing.shapeIds!.push(...modelShapeIdsOf(row, objects));
         continue;
       }
       byLine.set(key, {
@@ -1197,7 +1193,7 @@ export class SchemaPicker {
         filePath: loc.filePath,
         line: loc.line,
         column: loc.column,
-        shapeIds: SchemaPicker.solidIdsOf(row),
+        shapeIds: modelShapeIdsOf(row, objects),
       });
     }
     return [...byLine.values()];

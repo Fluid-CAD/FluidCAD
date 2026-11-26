@@ -81,7 +81,7 @@ export function bucketContext(
         params,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
-        attrs.map(a => probeFace(a.picked as Face)),
+        attrs.map(a => probeFace(a.picked as Face, a.solidShape)),
         bucket.members as Face[],
         params,
       ) as Atom<FilterBuilderBase<Shape>>[],
@@ -173,7 +173,7 @@ export function globalContext(
         scopedFromSources,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
-        attrs.map(a => probeFace(a.picked as Face)),
+        attrs.map(a => probeFace(a.picked as Face, a.solidShape)),
         universe as Face[],
         params,
         scopedFaceSources,

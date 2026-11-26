@@ -2,6 +2,10 @@ import { SceneObject } from "../common/scene-object.js";
 import { FileImport } from "../io/file-import.js";
 import { AssetRoots, type AssetRoot } from "../io/asset-roots.js";
 import { ScaleOps } from "../oc/scale-ops.js";
+import { ShapeOps } from "../oc/shape-ops.js";
+import type { Matrix4 } from "../math/matrix4.js";
+import type { Shape } from "../common/shape.js";
+import type { ColoredBody } from "../common/colored-body.js";
 import { parseLengthUnit, unitFactor } from "../units/units.js";
 import type { LengthUnit } from "../units/units.js";
 import type { LoadOptions } from "../core/interfaces.js";
@@ -18,7 +22,7 @@ export class LoadFile extends SceneObject {
    * workspace's — resolved once, when the statement is made, from the file
    * that wrote the call and its `{ from }` (see AssetRoots).
    */
-  private readonly _assetRoot: AssetRoot | null;
+  private _assetRoot: AssetRoot | null;
   /** The asset files' on-disk identity as of this render — see FileImport.assetStamp. */
   private _assetStamp: string | null;
 
@@ -77,7 +81,9 @@ export class LoadFile extends SceneObject {
     // The sidecar's colours are this statement's paint: it holds the bodies
     // and is the author of their colours.
     const counts = { solids: 0, surfaces: 0, curves: 0 };
-    for (const { body, colors } of ScaleOps.scaleColoredBodies(imported, factor)) {
+    const clone = this.getTransform();
+    for (const scaled of ScaleOps.scaleColoredBodies(imported, factor)) {
+      const { body, colors } = clone ? LoadFile.placed(scaled, clone) : scaled;
       this.addShape(body);
       for (const { face, color } of colors) {
         this.recordFaceColor(body, face, color, this);
@@ -140,6 +146,31 @@ export class LoadFile extends SceneObject {
     }
 
     return true;
+  }
+
+  /** A body a repeat or mirror instance places elsewhere, its painted faces carried onto the moved ones. */
+  private static placed(source: ColoredBody<Shape>, matrix: Matrix4): ColoredBody<Shape> {
+    const { shape, images } = ShapeOps.transformTracking(source.body, matrix, source.colors.map(({ face }) => face));
+    return {
+      body: shape,
+      colors: source.colors.flatMap(({ color }, i) => images[i] ? [{ face: images[i]!, color }] : []),
+    };
+  }
+
+  /**
+   * A repeat or a mirror re-runs the load: the clone reads the same asset
+   * from the same root as the statement that was written, not from wherever
+   * the clone happens to be made.
+   */
+  override createCopy(): SceneObject {
+    const copy = new LoadFile(this.fileName);
+    copy._assetRoot = this._assetRoot;
+    copy._assetStamp = this._assetStamp;
+    copy._assetUnit = this._assetUnit;
+    copy._noColors = this._noColors;
+    copy._include = this._include ? new Set(this._include) : undefined;
+    copy._exclude = new Set(this._exclude);
+    return copy;
   }
 
   getType(): string {

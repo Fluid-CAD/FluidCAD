@@ -11,25 +11,21 @@ import { extentDistances } from "../extent.js";
 import { PlaneObject } from "../../features/plane.js";
 import { PlaneRefSource, comparePlaneRefs, planeRefSceneObject, resolvePlaneRef } from "../plane-ref.js";
 
-const judgedByVertices = new WeakMap<Face, boolean>();
-
 /**
  * Whether the face's boundary vertices tell its side of a plane: it has
  * boundary edges, its surface is a plane, cylinder, cone, sphere or torus
  * (see {@link SurfaceClassifier}), and every boundary edge is a line, a
  * circle or an arc. A face with no boundary edge to read, such as a whole
- * sphere, is judged by its extent.
+ * sphere, is judged by its extent. Kept with the face's class, which it is
+ * read from.
  */
 function isJudgedByVertices(face: Face): boolean {
-  let judged = judgedByVertices.get(face);
-  if (judged === undefined) {
+  return SurfaceClassifier.derived(face, 'sideByVertices', () => {
     const edges = face.getEdges();
-    judged = edges.length > 0
+    return edges.length > 0
       && SurfaceClassifier.isAnalytic(SurfaceClassifier.classify(face).kind)
       && edges.every(edge => EdgeQuery.isLineOrCircular(edge));
-    judgedByVertices.set(face, judged);
-  }
-  return judged;
+  });
 }
 
 // The synthesizer runs half-space predicates over the same candidates many

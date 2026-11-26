@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import type { Geom_Surface } from "ocjs-fluidcad";
 import { setupOC, render } from "../setup.js";
+import { getOC } from "../../oc/init.js";
 import { sketch, line, spline, extrude, select } from "../../core/index.js";
 import { edge, face } from "../../filters/index.js";
 import { FilterBuilderBase } from "../../filters/filter-builder-base.js";
@@ -17,6 +19,7 @@ import { SurfaceClassifier } from "../../oc/surface-classifier.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { Plane } from "../../math/plane.js";
+import { withUnit } from "../../units/registry.js";
 import { edgeSideDistances } from "../../filters/edge/above-below.js";
 
 function bezier(poles: number[][]): Edge {
@@ -266,6 +269,42 @@ describe("sampled predicates on curved edges", () => {
       expect(aboveFaces.every(f => f.getEdges().every(e => CurveClassifier.classify(e).kind === "line"))).toBe(true);
       const belowKinds = (partlyBelow.getShapes() as Face[]).map(f => SurfaceClassifier.classify(f).kind).sort();
       expect(belowKinds).toEqual(["extruded", "plane", "plane"]);
+    });
+
+    it("judges a face by its vertices or by its extent as its class stands in the document's unit", () => {
+      const oc = getOC();
+      // A sheet 2 wide with a shallow S across x, 2.3e-4 either side of
+      // z = 0, its four corners on z = 0. Within a thousandth of a
+      // millimetre it is a plane bounded by lines; in metres it is neither.
+      const poles = new oc.NCollection_Array2_gp_Pnt(1, 4, 1, 2);
+      const owned: { delete(): void }[] = [poles];
+      [[-1, 0], [-1 / 3, 8e-4], [1 / 3, -8e-4], [1, 0]].forEach(([x, z], i) => {
+        for (const [j, y] of [[1, -1], [2, 1]]) {
+          const pole = new oc.gp_Pnt(x, y, z);
+          owned.push(pole);
+          poles.SetValue(i + 1, j, pole);
+        }
+      });
+      const surface = new oc.Geom_BezierSurface(poles) as unknown as Geom_Surface;
+      const maker = new oc.BRepBuilderAPI_MakeFace(surface, 1e-6);
+      const raw = maker.Face();
+      owned.push(surface, maker, raw);
+      try {
+        const sheet = Face.fromTopoDSFace(raw);
+        const partlyAbove = () => matches(sheet, face().above("xy", { partial: true }));
+        expect(SurfaceClassifier.classify(sheet).kind).toBe("plane");
+        expect(sheet.getEdges().map(e => CurveClassifier.classify(e).kind)).toEqual(["line", "line", "line", "line"]);
+        expect(partlyAbove()).toBe(false);
+        withUnit("m", () => {
+          expect(SurfaceClassifier.classify(sheet).kind).toBe("freeform");
+          expect(partlyAbove()).toBe(true);
+        });
+        expect(partlyAbove()).toBe(false);
+      } finally {
+        for (const object of owned.reverse()) {
+          object.delete();
+        }
+      }
     });
 
     it("judges a box's faces by their boundary vertices, as before", () => {

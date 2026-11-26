@@ -4,6 +4,7 @@ import type {
   TopoDS_Edge,
   TopoDS_Face,
   TopoDS_Shape,
+  TopoDS_Shell,
   TopoDS_Solid,
   TopoDS_Wire,
   TopoDS_Vertex,
@@ -14,6 +15,7 @@ import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Solid } from "../common/solid.js";
+import { Sheet } from "../common/sheet.js";
 import { Vertex } from "../common/vertex.js";
 import { inheritHelixGeometry } from "./helix-metadata.js";
 
@@ -70,9 +72,14 @@ export class Explorer {
     return "Unknown";
   }
 
-  static findShapes<T = TopoDS_Shape>(shape: TopoDS_Shape, lookFor: TopAbs_ShapeEnum): T[] {
+  /**
+   * The distinct sub-shapes of one type, in explorer order. `avoid` names a
+   * type the walk does not descend into — shells avoiding solids are the
+   * shells no solid owns, faces avoiding shells the faces no shell owns.
+   */
+  static findShapes<T = TopoDS_Shape>(shape: TopoDS_Shape, lookFor: TopAbs_ShapeEnum, avoid?: TopAbs_ShapeEnum): T[] {
     const oc = getOC();
-    const explorer = new oc.TopExp_Explorer(shape, lookFor, oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum);
+    const explorer = new oc.TopExp_Explorer(shape, lookFor, avoid ?? oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum);
     const map = new oc.TopTools_MapOfShape();
     const result: T[] = [];
 
@@ -145,6 +152,8 @@ export class Explorer {
         return oc.TopAbs_ShapeEnum.TopAbs_FACE;
       case "solid":
         return oc.TopAbs_ShapeEnum.TopAbs_SOLID;
+      case "sheet":
+        return oc.TopAbs_ShapeEnum.TopAbs_SHELL;
       case "vertex":
         return oc.TopAbs_ShapeEnum.TopAbs_VERTEX;
     }
@@ -153,6 +162,11 @@ export class Explorer {
   static toSolid(shape: TopoDS_Shape): TopoDS_Solid {
     const oc = getOC();
     return oc.TopoDS.Solid(shape);
+  }
+
+  static toShell(shape: TopoDS_Shape): TopoDS_Shell {
+    const oc = getOC();
+    return oc.TopoDS.Shell(shape);
   }
 
   static toFace(shape: TopoDS_Shape): TopoDS_Face {
@@ -224,6 +238,21 @@ export class Explorer {
       const solid = Solid.fromTopoDSSolid(Explorer.toSolid(s));
       s.delete();
       return solid;
+    });
+  }
+
+  /** The shells of `shape` that no solid owns — its surface bodies — each wrapped as a `Sheet`. */
+  static findSheetsWrapped(shape: Shape): Sheet[] {
+    const oc = getOC();
+    const raw = Explorer.findShapes(
+      shape.getShape(),
+      oc.TopAbs_ShapeEnum.TopAbs_SHELL as TopAbs_ShapeEnum,
+      oc.TopAbs_ShapeEnum.TopAbs_SOLID as TopAbs_ShapeEnum,
+    );
+    return raw.map((s: TopoDS_Shape) => {
+      const sheet = Sheet.fromTopoDSShell(Explorer.toShell(s));
+      s.delete();
+      return sheet;
     });
   }
 

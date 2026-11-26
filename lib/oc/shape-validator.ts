@@ -17,14 +17,23 @@ import { Explorer } from "./explorer.js";
  *   compound: +1000 and -1000 must not cancel.
  * - `noSolid`: the shape contains no solid at all (a face, a wire, a shell
  *   left un-solidified).
+ * - `noFace`: the shape holds no face at all. Asked of a surface only, where
+ *   it stands for `noSolid`.
  * - `nonFiniteGeometry`: geometry bounds are void/unbounded/non-finite, or
  *   signed-volume integration returned a non-finite value.
+ *
+ * A surface is checked against the same vocabulary minus what is normal for
+ * it: an open shell and the absence of a solid are what a surface is, so
+ * `openShell`, `noSolid` and the volume findings are not raised for one.
  *
  * `selfIntersecting` is NOT in this vocabulary: the basic validator
  * does not request native self-interference analysis. That expensive check
  * is available only through explicit diagnostics. A check that is not run is not reported.
  */
-export type ShapeFindingKind = 'invalidTopology' | 'openShell' | 'nonPositiveVolume' | 'noSolid' | 'nonFiniteGeometry';
+export type ShapeFindingKind = 'invalidTopology' | 'openShell' | 'nonPositiveVolume' | 'noSolid' | 'noFace' | 'nonFiniteGeometry';
+
+/** What a shape is checked as: a solid body, or a surface body. */
+export type ShapeExpectation = 'solid' | 'sheet';
 
 export type ShapeFinding = { kind: ShapeFindingKind; message: string };
 
@@ -32,6 +41,8 @@ export type ShapeValidation = {
   faces: number;
   edges: number;
   shells: number;
+  /** Shells no solid owns: the surface bodies. */
+  sheets: number;
   solids: number;
   /** `BRepCheck_Analyzer` verdict. True for a reversed solid — see `solidVolumes`. */
   validTopology: boolean;
@@ -49,8 +60,11 @@ export type ShapeValidation = {
  */
 export class ShapeValidator {
 
-  /** The checks this basic validator runs. */
+  /** The checks this basic validator runs on a solid. */
   static readonly CHECKS: readonly ShapeFindingKind[] = ['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid', 'nonFiniteGeometry'];
+
+  /** The checks it runs on a surface. */
+  static readonly SHEET_CHECKS: readonly ShapeFindingKind[] = ['invalidTopology', 'noFace', 'nonFiniteGeometry'];
 
   /** Checks a caller might expect that this validator does not run, with the reason. */
   static readonly UNAVAILABLE: Readonly<Record<string, string>> = {
@@ -63,7 +77,7 @@ export class ShapeValidator {
    */
   private static readonly VOLUME_EPS = 1e-6;
 
-  static validate(shape: TopoDS_Shape): ShapeValidation {
+  static validate(shape: TopoDS_Shape, expect: ShapeExpectation = 'solid'): ShapeValidation {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
@@ -77,6 +91,8 @@ export class ShapeValidator {
       const edges = own(Explorer.findShapes(shape, EDGE)).length;
       const shells = own(Explorer.findShapes(shape, SHELL));
       const solids = own(ShapeValidator.solidsOf(shape, SOLID));
+      const sheets = own(Explorer.findShapes(shape, SHELL, SOLID)).length;
+      const asSolid = expect === 'solid';
 
       const findings: ShapeFinding[] = [];
 
@@ -100,7 +116,7 @@ export class ShapeValidator {
       }
 
       const openShells = ShapeValidator.openShellIndexes(shells);
-      for (const index of openShells) {
+      for (const index of asSolid ? openShells : []) {
         findings.push({
           kind: 'openShell',
           message: shells.length === 1
@@ -110,7 +126,7 @@ export class ShapeValidator {
       }
 
       const solidVolumes = solids.map(solid => ShapeValidator.signedVolume(solid));
-      for (let i = 0; i < solidVolumes.length; i++) {
+      for (let i = 0; asSolid && i < solidVolumes.length; i++) {
         const volume = solidVolumes[i];
         if (!Number.isFinite(volume)) {
           findings.push({ kind: 'nonFiniteGeometry', message: `solid ${i + 1} has non-finite signed volume ${volume}` });
@@ -121,14 +137,18 @@ export class ShapeValidator {
         }
       }
 
-      if (solids.length === 0) {
+      if (asSolid && solids.length === 0) {
         findings.push({ kind: 'noSolid', message: `the shape contains no solid (${ShapeValidator.describeContents(faces, edges, shells.length)})` });
+      }
+      if (!asSolid && faces === 0) {
+        findings.push({ kind: 'noFace', message: `the surface holds no face (${ShapeValidator.describeContents(faces, edges, shells.length)})` });
       }
 
       return {
         faces,
         edges,
         shells: shells.length,
+        sheets,
         solids: solids.length,
         validTopology,
         closed: openShells.length === 0,

@@ -15,13 +15,17 @@
  *
  * Raw OpenCascade code (`fluidcad/sdk/occt`) comes back into these wrappers:
  * `shape.getShape()` is a wrapper's raw handle, and `ShapeFactory.fromShape(raw)`
- * wraps a raw shape by its type — a solid as a `Solid`, a face as a `Face`, a
- * wire as a `Wire` … — as do `Solid.fromTopoDSSolid`, `Face.fromTopoDSFace`,
+ * wraps a raw shape by its type — a solid as a `Solid`, a shell as a `Sheet`
+ * (a surface), a face as a `Face`, a wire as a `Wire` … — as do
+ * `Solid.fromTopoDSSolid`, `Sheet.fromTopoDSShell`, `Face.fromTopoDSFace`,
  * `Edge.fromTopoDSEdge`, `Wire.fromTopoDSWire` and `Vertex.fromTopoDSVertex`.
+ * `BodyShape` is what a `Solid` and a `Sheet` share.
  * Those are the shapes `buildTool()` returns and `setBuckets()` names.
  */
 export { Shape } from "../common/shape.js";
+export { BodyShape } from "../common/body-shape.js";
 export { Solid } from "../common/solid.js";
+export { Sheet } from "../common/sheet.js";
 export { Face } from "../common/face.js";
 export { Edge } from "../common/edge.js";
 export { Wire } from "../common/wire.js";

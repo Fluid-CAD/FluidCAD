@@ -14,6 +14,7 @@ export { ExtrudeOps } from "./extrude-ops.js";
 export { Primitives } from "./primitives.js";
 export { FilletOps } from "./fillet-ops.js";
 export { ShellOps } from "./shell-ops.js";
+export { SheetOps } from "./sheet-ops.js";
 export { EdgeQuery } from "./edge-query.js";
 export { FaceQuery } from "./face-query.js";
 export { ProjectionOps as Intersection } from "./intersection.js";

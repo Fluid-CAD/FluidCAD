@@ -26,7 +26,7 @@ describe("the fluidcad/sdk entry points", () => {
 
   it("keep the unstable kernel to the surface the standoff builds with, and the wrappers raw shapes come back into", () => {
     expect(Object.keys(kernel).sort()).toEqual([
-      "BooleanOps", "Edge", "Face", "Primitives", "Shape", "ShapeFactory", "ShapeOps", "Solid", "Vertex", "Wire",
+      "BodyShape", "BooleanOps", "Edge", "Face", "Primitives", "Shape", "ShapeFactory", "ShapeOps", "Sheet", "Solid", "Vertex", "Wire",
     ]);
   });
 

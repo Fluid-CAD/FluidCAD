@@ -179,3 +179,76 @@ describe('AxisSlotControl', () => {
     expect(control.connector).toBeNull();
   });
 });
+
+// With `planes` the slot is a direction's: it takes a plane as well, which
+// stands for its normal. `direction` is the whole state; `selection` stays
+// the axis half, so an axis dialog reads the slot as before.
+describe('AxisSlotControl — taking planes', () => {
+  const PLANE = { label: 'Plane', filePath: 'a.fluid.js', line: 6, column: 1 };
+
+  it('prompts for an axis or a plane', () => {
+    const { host, control } = make({ planes: true });
+    expect(control.direction).toBeNull();
+    expect(chipText(host)).toContain('Pick an axis, an edge, a connector, a plane or a planar face');
+  });
+
+  it('holds an origin plane, a plane statement or a picked face, beside the axis states', () => {
+    const { host, control } = make({ planes: true });
+    control.selectStandardPlane('xz');
+    expect(control.direction).toEqual({ kind: 'standard-plane', plane: 'xz' });
+    expect(control.selection).toBeNull();
+    expect(chipText(host)).toContain('XZ plane');
+
+    control.selectPlane(PLANE);
+    expect(control.direction).toEqual({ kind: 'plane', option: PLANE });
+    expect(chipText(host)).toContain('Plane');
+
+    control.setFaceChip('Picked face');
+    expect(control.direction).toEqual({ kind: 'face' });
+    expect(chipText(host)).toContain('Picked face');
+    control.setFaceChip(null);
+    expect(control.direction).toBeNull();
+
+    // An axis replaces a plane, and reads as before.
+    control.selectStandardPlane('xy');
+    control.selectStandard('z');
+    expect(control.direction).toEqual({ kind: 'standard', axis: 'z' });
+    expect(control.selection).toEqual({ kind: 'standard', axis: 'z' });
+  });
+
+  it('reads a kept origin-plane literal as that plane, and falls back to it', () => {
+    const { host, control } = make({ planes: true });
+    control.seedKeep("'yz'");
+    expect(control.direction).toEqual({ kind: 'standard-plane', plane: 'yz' });
+    expect(chipText(host)).toContain('YZ plane');
+
+    control.setFaceChip('Picked face');
+    clickRemove(host);
+    expect(control.direction).toEqual({ kind: 'standard-plane', plane: 'yz' });
+
+    control.seedKeep('topPlane');
+    expect(control.direction).toEqual({ kind: 'keep' });
+    expect(chipText(host)).toContain('Current: topPlane');
+  });
+
+  it('re-finds a held plane statement after a render, and falls back when it is gone', () => {
+    const { control } = make({ planes: true });
+    control.selectPlane(PLANE);
+    control.setPlaneOptions([{ ...PLANE, label: 'datum' }]);
+    expect(control.direction).toEqual({ kind: 'plane', option: { ...PLANE, label: 'datum' } });
+    control.setPlaneOptions([]);
+    expect(control.direction).toBeNull();
+  });
+
+  it('an axis-only slot takes no plane, and keeps an origin-plane literal as written', () => {
+    const { host, control } = make();
+    control.selectStandardPlane('xy');
+    control.selectPlane(PLANE);
+    control.setFaceChip('Picked face');
+    expect(control.direction).toBeNull();
+    expect(chipText(host)).toContain('Pick a world axis, an axis, an edge or a connector');
+
+    control.seedKeep("'xy'");
+    expect(control.selection).toEqual({ kind: 'keep' });
+  });
+});

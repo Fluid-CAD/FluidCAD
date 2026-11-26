@@ -465,7 +465,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
  * ghost tint off the materials that carry one. Returns the undo.
  *
  * A body is a {@link BodyMesh} subtree (`userData.isSolid` or
- * `userData.isSheet`); a select overlay's copy of one (render order 999) and
+ * `userData.isSurface`); a select overlay's copy of one (render order 999) and
  * meta shapes are overlays, not model, so they go too. Lights, cameras and
  * bare groups are left alone — only objects that draw something are
  * toggled, which is all the bounds fitting and the renderer look at.
@@ -480,7 +480,7 @@ function isolateBodies(scene: Object3D): () => void {
     }
     const o = node as any;
     let inside = insideBody;
-    if (!inside && (node.userData.isSolid || node.userData.isSheet)) {
+    if (!inside && (node.userData.isSolid || node.userData.isSurface)) {
       inside = !node.userData.isMetaShape && node.renderOrder < 999;
     }
     const drawsSomething = !!(o.isMesh || o.isLine || o.isPoints || o.isSprite);

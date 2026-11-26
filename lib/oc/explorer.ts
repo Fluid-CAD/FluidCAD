@@ -152,7 +152,7 @@ export class Explorer {
         return oc.TopAbs_ShapeEnum.TopAbs_FACE;
       case "solid":
         return oc.TopAbs_ShapeEnum.TopAbs_SOLID;
-      case "sheet":
+      case "surface":
         return oc.TopAbs_ShapeEnum.TopAbs_SHELL;
       case "vertex":
         return oc.TopAbs_ShapeEnum.TopAbs_VERTEX;

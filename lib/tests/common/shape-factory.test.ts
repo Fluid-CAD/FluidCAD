@@ -63,7 +63,7 @@ describe("ShapeFactory", () => {
     const sheet = keep(TestSheets.closedBox(1, 2, 3));
     const wrapped = keep(ShapeFactory.fromShape(sheet.getShape()));
     expect(wrapped).toBeInstanceOf(Sheet);
-    expect(wrapped.getType()).toBe("sheet");
+    expect(wrapped.getType()).toBe("surface");
   });
 
   it("answers the first solid of a compound of solids, as before", () => {
@@ -83,7 +83,7 @@ describe("ShapeFactory", () => {
   it("refuses a compound of two sheets, naming what it holds", () => {
     const a = keep(TestSheets.plate(1, 1));
     const b = keep(TestSheets.openBox(1, 2, 3));
-    expect(() => ShapeFactory.fromShape(compound([a.getShape(), b.getShape()]))).toThrow(/2 sheets/);
+    expect(() => ShapeFactory.fromShape(compound([a.getShape(), b.getShape()]))).toThrow(/2 surfaces/);
   });
 
   it("reads every body of a mixed result, each once", () => {
@@ -95,7 +95,7 @@ describe("ShapeFactory", () => {
     const edge = edgeRaw([0, 0, 9], [0, 1, 9]);
 
     const bodies = ShapeFactory.bodiesOf(compound([solid, free.getShape(), looseFace.getShape(), wire, edge])).map(keep);
-    expect(bodies.map(body => body.getType())).toEqual(["solid", "sheet", "sheet", "wire", "edge"]);
+    expect(bodies.map(body => body.getType())).toEqual(["solid", "surface", "surface", "wire", "edge"]);
     expect(bodies[0].getShape().IsSame(solid)).toBe(true);
     expect(bodies[1].getShape().IsSame(free.getShape())).toBe(true);
     const fromFace = bodies[2] as Sheet;

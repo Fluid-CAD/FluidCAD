@@ -260,7 +260,7 @@ export function isRollbackViewTruncated(
 
 /** The object carries real material: a body (a solid or a surface), not a meta or guide shape. */
 function hasBodyShape(obj: SceneObjectRender): boolean {
-  return obj.sceneShapes?.some(s => (s.shapeType === 'solid' || s.shapeType === 'sheet') && !s.isMetaShape && !s.isGuide) === true;
+  return obj.sceneShapes?.some(s => (s.shapeType === 'solid' || s.shapeType === 'surface') && !s.isMetaShape && !s.isGuide) === true;
 }
 
 /**

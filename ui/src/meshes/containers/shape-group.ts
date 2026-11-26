@@ -103,8 +103,8 @@ export class ShapeGroup extends Group {
           case 'solid':
             mesh = new BodyMesh(shape, options);
             break;
-          case 'sheet':
-            mesh = new BodyMesh(shape, { ...options, body: 'sheet' });
+          case 'surface':
+            mesh = new BodyMesh(shape, { ...options, body: 'surface' });
             break;
         }
       }

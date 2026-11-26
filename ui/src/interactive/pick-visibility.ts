@@ -31,12 +31,12 @@ export function hitIsClipped(hit: Intersection, point: Vector3 = hit.point): boo
 }
 
 /**
- * True when the hit landed on a surface body (`userData.isSheet` on an
+ * True when the hit landed on a surface body (`userData.isSurface` on an
  * ancestor): a surface has no inside, so either side of it is a front.
  */
-export function hitIsOnSheet(hit: Intersection): boolean {
+export function hitIsOnSurface(hit: Intersection): boolean {
   for (let node: Object3D | null = hit.object; node; node = node.parent) {
-    if (node.userData.isSheet) {
+    if (node.userData.isSurface) {
       return true;
     }
   }

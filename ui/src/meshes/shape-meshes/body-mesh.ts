@@ -5,8 +5,8 @@ import { FaceMesh } from './face-mesh';
 import { EdgeMesh } from './edge-mesh';
 import type { GrainAxis } from '../appearance/appearance-material';
 
-/** The kind of body drawn: a solid, or a surface (an open sheet of faces). */
-export type BodyKind = 'solid' | 'sheet';
+/** The kind of body drawn: a solid, or a surface (connected faces that need not close). */
+export type BodyKind = 'solid' | 'surface';
 
 export type BodyMeshOptions = MeshRenderOptions & { body?: BodyKind };
 
@@ -42,15 +42,15 @@ function longestAxisOf(meshes: SceneObjectMesh[]): GrainAxis {
  *
  * The group says which kind it draws: `userData.isSolid` for a solid, which
  * the solid-only readers (section caps, the interference overlay) rely on,
- * and `userData.isSheet` for a surface, which picking reads to take its back
+ * and `userData.isSurface` for a surface, which picking reads to take its back
  * side as a front. Readers of "model geometry" take both.
  */
 export class BodyMesh extends Group {
   constructor(shape: SceneObjectPart, options?: BodyMeshOptions) {
     super();
-    const sheet = options?.body === 'sheet';
-    if (sheet) {
-      this.userData.isSheet = true;
+    const surface = options?.body === 'surface';
+    if (surface) {
+      this.userData.isSurface = true;
     } else {
       this.userData.isSolid = true;
     }
@@ -63,7 +63,7 @@ export class BodyMesh extends Group {
     // front (see face-depth-offset.ts).
     const edges = shape.meshes.filter(m => m.label === 'solid-edges');
     // A surface's unpainted faces rest in their own theme colour.
-    const restColor = sheet ? '#' + themeColors.sheetFace.getHexString() : undefined;
+    const restColor = surface ? '#' + themeColors.surfaceFace.getHexString() : undefined;
     // A body's geometry is never rewritten in place: every object drawing
     // the same mesh shares one geometry (the page's mesh cache, P6).
     const faceOptions = edges.length > 0 && !edges.some(m => m.faceSides?.length)

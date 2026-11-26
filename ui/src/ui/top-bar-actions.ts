@@ -699,7 +699,7 @@ export class TopBarActions {
     const groups = new Map<SceneObjectRender | null, string[]>();
     for (const object of objects) {
       for (const shape of object.sceneShapes ?? []) {
-        if ((shape.shapeType !== 'solid' && shape.shapeType !== 'sheet') || shape.isMetaShape || shape.isGuide) {
+        if ((shape.shapeType !== 'solid' && shape.shapeType !== 'surface') || shape.isMetaShape || shape.isGuide) {
           continue;
         }
         if (shape.shapeId === undefined || seen.has(shape.shapeId)) {

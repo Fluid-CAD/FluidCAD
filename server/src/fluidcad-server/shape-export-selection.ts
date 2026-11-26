@@ -189,7 +189,7 @@ export class ShapeExportSelection {
 
   /** A solid or a surface the scene draws for itself — what an export can write. */
   private static isBody(shape: any): boolean {
-    return !!shape && (shape.shapeType === 'solid' || shape.shapeType === 'sheet') && !shape.isMetaShape && !shape.isGuide;
+    return !!shape && (shape.shapeType === 'solid' || shape.shapeType === 'surface') && !shape.isMetaShape && !shape.isGuide;
   }
 
   private static drawn(row: any): any[] {

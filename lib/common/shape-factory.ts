@@ -98,8 +98,8 @@ export class ShapeFactory {
 
     return [
       ...wrapAll("solid", undefined, raw => Solid.fromTopoDSSolid(Explorer.toSolid(raw))),
-      ...wrapAll("sheet", "solid", raw => Sheet.fromTopoDSShell(Explorer.toShell(raw))),
-      ...wrapAll("face", "sheet", raw => SheetOps.fromRawFace(raw)),
+      ...wrapAll("surface", "solid", raw => Sheet.fromTopoDSShell(Explorer.toShell(raw))),
+      ...wrapAll("face", "surface", raw => SheetOps.fromRawFace(raw)),
       ...wrapAll("wire", "face", raw => Wire.fromTopoDSWire(Explorer.toWire(raw))),
       ...wrapAll("edge", "wire", raw => Edge.fromTopoDSEdge(Explorer.toEdge(raw))),
     ];

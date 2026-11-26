@@ -23,7 +23,7 @@ export class Sheet extends BodyShape<TopoDS_Shell> {
   }
 
   getType(): ShapeType {
-    return "sheet";
+    return "surface";
   }
 
   override isSheet() {

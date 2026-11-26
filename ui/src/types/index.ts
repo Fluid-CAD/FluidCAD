@@ -187,8 +187,8 @@ export type ObjectType =
 // Shape types — the geometric representation of a scene object
 // ---------------------------------------------------------------------------
 
-/** `sheet` is a surface body: faces and edges like a solid's, with an open rim and no inside. */
-export type ShapeType = 'solid' | 'sheet' | 'face' | 'wire' | 'edge' | 'vertex';
+/** `surface` is a surface body: faces and edges like a solid's, with an open rim and no inside. */
+export type ShapeType = 'solid' | 'surface' | 'face' | 'wire' | 'edge' | 'vertex';
 
 // ---------------------------------------------------------------------------
 // Mesh render options

@@ -47,7 +47,7 @@ function plateWithHole(): Sheet {
 describe("Sheet", () => {
   it("is a surface body, not a solid", () => {
     const sheet = keep(TestSheets.plate(10, 5));
-    expect(sheet.getType()).toBe("sheet");
+    expect(sheet.getType()).toBe("surface");
     expect(sheet.isSheet()).toBe(true);
     expect(sheet.isBody()).toBe(true);
     expect(sheet.isSolid()).toBe(false);

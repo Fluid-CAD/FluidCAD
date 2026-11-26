@@ -24,7 +24,7 @@ function seamEpsilonSq(): number {
 }
 
 /** Shape types with area — the only ones a plane section can cross. */
-const SECTIONABLE_TYPES = new Set(["solid", "sheet", "face", "compound"]);
+const SECTIONABLE_TYPES = new Set(["solid", "surface", "face", "compound"]);
 
 // Cached scene objects keep their Shape instances by reference across
 // incremental renders, so an entry stays valid for exactly as long as the

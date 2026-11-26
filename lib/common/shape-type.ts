@@ -1,1 +1,1 @@
-export type ShapeType = "vertex" | "edge" | "wire" | "face" | "solid" | "sheet" | "compound";
+export type ShapeType = "vertex" | "edge" | "wire" | "face" | "solid" | "surface" | "compound";

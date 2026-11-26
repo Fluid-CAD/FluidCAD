@@ -32,7 +32,7 @@ import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates, pickInstanceId } from './interactive/pick-candidates';
 import { VertexPicking, type VertexPickScope } from './interactive/vertex-picking';
-import { hitIsClipped, hitIsOnSheet, hitIsSectioned, pointIsVisible } from './interactive/pick-visibility';
+import { hitIsClipped, hitIsOnSurface, hitIsSectioned, pointIsVisible } from './interactive/pick-visibility';
 import { EntityGeometry } from './meshes/entity-geometry';
 import { SceneIndex } from './helpers/scene-index';
 import { carryShownKeys, findActiveSketch, isSceneEmpty, isShowableConsumedRow, sourceLocKey } from './helpers/scene-utils';
@@ -1189,7 +1189,7 @@ export class Viewer {
       if (hitIsClipped(hit)) {
         continue;
       }
-      if (!hit.face || hitIsSectioned(hit) || hitIsOnSheet(hit)) {
+      if (!hit.face || hitIsSectioned(hit) || hitIsOnSurface(hit)) {
         bestFace = hit;
         break;
       }
@@ -1875,7 +1875,7 @@ export class Viewer {
     const group = this.findMeshByShapeId(shapeId, scope);
     if (!group) return;
 
-    const isFaceHighlight = part.shapeType === 'solid' || part.shapeType === 'sheet' || part.shapeType === 'face';
+    const isFaceHighlight = part.shapeType === 'solid' || part.shapeType === 'surface' || part.shapeType === 'face';
 
     group.traverse((child) => {
       if (!(child as any).material) return;
@@ -2048,7 +2048,7 @@ export class Viewer {
       switch (part.shapeType) {
         case 'face':
         case 'solid':
-        case 'sheet':
+        case 'surface':
           group = new FaceMesh(part, { color });
           break;
         case 'edge':
@@ -3081,7 +3081,7 @@ export class Viewer {
     const factor = insideBody && node.userData.isEdgeLine
       ? SKETCH_GHOST_EDGE_TINT_FACTOR
       : SKETCH_GHOST_TINT_FACTOR;
-    insideBody = insideBody || !!node.userData.isSolid || !!node.userData.isSheet;
+    insideBody = insideBody || !!node.userData.isSolid || !!node.userData.isSurface;
 
     const mat = (node as any).material;
     if (mat) {

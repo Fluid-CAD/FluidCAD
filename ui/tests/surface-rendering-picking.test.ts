@@ -9,10 +9,10 @@ import { themeColors } from '../src/scene/theme-colors';
 import type { SceneObjectMesh, SceneObjectPart, SceneObjectRender, ShapeType } from '../src/types';
 
 /**
- * A surface arrives as shape type `sheet` with the meshes a solid sends —
+ * A surface arrives as shape type `surface` with the meshes a solid sends —
  * `solid-faces` with a face mapping, `solid-edges` with edge indices — and
  * its open rim flagged `boundary`. It draws as a body that says it is a
- * surface (not a solid), its rim in the rim style; its faces and edges pick
+ * surface (not a solid), its rim in the edge colour a step wider; its faces and edges pick
  * like a solid's, from either side; a whole-shape highlight tints its faces.
  */
 
@@ -127,20 +127,20 @@ function pickAtCenter(scene: Scene): ReturnType<Viewer['pickAt']> {
 }
 
 describe('a surface body in the viewport', () => {
-  it('ShapeGroup draws a sheet as a body marked a surface, not a solid', () => {
-    const group = new ShapeGroup(rowOf(bodyPart('sheet')), false);
+  it('ShapeGroup draws a surface as a body marked a surface, not a solid', () => {
+    const group = new ShapeGroup(rowOf(bodyPart('surface')), false);
     const body = group.children[0];
-    expect(body.userData.isSheet).toBe(true);
+    expect(body.userData.isSurface).toBe(true);
     expect(body.userData.isSolid).toBeUndefined();
-    expect(body.userData.shapeId).toBe('sheet-1');
+    expect(body.userData.shapeId).toBe('surface-1');
 
     const [faces] = faceMeshesOf(group);
     expect(faces.userData.faceMapping).toEqual([0, 0, 1, 1]);
-    expect(colorOf(faces)).toBe(themeColors.sheetFace.getHex());
+    expect(colorOf(faces)).toBe(themeColors.surfaceFace.getHex());
   });
 
-  it('draws the rim in the rim style and the shared edge as a model edge', () => {
-    const lines = linesOf(new ShapeGroup(rowOf(bodyPart('sheet')), false));
+  it('draws the rim in the edge colour a step wider, and the shared edge as a model edge', () => {
+    const lines = linesOf(new ShapeGroup(rowOf(bodyPart('surface')), false));
     expect(lines).toHaveLength(7);
     const rim = lines.filter(line => line.userData.boundaryEdge);
     expect(rim.map(line => line.userData.edgeIndex)).toEqual([0, 1, 2, 4, 5, 6]);
@@ -157,21 +157,21 @@ describe('a surface body in the viewport', () => {
   it('leaves a solid as it was: isSolid, the solid face colour', () => {
     const group = new ShapeGroup(rowOf(bodyPart('solid')), false);
     expect(group.children[0].userData.isSolid).toBe(true);
-    expect(group.children[0].userData.isSheet).toBeUndefined();
+    expect(group.children[0].userData.isSurface).toBeUndefined();
     expect(colorOf(faceMeshesOf(group)[0])).toBe(themeColors.faceColor.getHex());
   });
 
-  it("collects a sheet's faces and edges as pick candidates", () => {
+  it("collects a surface's faces and edges as pick candidates", () => {
     const root = new Object3D();
-    root.add(new ShapeGroup(rowOf(bodyPart('sheet')), false));
+    root.add(new ShapeGroup(rowOf(bodyPart('surface')), false));
     const candidates = collectPickCandidates(root, NO_CHANNELS);
     expect(candidates.faces).toHaveLength(1);
     expect(candidates.edges.map(edge => edge.userData.edgeIndex).sort()).toEqual([0, 1, 2, 3, 4, 5, 6]);
 
     // A single face's or edge's hover and selection overlay find their geometry by the same indices.
-    const [face] = EntityGeometry.faceTriangles(root, 'sheet-1', 1);
+    const [face] = EntityGeometry.faceTriangles(root, 'surface-1', 1);
     expect(face.positions).toHaveLength(2 * 9);
-    expect(EntityGeometry.edgeLines(root, 'sheet-1', 3)).toHaveLength(1);
+    expect(EntityGeometry.edgeLines(root, 'surface-1', 3)).toHaveLength(1);
   });
 
   it("collects each line of a multi-edge wire as an edge candidate with its own index", () => {
@@ -196,10 +196,10 @@ describe('a surface body in the viewport', () => {
     expect(EntityGeometry.edgeLines(root, 'wire-shape', 1)).toEqual([candidates.edges[1]]);
   });
 
-  it('picks a sheet face seen from behind', () => {
+  it('picks a surface face seen from behind', () => {
     const scene = new Scene();
-    scene.add(new ShapeGroup(rowOf(bodyPart('sheet', -1)), false));
-    expect(pickAtCenter(scene)).toMatchObject({ shapeId: 'sheet-1', sub: { type: 'face', index: 0 } });
+    scene.add(new ShapeGroup(rowOf(bodyPart('surface', -1)), false));
+    expect(pickAtCenter(scene)).toMatchObject({ shapeId: 'surface-1', sub: { type: 'face', index: 0 } });
   });
 
   it('still refuses a solid face seen from behind', () => {
@@ -208,8 +208,8 @@ describe('a surface body in the viewport', () => {
     expect(pickAtCenter(scene)).toBeNull();
   });
 
-  it("tints a sheet's faces for a whole-shape highlight, not its edges", () => {
-    const part = bodyPart('sheet');
+  it("tints a surface's faces for a whole-shape highlight, not its edges", () => {
+    const part = bodyPart('surface');
     const scene = new Scene();
     const group = new ShapeGroup(rowOf(part), false);
     scene.add(group);
@@ -218,7 +218,7 @@ describe('a surface body in the viewport', () => {
       ctx: { scene },
       assemblyController: null,
     });
-    (Viewer.prototype as unknown as { applyShapeHighlight: (id: string) => void }).applyShapeHighlight.call(fake, 'sheet-1');
+    (Viewer.prototype as unknown as { applyShapeHighlight: (id: string) => void }).applyShapeHighlight.call(fake, 'surface-1');
 
     expect(colorOf(faceMeshesOf(group)[0])).toBe(themeColors.highlightColor.getHex());
     const rim = linesOf(group).find(line => line.userData.boundaryEdge)!;

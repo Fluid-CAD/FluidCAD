@@ -44,8 +44,8 @@ describe('isSceneEmpty', () => {
 
   it('is not empty once a surface is modelled', () => {
     // A surface is material too: thicken, offset and split work on it.
-    expect(isSceneEmpty([row('load', [{ shapeType: 'sheet' }])])).toBe(false);
-    expect(isSceneEmpty([row('load', [{ shapeType: 'sheet', isMetaShape: true }])])).toBe(true);
+    expect(isSceneEmpty([row('load', [{ shapeType: 'surface' }])])).toBe(false);
+    expect(isSceneEmpty([row('load', [{ shapeType: 'surface', isMetaShape: true }])])).toBe(true);
   });
 
   it('ignores meta and guide shapes', () => {

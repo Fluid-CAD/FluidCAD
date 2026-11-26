@@ -88,15 +88,15 @@ describe('ShapeLabels.labelsFor', () => {
     expect(labels.get('u1')?.shapeType).toBe('unknown');
   });
 
-  it('names sheets "Surface" and standalone wires "Curve", keeping the shape type', () => {
+  it('names surfaces "Surface" and standalone wires "Curve", keeping the shape type', () => {
     const labels = ShapeLabels.labelsFor([{ id: 'l', type: 'load', sceneShapes: [
-      { shapeId: 's1', shapeType: 'sheet' },
+      { shapeId: 's1', shapeType: 'surface' },
       { shapeId: 'w1', shapeType: 'wire' },
-      { shapeId: 's2', shapeType: 'sheet' },
+      { shapeId: 's2', shapeType: 'surface' },
     ] }]);
     expect(labels.get('s1')?.label).toBe('Surface 1');
     expect(labels.get('s2')?.label).toBe('Surface 2');
     expect(labels.get('w1')?.label).toBe('Curve 1');
-    expect(labels.get('s1')?.shapeType).toBe('sheet');
+    expect(labels.get('s1')?.shapeType).toBe('surface');
   });
 });

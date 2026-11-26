@@ -71,6 +71,8 @@ export type SceneManager = {
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
+  // Optional: may predate shape sizes in the shape list (area of a body, length of a curve).
+  getShapeSizes?(scene: any, shapeIds: readonly string[]): Record<string, { area?: number; length?: number }>;
   // Optional: may predate feature picks on geometry (the features whose buckets hold a face or an edge).
   getShapeOwners?(scene: any, shapeId: string, sub: { type: 'face' | 'edge'; index: number }): { id: string; type: string; uniqueType: string; name: string }[];
   measure(scene: any, refs: MeasureRef[]): any;

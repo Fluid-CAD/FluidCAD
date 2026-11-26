@@ -25,13 +25,17 @@ export type {
  * `label` = `<Type> <n>` (n per part and per shape type, timeline order —
  * "Solid 2"), `part` = the enclosing part's name (null for a shape no part
  * holds, listed under "Model"). Both are absent on a meta shape (a sketch's
- * plane quad, a guide), which has no row. `lineageKey` (solids and surfaces) is the
- * body's identity across renders — stable through the agent's own edits,
- * where `shapeId` is minted afresh whenever the holder rebuilds.
+ * plane quad, a guide), which has no row. `kind` says what the shape is in
+ * the user's words — a solid, a surface or a curve — and is absent on
+ * anything else (a selected face, a point). `lineageKey` (solids and
+ * surfaces) is the body's identity across renders — stable through the
+ * agent's own edits, where `shapeId` is minted afresh whenever the holder
+ * rebuilds.
  */
 export type SceneSummaryShape = {
   shapeId: string;
   type: string;
+  kind?: SceneShapeKind;
   label?: string;
   part?: string | null;
   lineageKey?: string;
@@ -330,8 +334,33 @@ export class AssemblySummary {
   }
 }
 
+/** What a drawn shape is, as a user names it. */
+export type SceneShapeKind = 'solid' | 'surface' | 'curve';
+
+/** The kind a rendered shape type stands for; null for a face, a point or anything else. */
+export function sceneShapeKindOf(shapeType: string): SceneShapeKind | null {
+  switch (shapeType) {
+    case 'solid':
+      return 'solid';
+    case 'surface':
+      return 'surface';
+    case 'edge':
+    case 'wire':
+      return 'curve';
+    default:
+      return null;
+  }
+}
+
+/**
+ * One shape of the list: the summary's fields, and its natural size — the
+ * `area` of a solid or a surface, the `length` of a curve — on an engine
+ * that measures it (meta shapes are not measured).
+ */
 export type ShapeListEntry = SceneSummaryShape & {
   sceneObjectId: string;
+  area?: number;
+  length?: number;
 };
 
 export type ShapeList = {

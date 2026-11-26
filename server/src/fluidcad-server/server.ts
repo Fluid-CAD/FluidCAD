@@ -111,7 +111,7 @@ import { PackageRoots } from '../packages/package-roots.ts';
 import { PackageAssetRoots } from '../packages/package-asset-roots.ts';
 import { PackageManifests } from '../packages/package-manifests.ts';
 import type { PackageResolveError, ResolvedPackage } from '../packages/resolver.ts';
-import { AssemblySummary } from './scene-summary.ts';
+import { AssemblySummary, sceneShapeKindOf } from './scene-summary.ts';
 import type { SceneSummary, SceneSummaryObject, SceneSummaryShape, ShapeList, ShapeListEntry } from './scene-summary.ts';
 import { ShapeLabels } from '../../../lib/dist/rendering/shape-labels.js';
 import { ShapeExportSelection, type ShapeExportRefusal, type ShapeSelection } from './shape-export-selection.ts';
@@ -3518,19 +3518,35 @@ export class FluidCadServer {
         shapes.push({ ...FluidCadServer.summaryShape(s, labels), sceneObjectId: r.id });
       }
     }
+    const measured = shapes.filter(shape => shape.kind && !shape.isMetaShape).map(shape => shape.shapeId);
+    const sizes = measured.length > 0 ? this.sceneManager?.getShapeSizes?.(scene, measured) : undefined;
+    if (sizes) {
+      for (const shape of shapes) {
+        const size = sizes[shape.shapeId];
+        if (size?.area !== undefined) {
+          shape.area = size.area;
+        }
+        if (size?.length !== undefined) {
+          shape.length = size.length;
+        }
+      }
+    }
     return { shapes };
   }
 
   /**
-   * One rendered shape as the summary and the shape list report it: its id
-   * and type, the Shapes panel's `<Type> <n>` label and part (none on a meta
-   * shape, which has no row) and, for a solid, its lineage key.
+   * One rendered shape as the summary and the shape list report it: its id,
+   * type and kind (solid, surface or curve), the Shapes panel's `<Type> <n>`
+   * label and part (none on a meta shape, which has no row) and, for a solid
+   * or a surface, its lineage key.
    */
   private static summaryShape(shape: any, labels: ReadonlyMap<string, { label: string; part: string | null }>): SceneSummaryShape {
     const labelled = labels.get(shape.shapeId);
+    const kind = sceneShapeKindOf(shape.shapeType);
     return {
       shapeId: shape.shapeId,
       type: shape.shapeType,
+      ...(kind ? { kind } : {}),
       ...(labelled ? { label: labelled.label, part: labelled.part } : {}),
       ...(typeof shape.lineageKey === 'string' ? { lineageKey: shape.lineageKey } : {}),
       ...(shape.isMetaShape ? { isMetaShape: true as const } : {}),

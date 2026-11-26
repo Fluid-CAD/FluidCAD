@@ -5,7 +5,7 @@ import { Matrix4 } from "./matrix4.js";
 import { Quaternion } from "./quaternion.js";
 import { rad } from "../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
-import { IPlane } from "../core/interfaces.js";
+import { IConnector, IPlane, ISceneObject } from "../core/interfaces.js";
 import { mmTol } from "../units/tolerance.js";
 import type { StandardPlane } from "./standard-plane.js";
 
@@ -388,6 +388,17 @@ export function standardPlaneView(plane: StandardPlane): StandardView {
 }
 
 export type PlaneLike = StandardPlane | Plane | IPlane | PlaneObjectBase;
+
+/**
+ * What a tool takes as a direction (`.direction(…)`): an axis the way an
+ * axis is given everywhere else (a world axis name, an `axis()`, a connector
+ * for its Z axis, a straight edge), or a plane (a plane name, a `plane()`, a
+ * planar face), which stands for its normal. Read by `DirectionInput`.
+ *
+ * Not the `DirectionLike` of the rank filters (`nearest('-z')`), which takes
+ * signed axis names and vectors and refuses plane names on purpose.
+ */
+export type DirectionInputLike = AxisLike | PlaneLike | IConnector | ISceneObject;
 
 export function isPlaneLike(value: unknown): value is PlaneLike {
   return value instanceof Plane || value instanceof PlaneObjectBase || isStandardPlane(value);

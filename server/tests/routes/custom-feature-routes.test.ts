@@ -231,6 +231,35 @@ function standoffBody(extra: Record<string, unknown> = {}, custom: Record<string
 }
 
 describe('creating a custom feature', () => {
+  it("names one of the engine's own features to the slot synthesis, and relays its refusal of a pick off a solid as it reads", async () => {
+    // Draft is described like a custom feature and goes through these arms.
+    const draftMeta = {
+      id: 'draft', label: 'Draft', group: 'modify', kind: 'modifier', operations: [], defaultOperation: null,
+      params: { angle: { type: 'angle', label: 'Angle', default: 5 }, faces: { picker: 'face', label: 'Faces', multiple: true } },
+      call: ['angle', '...faces'],
+      ghost: true, contexts: ['part'],
+    } as unknown as ScannedFeature['meta'];
+    entries.push({ id: 'draft', exportName: 'draft', modulePath: 'fluidcad/core', builtIn: true, meta: draftMeta });
+    const reason = 'draft: selection 1 holds a surface face; draft works on solids.';
+    slotAnswer = { ok: false, reason, slot: 'faces' };
+
+    const base = await serve();
+    const { status, body } = await post(`${base}/apply-feature`, {
+      feature: 'custom',
+      custom: { id: 'draft', values: {}, picks: { faces: [{ kind: 'entities', entities: [FACE_PICK] }] } },
+      preview: true,
+    });
+
+    expect(slotCalls).toHaveLength(1);
+    expect(slotCalls[0].request).toEqual({
+      slots: { faces: { picker: 'face', entities: [FACE_PICK], options: { label: 'Faces', multiple: true } } },
+      feature: 'draft',
+    });
+    expect(status).toBe(422);
+    expect(body).toEqual({ success: false, reason });
+    expect(relayed).toEqual([]);
+  });
+
   it('previews the statement its picks and values write', async () => {
     const base = await serve();
     const { status, body } = await post(`${base}/apply-feature`, standoffBody({ preview: true }));

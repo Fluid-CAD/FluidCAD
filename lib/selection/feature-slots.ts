@@ -13,6 +13,7 @@ import {
 import { VertexPointSynthesizer } from "./vertex-synthesis.js";
 import { SLOT_CURVES, SLOT_SURFACES, type SlotCurve, type SlotSurface } from "../sdk/value-conditions.js";
 import { renderSolvedTarget, type SolvedEmissionTarget } from "./sketch-target.js";
+import { isSolidReshaper, offSolidPart, offSolidRefusal } from "../common/operand-check.js";
 import {
   ApplyFeatureEditSpec, nameHintFor, PickRef, renderConnectorAnchorSuffix, SelectionScene, SynthesizeOptions,
 } from "./types.js";
@@ -63,8 +64,14 @@ export type FeatureSlotPoint =
   | { part: number; suffix: string }
   | { sketch: number; target: SolvedEmissionTarget };
 
-/** Every picked value of one statement, by value name. */
-export type FeatureSlotRequest = { slots: Record<string, FeatureSlotPicks> };
+/**
+ * Every picked value of one statement, by value name. `feature` is the id
+ * of the feature the values are for, when the caller knows it: a tool that
+ * reshapes solids (the built-in `draft`) takes a solid's faces and edges
+ * only, and its picks on a surface or a curve are refused as its build
+ * refuses them.
+ */
+export type FeatureSlotRequest = { slots: Record<string, FeatureSlotPicks>; feature?: string };
 
 /** One value's answer: its elements, in order. */
 export type FeatureSlotResult = {
@@ -124,7 +131,10 @@ class SlotRefusal extends Error {
  * faces and edges each by a selector of its own with the anchor after it.
  *
  * Kind-agnostic: a slot is described by its picker, never by the feature
- * that declares it, so a new feature needs nothing here. Statement-backed
+ * that declares it, so a new feature needs nothing here. The one thing read
+ * off the feature is whether it is a tool that reshapes solids (the engine's
+ * own list, `isSolidReshaper`): its picks off a solid are refused in the
+ * words its build gives. Statement-backed
  * picks (a sketch, an axis or plane statement, a solid, a feature, a
  * connector) name no geometry and never come here — the editor binds them
  * by call site. A value of several kinds arrives as one slot per kind.
@@ -150,7 +160,7 @@ export class FeatureSlotSynthesizer {
     }
     const index = new SelectionIndex(scene);
     try {
-      return new FeatureSlotSynthesizer(scene, index, options).run(entries);
+      return new FeatureSlotSynthesizer(scene, index, options, request.feature).run(entries);
     } catch (error) {
       if (error instanceof SlotRefusal) {
         return { ok: false, reason: error.message, slot: error.slot, ...(error.pick ? { pick: error.pick } : {}) };
@@ -173,6 +183,8 @@ export class FeatureSlotSynthesizer {
     private readonly scene: SelectionScene,
     private readonly index: SelectionIndex,
     private readonly options: SynthesizeOptions,
+    /** The id of the feature the slots belong to, when the request names it. */
+    private readonly feature?: string,
   ) {
     this.stmtBindable = makeStatementBindable(options.bindable);
   }
@@ -285,6 +297,7 @@ export class FeatureSlotSynthesizer {
         throw new SlotRefusal(`${label}: ${attr.error}`, name, attr.ref);
       }
       this.check(name, label, kind, options, attr);
+      this.refuseOffSolid(name, kind, attr);
     }
 
     // A plane is read off the picked face alone, so a face a later feature
@@ -461,6 +474,23 @@ export class FeatureSlotSynthesizer {
       if (curve && !FeatureSlotSynthesizer.matches(picked, curve.filter())) {
         throw new SlotRefusal(`${label}: the picked edge is not ${FeatureSlotSynthesizer.article(options.curve)} — this value takes edges that match ${curve.code}`, name, attr.ref);
       }
+    }
+  }
+
+  /**
+   * A tool that reshapes solids takes the faces and edges of a solid only:
+   * a pick made on a surface or a curve is refused in the words its build
+   * and its preview give (`offSolidRefusal`), before a statement is written.
+   */
+  private refuseOffSolid(name: string, kind: 'face' | 'edge' | 'axis' | 'plane', attr: PickAttribution): void {
+    const part = attr.ref.sub.type;
+    if ((kind !== 'face' && kind !== 'edge') || part === 'vertex' || !attr.solidShape
+      || this.feature === undefined || !isSolidReshaper(this.feature)) {
+      return;
+    }
+    const given = offSolidPart(attr.solidShape, part);
+    if (given) {
+      throw new SlotRefusal(offSolidRefusal(this.feature, given).diagnostic, name, attr.ref);
     }
   }
 

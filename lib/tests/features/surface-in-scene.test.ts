@@ -42,6 +42,7 @@ import { buildFeatureGhost, type FeatureGhostRequest, type FeatureGhostResult } 
 import { DEFAULT_MESH_CONFIG } from "../../oc/mesh.js";
 import type { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
+import { FeatureSlotSynthesizer } from "../../selection/feature-slots.js";
 import type { PickRef } from "../../selection/types.js";
 
 const asObject = (value: unknown) => value as SceneObject;
@@ -625,9 +626,9 @@ describe("surfaces and curves in an existing model", () => {
         expect(synthesized(scene, "shell", { shapeId, sub: { type: "face", index: 0 } })).toBe(words);
       });
 
-      it("draft: a face of a surface, by the build and by its preview", () => {
+      it("draft: a face of a surface", () => {
         block();
-        const l = plate();
+        const l = at(plate(), 3);
         const statement = draft(5, select(face().ofSurface()));
         const scene = render();
         const shapeId = l.getShapes()[0].id;
@@ -639,6 +640,12 @@ describe("surfaces and curves in an existing model", () => {
           feature: "custom", builder: draft, values: {}, operation: null,
           refs: { faces: [{ kind: "entities", entities: [{ shapeId, index: 0, kind: "face" }] }] },
         }))).toBe(asObject(statement).getError());
+        // Its dialog's picks are synthesized as any custom feature's are, the feature named beside them.
+        const slots = { faces: { picker: "face" as const, entities: [{ shapeId, sub: { type: "face" as const, index: 0 } }], options: { multiple: true } } };
+        expect(FeatureSlotSynthesizer.synthesize(scene, { slots, feature: "draft" })).toMatchObject({ ok: false, reason: words, slot: "faces" });
+        // A feature that is no solid reshaper, or none named, takes a surface's face as it always did.
+        expect(FeatureSlotSynthesizer.synthesize(scene, { slots, feature: "acme.skin" }).ok).toBe(true);
+        expect(FeatureSlotSynthesizer.synthesize(scene, { slots }).ok).toBe(true);
       });
 
       it("a solid's edge and face beside a surface and a curve are taken", () => {

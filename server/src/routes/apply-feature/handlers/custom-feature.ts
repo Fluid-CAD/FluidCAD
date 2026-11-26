@@ -78,7 +78,7 @@ export async function handleCustomFeature(ctx: ApplyFeatureRequestContext, req: 
       res.status(422).json({ success: false, reason: checked.error });
       return;
     }
-    const picks = await CustomFeatureRoute.resolvePicks(ctx, meta, request, checked.values, undefined, null);
+    const picks = await CustomFeatureRoute.resolvePicks(ctx, entry, request, checked.values, undefined, null);
     if ('reason' in picks) {
       res.status(picks.status).json({ success: false, reason: picks.reason });
       return;
@@ -227,7 +227,7 @@ export async function handleCustomFeatureEdit(ctx: ApplyFeatureRequestContext, r
       res.status(422).json({ success: false, reason: checked.error });
       return;
     }
-    const picks = await CustomFeatureRoute.resolvePicks(ctx, meta, request, checked.values, before, parsed.parsed);
+    const picks = await CustomFeatureRoute.resolvePicks(ctx, entry, request, checked.values, before, parsed.parsed);
     if ('reason' in picks) {
       res.status(picks.status).json({ success: false, reason: picks.reason });
       return;
@@ -354,12 +354,13 @@ class CustomFeatureRoute {
    */
   static async resolvePicks(
     ctx: ApplyFeatureRequestContext,
-    meta: FeatureMetaSnapshot,
+    entry: FeatureCatalogEntry,
     request: CustomFeatureRequest,
     values: Record<string, CustomValueSource>,
     before: SelectionBoundary | undefined,
     parsed: ParsedCustomFeature | null,
   ): Promise<ResolvedPicks | Refusal> {
+    const meta = entry.meta!;
     const { producers, merge } = makeProducerMerger();
     const parts: ApplyFeatureEditSpec['parts'] = [];
     const imports = new Set<string>();
@@ -379,7 +380,11 @@ class CustomFeatureRoute {
     const synthesized: Record<string, SynthesizedSlot> = {};
     if (Object.keys(slots).length > 0) {
       const options = await ctx.synthesisOptionsForFile(ctx.fluidCadServer.getCurrentFileName() || null);
-      const synthesis = ctx.fluidCadServer.synthesizeFeatureSlots({ slots }, options, before);
+      // One of the engine's own features is named to it: it refuses a
+      // solid-reshaping tool's picks off a solid (draft) in its build's words.
+      const synthesis = ctx.fluidCadServer.synthesizeFeatureSlots(
+        { slots, ...(entry.builtIn ? { feature: meta.id } : {}) }, options, before,
+      );
       if (!synthesis) {
         return { status: 404, reason: 'No rendered scene' };
       }

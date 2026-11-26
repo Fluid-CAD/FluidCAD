@@ -1,5 +1,4 @@
 import { Shape } from "../common/shape.js";
-import { Explorer } from "../oc/explorer.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
 import { TangentExpander } from "../filters/tangent-expander.js";
 import { attributePick, resolvePickShape } from "./attribution.js";
@@ -21,14 +20,13 @@ export type ExpandBucketResult =
   }
   | { ok: false; reason: string };
 
-/** The sub-shape universe a pick's mesh indices are defined over. */
+/**
+ * The sub-shape universe a pick's mesh indices are defined over: the
+ * shape's own indexed wrappers, which it keeps, so a query wraps nothing of
+ * its own to free.
+ */
 function pickUniverse(shape: Shape, kind: PickSubRef['type']): Shape[] {
-  if (kind === 'vertex') {
-    return [];
-  }
-  return kind === 'face'
-    ? Explorer.findFacesWrapped(shape)
-    : Explorer.findEdgesWrapped(shape);
+  return kind === 'vertex' ? [] : shape.getIndexedShapes(kind);
 }
 
 /** Sorted universe indices → pick refs on the picked shape. */
@@ -98,6 +96,8 @@ export function expandTangentChain(scene: SelectionScene, ref: PickRef): ExpandT
   if (!resolved) {
     return { ok: false, reason: 'pick does not resolve to a sub-shape in the current scene' };
   }
+  // The chain grows over the shape's own kept wrappers, the seed among them.
+  resolved.sub.dispose();
 
   const universe = pickUniverse(resolved.shape, ref.sub.type);
   // Seed with the universe's own wrapper so expansion results stay

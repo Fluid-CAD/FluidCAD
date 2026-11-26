@@ -1,11 +1,13 @@
 import { Shape } from "../common/shape.js";
-import { Explorer } from "../oc/explorer.js";
+import type { BodyShape } from "../common/body-shape.js";
+import type { Edge } from "../common/edge.js";
+import type { Face } from "../common/face.js";
 import { EdgeProps } from "../oc/edge-props.js";
 import type { EdgeProperties } from "../oc/edge-props.js";
 import { FaceProps } from "../oc/face-props.js";
 import type { FaceProperties } from "../oc/face-props.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
-import { attributePick, resolvePickShape } from "./attribution.js";
+import { attributePick, resolvePickShape, type PickAttribution } from "./attribution.js";
 import { bucketMembers, buildPickUniverse, expandTangentChain } from "./expand.js";
 import { SelectionIndex } from "./selection-index.js";
 import { PickRef, SelectionScene } from "./types.js";
@@ -96,6 +98,8 @@ export function listSelectionGroups(scene: SelectionScene, ref: PickRef): Select
   if (!resolved) {
     return { ok: false, reason: 'pick does not resolve to a sub-shape in the current scene' };
   }
+  // Only the shape the pick was made on is read below, off its own kept wrappers.
+  resolved.sub.dispose();
 
   const groups: SelectionGroup[] = [];
   const noun = ref.sub.type === 'face' ? 'Faces' : 'Edges';
@@ -133,8 +137,9 @@ export function listSelectionGroups(scene: SelectionScene, ref: PickRef): Select
  */
 function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[] {
   const index = new SelectionIndex(scene);
+  let attr: PickAttribution | null = null;
   try {
-    const attr = attributePick(scene, index, ref);
+    attr = attributePick(scene, index, ref);
     if (!attr.producer) {
       return [];
     }
@@ -167,37 +172,50 @@ function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[]
     }
     return groups;
   } finally {
+    attr?.picked?.dispose();
     index.dispose();
   }
 }
 
 /**
- * The geometry-driven groups over the picked solid's edges: every edge of the
- * seed's curve type, and the subset that also shares its defining measure.
- * Seams and degenerated edges never join: a cylinder's seam is a line the
- * user cannot see, pick or name in a filter, so a group counting it would
- * select more than the viewport shows and resist synthesis.
+ * The geometry-driven groups over the edges of the shape the pick was made
+ * on: every edge of the seed's curve type, and the subset that also shares
+ * its defining measure. Seams and degenerated edges never join: a
+ * cylinder's seam is a line the user cannot see, pick or name in a filter,
+ * so a group counting it would select more than the viewport shows and
+ * resist synthesis.
+ *
+ * The edges are the shape's own indexed wrappers — explorer order, so a
+ * member's index is its pick index — which it keeps with their classes from
+ * one right-click to the next. The seed is read first: an edge of a type no
+ * group names (a hyperbola, an offset curve) classifies nothing else.
  */
-function geometricEdgeGroups(solid: Shape, ref: PickRef): SelectionGroup[] {
-  const edges = Explorer.findEdgesWrapped(solid);
-  const visible = new Set(HiddenEdges.visibleOf(solid.getShape(), edges));
-  // Explorer-indexed, so a member's index is its pick index; hidden slots stay empty.
-  const props = edges.map(e => (visible.has(e) ? EdgeProps.of(e) : undefined));
-  const seed = props[ref.sub.index];
+function geometricEdgeGroups(owner: Shape, ref: PickRef): SelectionGroup[] {
+  const edges = owner.getIndexedShapes('edge') as Edge[];
+  const seedEdge = edges[ref.sub.index];
+  const seed = seedEdge ? EdgeProps.of(seedEdge) : undefined;
   const naming = seed ? CURVE_TYPE_NAMING[seed.curveType] : undefined;
   if (!seed || !naming) {
+    return [];
+  }
+  const visible = visibleEdges(owner, edges);
+  if (!visible.has(seedEdge)) {
     return [];
   }
 
   const sameType: PickRef[] = [];
   const equal: PickRef[] = [];
-  props.forEach((p, index) => {
-    if (!p || p.curveType !== seed.curveType) {
+  edges.forEach((edge, index) => {
+    if (!visible.has(edge)) {
+      return;
+    }
+    const props = EdgeProps.of(edge);
+    if (props.curveType !== seed.curveType) {
       return;
     }
     const member: PickRef = { shapeId: ref.shapeId, sub: { type: 'edge', index } };
     sameType.push(member);
-    if (sameMeasure(seed, p)) {
+    if (sameMeasure(seed, props)) {
       equal.push(member);
     }
   });
@@ -212,13 +230,19 @@ function geometricEdgeGroups(solid: Shape, ref: PickRef): SelectionGroup[] {
   return groups;
 }
 
+/** The edges among `edges`, `owner`'s indexed ones, that the viewport draws: a body keeps the list, a curve's is worked out. */
+function visibleEdges(owner: Shape, edges: Edge[]): Set<Edge> {
+  return new Set(owner.isBody() ? (owner as BodyShape).getEdges() : HiddenEdges.visibleOf(owner.getShape(), edges));
+}
+
 /**
  * Every face of the picked body of the seed's surface type, for the types
  * {@link SURFACE_TYPE_NAMING} names: the spheres of a body, its free-form
- * faces.
+ * faces. Read off the body's own indexed faces, seed first: a pick on a
+ * plane or a cylinder, which no group names, classifies no other face.
  */
 function geometricFaceGroups(body: Shape, ref: PickRef): SelectionGroup[] {
-  const faces = Explorer.findFacesWrapped(body);
+  const faces = body.getIndexedShapes('face') as Face[];
   const seed = faces[ref.sub.index];
   if (!seed) {
     return [];

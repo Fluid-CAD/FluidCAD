@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
@@ -15,6 +15,7 @@ import { EdgeProps } from "../../oc/edge-props.js";
 import { Extrude } from "../../features/extrude.js";
 import { listSelectionGroups, SelectionGroup, SelectionGroupKind } from "../../selection/selection-groups.js";
 import { Solid } from "../../common/solid.js";
+import type { Shape } from "../../common/shape.js";
 import { edgeRefsWhere, faceRefsWhere, findSolid, findSolids } from "./pick-helpers.js";
 import { testRect } from "../helpers/profiles.js";
 
@@ -287,6 +288,76 @@ describe("selection groups (right-click multi-select menu)", () => {
 
     const ends = facesOfType(solid, 'plane');
     expect(byKind(groupsFor(listSelectionGroups(scene, ends[0])), 'same-type')).toBeUndefined();
+  });
+
+  it("classifies the seed alone when no group names its kind, and leaves no wrapper of its own behind", () => {
+    // A loft from a square to a circle: four free-form walls between flat ends.
+    const base = sketch(plane("xy", 0), () => {
+      testRect(20, 20, { at: [-10, -10] });
+    });
+    const top = sketch(plane("xy", 20), () => {
+      circle([0, 0], 12);
+    });
+    loft(base, top);
+    const scene = render();
+    const solid = findSolid(scene) as Solid;
+    const [flatEnd] = facesOfType(solid, 'plane');
+    const [wall] = facesOfType(solid, 'freeform');
+    // The body's own face and edge lists, which it keeps: the groups read them.
+    const kept = new Set<unknown>([...solid.getIndexedShapes('face'), ...solid.getIndexedShapes('edge')]);
+
+    const made: Shape[] = [];
+    const wraps = [vi.spyOn(Explorer, 'findFacesWrapped'), vi.spyOn(Explorer, 'findEdgesWrapped')];
+    const classified = vi.spyOn(FaceProps, 'of');
+    try {
+      const onPlane = groupsFor(listSelectionGroups(scene, flatEnd));
+      expect(byKind(onPlane, 'same-type')).toBeUndefined();
+      // The seed is read, a plane has no group, and no other face is classified.
+      expect(classified.mock.calls.map(([face]) => face)).toEqual([solid.getIndexedShapes('face')[flatEnd.sub.index]]);
+
+      classified.mockClear();
+      const onWall = byKind(groupsFor(listSelectionGroups(scene, wall)), 'same-type')!;
+      expect(onWall.members).toHaveLength(4);
+      // Every face is read off the body's kept wrappers, whose classes stay with them.
+      expect(classified.mock.calls.every(([face]) => kept.has(face))).toBe(true);
+
+      for (const wrap of wraps) {
+        made.push(...wrap.mock.results.flatMap(result => result.value as Shape[]));
+      }
+    } finally {
+      classified.mockRestore();
+      wraps.forEach(wrap => wrap.mockRestore());
+    }
+    // What a right-click wrapped to resolve its pick is freed again; the body's own lists are untouched.
+    expect(made.length).toBeGreaterThan(0);
+    expect(made.filter(shape => !shape.isReleased())).toEqual([]);
+    expect([...kept].every(shape => !(shape as Shape).isReleased())).toBe(true);
+  });
+
+  it("reads an edge's groups off the body's kept edges, and nothing at all for a seam", () => {
+    sketch("xy", () => {
+      circle([0, 0], 40);
+    });
+    extrude(10);
+    const scene = render();
+    const solid = findSolid(scene) as Solid;
+    const indexed = solid.getIndexedShapes('edge');
+    const seam = indexed.findIndex(edge => !solid.getEdges().includes(edge as never));
+    const rim = indexed.findIndex(edge => solid.getEdges().includes(edge as never));
+    expect(seam).toBeGreaterThanOrEqual(0);
+
+    const classified = vi.spyOn(EdgeProps, 'of');
+    try {
+      const circles = byKind(groupsFor(listSelectionGroups(scene, { shapeId: solid.id, sub: { type: 'edge', index: rim } })), 'same-type')!;
+      expect(circles.label).toBe('All Circles');
+      // The seam is a line the viewport never draws: it joins no group and is never classified for one.
+      expect(circles.members.map(m => m.sub.index)).not.toContain(seam);
+      expect(classified.mock.calls.every(([edge]) => indexed.includes(edge) && edge !== indexed[seam])).toBe(true);
+    } finally {
+      classified.mockRestore();
+    }
+    const onSeam = groupsFor(listSelectionGroups(scene, { shapeId: solid.id, sub: { type: 'edge', index: seam } }));
+    expect(onSeam.filter(g => g.kind === 'same-type' || g.kind === 'equal')).toEqual([]);
   });
 
   it("reports a clear reason for an unresolvable pick", () => {

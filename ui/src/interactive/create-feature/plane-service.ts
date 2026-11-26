@@ -958,7 +958,7 @@ export class PlaneFeatureService {
     if (this.bases.length >= this.panel.capacity) {
       this.panel.setHint(null);
     } else if (type === 'edge') {
-      this.panel.setHint('Pick an edge, a sketch curve or a helix');
+      this.panel.setHint('Pick an edge or a curve');
     } else {
       this.panel.setHint(this.bases.length === 0 && type === 'mid'
         ? 'Pick two faces or planes'

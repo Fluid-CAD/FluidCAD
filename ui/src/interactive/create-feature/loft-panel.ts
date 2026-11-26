@@ -274,7 +274,7 @@ export class LoftPanel extends FeaturePanel {
       badgeMuted: true,
       removable: true,
     })));
-    this.guidesSlot.setPrompt(chips.length === 0 ? 'Pick guide sketches or helixes' : null);
+    this.guidesSlot.setPrompt(chips.length === 0 ? 'Pick guide sketches or curves' : null);
   }
 
   /** Guides exclude thin mode — block the toggle while any guide is set. */

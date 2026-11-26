@@ -10,7 +10,7 @@ import { LENGTH_UNITS, convertLength, formatArea, formatLength, formatVolume, is
 import type { LengthUnit } from '../units/units';
 import { sceneUnit } from '../units/scene-unit';
 
-export type ShapePropertiesMode = 'part' | 'solid';
+export type ShapePropertiesMode = 'part' | 'shape';
 
 /**
  * What the panel computes mass from: the material the enclosing part
@@ -56,9 +56,10 @@ type PropertiesReadout = {
 
 /**
  * Shape Properties: volume, surface area, mass and center of mass of one
- * solid — or a surface's area, a curve's length — (Solid mode, today's
- * panel) or of a whole part's final solids (Part mode, a server aggregate). Material is never typed: a solid inside a part
- * reads the part's `.material()` (read-only, with its density); a solid
+ * shape — a solid, or a surface's area, a curve's length — (Shape mode) or
+ * of a whole part's final solids (Part mode, a server aggregate). Material
+ * is never typed: a solid inside a part reads the part's `.material()`
+ * (read-only, with its density); a solid
  * outside any part picks from the merged materials list, transiently. Part
  * mode is read-only throughout — the material is set from the timeline
  * row's Set material… dialog.
@@ -91,7 +92,7 @@ export class ShapePropertiesModal {
   private materialsById = new Map<string, Material>();
   private selectedShapeId: string | null = null;
   /**
-   * Solid mode: the part the selected solid belongs to (undefined while it
+   * Shape mode: the part the selected shape belongs to (undefined while it
    * belongs to none). Part mode: the selected part. Re-adopted by source
    * identity on every render, since scene ids are minted per build.
    */
@@ -225,15 +226,15 @@ export class ShapePropertiesModal {
     const modeHost = this.panel.querySelector<HTMLDivElement>('[data-ref="mode"]')!;
     this.modeTabs = new ChoiceTabs<ShapePropertiesMode>(modeHost, [
       { key: 'part', label: 'Part', title: 'A whole part: its final solids together, with the material its statement declares' },
-      { key: 'solid', label: 'Solid', title: 'One solid: click a face or edge to pick it' },
-    ], 'solid');
+      { key: 'shape', label: 'Shape', title: 'One shape — a solid, a surface or a curve: click a face or edge to pick it' },
+    ], 'shape');
   }
 
   get isOpen(): boolean {
     return !this.panel.classList.contains('hidden');
   }
 
-  /** Part | Solid — which selection the panel measures. */
+  /** Part | Shape — which selection the panel measures. */
   get mode(): ShapePropertiesMode {
     return this.modeTabs.value;
   }
@@ -403,8 +404,8 @@ export class ShapePropertiesModal {
   // ---------------------------------------------------------------------------
 
   /**
-   * Solid mode: the picked solid (null clears). Part mode: the part the
-   * solid belongs to — the assembly measure selection and the highlight
+   * Shape mode: the picked shape (null clears). Part mode: the part the
+   * shape belongs to — the assembly measure selection and the highlight
    * messages arrive here whatever the mode.
    */
   setSelectedShape(shapeId: string | null): void {
@@ -447,7 +448,7 @@ export class ShapePropertiesModal {
    * A new scene: scene ids are minted per build, so the part in hand is
    * re-adopted by source identity. The material rows re-read the part row
    * (Set material… just re-rendered it); Part mode's numbers are re-fetched
-   * when they were showing, Solid mode's mass follows the new density.
+   * when they were showing, Shape mode's mass follows the new density.
    */
   onSceneRendered(): void {
     const scene = this.sceneProvider();
@@ -577,7 +578,7 @@ export class ShapePropertiesModal {
     if (typeof partMaterial === 'string' && partMaterial !== '') {
       return { id: partMaterial, material: this.findMaterial(partMaterial), owner: 'part' };
     }
-    if (this.mode === 'solid') {
+    if (this.mode === 'shape') {
       const id = this.transientMaterialId;
       return { id, material: id ? this.findMaterial(id) : undefined, owner: id ? 'transient' : 'none' };
     }
@@ -591,7 +592,7 @@ export class ShapePropertiesModal {
   /** The Material and Density rows: the dropdown only for a solid no part owns. */
   private renderMaterial(): void {
     const resolved = this.resolveMaterial();
-    const editable = this.mode === 'solid' && resolved.owner !== 'part';
+    const editable = this.mode === 'shape' && resolved.owner !== 'part';
     this.materialSelectBlock.classList.toggle('hidden', !editable);
     this.materialRow.classList.toggle('hidden', editable);
     if (editable) {

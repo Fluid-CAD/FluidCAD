@@ -6,7 +6,7 @@ import type { EngineClient } from '../src/engine-client';
 import type { Material, PartProperties, ShapeProperties } from '../src/api';
 import type { SceneObjectRender, SourceLocation } from '../src/types';
 
-// Shape Properties, Part | Solid (part-materials stage 2). Solid mode keeps
+// Shape Properties, Part | Shape (part-materials stage 2). Shape mode keeps
 // today's panel except that density is never typed: a solid inside a part
 // with a `.material()` shows that material and its density read-only, a
 // solid outside any part picks from the merged list. Part mode is read-only
@@ -89,11 +89,11 @@ afterEach(() => {
   globalMaterials.update({});
 });
 
-describe('shape properties — Part | Solid tabs', () => {
-  it('opens on Solid and switches the form with the tab', async () => {
+describe('shape properties — Part | Shape tabs', () => {
+  it('opens on Shape and switches the form with the tab', async () => {
     const h = mount();
     await flush();
-    expect(h.modal.mode).toBe('solid');
+    expect(h.modal.mode).toBe('shape');
     expect(h.text('placeholder')).toContain('Select a shape');
 
     h.tab('Part').click();
@@ -101,8 +101,8 @@ describe('shape properties — Part | Solid tabs', () => {
     expect(h.text('placeholder')).toContain('Select a part');
     expect(h.hidden('form')).toBe(true);
 
-    h.tab('Solid').click();
-    expect(h.modal.mode).toBe('solid');
+    h.tab('Shape').click();
+    expect(h.modal.mode).toBe('shape');
     expect(h.text('placeholder')).toContain('Select a shape');
   });
 
@@ -116,7 +116,7 @@ describe('shape properties — Part | Solid tabs', () => {
   });
 });
 
-describe('shape properties — Solid mode', () => {
+describe('shape properties — Shape mode', () => {
   it('shows the enclosing part\'s material and density read-only', async () => {
     const h = mount();
     await flush();

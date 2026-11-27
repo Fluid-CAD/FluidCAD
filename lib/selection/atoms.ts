@@ -719,10 +719,10 @@ function boundaryAtoms(probes: EdgeProbe[], universe: Edge[]): EdgeAtom[] {
 
 /** The kind filters a `between(face().<kind>(), …)` atom may name, in the order it writes them. */
 const BETWEEN_KINDS = ['planar', 'cylinder', 'cylinderCurve', 'cone', 'sphere', 'torus', 'revolved', 'extruded', 'freeform'] as const;
-type BetweenKind = typeof BETWEEN_KINDS[number];
+export type BetweenKind = typeof BETWEEN_KINDS[number];
 
 /** The kind filter that admits a face, never sized: a flat face of any outline is `planar()`. */
-function kindFilterName(props: FaceProperties): BetweenKind {
+export function kindFilterName(props: FaceProperties): BetweenKind {
   switch (props.surfaceType) {
     case 'plane':
     case 'circle':

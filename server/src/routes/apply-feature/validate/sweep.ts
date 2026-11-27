@@ -2,7 +2,7 @@
 
 import { validValueExpr, type RegionPickSpec, type ValueExpr } from '../../../apply-feature-edit/index.ts';
 import { validateScopeLocs, validateSketchLoc, type SketchLoc } from '../locations.ts';
-import { validateChains, validatePicks, type Pick } from '../picks.ts';
+import { validateChains, validatePicks, type Pick, type PickChain } from '../picks.ts';
 import { validateRegionPicks } from '../regions.ts';
 import { validateThinOffsets } from './common.ts';
 
@@ -40,7 +40,7 @@ type SweepRequest = {
   profile: { mode: 'active' | 'bound' } & SketchLoc;
   path:
     | ({ kind: 'sketch' } & SketchLoc)
-    | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
+    | { kind: 'edges'; picks: Pick[]; chains: PickChain[] };
   /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
   scope: SketchLoc[];
   /** The picked profile regions, declared in the sketch on apply; empty writes no `.region(…)`. */

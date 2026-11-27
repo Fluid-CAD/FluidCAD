@@ -67,6 +67,34 @@ export const TopologySheets = {
   },
 
   /**
+   * A `size` × `size` planar face on XY from the origin, pierced by square
+   * holes of side `hole` centred at `centers`: one face, one rim loop round
+   * its outside and one per hole.
+   */
+  plateWithSquareHoles(size: number, hole: number, centers: [number, number][]): Sheet {
+    const oc = getOC();
+    const outer = polygon([[0, 0], [size, 0], [size, size], [0, size]]);
+    const h = hole / 2;
+    const holes = centers.map(([x, y]) => polygon([[x - h, y - h], [x - h, y + h], [x + h, y + h], [x + h, y - h]]));
+    const maker = new oc.BRepBuilderAPI_MakeFace(outer, true);
+    try {
+      for (const inner of holes) {
+        maker.Add(inner);
+      }
+      const face = maker.Face();
+      try {
+        return SheetOps.fromRawFace(face);
+      } finally {
+        face.delete();
+      }
+    } finally {
+      maker.delete();
+      outer.delete();
+      holes.forEach(inner => inner.delete());
+    }
+  },
+
+  /**
    * The four walls of an `x` × `y` × `z` box from the origin, with neither
    * floor nor lid: a square tube whose two open ends are its two rim loops,
    * at z = 0 and z = `z`.

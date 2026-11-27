@@ -22,7 +22,7 @@ import {
 } from '../../../apply-feature-edit/index.ts';
 import { normalizePath } from '../../../normalize-path.ts';
 import type { SketchLoc } from '../locations.ts';
-import { validateBoundary, type Pick } from '../picks.ts';
+import { validateBoundary, type Pick, type PickChain } from '../picks.ts';
 import { allocateProducerVars, makeProducerMerger } from '../synthesis.ts';
 import { AxisInputs } from '../axis-inputs.ts';
 import type { CopyEditAxisInput } from '../validate/copy.ts';
@@ -147,7 +147,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       picks: Pick[],
       kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color',
       value: ValueExpr | undefined,
-      chains: { seed: Pick; members: Pick[] }[],
+      chains: PickChain[],
       extra?: { connector?: { anchor?: ConnectorAnchorSpec } },
     ): any | null => {
       const synthesis = fluidCadServer.synthesizeApplyFeature(

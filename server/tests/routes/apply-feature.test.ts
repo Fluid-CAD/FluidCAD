@@ -829,6 +829,19 @@ describe('apply-feature route validation', () => {
     expect(relayed).toHaveLength(0);
   });
 
+  it('forwards a chain with its kind, a loop group kept whole, and refuses an unknown kind', async () => {
+    const EDGE = { shapeId: 'shape-1', sub: { type: 'edge', index: 2 } };
+    const loop = { seed: EDGE, members: [EDGE, { shapeId: 'shape-1', sub: { type: 'edge', index: 3 } }], kind: 'loop' };
+    const tangent = { seed: EDGE, members: [EDGE] };
+    const { status } = await post({ feature: 'fillet', value: 3, entities: loop.members, chains: [loop, tangent], preview: true });
+    expect(status).toBe(200);
+    expect(synthesizeInputs[0].chains).toEqual([loop, tangent]);
+
+    const refused = await post({ feature: 'fillet', value: 3, entities: loop.members, chains: [{ ...loop, kind: 'ring' }] });
+    expect(refused.status).toBe(400);
+    expect(refused.body.error).toContain('chains must be');
+  });
+
   it('still rejects empty picks for the other features', async () => {
     const { status } = await post({ feature: 'fillet', value: 3, entities: [] });
     expect(status).toBe(400);

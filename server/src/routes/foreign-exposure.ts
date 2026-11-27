@@ -9,7 +9,7 @@ import { relativeSpecifier } from './part-catalog.ts';
 import { normalizePath } from '../normalize-path.ts';
 
 export type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
-export type PickChain = { seed: Pick; members: Pick[] };
+export type PickChain = { seed: Pick; members: Pick[]; kind?: 'tangent' | 'loop' };
 
 /** A `part()` statement as the scene captured it — a pick's donor, or the part reading it. */
 export type PartSite = { filePath: string; line: number; column: number };

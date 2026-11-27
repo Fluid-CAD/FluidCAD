@@ -18,7 +18,7 @@ import {
   type EditScopeTargetInput,
   type SketchLoc,
 } from '../locations.ts';
-import { validateChains, validatePick, validatePicks, validateSketchPicks, type Pick } from '../picks.ts';
+import { validateChains, validatePick, validatePicks, validateSketchPicks, type Pick, type PickChain } from '../picks.ts';
 import { validateRegionEdits } from '../regions.ts';
 import { normalizePath } from '../../../normalize-path.ts';
 import { validateBooleanEdit } from './boolean.ts';
@@ -67,7 +67,7 @@ export type StatementEditRequest = {
   offset?: OffsetEditOptions;
   /** Re-picked selection for shell/fillet/chamfer; absent keeps the args. */
   picks?: Pick[];
-  chains?: { seed: Pick; members: Pick[] }[];
+  chains?: PickChain[];
   /**
    * A re-sourced projection's whole-sketch references (`project(s1)`), by
    * call site; set together with `picks` (either may be empty). Absent
@@ -93,7 +93,7 @@ export type StatementEditRequest = {
   scope?: EditScopeTargetInput[];
   /** Re-sourced sweep path; absent keeps the statement's. */
   sweepPath?: ({ kind: 'sketch' } & SketchLoc)
-    | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
+    | { kind: 'edges'; picks: Pick[]; chains: PickChain[] };
   /** Re-sourced sweep profile sketch; absent keeps the statement's. */
   sweepProfile?: SketchLoc;
   /** Re-sourced wrap sketch; absent keeps the statement's. */

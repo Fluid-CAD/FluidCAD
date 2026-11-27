@@ -9,6 +9,10 @@ import type { Face } from "../../common/face.js";
 import { SelectionIndex } from "../../selection/selection-index.js";
 import { attributePick } from "../../selection/attribution.js";
 import { synthesizeSelectors, SelectorPart } from "../../selection/synthesis.js";
+import { listSelectionGroups } from "../../selection/selection-groups.js";
+import { synthesizeApplyFeature } from "../../selection/explain.js";
+import { edge } from "../../filters/index.js";
+import { addToScene } from "../setup.js";
 import { globalContext, induceFilterCandidates } from "../../selection/filter-search.js";
 import type { EdgeSource, FaceSource } from "../../selection/atoms.js";
 import type { PickRef } from "../../selection/types.js";
@@ -310,5 +314,165 @@ describe("what the topology atoms write for picks on surfaces", () => {
       bucket: ["boundaryEdges()", "boundaryEdges(0, 1, 2, 3, 4, 5, 6, 7)"],
       sceneWide: ["select(edge().boundary())", "select(edge().ofSurface())", "select(edge().below('yz', 60))"],
     });
+  });
+});
+
+/** The right-click `loop` group a pick offers (the one labelled `label`, else the first). */
+function loopGroup(scene: Scene, seed: PickRef, label?: string): PickRef[] {
+  const result = listSelectionGroups(scene, seed);
+  expect(result.ok).toBe(true);
+  const loops = result.ok ? result.groups.filter(g => g.kind === "loop") : [];
+  const group = label ? loops.find(g => g.label === label) : loops[0];
+  expect(group, `no loop group ${label ?? ""}`).toBeDefined();
+  return group!.members;
+}
+
+/** The ranked selector texts for a loop chain — a `loop` group kept whole — winner first. */
+function writtenLoop(scene: Scene, seed: PickRef, members: PickRef[], route: "bucket" | "sceneWide"): string[] {
+  const index = new SelectionIndex(scene);
+  try {
+    const chain = {
+      seed: attributePick(scene, index, seed),
+      members: members.map(ref => attributePick(scene, index, ref)),
+      kind: "loop" as const,
+    };
+    const result = synthesizeSelectors(scene, index, [], [chain], [], false, route === "bucket" ? undefined : () => false);
+    expect(result.ok, result.ok === false ? result.reason : "").toBe(true);
+    if (result.ok === false) {
+      return [];
+    }
+    expect(result.groups).toHaveLength(1);
+    return [result.groups[0].winner, ...result.groups[0].alternatives].map(partText);
+  } finally {
+    index.dispose();
+  }
+}
+
+/** A `.withChain()` form always carries its seed rule: `at(k)`, or a rank as the stage before it. */
+const SEEDED_CHAIN = /(\.at\(\d+\)|\.(nearest|farthest)\('[xyz]'\)|\.(largest|smallest)\(('radius')?\))\.withChain\(\)\)$/;
+
+function expectSeeded(texts: string[]) {
+  for (const text of texts.filter(t => t.includes(".withChain()"))) {
+    expect(text).toMatch(SEEDED_CHAIN);
+  }
+}
+
+/** Which of a 30-wide plate's two square loops an edge lies on, read from its middle. */
+const squareOf = (mid: { x: number; y: number }) => Math.max(Math.abs(mid.x), Math.abs(mid.y)) > 10 ? "outer" : "inner";
+
+describe("loop chains: a loop group written as a loop", () => {
+  setupOC();
+
+  it("a loop of a surface with two loops: a seed rule and withChain(), in the bucket and scene-wide", () => {
+    const s = surface(() => [TopologySheets.plateWithSquareHole(30, 10)]) as unknown as SceneObject;
+    setLocation(s, 2);
+    blockBeside();
+    const scene = render();
+    const plate = s.getShapes()[0];
+    const [inner] = edgeRefsWhere(plate, m => squareOf(m) === "inner");
+    const [outer] = edgeRefsWhere(plate, m => squareOf(m) === "outer");
+
+    const innerLoop = loopGroup(scene, inner, "Boundary Loop");
+    const bucket = writtenLoop(scene, inner, innerLoop, "bucket");
+    expect(bucket[0]).toBe("boundaryEdges(edge().smallest().withChain())");
+    expect(bucket).toContain("boundaryEdges(edge().at(4).withChain())");
+    const wide = writtenLoop(scene, inner, innerLoop, "sceneWide");
+    expect(wide[0]).toBe("select(edge().boundary().smallest().withChain())");
+    expectSeeded([...bucket, ...wide]);
+
+    const outerLoop = loopGroup(scene, outer, "Boundary Loop");
+    expect(writtenLoop(scene, outer, outerLoop, "bucket")[0]).toBe("boundaryEdges(edge().nearest('x').withChain())");
+  });
+
+  it("runs the loop's code as written: the bucket form takes exactly the hole's loop", () => {
+    const s = surface(() => [TopologySheets.plateWithSquareHole(30, 10)]);
+    const loop = s.boundaryEdges(edge().smallest().withChain()) as unknown as SceneObject;
+    addToScene(loop);
+    const scene = render();
+    const plate = (s as unknown as SceneObject).getShapes()[0];
+    const [inner] = edgeRefsWhere(plate, m => squareOf(m) === "inner");
+    const shapes = loop.getShapes();
+    expect(shapes).toHaveLength(4);
+    const index = new SelectionIndex(scene);
+    try {
+      const expected = new Set(loopGroup(scene, inner).map(ref => attributePick(scene, index, ref).pickedKey));
+      expect(new Set(shapes.map(shape => index.keyOf(shape)))).toEqual(expected);
+    } finally {
+      index.dispose();
+    }
+  });
+
+  it("a hole no rank tells from its twin: at(k), ahead of a filter that bakes a dimension", () => {
+    const s = surface(() => [TopologySheets.plateWithSquareHoles(40, 6, [[10, 20], [25, 20]])]) as unknown as SceneObject;
+    setLocation(s, 2);
+    const scene = render();
+    const plate = s.getShapes()[0];
+    const [left] = edgeRefsWhere(plate, m => m.x > 5 && m.x < 15 && m.y > 15 && m.y < 25);
+    const loop = loopGroup(scene, left);
+    expect(loop).toHaveLength(4);
+
+    const bucket = writtenLoop(scene, left, loop, "bucket");
+    expect(bucket[0]).toMatch(/^boundaryEdges\(edge\(\)\.at\(\d+\)\.withChain\(\)\)$/);
+    expect(bucket[1]).toBe("boundaryEdges(edge().below('yz', 20).line(6))");
+    expect(writtenLoop(scene, left, loop, "sceneWide")[0]).toMatch(/^select\(edge\(\)\.boundary\(\)\.at\(\d+\)\.withChain\(\)\)$/);
+  });
+
+  it("the whole rim of a one-loop surface: the plain bucket, or boundary()", () => {
+    const s = surface(() => [TestSheets.openBox(10, 10, 10)]) as unknown as SceneObject;
+    setLocation(s, 2);
+    blockBeside();
+    const scene = render();
+    const [rimEdge] = edgeRefsWhere(s.getShapes()[0], m => Math.abs(m.z - 10) < 1e-6);
+    const loop = loopGroup(scene, rimEdge, "Boundary Loop");
+    expect(loop).toHaveLength(4);
+
+    expect(writtenLoop(scene, rimEdge, loop, "bucket")[0]).toBe("boundaryEdges()");
+    expect(writtenLoop(scene, rimEdge, loop, "sceneWide")[0]).toBe("select(edge().boundary())");
+  });
+
+  it("a face's loop on a solid keeps the atoms that always described it", () => {
+    sketch("xy", () => {
+      testRect(30, 30, { at: [-15, -15] });
+      testRect(10, 10, { at: [-5, -5] });
+    });
+    setLocation(extrude(10), 2);
+    const scene = render();
+    const solid = findSolid(scene);
+    const [holeTop] = edgeRefsWhere(solid, m => Math.abs(m.y + 5) < 1e-6 && Math.abs(m.z - 10) < 1e-6);
+    const hole = loopGroup(scene, holeTop, "Hole Loop of Planar Face");
+
+    const bucket = writtenLoop(scene, holeTop, hole, "bucket");
+    expect(bucket).toEqual(["endEdges(edge().smallest())", "endEdges(4, 5, 6, 7)"]);
+    expect(writtenLoop(scene, holeTop, hole, "sceneWide").every(text => !text.includes("withChain"))).toBe(true);
+  });
+
+  it("connected faces of a kind: the kind, a seed rule and withChain()", () => {
+    const tube = surface(() => [TopologySheets.squareTube(10, 10, 20)]) as unknown as SceneObject;
+    setLocation(tube, 2);
+    const box = surface(() => [TestSheets.openBox(10, 10, 10)]) as unknown as SceneObject;
+    setLocation(box, 3);
+    const scene = render();
+    const [floor] = faceRefsWhere(box.getShapes()[0], m => Math.abs(m.z) < 1e-6);
+    const flats = loopGroup(scene, floor, "Connected Planar Faces");
+    expect(flats).toHaveLength(5);
+
+    expect(writtenLoop(scene, floor, flats, "bucket")[0]).toBe("faces()");
+    const wide = writtenLoop(scene, floor, flats, "sceneWide");
+    expect(wide[0]).toBe("select(face().planar().nearest('z').withChain())");
+    expectSeeded(wide);
+  });
+
+  it("a loop chain reaches synthesis through the apply request, kind and all", () => {
+    const s = surface(() => [TopologySheets.plateWithSquareHole(30, 10)]) as unknown as SceneObject;
+    setLocation(s, 2);
+    const scene = render();
+    const [inner] = edgeRefsWhere(s.getShapes()[0], m => squareOf(m) === "inner");
+    const loop = loopGroup(scene, inner, "Boundary Loop");
+
+    // As a loop it is written as one; the same edges as a tangent chain (no kind) are not.
+    const asLoop = synthesizeApplyFeature(scene, loop, "project", undefined, [{ seed: inner, members: loop, kind: "loop" }]);
+    expect(asLoop.ok && asLoop.args).toBe("f.boundaryEdges(edge().smallest().withChain())");
+    const asTangent = synthesizeApplyFeature(scene, loop, "project", undefined, [{ seed: inner, members: loop }]);
+    expect(asTangent.ok && asTangent.args).toBe("f.boundaryEdges(edge().smallest())");
   });
 });

@@ -4,20 +4,25 @@ import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { Plane } from "../math/plane.js";
 import { FaceOps } from "../oc/face-ops.js";
+import { FaceProps } from "../oc/face-props.js";
+import { Shape } from "../common/shape.js";
+import type { BodyShape } from "../common/body-shape.js";
+import { FilterBuilderBase } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { MirrorIndex } from "../filters/mirror-index.js";
 import { SelectionIndex, BucketRecord, SubShapeKind } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { ParameterLink, EdgeSource, FaceSource, FromSource } from "./atoms.js";
-import { PickRef, SelectionScene } from "./types.js";
+import { ParameterLink, EdgeSource, FaceSource, FromSource, kindFilterName } from "./atoms.js";
+import { PickChainKind, PickRef, SelectionScene } from "./types.js";
 import {
   bucketContext,
   curveContext,
   globalContext,
   induceFilterArgs,
   induceFilterCandidates,
+  newBuilder,
   resolvesExactly,
   InducedFilter,
   InductionContext,
@@ -73,10 +78,15 @@ export type SelectorGroup = {
   alternatives: SelectorPart[];
 };
 
-/** A tangent-chain pick: the edge the user right-clicked plus the expansion. */
+/**
+ * A chain pick: the edge or face the user right-clicked plus the group it
+ * expanded to, and how it is written (see `PickChainKind`); absent `kind`
+ * is a tangent chain.
+ */
 export type SelectorChain = {
   seed: PickAttribution;
   members: PickAttribution[];
+  kind?: PickChainKind;
 };
 
 export type SelectorSynthesis =
@@ -1158,12 +1168,263 @@ function selectChainForms(index: SelectionIndex, ctx: InductionContext, chain: S
   return candidates;
 }
 
+/** One step of a written filter: its code and the builder call it makes, kept in lockstep. */
+type FilterStep = { code: string; addTo: (builder: FilterBuilderBase<Shape>) => void };
+
+type RankSeedBuilder = {
+  nearest(axis: 'x' | 'y' | 'z'): unknown;
+  farthest(axis: 'x' | 'y' | 'z'): unknown;
+  largest(measure?: 'size' | 'radius'): unknown;
+  smallest(measure?: 'size' | 'radius'): unknown;
+};
+
+const rankStep = (code: string, call: (builder: RankSeedBuilder) => unknown): FilterStep =>
+  ({ code, addTo: builder => { call(builder as unknown as RankSeedBuilder); } });
+
 /**
- * Tangent-chain candidates: the chain's forms over its members' bucket
- * ({@link bucketChainForms}), else the same ladder over the scene-wide
- * `select()` universe ({@link selectChainForms}). A chain whose seed is a
- * curve's edge takes the curve routes, as free picks on it do: the bucket
- * forms, then the ladder over `select(edge().from(c)…)`.
+ * The ranks a loop's seed may be planted by, written as the filter's last
+ * stage, plainest reading first: the loop at the bottom, at an end, the one
+ * of the longest or shortest edges, the largest or smallest faces.
+ */
+const LOOP_SEED_RANKS: FilterStep[] = [
+  ...(['z', 'x', 'y'] as const).flatMap(axis => [
+    rankStep(`.nearest('${axis}')`, b => b.nearest(axis)),
+    rankStep(`.farthest('${axis}')`, b => b.farthest(axis)),
+  ]),
+  rankStep('.largest()', b => b.largest()),
+  rankStep('.smallest()', b => b.smallest()),
+  rankStep(".largest('radius')", b => b.largest('radius')),
+  rankStep(".smallest('radius')", b => b.smallest('radius')),
+];
+
+/** How many rank-seeded forms a loop lists: the winner and a runner-up. */
+const MAX_RANK_SEEDED_FORMS = 2;
+
+/**
+ * A loop chain — a right-click `loop` group the UI keeps whole — written as
+ * a loop rather than member by member:
+ *
+ * 1. the loop is a whole bucket (a one-loop surface's `boundaryEdges()`) or
+ *    all its territory holds (`select(edge().boundary())`): that, plainly;
+ * 2. else, for a rim loop or a run of connected faces, a filter for the
+ *    territory the loop runs through — the bucket itself, the rim
+ *    (`edge().boundary()`), the seed's face kind (`face().cylinderCurve()`)
+ *    — with a seed rule and `.withChain()`: a
+ *    rank as the last stage (`boundaryEdges(edge().smallest().withChain())`,
+ *    the loop of the shortest rim edges), else `at(k)`, the seed's place
+ *    among what the territory holds. A `.withChain()` without a seed rule
+ *    throws where it is written, so every form carries one;
+ * 3. the loop's members described outright, as any picks are; a face's loop
+ *    on a solid is here, where `outerOf(ref)` / `holeOf(ref)` name it;
+ * 4. in a bucket, its indices.
+ *
+ * A constant-free description (3) ranks above `at(k)`, an index into the
+ * territory's order, as a filter ranks above bucket indices; one baking a
+ * dimension below it. Every form is verified by running its builders as
+ * the emitted code runs them — `withChain()`'s seed check included — and
+ * kept only when they resolve to exactly the loop.
+ */
+class LoopForms {
+
+  /** The loop's forms over the bucket all its members share, when that bucket binds; empty otherwise. */
+  static inBucket(
+    index: SelectionIndex,
+    chain: SelectorChain,
+    params: ParameterLink[],
+    stmtBindable?: StatementBindable,
+  ): SelectorPart[] {
+    const members = chain.members;
+    const memberKeys = new Set(members.map(a => a.pickedKey!));
+    const buckets = members.map(a => a.producer ? a.producer.bucket : null);
+    const bucket = buckets[0];
+    if (!bucket || !buckets.every(b => b === bucket) || !canBindProducer(index, bucket.feature, stmtBindable)) {
+      return [];
+    }
+    const { producer: feature, accessorPrefix } = producerBinding(bucket.feature);
+    const accessor = `${accessorPrefix}${bucket.def.accessor}`;
+    const args = BucketArguments.of(index, bucket);
+    const part = (filterArgs: string | null, tier: SelectorPart['tier'], indices: number[] | null = null): SelectorPart =>
+      ({ producer: feature, accessor, indices, filterArgs, tier });
+
+    const wholeBucket = bucket.memberKeys.length === memberKeys.size
+      && bucket.memberKeys.every(k => memberKeys.has(k));
+    if (wholeBucket && resolvesExactly(index, new ShapeFilter(bucket.members).apply(), memberKeys)) {
+      return [part(null, 0), ...LoopForms.indexForms(args, members, memberKeys, part)];
+    }
+
+    const ctx = bucketContext(bucket, false, params);
+    const chained = LoopForms.chained(index, ctx, chain, LoopForms.territories(chain, 'bucket'),
+      builders => args.verifies(builders, memberKeys));
+    const plain = induceFilterArgs(index, ctx, members, memberKeys);
+    const plainPart = plain && args.verifies(plain.builders, memberKeys)
+      ? { ...part(plain.filterArgs, plain.constants === 0 ? 1 : 2), bakedConstants: plain.bakedConstants }
+      : null;
+    return LoopForms.ranked(
+      chained.whole ? [] : chained.ranked.map(code => part(code, 1)),
+      plainPart,
+      chained.atSeed ? part(chained.atSeed, 1) : null,
+      LoopForms.indexForms(args, members, memberKeys, part),
+    );
+  }
+
+  /**
+   * The loop's `select()` forms over one universe: the scene's, or a curve's
+   * (`select(edge().from(c)…)`), where a curve has no rim and no face, so
+   * only a description of the members is tried.
+   */
+  static inSelect(index: SelectionIndex, ctx: InductionContext, chain: SelectorChain): SelectorPart[] {
+    const memberKeys = new Set(chain.members.map(a => a.pickedKey!));
+    const select = (filterArgs: string): SelectorPart => ({
+      producer: null, accessor: 'select', indices: null, filterArgs, refs: [], wholeRefs: [], bakedConstants: 0, tier: 3,
+    });
+    const chained = (ctx.prefix ?? []).length === 0
+      ? LoopForms.chained(index, ctx, chain, LoopForms.territories(chain, 'select'), () => true)
+      : { whole: null, ranked: [], atSeed: null };
+    const plain = induceFilterArgs(index, ctx, chain.members, memberKeys);
+    return LoopForms.ranked(
+      chained.whole ? [select(chained.whole)] : chained.ranked.map(select),
+      plain ? selectPart(plain) : null,
+      chained.atSeed ? select(chained.atSeed) : null,
+      [],
+    );
+  }
+
+  /** Forms in the ladder's order (see the class comment), each filter text once. */
+  private static ranked(
+    loops: SelectorPart[],
+    plain: SelectorPart | null,
+    atSeed: SelectorPart | null,
+    indices: SelectorPart[],
+  ): SelectorPart[] {
+    const robustPlain = plain && (plain.bakedConstants ?? 0) === 0 ? [plain] : [];
+    const bakedPlain = plain && (plain.bakedConstants ?? 0) > 0 ? [plain] : [];
+    const seen = new Set<string>();
+    return [...loops, ...robustPlain, ...(atSeed ? [atSeed] : []), ...bakedPlain, ...indices].filter(part => {
+      const key = `${part.filterArgs}|${part.indices?.join(',')}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
+
+  /** The bucket's index form for the members, when one names them. */
+  private static indexForms(
+    args: BucketArguments,
+    members: PickAttribution[],
+    memberKeys: Set<number>,
+    part: (filterArgs: string | null, tier: SelectorPart['tier'], indices?: number[] | null) => SelectorPart,
+  ): SelectorPart[] {
+    const indices = args.indicesFor(members, memberKeys);
+    return indices ? [part(null, 4, indices)] : [];
+  }
+
+  /**
+   * The territories a loop may be grown through, most specific last: in a
+   * bucket the bucket itself, then the rim (edges) or the seed's kind
+   * (faces) within it; scene-wide the rim, or the seed's kind. The loop of
+   * a face an edge bounds — on a solid, or inside a surface — grows through
+   * none: `outerOf(ref)` / `holeOf(ref)` and the other atoms describe it,
+   * as they describe any picks.
+   */
+  private static territories(chain: SelectorChain, where: 'bucket' | 'select'): FilterStep[][] {
+    if (chain.seed.ref.sub.type === 'edge') {
+      if (!chain.members.every(attr => LoopForms.isRimEdge(attr))) {
+        return [];
+      }
+      const boundary: FilterStep = { code: '.boundary()', addTo: b => { (b as unknown as EdgeFilterBuilder).boundary(); } };
+      return where === 'bucket' ? [[], [boundary]] : [[boundary]];
+    }
+    const kinds = chain.members.map(attr => attr.picked instanceof Face ? kindFilterName(FaceProps.of(attr.picked)) : null);
+    const kind = kinds[0];
+    if (!kind || !kinds.every(k => k === kind)) {
+      return where === 'bucket' ? [[]] : [];
+    }
+    const step: FilterStep = { code: `.${kind}()`, addTo: b => { (b as unknown as FaceFilterBuilder)[kind](); } };
+    return where === 'bucket' ? [[], [step]] : [[step]];
+  }
+
+  /** Whether a picked edge is on the open rim of the surface it was picked on. */
+  private static isRimEdge(attr: PickAttribution): boolean {
+    const body = attr.solidShape;
+    return !!body && body.isSheet() && attr.picked instanceof Edge
+      && (body as unknown as BodyShape).isBoundaryEdge(attr.picked.getShape());
+  }
+
+  /**
+   * Over the first territory that holds the whole loop: `whole`, the
+   * territory's own filter when it holds nothing else; else the verified
+   * rank-seeded `.withChain()` forms, and the `at(k)` one.
+   */
+  private static chained(
+    index: SelectionIndex,
+    ctx: InductionContext,
+    chain: SelectorChain,
+    territories: FilterStep[][],
+    verify: (builders: FilterBuilderBase<Shape>[]) => boolean,
+  ): { whole: string | null; ranked: string[]; atSeed: string | null } {
+    const memberKeys = new Set(chain.members.map(a => a.pickedKey!));
+    const render = (steps: FilterStep[], chained: boolean) =>
+      `${ctx.kindFn}()${steps.map(step => step.code).join('')}${chained ? '.withChain()' : ''}`;
+    const run = (steps: FilterStep[], chained: boolean): { builder: FilterBuilderBase<Shape>; shapes: Shape[] } | null => {
+      const builder = newBuilder(ctx.kindFn);
+      for (const step of steps) {
+        step.addTo(builder);
+      }
+      if (chained) {
+        builder.withChain();
+      }
+      try {
+        return { builder, shapes: ctx.evaluate([builder]) };
+      } catch {
+        return null;
+      }
+    };
+    const holdsLoop = (steps: FilterStep[], chained: boolean) => {
+      const result = run(steps, chained);
+      return !!result && resolvesExactly(index, result.shapes, memberKeys) && verify([result.builder]);
+    };
+
+    for (const territory of territories) {
+      const held = run(territory, false);
+      if (!held) {
+        continue;
+      }
+      const keys = held.shapes.map(shape => index.keyOf(shape));
+      if (![...memberKeys].every(key => keys.includes(key))) {
+        continue;
+      }
+      if (territory.length > 0 && holdsLoop(territory, false)) {
+        return { whole: render(territory, false), ranked: [], atSeed: null };
+      }
+      const ranked: string[] = [];
+      for (const rank of LOOP_SEED_RANKS) {
+        if (ranked.length >= MAX_RANK_SEEDED_FORMS) {
+          break;
+        }
+        if (holdsLoop([...territory, rank], true)) {
+          ranked.push(render([...territory, rank], true));
+        }
+      }
+      const k = keys.indexOf(chain.seed.pickedKey!);
+      const at: FilterStep = { code: `.at(${k})`, addTo: b => { b.at(k); } };
+      const atSeed = k >= 0 && holdsLoop([...territory, at], true) ? render([...territory, at], true) : null;
+      if (ranked.length > 0 || atSeed) {
+        return { whole: null, ranked, atSeed };
+      }
+    }
+    return { whole: null, ranked: [], atSeed: null };
+  }
+}
+
+/**
+ * Chain candidates: the chain's forms over its members' bucket, else the
+ * same ladder over the scene-wide `select()` universe — a tangent chain's
+ * ({@link bucketChainForms}, {@link selectChainForms}) or a loop's
+ * ({@link LoopForms}). A chain whose seed is a curve's edge takes the curve
+ * routes, as free picks on it do: the bucket forms, then the ladder over
+ * `select(edge().from(c)…)`.
  */
 function synthesizeChainCandidates(
   scene: SelectionScene,
@@ -1174,17 +1435,22 @@ function synthesizeChainCandidates(
   stmtBindable?: StatementBindable,
 ): GroupResult {
   const kind = chain.seed.ref.sub.type;
+  const loop = chain.kind === 'loop';
   if (kind === 'vertex') {
-    return { ok: false, reason: 'Tangent chains require faces or edges.', pick: chain.seed.ref };
+    return { ok: false, reason: loop ? 'Loops require faces or edges.' : 'Tangent chains require faces or edges.', pick: chain.seed.ref };
   }
-  const unresolved = `no geometric filter isolates the tangent chain's seed ${kind} — `
-    + `select the chain in code with a geometric filter and .withTangents()`;
+  const unresolved = loop
+    ? `no filter names the loop the picked ${kind} lies on — select it in code with a filter that holds it `
+      + `(edge().boundary(), face().<kind>()), a seed (at(i), first(), a rank) and .withChain()`
+    : `no geometric filter isolates the tangent chain's seed ${kind} — `
+      + `select the chain in code with a geometric filter and .withTangents()`;
+  const selectForms = (ctx: InductionContext) => loop ? LoopForms.inSelect(index, ctx, chain) : selectChainForms(index, ctx, chain);
 
-  const bucketForms = bucketChainForms(index, chain, params, stmtBindable);
+  const bucketForms = loop ? LoopForms.inBucket(index, chain, params, stmtBindable) : bucketChainForms(index, chain, params, stmtBindable);
   if (isCurveEdgePick(chain.seed)) {
     return synthesizeCurveRoutes(
       scene, index, chain.seed.solidOwner!, [chain.seed, ...chain.members], params, bucketForms,
-      ctx => selectChainForms(index, ctx, chain), unresolved, stmtBindable,
+      selectForms, unresolved, stmtBindable,
     );
   }
   if (bucketForms.length > 0) {
@@ -1196,10 +1462,10 @@ function synthesizeChainCandidates(
   if (scope.ok === false) {
     return scope;
   }
-  const globalForms = (scopeByOwner: boolean): SelectorPart[] => selectChainForms(index, globalContext(
+  const globalForms = (scopeByOwner: boolean): SelectorPart[] => selectForms(globalContext(
     scene, index, kind, params, scope.part, sources.faces,
     fromSources(index, [chain.seed, ...chain.members], scopeByOwner, stmtBindable), sources.edges,
-  ), chain);
+  ));
 
   // Owner scopes only as a last resort, exactly as for free picks (see
   // `synthesizeSelectors`).

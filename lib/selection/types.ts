@@ -160,12 +160,23 @@ export type ExplainResult = {
 export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'connector' | 'expose' | 'section' | 'hole' | 'split' | 'color';
 
 /**
- * A tangent chain from the "Select with tangents" gesture: the pick the user
- * right-clicked plus the full expansion (`seed` included in `members`).
+ * How a chain is written: `tangent` — the "Select with tangents" gesture —
+ * as a seed-isolating filter with `.withTangents()`; `loop` — a right-click
+ * loop group — as a loop: the bucket or filter that is the loop, or a filter
+ * over its territory (the rim, a face kind) with a seed rule and
+ * `.withChain()`.
+ */
+export type PickChainKind = 'tangent' | 'loop';
+
+/**
+ * A chain a right-click group keeps whole: the pick the user right-clicked
+ * plus the group's members (`seed` included in `members`). `kind` defaults
+ * to `tangent`, what every chain was before loops.
  */
 export type PickChain = {
   seed: PickRef;
   members: PickRef[];
+  kind?: PickChainKind;
 };
 
 /**

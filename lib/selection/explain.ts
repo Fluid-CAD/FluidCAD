@@ -259,6 +259,7 @@ export function synthesizeApplyFeature(
     const chainInputs: SelectorChain[] = chains.map(c => ({
       seed: attributePick(scene, index, c.seed),
       members: c.members.map(m => attributePick(scene, index, m)),
+      kind: c.kind ?? 'tangent',
     }));
     // A tool that reshapes solids takes a solid's edges and faces only: its
     // build refuses a surface's and finds no solid to reshape at a curve's

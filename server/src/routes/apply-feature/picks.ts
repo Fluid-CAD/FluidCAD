@@ -76,22 +76,38 @@ export function validateBoundary(raw: any): SelectionBoundary | undefined | null
   return { index: raw.index, type: raw.type, line: raw.line, column: raw.column };
 }
 
-/** Tangent chains: `{seed, members}` groups; absent/empty is fine. */
-export function validateChains(chains: unknown): { seed: Pick; members: Pick[] }[] | null {
+/**
+ * A chain from a right-click group the UI keeps whole: the pick the user
+ * right-clicked and the group's members (the seed among them). `kind` says
+ * how it is written — `'tangent'` (the default when absent) as
+ * `.withTangents()`, `'loop'` as a loop (`.withChain()`, or the bucket or
+ * filter the loop is).
+ */
+export type PickChain = { seed: Pick; members: Pick[]; kind?: 'tangent' | 'loop' };
+
+/** Chains: `{seed, members, kind?}` groups; absent/empty is fine. */
+export function validateChains(chains: unknown): PickChain[] | null {
   if (chains === undefined || chains === null) {
     return [];
   }
   if (!Array.isArray(chains)) {
     return null;
   }
-  const result = [];
-  for (const raw of chains as { seed?: RawPick; members?: unknown }[]) {
+  const result: PickChain[] = [];
+  for (const raw of chains as { seed?: RawPick; members?: unknown; kind?: unknown }[]) {
     const seed = validatePick(raw?.seed);
     const members = validatePicks(raw?.members);
+    const kind = raw?.kind;
     if (!seed || !members) {
       return null;
     }
-    result.push({ seed, members });
+    if (kind === 'tangent' || kind === 'loop') {
+      result.push({ seed, members, kind });
+    } else if (kind === undefined) {
+      result.push({ seed, members });
+    } else {
+      return null;
+    }
   }
   return result;
 }

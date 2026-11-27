@@ -1832,10 +1832,15 @@ export type ApplyFeatureEntity = {
   sub: { type: 'edge' | 'face' | 'vertex'; index: number };
 };
 
-/** A tangent chain: the right-clicked pick plus its full expansion. */
+/**
+ * A chain a right-click group keeps whole: the right-clicked pick plus the
+ * group's members. `kind` says how it is written: `'tangent'` (the default)
+ * with `.withTangents()`, `'loop'` (a `loop` group) as a loop.
+ */
 export type ApplyFeatureChain = {
   seed: ApplyFeatureEntity;
   members: ApplyFeatureEntity[];
+  kind?: 'tangent' | 'loop';
 };
 
 /**
@@ -5444,8 +5449,12 @@ async function postApplyFeature(
   }
 }
 
-/** `sibling` = the producing feature's other classified buckets ("Select other"). */
-export type SelectionGroupKind = 'tangent' | 'classified' | 'same-type' | 'equal' | 'sibling';
+/**
+ * `sibling` = the producing feature's other classified buckets ("Select
+ * other"); `loop` = a rim loop, a face's loop an edge lies on, or a face's
+ * connected faces of its kind — kept as a chain like `tangent`.
+ */
+export type SelectionGroupKind = 'tangent' | 'classified' | 'same-type' | 'equal' | 'sibling' | 'loop';
 
 /** One right-click multi-select option: what it's called and what it selects. */
 export type SelectionGroup = {

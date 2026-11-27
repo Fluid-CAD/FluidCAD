@@ -2,7 +2,7 @@
 
 import { ColorValues, ValueSlots, type FeatureStatementEditTarget, type TextSlot } from '../../../apply-feature-edit/index.ts';
 import { validateSketchLoc, type SketchLoc } from '../locations.ts';
-import { validateChains, validatePicks, type Pick } from '../picks.ts';
+import { validateChains, validatePicks, type Pick, type PickChain } from '../picks.ts';
 import type { StatementEditRequest } from './statement-edit.ts';
 
 /**
@@ -15,7 +15,7 @@ export type ColorRequest = {
   value: TextSlot;
   paint:
     | { kind: 'solids'; targets: SketchLoc[] }
-    | { kind: 'faces'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[]; selectorOverride?: string };
+    | { kind: 'faces'; picks: Pick[]; chains: PickChain[]; selectorOverride?: string };
 };
 
 export const MAX_COLOR_TARGETS = 16;

@@ -568,9 +568,10 @@ export class ProjectionPickService {
 
   /**
    * Double-click on an edge or face: expand the pick ({@link expandDoubleClick})
-   * — a surface's rim edge to its rim loop, any other pick to its classified
-   * bucket. The gesture's own two clicks have already toggled the pick; the
-   * members merge as plain picks, so the seed ends up picked either way.
+   * — a surface's rim edge to its rim loop, kept whole as a loop chain like
+   * the menu's Boundary Loop, any other pick to its classified bucket, merged
+   * as plain picks. The gesture's own two clicks have already toggled the
+   * pick; the seed ends up picked either way.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
     if (!this.isPicking || !shapeId || !this.accepts(sub)) {
@@ -583,6 +584,10 @@ export class ProjectionPickService {
     }
     if ('error' in result) {
       this.panel.setMessage(result.error);
+      return;
+    }
+    if (result.kind === 'loop') {
+      this.applyGroup('loop', { shapeId, sub }, result.members);
       return;
     }
     this.panel.setMessage(null);

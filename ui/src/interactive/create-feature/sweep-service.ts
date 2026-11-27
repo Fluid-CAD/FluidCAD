@@ -566,7 +566,9 @@ export class SweepFeatureService {
 
   /**
    * Double-click: expand the pick ({@link expandDoubleClick}) — a surface's
-   * rim edge to its rim loop, any other edge to its whole classified bucket.
+   * rim edge to its rim loop, kept whole as a loop chain like the menu's
+   * Boundary Loop, any other edge to its whole classified bucket, merged as
+   * plain picks.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
     if (!this.isEdgePicking || !shapeId || !sub || sub.type !== 'edge') {
@@ -582,7 +584,11 @@ export class SweepFeatureService {
       return;
     }
     this.ensureEdgesSeed();
-    this.mergeEntities(result.members);
+    if (result.kind === 'loop') {
+      this.addChain({ shapeId, sub }, result.members, 'loop');
+    } else {
+      this.mergeEntities(result.members);
+    }
   }
 
   /** Merge group members into the path selection as plain picks. */

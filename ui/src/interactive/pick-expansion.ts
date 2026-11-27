@@ -12,8 +12,11 @@ export type PickExpansion = { kind: 'loop' | 'bucket'; members: SelectedEntity[]
  * open rim takes the rim loop it belongs to — a loaded surface too, which
  * has no bucket to expand to; any other edge, and a face, takes its
  * classified bucket ("the whole top rim"). The gesture's own two single
- * clicks have already toggled the pick; the caller merges the members, the
- * seed among them, so the seed ends up picked either way.
+ * clicks have already toggled the pick; the caller takes the members, the
+ * seed among them, so the seed ends up picked either way: a dialog that
+ * keeps chains keeps a loop whole, as the menu's Boundary Loop, so it is
+ * written as the loop it is and not as its edges one by one; a bucket, and
+ * a loop in a dialog that writes no chains, merge as plain picks.
  *
  * A rim question the server cannot answer falls through to the bucket, so
  * the gesture is never worse than it was before loops.

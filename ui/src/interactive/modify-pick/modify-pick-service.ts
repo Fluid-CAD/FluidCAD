@@ -1412,10 +1412,11 @@ export class ModifyPickService {
 
   /**
    * Double-click: expand the pick ({@link expandDoubleClick}) — a surface's
-   * rim edge to its rim loop, any other pick to its whole classified bucket
-   * ("the whole top rim"). The gesture's own two single clicks have already
-   * toggled the entity; the expansion merges every member as a plain pick,
-   * so the seed ends up selected either way.
+   * rim edge to its rim loop, kept whole as a loop chain like the menu's
+   * Boundary Loop, so it is written as the loop it is; any other pick to its
+   * whole classified bucket ("the whole top rim"), merged as plain picks.
+   * The gesture's own two single clicks have already toggled the entity;
+   * the seed ends up selected either way.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
     if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
@@ -1436,6 +1437,10 @@ export class ModifyPickService {
     }
     if ('error' in result) {
       this.panel.setMessage(result.error);
+      return;
+    }
+    if (result.kind === 'loop') {
+      this.applyGroup('loop', entity, result.members);
       return;
     }
     this.panel.setMessage(null);

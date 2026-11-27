@@ -1,6 +1,5 @@
 import {
-  getEdgeProperties, getFaceProperties, type ApplyFeatureEntity, type GhostAxisRef, type RevolveAxisRef,
-  type SketchSourceRef, type SourceSlotRef,
+  getEdgeProperties, getFaceProperties, type DirectionRef, type GhostDirectionRef, type SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import type { SceneObjectRender, SubSelection } from '../../types';
@@ -16,37 +15,17 @@ import {
   collectPlaneOptions, labelWithPlaneNames, planeOptionForLocation, planeOptionForShape, planeQuadShapeIds,
   resolvePlaneRow, type PlaneOption,
 } from './plane-bases';
-import type { StandardPlane } from './plane-slot';
 import { NO_CHANNELS, type PickChannels, type PickOutcome, type StandardDatum } from './schema/schema-pickers';
 
 /** What a picked edge or face is, as a direction reads it: only a straight edge or a planar face gives one. */
 export type DirectionGeometry = 'straight' | 'planar' | 'curved';
 
 /**
- * What a direction slot holds, as an apply request names it — one kind per
- * kind of the server's direction spec: a world axis, an origin plane, an
- * `axis()` or a `plane()` statement by call site, a connector (its Z axis;
- * a copy's with its slot), or a picked straight edge or planar face, which
- * the server writes as a selector. An axis gives its own direction, a plane
- * its normal.
+ * What a direction slot holds, as an apply request names it
+ * ({@link DirectionRef}), and as a preview request addresses it
+ * ({@link GhostDirectionRef}): both live with the requests in the api.
  */
-export type DirectionRef =
-  | RevolveAxisRef
-  | { kind: 'standard-plane'; plane: StandardPlane }
-  | ({ kind: 'plane' } & SketchSourceRef)
-  | { kind: 'face'; entity: ApplyFeatureEntity };
-
-/**
- * A direction as a preview request addresses it, flat like every ref on that
- * wire: statements by call site, a picked edge or face by shape id and
- * index. A kept statement's own direction resolves to one of these before
- * it ships.
- */
-export type GhostDirectionRef =
-  | GhostAxisRef
-  | { kind: 'standard-plane'; plane: StandardPlane }
-  | { kind: 'plane'; filePath: string; line: number }
-  | { kind: 'face'; shapeId: string; index: number };
+export type { DirectionRef, GhostDirectionRef };
 
 /** Everything a direction slot holds, for the viewport highlight. */
 export type DirectionSlotHighlight = {

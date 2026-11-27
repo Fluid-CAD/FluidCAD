@@ -693,6 +693,7 @@ export type FeatureGhostRequest =
   | ShellGhostRequest
   | HelixGhostRequest
   | IntersectionCurveGhostRequest
+  | ProjectedCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -967,6 +968,45 @@ export type IntersectionCurveGhostRequest = {
   first: GhostOperandRef[];
   second: GhostOperandRef[];
 };
+
+/** How a projected curve's points travel — `.mode()`: along one direction (the default), or to the closest point of the target. */
+export type ProjectionMode = 'direction' | 'normal';
+
+/** Which images a projected curve keeps — `.keep()`: the nearest to each source curve (the default), or all. */
+export type ProjectionKeep = 'nearest' | 'all';
+
+/**
+ * The projected curve dialog on the ghost wire — `project(source, target)`
+ * outside a sketch. A curve: no op; the picks of its curve row (sketches and
+ * curves by statement, edges by viewport address) and its surface row
+ * (surfaces by statement, faces) in pick order, the mode, the direction —
+ * null when left out (the normal of the plane the source lies in), and null
+ * with mode `'normal'`, which the engine refuses with a direction ("project:
+ * .direction() is for mode 'direction'.", a `surface` refusal) — and what is
+ * kept. The server refuses a row with no pick.
+ */
+export type ProjectedCurveGhostRequest = {
+  feature: 'projected-curve';
+  source: GhostOperandRef[];
+  target: GhostOperandRef[];
+  mode: ProjectionMode;
+  direction: GhostDirectionRef | null;
+  keep: ProjectionKeep;
+};
+
+/**
+ * A direction slot on the ghost wire, flat like every ref on that wire: the
+ * axis forms of {@link GhostAxisRef} — a world axis, an `axis()` statement,
+ * a connector, a picked straight edge — plus the plane forms, each standing
+ * for its normal: an origin plane, a `plane()` statement, a picked planar
+ * face. A kept statement's own direction resolves to one of these before it
+ * ships. Mirrors the server's `GhostDirectionRef`.
+ */
+export type GhostDirectionRef =
+  | GhostAxisRef
+  | { kind: 'standard-plane'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'plane'; filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
 
 /**
  * One pick of a curve or surface operand row on the ghost wire: a whole
@@ -3205,6 +3245,21 @@ export type RevolveAxisRef =
   | { kind: 'edge'; entity: ApplyFeatureEntity }
   | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
 
+/**
+ * What a direction slot holds, as an apply request names it — one kind per
+ * kind of the server's direction spec: the axis forms of
+ * {@link RevolveAxisRef} (a world axis, an `axis()` statement or a connector
+ * by call site, a picked straight edge), an origin plane, a `plane()`
+ * statement by call site, or a picked planar face. The server writes a
+ * picked edge or face as its selector; an axis gives its own direction, a
+ * plane its normal.
+ */
+export type DirectionRef =
+  | RevolveAxisRef
+  | { kind: 'standard-plane'; plane: 'xy' | 'xz' | 'yz' }
+  | ({ kind: 'plane' } & SketchSourceRef)
+  | { kind: 'face'; entity: ApplyFeatureEntity };
+
 export type RevolveApplyOptions = RevolveOptionValues & {
   profile: ExtrudeSketchProfileRef;
   axis: RevolveAxisRef;
@@ -3330,6 +3385,42 @@ export async function applyIntersectionCurve(options: IntersectionCurveApplyOpti
     feature: 'intersection-curve',
     first: options.first,
     second: options.second,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type ProjectedCurveApplyOptions = {
+  /** The curve row's picks, in pick order: sketches and curves by statement, edges by viewport address. */
+  source: OperandInputRef[];
+  /** The surface row's picks: surfaces by statement, faces by viewport address. */
+  target: OperandInputRef[];
+  mode: ProjectionMode;
+  /**
+   * The direction, or null to leave `.direction()` out (the normal of the
+   * plane the source lies in). Must be null with mode `'normal'`: the server
+   * refuses the pair in the engine's words.
+   */
+  direction: DirectionRef | null;
+  keep: ProjectionKeep;
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a projected
+ * curve — `project(source, target)` outside a sketch, with `.mode('normal')`,
+ * `.direction(…)` and `.keep('all')` each written only off its default.
+ * Same endpoint and response shape as {@link applyFeature}.
+ */
+export async function applyProjectedCurve(options: ProjectedCurveApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'projected-curve',
+    source: options.source,
+    target: options.target,
+    mode: options.mode,
+    direction: options.direction,
+    keep: options.keep,
     preview: options.preview,
   }, options.signal);
 }
@@ -3946,6 +4037,16 @@ export type FeatureSourcesResult =
    * surfaces, a solid, a surface or a `plane()` by its statement's call site.
    */
   | { ok: true; feature: 'intersection-curve'; first: SourceSlotRef[]; second: SourceSlotRef[] }
+  /**
+   * A projected curve: one slot per operand of each argument, in its order —
+   * a sketch or a curve by its statement's call site, an edge selection as
+   * entities on the pre-statement solids and surfaces; the target as an
+   * intersection curve's row — and the direction `.direction()` holds, null
+   * when it is left out: an `axis()` or a `plane()` by call site, a
+   * connector, a picked edge or face as entities, and a world axis or origin
+   * plane literal `opaque` (read it off the parsed `directionText`).
+   */
+  | { ok: true; feature: 'projected-curve'; source: SourceSlotRef[]; target: SourceSlotRef[]; direction: SourceSlotRef | null }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
   /**
    * A colour: the faces it paints, as entities on the pre-statement solids
@@ -4205,6 +4306,27 @@ export type ParsedFeatureStatement =
       firstArg: string;
       /** The second argument as written. */
       secondArg: string;
+    }
+  | {
+      feature: 'projected-curve';
+      /** The source argument's operands, verbatim: a list's elements, or the bare expression. */
+      sourceTexts: string[];
+      /** The statement each source operand names, by call site, or null (same length). */
+      sourceRefs: ({ line: number; column: number } | null)[];
+      /** The target argument's operands, verbatim. */
+      targetTexts: string[];
+      /** The statement each target operand names, or null (same length). */
+      targetRefs: ({ line: number; column: number } | null)[];
+      /** The source argument as written — what a kept row writes back. */
+      sourceArg: string;
+      /** The target argument as written. */
+      targetArg: string;
+      /** `.mode(…)`: 'direction' when the chain is absent. */
+      mode: ProjectionMode;
+      /** The `.direction(…)` argument, verbatim, or null when the chain is absent. */
+      directionText: string | null;
+      /** `.keep(…)`: 'nearest' when the chain is absent. */
+      keep: ProjectionKeep;
     }
   | (ParsedScopeChain & {
       feature: 'loft';
@@ -4853,6 +4975,46 @@ export async function applyIntersectionCurveEdit(
     before: options.before,
     first: options.first,
     second: options.second,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type ProjectedCurveEditOptions = EditSessionFields & {
+  /** The curve row's new picks; omitted keeps the statement's own argument. An edge needs `before`. */
+  source?: OperandInputRef[];
+  /** The surface row's new picks; omitted keeps the statement's own argument. A face needs `before`. */
+  target?: OperandInputRef[];
+  /** The new mode; omitted keeps the statement's. */
+  mode?: ProjectionMode;
+  /**
+   * Omitted (or `{ kind: 'keep' }`) keeps the statement's own `.direction(…)`
+   * as written; `{ kind: 'cleared' }` drops it; anything else is the new
+   * direction (a picked edge or face needs `before`). With mode `'normal'` a
+   * new direction is refused (400) and so is a kept one (422), both in the
+   * engine's words: send `cleared` when the statement has one.
+   */
+  direction?: DirectionRef | { kind: 'keep' } | { kind: 'cleared' };
+  /** What is kept; omitted keeps the statement's. */
+  keep?: ProjectionKeep;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the projected curve statement at `edit` in place; its chains are written back in their own order. */
+export async function applyProjectedCurveEdit(
+  edit: FeatureEditTarget,
+  options: ProjectedCurveEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'projected-curve',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    source: options.source,
+    target: options.target,
+    mode: options.mode,
+    direction: options.direction,
+    keep: options.keep,
     preview: options.preview,
   }, options.signal);
 }

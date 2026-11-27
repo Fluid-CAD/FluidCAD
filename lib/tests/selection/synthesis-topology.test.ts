@@ -136,6 +136,24 @@ describe("synthesis over the topology predicates", () => {
     expect(written(scene, rim, "bucket")[0]).toBe("select(edge().boundary())");
   });
 
+  it("a loaded plate's hole is not named through a block's face that only lies in the same plane", () => {
+    // The block's start face and the plate both lie on XY. A loop atom read
+    // by same surface would write the hole as holeOf(block.startFaces()):
+    // true today, and broken by moving either body.
+    const l = loadShapes([TopologySheets.plateWithSquareHole(30, 10)]) as unknown as SceneObject;
+    setLocation(l, 2);
+    blockBeside();
+    const scene = render();
+    const hole = edgeRefsWhere(l.getShapes()[0], m => Math.max(Math.abs(m.x), Math.abs(m.y)) < 10);
+    expect(hole).toHaveLength(4);
+
+    const texts = written(scene, hole, "bucket");
+    expect(texts[0]).toBe("select(edge().boundary().smallest())");
+    for (const text of texts) {
+      expect(text).not.toMatch(/(outerOf|holeOf)\(/);
+    }
+  });
+
   it("the edge where a surface's two faces meet: between(…), by reference and by kind", () => {
     const s = surface(() => [TopologySheets.cup(10, 20)]) as unknown as SceneObject;
     setLocation(s, 2);

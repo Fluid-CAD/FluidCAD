@@ -986,9 +986,11 @@ function faceRefAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
 function wireRefAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
   const atoms: EdgeAtom[] = [];
   for (const source of sources) {
+    const bySurface = sameSurfaceReaches(source);
     const roles = probes.map(p => {
       const owner = p.owningFaces.find(face =>
-        source.members.some(m => m.compareTo(face) || FaceQuery.isSameSurface(face, m)));
+        source.members.some(m => m.compareTo(face)
+          || (bySurface && p.bodyKind === 'solid' && FaceQuery.isSameSurface(face, m))));
       return owner ? owner.wireRoleOf(p.edge.getShape()) ?? undefined : undefined;
     });
     const role = sharedString(roles);
@@ -1004,6 +1006,20 @@ function wireRefAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
     });
   }
   return atoms;
+}
+
+/**
+ * Whether a loop atom may find a pick's face in `source` by its surface and
+ * not only by identity. That is what lets a solid's rim, reshaped by later
+ * fillets, still be named by the face group it was built as. Across a
+ * surface it would name a pick through a face that only shares its plane: a
+ * plate's hole written as `holeOf(block.startFaces())` because the plate
+ * lies on the block's bottom. So it holds for a pick on a solid and a group
+ * that holds no surface, and a surface's loops are named through its own
+ * faces.
+ */
+function sameSurfaceReaches(source: FaceSource): boolean {
+  return !source.feature.getShapes().some(shape => shape.isBody() && !shape.isSolid());
 }
 
 /** `onPlane` atom whose offset runs along the plane normal, not the raw axis. */

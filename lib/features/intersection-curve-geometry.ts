@@ -99,8 +99,8 @@ export function intersectionFaces(held: readonly HeldFace[], label: string): Int
 export function buildIntersectionWires(first: IntersectionFaces, second: IntersectionSide): Wire[] {
   refuseSharedFaces(first, second);
 
-  const a = sideShape(first);
-  const b = second instanceof Plane ? null : sideShape(second);
+  const a = facesShape(first);
+  const b = second instanceof Plane ? null : facesShape(second);
   let section: SectionEdge[] = [];
   try {
     section = SectionOps.sectionWithFaces(a.shape, b ? b.shape : second as Plane, {
@@ -183,8 +183,13 @@ function describeFace(face: Face): string {
   return `the ${kind} face at ${CurveOperand.formatPoint(ShapeMeasure.centerOfMass(face))}`;
 }
 
-/** The kernel shape a side is sectioned as: its whole bodies as they are, its other faces loose, in one compound when more than one. */
-function sideShape(side: IntersectionFaces): { shape: TopoDS_Shape; dispose: () => void } {
+/**
+ * The kernel shape a set of faces is handed to the kernel as: its whole
+ * bodies as they are, its other faces loose, in one compound when more than
+ * one. `dispose` frees the compound, if one was made; the bodies and faces
+ * are the scene's.
+ */
+export function facesShape(side: IntersectionFaces): { shape: TopoDS_Shape; dispose: () => void } {
   const parts: TopoDS_Shape[] = side.wholeBodies.map(body => body.getShape());
   const hasher = new ShapeHasher();
   try {

@@ -3,6 +3,7 @@ import { BuildError } from "../common/build-error.js";
 import { operandKindOf } from "../common/operand-check.js";
 import type { Edge } from "../common/edge.js";
 import type { Face } from "../common/face.js";
+import type { Shape } from "../common/shape.js";
 import type { IConnector } from "../core/interfaces.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
@@ -116,7 +117,16 @@ export class DirectionInput {
       );
     }
 
-    const shape = shapes[0];
+    return DirectionInput.ofShape(shapes[0], label);
+  }
+
+  /**
+   * The unit direction one shape gives: a straight edge its canonical
+   * direction, a planar face its outward normal (see {@link resolve}).
+   * Anything else is a BuildError naming what was given. What a preview
+   * reads off a picked edge or face, where the build reads a selection.
+   */
+  static ofShape(shape: Shape, label = "direction"): Vector3d {
     if (shape.isEdge()) {
       if (!EdgeQuery.isLineEdge(shape)) {
         throw new BuildError(`${label} is a curved edge; only a straight edge gives a direction.`, DirectionInput.HINT);

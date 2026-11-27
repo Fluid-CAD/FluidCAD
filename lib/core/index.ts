@@ -1,5 +1,5 @@
 export type {
-  ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect, ICurveResult, ISurfaceResult, IIntersectionCurve,
+  ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect, ICurveResult, ISurfaceResult, IIntersectionCurve, IProjectedCurve,
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IEllipticalArc, IText,
   IConnector, IPart, ILoadFile, LoadOptions, FontOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,

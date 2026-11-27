@@ -4,7 +4,7 @@ import type { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import type { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import type { Matrix4 } from "../math/matrix4.js";
 import type { Axis, AxisLike } from "../math/axis.js";
-import type { Plane, PlaneLike } from "../math/plane.js";
+import type { DirectionInputLike, Plane, PlaneLike } from "../math/plane.js";
 import type { NumberParam } from "./param.js";
 import type { BucketAccessors, BucketSpecsOf } from "../sdk/feature-buckets.js";
 
@@ -293,6 +293,39 @@ export interface ICurveResult extends ISceneObject {
  * edges; `edges()` lists them curve after curve, each in the order it runs.
  */
 export interface IIntersectionCurve extends ICurveResult {}
+
+/**
+ * Curves thrown onto faces: `project(source, target)` written outside a
+ * sketch. One wire per image chain, each running the same way as its
+ * source, images in source order. The options are chained methods, in any
+ * order.
+ */
+export interface IProjectedCurve extends ICurveResult {
+  /**
+   * How each point travels: `'direction'` (the default), every point along
+   * one line, the one `.direction()` gives; `'normal'`, every point to the
+   * closest point of the target.
+   * @param value - `'direction'` or `'normal'`.
+   */
+  mode(value: 'direction' | 'normal'): this;
+
+  /**
+   * The line every point travels along, for mode `'direction'`. It is a
+   * line, not an arrow: the source is projected both ways along it, and
+   * `.keep()` decides which images stay. Left out, it is the normal of the
+   * plane the source lies in.
+   * @param value - `'x'`, `'y'`, `'z'`, an `axis()`, a straight edge or a connector (its Z axis); or `'xy'`, `'xz'`, `'yz'`, a `plane()` or a planar face, for its normal.
+   */
+  direction(value: DirectionInputLike): this;
+
+  /**
+   * Which images stay: `'nearest'` (the default), for each source chain only
+   * the image nearest it; `'all'`, every image, the far side of a closed
+   * body too.
+   * @param value - `'nearest'` or `'all'`.
+   */
+  keep(value: 'nearest' | 'all'): this;
+}
 
 /**
  * What every tool that leaves a surface answers: its faces, and the edges

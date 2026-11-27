@@ -4,7 +4,7 @@ title: offset(distance?, ...targets?)
 summary: "Offsets sketch geometry (or a coplanar face outline) outward (positive) or inward (negative); outside a sketch with `{ on: faces }`, a curve beside edges at a distance, lying on faces. Use `.close()` to cap an open offset; mark sources `.guide()` to keep them out of the profile."
 tags: [api, 2d, 3d, modifier, curve]
 symbols: [offset]
-seeAlso: [api/sketch, api/extrude, api/project-intersect, api/projected-curve, api/intersection-curve, api/sweep]
+seeAlso: [api/sketch, api/extrude, api/project-intersect, api/projected-curve, api/intersection-curve, api/sweep, api/types/offset-curve]
 ---
 
 # offset
@@ -119,9 +119,9 @@ faces; a closed one is a closed loop.
 
 ### The result
 
-A curve object, like a `helix`: construction geometry, drawn as lines. It
-holds **one wire per chain** of the edges, in the order the chains come,
-each **running the same way as its source**.
+A curve object ([[api/types/offset-curve]]), like a `helix`: construction
+geometry, drawn as lines. It holds **one wire per chain** of the edges, in
+the order the chains come, each **running the same way as its source**.
 
 - `oc.edges()` — every edge, curve after curve, each in the order it runs.
 - `oc.edges(0)`, `oc.edges(edge().line())` — by index or by filter.

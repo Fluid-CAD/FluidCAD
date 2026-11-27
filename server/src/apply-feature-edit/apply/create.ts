@@ -23,6 +23,7 @@ import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { intersectionCurveCreateError } from '../features/intersection-curve.ts';
 import { projectedCurveCreateError } from '../features/projected-curve.ts';
+import { offsetCurveCreateError } from '../features/offset-curve.ts';
 import { renderLoftConnections, validEditCondition } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
 import { isLocalAxes, renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
@@ -231,6 +232,14 @@ export async function applyCreateEdit(
     // edge or face direction renders its own selector part, and a direction
     // with mode 'normal' is refused as the engine refuses it.
     const refusal = projectedCurveCreateError(spec);
+    if (refusal) {
+      return { newCode: code, error: refusal };
+    }
+  } else if (spec.feature === 'offset-curve') {
+    // The edges hold curve picks and `{ on }` surface picks, each a bound
+    // producer or a selector part; a literal zero distance is refused as
+    // the engine refuses it.
+    const refusal = offsetCurveCreateError(spec);
     if (refusal) {
       return { newCode: code, error: refusal };
     }
@@ -758,7 +767,7 @@ export async function applyCreateEdit(
     // The row's name, written with the statement (D2): "<DisplayType> <n>"
     // past every such name the file holds. Nothing inside a sketch body and
     // no callee without a display type takes one.
-    statementText += FeatureNames.chainFor(tree, statementCallee(spec), insertion.index);
+    statementText += FeatureNames.chainFor(tree, statementCallee(spec), insertion.index, spec.feature);
   }
   let useSemicolon = bindings.some(b => b.statement.text.trimEnd().endsWith(';'));
 

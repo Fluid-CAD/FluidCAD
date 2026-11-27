@@ -46,6 +46,7 @@ import { Common } from '../../lib/features/common.js';
 import { Helix } from '../../lib/features/helix.js';
 import { IntersectionCurve } from '../../lib/features/intersection-curve.js';
 import { ProjectedCurve } from '../../lib/features/projected-curve.js';
+import { OffsetCurve } from '../../lib/features/offset-curve.js';
 import { PlaneObject } from '../../lib/features/plane.js';
 import { AxisObject } from '../../lib/features/axis.js';
 
@@ -115,6 +116,10 @@ describe('DISPLAY_TYPE_BY_CALLEE', () => {
       // Outside a sketch the projected curve. Inside one it is the sketch
       // tool, which is never named and keeps its own "Projection".
       project: [{ cls: ProjectedCurve }],
+      // Outside a sketch with { on } the offset curve. The sketch tool and
+      // the face outline outside a sketch are never named (`displayTypeOf`
+      // reads the kind) and keep their own "Offset".
+      offset: [{ cls: OffsetCurve }],
       plane: [{ cls: PlaneObject }],
       axis: [{ cls: AxisObject }],
     };

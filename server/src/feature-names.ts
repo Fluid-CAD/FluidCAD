@@ -25,7 +25,7 @@ import {
   type TSNode,
   type TSTree,
 } from './code-editor/index.ts';
-import { DISPLAY_TYPE_BY_CALLEE } from './apply-feature-edit/parse/parsed-statement.ts';
+import { displayTypeOf } from './apply-feature-edit/parse/parsed-statement.ts';
 
 /** One name a file holds: the literal, the 1-based line its statement starts on and the statement's root callee. */
 export type FeatureNameUse = { name: string; line: number; callee: string };
@@ -108,15 +108,17 @@ export class FeatureNames {
   }
 
   /**
-   * The `.name('<DisplayType> <n>')` chain to append to a statement the UI
-   * writes with `callee` landing at `index` of the file — '' when the
-   * statement is not auto-named: a callee with no display type (a part, a
-   * connector, an exposure, a section, an in-sketch derived op) or any
-   * statement inside a sketch body (a 2D fillet, mirror, copy or rotate
-   * shares its callee with the 3D feature but is a sketch entity).
+   * The `.name('<DisplayType> <n>')` chain to append to a statement of kind
+   * `kind` (the spec's feature) the UI writes with `callee` landing at
+   * `index` of the file — '' when the statement is not auto-named: a callee
+   * with no display type (a part, a connector, an exposure, a section), a
+   * callee named by its part-scope tool when the statement is not of that
+   * tool's kind (an `offset` that is no offset curve, see `displayTypeOf`),
+   * or any statement inside a sketch body (a 2D fillet, mirror, copy or
+   * rotate shares its callee with the 3D feature but is a sketch entity).
    */
-  static chainFor(tree: TSTree, callee: string, index?: number): string {
-    const displayType = DISPLAY_TYPE_BY_CALLEE[callee];
+  static chainFor(tree: TSTree, callee: string, index?: number, kind?: string): string {
+    const displayType = displayTypeOf(callee, kind);
     if (displayType === undefined) {
       return '';
     }

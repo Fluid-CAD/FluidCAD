@@ -4,7 +4,7 @@ import { chainRootCallee, type TSNode } from '../../code-editor/index.ts';
 import { listEngineSymbols } from '../../lint-fluid-js.ts';
 import { decomposeChain } from '../ast/chain.ts';
 import type { CustomFeatureShape } from '../features/custom.ts';
-import { curveCallees, placementOf, readsAsCurve } from '../parse/parsed-statement.ts';
+import { curveCallees, hasPartTool, placementOf, readsAsCurve } from '../parse/parsed-statement.ts';
 
 /**
  * Chain-root callees this transform will bind a variable to. Guards against a
@@ -23,14 +23,17 @@ const PRODUCER_CALLEES = new Set([
  * (`endEdges()`, `sideFaces()`), as they have no `edges()`: a helix
  * produces only for a helix, so a stale line that lands on the other kind of
  * call is refused, not bound to an accessor the call does not have. An
- * intersection curve is an `intersect(…)` and a projected curve a
- * `project(…)` outside a sketch: inside one the callee is the sketch tool,
- * which {@link FeatureCallees.binds} refuses by where the call sits.
+ * intersection curve is an `intersect(…)`, a projected curve a `project(…)`
+ * and an offset curve an `offset(…, { on })` outside a sketch: inside one
+ * the callee is the sketch tool, and an `offset(…)` outside one with no
+ * trailing object outlines faces, which {@link FeatureCallees.binds} refuses
+ * by the form of the call.
  */
 const CURVE_PRODUCER_CALLEES: Record<string, string[]> = {
   helix: ['helix'],
   'intersection-curve': ['intersect'],
   'projected-curve': ['project'],
+  'offset-curve': ['offset'],
 };
 
 /**
@@ -40,12 +43,13 @@ const CURVE_PRODUCER_CALLEES: Record<string, string[]> = {
  * never chains selector accessors onto it, so modifier and primitive calls
  * qualify too. The move, copy and colour targets take the same list: what
  * they name may hold a surface or a curve rather than a solid — `load()`
- * brings both in from a file, `helix()`, and `intersect()` and `project()`
- * outside a sketch, draw a curve.
+ * brings both in from a file, `helix()`, and `intersect()`, `project()` and
+ * `offset(…, { on })` outside a sketch, draw a curve (the callee's other
+ * forms are refused by {@link FeatureCallees.binds}).
  */
 const REPEAT_TARGET_CALLEES = new Set([
   ...PRODUCER_CALLEES,
-  'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix', 'intersect', 'project',
+  'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix', 'intersect', 'project', 'offset',
   'fuse', 'subtract', 'common', 'mirror', 'translate', 'rotate',
   'repeat', 'copy', 'load', 'part', 'select',
   // A split holds the pieces it made, so it is the body a later target pick
@@ -302,18 +306,18 @@ export class FeatureCallees {
     if (producer.featureType === 'surface') {
       return this.holdsSurface(producer, call);
     }
-    return FeatureCallees.placedFor(producer, call)
-      && this.produces(producer.featureType ?? '', chainRootCallee(call));
+    return FeatureCallees.placedFor(producer, call) && this.producesBy(producer.featureType ?? '', call);
   }
 
   /**
    * Whether `call` is the form of its callee that `producer`'s type names,
    * for a callee that means a sketch tool inside a `sketch(…)` callback and
-   * a part-scope tool outside one (`intersect`, `project`): a sketch-geometry producer
-   * binds only the call inside, every other producer only the call outside.
-   * A stale line that lands on the other form would bind accessors the
-   * object it builds does not have. Every other call is the one form its
-   * callee names.
+   * a part-scope tool outside one (`intersect`, `project`, `offset` with
+   * `{ on }`): a sketch-geometry producer binds only the call inside, every
+   * other producer only the call outside. A stale line that lands on the
+   * other form would bind accessors the object it builds does not have.
+   * Every other call is the one form its callee names, or a form outside a
+   * sketch the part-scope tool does not read ({@link producesBy}).
    */
   private static placedFor(producer: ProducerSite, call: TSNode): boolean {
     const chain = decomposeChain(call);
@@ -323,6 +327,26 @@ export class FeatureCallees {
     }
     const sketchGeometry = Object.hasOwn(SKETCH_PRODUCER_CALLEES, producer.featureType ?? '');
     return (placement === 'sketch') === sketchGeometry;
+  }
+
+  /**
+   * The gate by callee ({@link produces}) for `call`. A callee whose form
+   * outside a sketch is a part-scope tool is named in the curve and target
+   * lists for that tool alone, so a call of it outside a sketch in a form
+   * the tool does not read — an `offset(…)` with no trailing object, the
+   * face outline, which builds the sketch tool's class — binds by callee
+   * only as sketch geometry, as it did before the tool.
+   */
+  private producesBy(featureType: string, call: TSNode): boolean {
+    const callee = chainRootCallee(call);
+    if (callee !== null && !this.custom.has(callee) && hasPartTool(callee)
+      && !Object.hasOwn(SKETCH_PRODUCER_CALLEES, featureType)) {
+      const chain = decomposeChain(call);
+      if (chain && placementOf(chain, call) === null) {
+        return false;
+      }
+    }
+    return this.produces(featureType, callee);
   }
 
   /**
@@ -366,7 +390,7 @@ export class FeatureCallees {
       return false;
     }
     const product = this.scene?.at(producer) ?? null;
-    return product ? product.surface : this.produces('feature', chainRootCallee(call));
+    return product ? product.surface : this.producesBy('feature', call);
   }
 
   /** Whether a call to `callee` creates or mutates scene state when its statement evaluates. */

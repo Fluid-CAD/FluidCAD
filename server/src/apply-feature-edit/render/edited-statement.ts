@@ -22,6 +22,7 @@ import { renderEditedMirror } from '../features/mirror.ts';
 import { renderOffsetStatement } from '../features/offset.ts';
 import { renderEditedPlane } from '../features/plane.ts';
 import { renderEditedProjectedCurve } from '../features/projected-curve.ts';
+import { renderEditedOffsetCurve } from '../features/offset-curve.ts';
 import { renderEditedRepeat, type RepeatEditTargetSource } from '../features/repeat.ts';
 import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revolve.ts';
 import { renderRibStatement } from '../features/rib.ts';
@@ -556,6 +557,9 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'projected-curve') {
     return renderEditedProjectedCurve(parsed, spec, varFor);
+  }
+  if (parsed.feature === 'offset-curve') {
+    return renderEditedOffsetCurve(parsed, spec, varFor);
   }
   if (parsed.feature === 'text') {
     const opts = spec.edit?.text;

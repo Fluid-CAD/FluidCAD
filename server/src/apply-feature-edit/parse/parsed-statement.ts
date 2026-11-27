@@ -19,7 +19,7 @@ import type { RegionName, ValueExpr } from '../value-expr.ts';
 import type { BooleanSlot, ChoiceSlot, TextSlot } from '../value-slots.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color' | 'intersection-curve' | 'projected-curve';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color' | 'intersection-curve' | 'projected-curve' | 'offset-curve';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -172,6 +172,25 @@ export type ParsedFeatureStatement =
     directionText: string | null;
     /** `.keep(…)`: 'nearest' when the chain is absent. */
     keep: ProjectionKeep;
+  }
+  | {
+    feature: 'offset-curve';
+    /** The distance — a number, or the expression computing it; its sign picks the side (positive to the left of the edges). */
+    distance: ValueExpr;
+    /** The distance argument as written — what an edit that leaves the distance writes back. */
+    distanceArg: string;
+    /** The edges argument's operands, verbatim: a list's elements, or the bare expression. */
+    edgesTexts: string[];
+    /** The statement each edges operand names, by call site, or null (same length as `edgesTexts`). */
+    edgesRefs: ({ line: number; column: number } | null)[];
+    /** The `on` option's operands, verbatim; a shorthand `{ on }` reads as its variable. */
+    onTexts: string[];
+    /** The statement each `on` operand names, or null (same length as `onTexts`). */
+    onRefs: ({ line: number; column: number } | null)[];
+    /** The edges argument as written — what a kept row writes back. */
+    edgesArg: string;
+    /** The `on` option's value as written (`on` for the shorthand). */
+    onArg: string;
   }
   | (ParsedScopeChain & {
     feature: 'loft';
@@ -544,51 +563,85 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
 /** A call chain as {@link editableKindOf} reads it: the root call and its chained members. */
 type KindChain = { root: ChainSegment; members: ChainSegment[] };
 
-/**
- * The callees that mean one thing in the body callback of a `sketch(…)` and
- * another outside it. `sketch` is the kind of the form inside a sketch;
- * `part` reads the kind of the form outside one off its chain (an `offset`
- * by its trailing `{ on }` argument), and is absent until that form has a
- * dialog: the call then keeps the kind its callee names.
- */
-const PLACED_CALLEES: Record<string, {
-  sketch: EditableFeatureKind;
-  part?: (chain: KindChain) => EditableFeatureKind | null;
-}> = {
-  offset: { sketch: 'offset' },
-  project: { sketch: 'project', part: () => 'projected-curve' },
-  intersect: { sketch: 'project', part: () => 'intersection-curve' },
+/** The form of a placed callee outside a sketch that a part-scope tool's dialog edits. */
+type PartForm = {
+  /** The tool's kind. */
+  kind: EditableFeatureKind;
+  /**
+   * Whether a call outside a sketch is the tool, read off its chain; every
+   * such call is when absent. A call it is not keeps the kind its callee
+   * names.
+   */
+  reads?: (chain: KindChain) => boolean;
 };
 
 /**
- * Where a call sits, for a callee whose form outside a sketch has a dialog
- * (see {@link PLACED_CALLEES}): `sketch` inside a `sketch(…)` callback,
- * `part` outside one. Null for every other call — one callee, one meaning.
- * A producer binds by it: the two forms build different objects, with
- * different accessors.
+ * The callees that mean one thing in the body callback of a `sketch(…)` and
+ * another outside it. `sketch` is the kind of the form inside a sketch;
+ * `part` is the part-scope tool outside one — for `offset`, only a call
+ * whose last argument is an object literal (`{ on: faces }`, or any other:
+ * the dialog then says why it cannot edit it), the way the engine tells its
+ * offset curve from the face outline. `part` is absent until that form has
+ * a dialog: the call then keeps the kind its callee names.
+ */
+const PLACED_CALLEES: Record<string, { sketch: EditableFeatureKind; part?: PartForm }> = {
+  offset: { sketch: 'offset', part: { kind: 'offset-curve', reads: chain => chain.root.args.at(-1)?.type === 'object' } },
+  project: { sketch: 'project', part: { kind: 'projected-curve' } },
+  intersect: { sketch: 'project', part: { kind: 'intersection-curve' } },
+};
+
+/** The placed callee `callee` names, or undefined. A table row is an own property: `constructor(…)` names no callee. */
+function placedCallee(callee: string): { sketch: EditableFeatureKind; part?: PartForm } | undefined {
+  return Object.hasOwn(PLACED_CALLEES, callee) ? PLACED_CALLEES[callee] : undefined;
+}
+
+/** The part-scope tool's kind a call outside a sketch is, or null when it is not that form. */
+function partKindOf(part: PartForm | undefined, chain: KindChain): EditableFeatureKind | null {
+  return part && (part.reads?.(chain) ?? true) ? part.kind : null;
+}
+
+/**
+ * Whether `callee` has a form outside a sketch that a part-scope tool's
+ * dialog edits (see {@link PLACED_CALLEES}): the callee the producer lists
+ * name for that tool alone.
+ */
+export function hasPartTool(callee: string): boolean {
+  return placedCallee(callee)?.part !== undefined;
+}
+
+/**
+ * Where a call sits among the forms of a callee whose form outside a sketch
+ * has a dialog (see {@link PLACED_CALLEES}): `sketch` inside a `sketch(…)`
+ * callback, `part` outside one in the form the part-scope tool reads. Null
+ * for every other call: one callee, one meaning — or, outside a sketch, a
+ * form the tool does not read (an `offset(…)` with no trailing object, the
+ * face outline), which keeps the kind its callee names and binds as it did
+ * before the tool. A producer binds by it: the forms build different
+ * objects, with different accessors.
  */
 export function placementOf(chain: KindChain, call: TSNode): 'sketch' | 'part' | null {
-  const callee = chain.root.name;
-  const placed = Object.hasOwn(PLACED_CALLEES, callee) ? PLACED_CALLEES[callee] : undefined;
+  const placed = placedCallee(chain.root.name);
   if (!placed?.part) {
     return null;
   }
-  return insideSketchCallback(call) ? 'sketch' : 'part';
+  if (insideSketchCallback(call)) {
+    return 'sketch';
+  }
+  return partKindOf(placed.part, chain) !== null ? 'part' : null;
 }
 
 /**
  * The dialog kind of a call: by its callee, by whether it sits inside a
- * `sketch(…)` callback, and for `offset` by a trailing `{ on }` argument.
+ * `sketch(…)` callback, and for `offset` by a trailing object literal.
  * Null for a call no dialog edits. Every reader that needs a statement's
  * kind asks here, so a callee shared by a sketch tool and a part-scope tool
  * is told apart in one place.
  */
 export function editableKindOf(chain: KindChain, call: TSNode): EditableFeatureKind | null {
   const callee = chain.root.name;
-  // A table row is an own property: `constructor(…)` names no callee.
-  const placed = Object.hasOwn(PLACED_CALLEES, callee) ? PLACED_CALLEES[callee] : undefined;
+  const placed = placedCallee(callee);
   if (placed) {
-    const kind = insideSketchCallback(call) ? placed.sketch : placed.part?.(chain) ?? null;
+    const kind = insideSketchCallback(call) ? placed.sketch : partKindOf(placed.part, chain);
     if (kind !== null) {
       return kind;
     }
@@ -602,7 +655,7 @@ export function editableKindOf(chain: KindChain, call: TSNode): EditableFeatureK
  * alone. Everything else that leaves a curve — an imported one, a repeat of
  * one, a custom feature's — is the scene's to answer (`FeatureCallees`).
  */
-const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix', 'intersection-curve', 'projected-curve']);
+const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix', 'intersection-curve', 'projected-curve', 'offset-curve']);
 
 /** Whether the statement `call` is read, with no scene to ask, as leaving a curve of its own. */
 export function readsAsCurve(call: TSNode): boolean {
@@ -614,7 +667,8 @@ export function readsAsCurve(call: TSNode): boolean {
 /**
  * The callees a statement is read as leaving a curve by, as a refusal names
  * them: those whose callee alone says so. `intersect` and `project` leave
- * one only outside a sketch, so a refusal does not offer them.
+ * one only outside a sketch, and `offset` only there with `{ on }`, so a
+ * refusal does not offer them.
  */
 export function curveCallees(): string[] {
   return Object.keys(EDITABLE_CALLEES).filter(callee => CURVE_KINDS.has(EDITABLE_CALLEES[callee]));
@@ -633,11 +687,15 @@ export function curveCallees(): string[] {
  *
  * Callees missing here are never auto-named: a part, a connector, an
  * exposure and a section name themselves by their first argument; a
- * `select()`, a region, a constraint, a sketch entity and the in-sketch
- * derived op `offset` keep their bare type in the timeline. `intersect` and
- * `project` are named outside a sketch, where they draw an intersection
- * curve and a projected curve; inside one they are the sketch tools, and
- * nothing in a sketch body is named (`FeatureNames.chainFor`).
+ * `select()`, a region, a constraint and a sketch entity keep their bare
+ * type in the timeline. A callee whose form outside a sketch is a
+ * part-scope tool is listed by that tool's type, and only a statement of
+ * the tool's kind is named by it ({@link displayTypeOf}): `intersect`,
+ * `project` and `offset` with `{ on }` draw an intersection curve, a
+ * projected curve and an offset curve; inside a sketch they are the sketch
+ * tools, and nothing in a sketch body is named (`FeatureNames.chainFor`);
+ * an `offset(…)` outside a sketch with no trailing object, the face
+ * outline, keeps its bare type too.
  */
 export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   extrude: 'Extrude',
@@ -666,9 +724,26 @@ export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   helix: 'Helix',
   intersect: 'Intersection Curve',
   project: 'Projected Curve',
+  offset: 'Offset Curve',
   plane: 'Plane',
   axis: 'Axis',
 };
+
+/**
+ * The display type a statement the create path writes is named by (see
+ * {@link DISPLAY_TYPE_BY_CALLEE}), from its callee and its kind — the
+ * spec's feature. Undefined for a callee the table has no type for, and for
+ * a callee listed by its part-scope tool when the statement is not that
+ * tool's kind (the sketch tool, the face outline `offset(…)` draws with no
+ * trailing object), or names no kind at all.
+ */
+export function displayTypeOf(callee: string, kind?: string): string | undefined {
+  if (!Object.hasOwn(DISPLAY_TYPE_BY_CALLEE, callee)) {
+    return undefined;
+  }
+  const tool = placedCallee(callee)?.part?.kind;
+  return tool !== undefined && kind !== tool ? undefined : DISPLAY_TYPE_BY_CALLEE[callee];
+}
 
 /**
  * Chain members the dialogs edit, per feature. They must form a prefix of
@@ -732,6 +807,10 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // order and written in this one. `.name()` and friends are unrecognized
   // members and survive verbatim.
   'projected-curve': new Set(['mode', 'direction', 'keep']),
+  // The distance, the edges and the `{ on }` options object are the root
+  // call's arguments and the tool has no chained options; `.name()` and
+  // friends are unrecognized members and survive verbatim.
+  'offset-curve': new Set(),
   // The bases and the transform options are all root-call arguments; `.name()`
   // and friends are unrecognized members and survive verbatim.
   plane: new Set(),

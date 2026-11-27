@@ -13,6 +13,7 @@ import { renderMirrorAxisExpr, renderMirrorStatement } from '../features/mirror.
 import { renderOffsetStatement } from '../features/offset.ts';
 import { renderPlaneBaseExprs, renderPlaneStatement } from '../features/plane.ts';
 import { PROJECTED_CURVE_CALLEE, renderProjectedCurveStatement } from '../features/projected-curve.ts';
+import { OFFSET_CURVE_CALLEE, renderOffsetCurveStatement } from '../features/offset-curve.ts';
 import { projectionCallee } from '../features/projection.ts';
 import { renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement } from '../features/repeat.ts';
 import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revolve.ts';
@@ -47,6 +48,9 @@ export function statementCallee(spec: ApplyFeatureEditSpec): string {
   }
   if (spec.feature === 'projected-curve') {
     return PROJECTED_CURVE_CALLEE;
+  }
+  if (spec.feature === 'offset-curve') {
+    return OFFSET_CURVE_CALLEE;
   }
   return spec.feature;
 }
@@ -130,6 +134,9 @@ export function buildStatement(
   }
   if (spec.feature === 'projected-curve') {
     return renderProjectedCurveStatement(spec.projectedCurve!, spec.parts, i => bindings[i].varName);
+  }
+  if (spec.feature === 'offset-curve') {
+    return renderOffsetCurveStatement(spec.offsetCurve!, spec.parts, i => bindings[i].varName);
   }
   if (spec.feature === 'repeat') {
     const rp = spec.repeat!;

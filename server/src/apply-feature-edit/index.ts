@@ -127,6 +127,16 @@ export {
   type ProjectionMode,
 } from './features/projected-curve.ts';
 export {
+  OFFSET_CURVE_CALLEE,
+  OFFSET_CURVE_ROWS,
+  offsetCurveDistanceError,
+  renderOffsetCurveStatement,
+  ZERO_OFFSET_DISTANCE,
+  type OffsetCurveEdit,
+  type OffsetCurveEditOptions,
+  type OffsetCurveRow,
+} from './features/offset-curve.ts';
+export {
   renderRepeatAxisExpr,
   renderRepeatPlaneExpr,
   renderRepeatStatement,

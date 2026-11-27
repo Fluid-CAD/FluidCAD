@@ -19,6 +19,7 @@ import { enclosingScope, enclosingSketchStatement, enclosingStatement, sameNode 
 import { declarationsBefore } from '../insertion.ts';
 import { INTERSECTION_CURVE_CALLEE } from '../features/intersection-curve.ts';
 import { PROJECTED_CURVE_CALLEE } from '../features/projected-curve.ts';
+import { OFFSET_CURVE_CALLEE } from '../features/offset-curve.ts';
 import { parseFeatureChain } from '../parse/feature-chain.ts';
 import { allocateNames, resolveProducerBindings, type ProducerBinding } from '../producers/bindings.ts';
 import { FeatureCallees } from '../producers/callees.ts';
@@ -225,7 +226,9 @@ export async function applyStatementEdit(
             ? INTERSECTION_CURVE_CALLEE
             : chain.parsed.feature === 'projected-curve'
               ? PROJECTED_CURVE_CALLEE
-              : spec.feature;
+              : chain.parsed.feature === 'offset-curve'
+                ? OFFSET_CURVE_CALLEE
+                : spec.feature;
     result = await ensureSymbolImport(result, callee);
   }
   const imports = new Set(spec.imports ?? []);

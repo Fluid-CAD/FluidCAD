@@ -49,6 +49,8 @@ const MODEL = src(
   `    offset(1)`,
   `  })`,
   `})`,
+  `offset(3, e.endEdges(), { on: e.sideFaces() })`,
+  `offset(3, e.endEdges(), {})`,
 );
 
 describe('editableKindOf', () => {
@@ -68,6 +70,11 @@ describe('editableKindOf', () => {
 
   it('reads intersect outside a sketch as the intersection curve', async () => {
     expect(await kindAt(MODEL, 12)).toBe('intersection-curve');
+  });
+
+  it('reads offset outside a sketch with a trailing object as the offset curve, whatever the object holds', async () => {
+    expect(await kindAt(MODEL, 21)).toBe('offset-curve');
+    expect(await kindAt(MODEL, 22)).toBe('offset-curve');
   });
 
   it('answers every other callee by its name, and null for a call no dialog edits', async () => {

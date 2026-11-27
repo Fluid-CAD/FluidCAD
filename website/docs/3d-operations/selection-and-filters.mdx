@@ -14,11 +14,14 @@ Fillet, chamfer, shell, color, connectors and sketches on faces all need to be t
 
 - **Click** a face, edge or vertex to select it. The selection info overlay names what you picked and the feature that produced it.
 - <kbd>Ctrl</kbd> / <kbd>Shift</kbd> + click adds to the selection.
+- With a pick tool armed, **double-click** an edge or a face to take the whole bucket it belongs to (every end edge of an extrude). On an edge of a surface's open rim, a double-click takes the **rim loop** that edge belongs to instead, on a surface loaded from a file too, which has no bucket.
 - **Right-click** a picked entity for the multi-select menu, fetched from the model:
   - the **tangent chain** the edge belongs to (a filleted outline in one go),
+  - the **loops**: on a surface's rim edge, the **Boundary Loop**; on any other edge, the loop of each face the edge bounds (**Outer Loop of Planar Face**, **Hole Loop of Cylindrical Face** …); on a face, its **connected faces** of the same kind (**Connected Planar Faces** …),
   - edges or faces of the **same type**, or of **equal measure** (all Ø6 holes),
   - the producing feature's **buckets** — *Extrude End Edges*, *Side Faces* … — and **Select other**, which lists the feature's remaining buckets when your pick was, say, a start edge.
   - Hovering a menu item previews exactly what clicking it would select.
+  - A tangent chain or a loop chosen here stays one pick, a single chip, written as the chain or the loop it is; clicking one of its edges again takes the whole of it back off.
 - With a pick tool armed (**Fillet**, **Chamfer**, **Shell**, **Sketch**, **Offset**), the picks go straight into that tool's statement.
 
 A plain click with no tool armed is also the [measure](/docs/user-interface#measuring) gesture.
@@ -32,6 +35,8 @@ The pick tools resolve your clicks to the most stable reference they can:
 | A whole bucket of one feature (all end edges of an extrude) | `fillet(5, e.endEdges())` |
 | A subset of a bucket | `fillet(5, e.endEdges(0, 2))` — by index |
 | Entities a filter describes better | `select(edge().onPlane("xy", 30))` then the operation |
+| A tangent chain from the menu | a filter that picks the edge you right-clicked, with `.withTangents()` |
+| A loop from the menu | the bucket or filter the loop fills (`s.boundaryEdges()`, `select(edge().boundary())`), else a seed with `.withChain()` (`s.boundaryEdges(edge().smallest().withChain())`) — see [growing a chain](#picking-one-and-growing-a-chain) |
 | A face for a sketch or connector | `sketch(e.endFaces(), …)`, `connector('top', e.endFaces())` |
 
 Feature variables (`const e = extrude(30)`) are introduced by the writer when a statement needs one.

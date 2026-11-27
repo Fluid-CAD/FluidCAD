@@ -24,7 +24,7 @@ Paint from the **Color** tool on the toolbar, or write the statement in the edit
 
 1. Click **Color** on the toolbar. The dialog opens on the **Shape** tab; faces already selected open it on the **Face** tab with those faces picked.
 2. Choose the colour: pick one from the colour well, type a value in the field — a hex value (`#3498db`), a CSS colour name (`steelblue`) or an `rgb(…)` string — or click a swatch.
-3. On the **Shape** tab, click a face or edge of each solid or surface to paint whole, or its feature row in the timeline. Every face of it takes the colour. On the **Face** tab, click the faces to paint; double-click a face to take its whole group (every end face of an extrude, say), or right-click one for the same multi-select menu the Fillet tool offers.
+3. On the **Shape** tab, click a face or edge of each solid or surface to paint whole, or its feature row in the timeline. Every face of it takes the colour. On the **Face** tab, click the faces to paint; double-click a face to take its whole group (every end face of an extrude, say), or right-click one for the same multi-select menu the Fillet tool offers, whose groups include the face's connected faces of its kind (*Connected Planar Faces*), kept as one pick.
 4. The picks show in the chosen colour as you go, and the preview under the dialog reads the statement the tool will write. On the Face tab the expression row shows the selector the picks resolve to; edit it, or pick an alternative from its dropdown, to write that instead.
 5. Click **Apply**. FluidCAD adds a Color feature to the timeline and writes `color('steelblue', e)` for whole solids and surfaces or `color('steelblue', e.endFaces())` for faces.
 

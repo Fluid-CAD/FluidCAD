@@ -13,7 +13,7 @@ Project flattens 3D edges and faces — or the geometry of a previous sketch —
 ## In the viewport
 
 1. Click **Project** on the sketch toolbar. The Project dialog opens with one **Selection** slot.
-2. Click the 3D edges and faces to bring in — a face projects its outline, an edge projects itself. Click the geometry of a previous sketch to bring in that whole sketch. Picks accumulate as chips.
+2. Click the 3D edges and faces to bring in — a face projects its outline, an edge projects itself. Click the geometry of a previous sketch to bring in that whole sketch. Picks accumulate as chips. A double-click takes the whole bucket an edge or face belongs to, or, on an edge of a surface's open rim, the rim loop; a right-click opens the multi-select menu the Fillet tool offers, loops included.
 
 A face's outline is what you would see of it from the sketch plane: its boundary edges plus, for a curved face, the silhouette where the surface turns past the view. A cylinder seen from the side comes in as a rectangle, seen along its axis as a circle; a circle seen edge-on becomes a line across its diameter. Seams are never projected.
 3. **Apply** writes the `project(…)` statement at the top of the sketch body, where the references it creates are available to every constraint after it.

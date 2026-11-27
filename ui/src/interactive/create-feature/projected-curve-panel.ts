@@ -51,6 +51,8 @@ export class ProjectedCurvePanel extends FeaturePanel {
       id: 'fluidcad-projected-curve-panel',
       title: 'Project',
       icon: iconUrl('projected-curve'),
+      // Room for the mode's two labels on one line each.
+      width: 'wider',
       bodyHtml: `
         <div data-role="source-slot"></div>
         <div data-role="target-slot"></div>

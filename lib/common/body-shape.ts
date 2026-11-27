@@ -163,7 +163,15 @@ export abstract class BodyShape<T extends TopoDS_Shape = TopoDS_Shape> extends S
    * `edge().boundary()` filter all ask here.
    */
   isBoundaryEdge(edge: TopoDS_Shape): boolean {
-    return !this.isHiddenEdge(edge) && this.facesAtEdge(edge).length === 1;
+    if (this.isHiddenEdge(edge)) {
+      return false;
+    }
+    // Read off the raw edge→faces index, so asking wraps no face (the
+    // render asks of every edge). Only a seam lists one face twice, and a
+    // seam is hidden: past that check, one entry is one face. The list is
+    // the index's own, never deleted.
+    const faces = this.getEdgeToFacesIndex().Seek(edge);
+    return !!faces && faces.Size() === 1;
   }
 
   /**

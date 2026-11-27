@@ -279,15 +279,15 @@ function measureImage(image: Wire, source: Wire, from: Sample[], direction: Vect
 }
 
 /** A point along a wire, with the unit tangent there in the wire's walk. */
-type Sample = { point: Point; tangent: Vector3d };
+export type Sample = { point: Point; tangent: Vector3d };
 
 /** Points along `wire`, `perEdge` on each edge between its ends, with the wire's tangent at each, in its walk. */
-function sampleWire(wire: Wire, perEdge: number): Sample[] {
+export function sampleWire(wire: Wire, perEdge: number): Sample[] {
   return wire.getEdges().flatMap(edge => sampleEdge(edge, perEdge));
 }
 
 /** `count` points along `edge` between its ends, with the tangent at each, in the edge's own direction. */
-function sampleEdge(edge: Edge, count: number): Sample[] {
+export function sampleEdge(edge: Edge, count: number): Sample[] {
   const oc = getOC();
   const raw = edge.getShape() as TopoDS_Edge;
   const sense = raw.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED ? -1 : 1;

@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Vertex } from "ocjs-fluidcad";
+import type { TopoDS_Edge, TopoDS_Shape, TopoDS_Vertex } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Axis } from "../math/axis.js";
@@ -481,6 +481,11 @@ export class EdgeOps {
 
   /** Minimum distance from a point to an edge (or any shape); Infinity when the extrema fails. */
   static distancePointToEdge(point: Point, edge: Shape): number {
+    return EdgeOps.distancePointToShapeRaw(point, edge.getShape());
+  }
+
+  /** The smallest distance from `point` to any raw shape — an edge, a wire, faces; Infinity when the kernel finds none. */
+  static distancePointToShapeRaw(point: Point, shape: TopoDS_Shape): number {
     const oc = getOC();
 
     const gpPnt = new oc.gp_Pnt(point.x, point.y, point.z);
@@ -491,7 +496,7 @@ export class EdgeOps {
     const progress = new oc.Message_ProgressRange();
     const distCalc = new oc.BRepExtrema_DistShapeShape(
       vertexShape,
-      edge.getShape(),
+      shape,
       oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN,
       oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
       progress,
@@ -499,6 +504,7 @@ export class EdgeOps {
     const distance = distCalc.IsDone() ? distCalc.Value() : Infinity;
     distCalc.delete();
     progress.delete();
+    vertexShape.delete();
     vertexMaker.delete();
 
     return distance;

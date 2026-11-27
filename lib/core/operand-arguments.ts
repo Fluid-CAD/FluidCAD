@@ -83,8 +83,8 @@ export class OperandArguments {
     return tool;
   }
 
-  /** A value that is not a scene object, as a refusal names it. */
-  private static describe(value: unknown): string {
+  /** A value that is not a scene object, as a refusal names it: `3`, `'xy'`, `an object`, `a nested list`. */
+  static describe(value: unknown): string {
     if (value === null || value === undefined) {
       return String(value);
     }

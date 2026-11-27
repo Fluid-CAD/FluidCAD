@@ -330,6 +330,14 @@ export interface IProjectedCurve extends ICurveResult {
 }
 
 /**
+ * A curve beside edges at a constant distance, lying on faces:
+ * `offset(distance, edges, { on: faces })` written outside a sketch. One
+ * wire per chain of the edges, each running the same way as its source, in
+ * source order. It has no options beyond its arguments.
+ */
+export interface IOffsetCurve extends ICurveResult {}
+
+/**
  * What every tool that leaves a surface answers: its faces, and the edges
  * of its open rim.
  */

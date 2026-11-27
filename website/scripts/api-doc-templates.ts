@@ -839,6 +839,29 @@ An axis reference used by \`revolve()\` and other axis-based operations. Any of 
 | Sketch axis datum | [\`xAxis()\`](/docs/api/features/2d/xAxis), [\`yAxis()\`](/docs/api/features/2d/yAxis) | The sketch's own X / Y axis — for \`mirror()\` and \`copy("linear", …)\` inside a sketch, where a bare string means the world axis |
 `,
 
+  DirectionInputLike: (type) => `---
+sidebar_position: ${type.sidebarPosition}
+title: "${type.displayName}"
+description: "A direction, given as an axis or as a plane's normal."
+---
+
+# ${type.displayName}
+
+A direction, as \`.direction()\` of a [projected curve](/docs/api/types/projected-curve) takes it: an axis gives its own direction, a plane its normal. A direction is a line, not an arrow — what uses it decides which way along it matters. Any of the following are accepted:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| Standard axis string | \`"x"\`, \`"y"\`, \`"z"\` | The three principal axes |
+| [\`Axis\`](/docs/api/types/axis) | \`axis("z", { offsetX: 50 })\` | An axis object created with \`axis()\` |
+| [\`SceneObject\`](/docs/api/types/scene-object) | \`select(edge().line().first())\` | A straight edge, along its line |
+| [\`Connector\`](/docs/api/types/connector) | \`connector("pin", …)\` | The connector's Z axis |
+| Standard plane string | \`"xy"\`, \`"xz"\`, \`"yz"\` | The normal of a principal plane |
+| [\`Plane\`](/docs/api/types/plane) | \`plane("xy", { rotateX: 30 })\` | The normal of a plane object created with \`plane()\` |
+| [\`SceneObject\`](/docs/api/types/scene-object) | \`select(face().planar().first())\` | The normal of a planar face |
+
+A curved edge or face gives no direction and is refused when the feature builds.
+`,
+
   LinearRepeatOptions: (type) => renderOptionsTypePage(type,
     'Options for linear repeat.',
     'Options for [`repeat("linear", ...)`](/docs/api/features/transforms/repeat).',

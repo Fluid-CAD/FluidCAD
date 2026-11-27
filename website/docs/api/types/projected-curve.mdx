@@ -1,0 +1,128 @@
+---
+sidebar_position: 12.76
+title: "ProjectedCurve"
+description: "The ProjectedCurve type. Extends CurveResult."
+---
+
+# ProjectedCurve
+
+Extends [`CurveResult`](/docs/api/types/curve-result)
+
+
+<details>
+<summary>Inherited from [`CurveResult`](/docs/api/types/curve-result)</summary>
+
+### edges()
+
+```ts
+edges(...args: (number | EdgeFilter)[]): ISelection
+```
+
+The edges of the curve, in the order the curve runs. With no argument,
+all of them.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilter)[] | Edge indices, or edge filters to narrow the edges by. *(optional)* |
+
+---
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+The point the curve starts at. When the result is several separate
+curves, the first one's.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+The point the curve ends at. When the result is several separate
+curves, the first one's.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+
+</details>
+
+## Methods
+
+### mode()
+
+```ts
+mode(value: "normal" | "direction"): this
+```
+
+How each point travels: `'direction'` (the default), every point along
+one line, the one `.direction()` gives; `'normal'`, every point to the
+closest point of the target.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | "normal" \| "direction" | `'direction'` or `'normal'`. |
+
+---
+
+### direction()
+
+```ts
+direction(value: DirectionInputLike): this
+```
+
+The line every point travels along, for mode `'direction'`. It is a
+line, not an arrow: the source is projected both ways along it, and
+`.keep()` decides which images stay. Left out, it is the normal of the
+plane the source lies in.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | [DirectionInputLike](/docs/api/types/direction-input-like) | `'x'`, `'y'`, `'z'`, an `axis()`, a straight edge or a connector (its Z axis); or `'xy'`, `'xz'`, `'yz'`, a `plane()` or a planar face, for its normal. |
+
+---
+
+### keep()
+
+```ts
+keep(value: "nearest" | "all"): this
+```
+
+Which images stay: `'nearest'` (the default) — along the direction,
+what the line through each point of the source meets first, so the far
+side of a body is left out and every stretch of the near side stays; in
+mode `'normal'`, the image nearest the source — or `'all'`, every image,
+the far side of a closed body too.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | "nearest" \| "all" | `'nearest'` or `'all'`. |
+

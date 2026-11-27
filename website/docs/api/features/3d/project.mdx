@@ -1,0 +1,82 @@
+---
+sidebar_position: 18.6
+title: "project"
+description: "[3D] Throws curves onto faces, written outside a sketch: every point of the source travels along one line (the default, set by `.direction()`; left out, the normal of the plane the source lies in) or, with `.mode('normal')`, to the closest point of the target. The line is a line, not an arrow: the source is projected both ways along it, and `.keep()` decides which images stay — what each point meets first (the default; in mode `'normal'`, the nearest image) or, with `.keep('all')`, every one."
+---
+
+import project_curveExample from '!!raw-loader!../../_examples/project-curve.js';
+import CodeBlock from '@theme/CodeBlock';
+
+# project()
+
+[3D] Throws curves onto faces, written outside a sketch: every point of
+the source travels along one line (the default, set by `.direction()`;
+left out, the normal of the plane the source lies in) or, with
+`.mode('normal')`, to the closest point of the target. The line is a
+line, not an arrow: the source is projected both ways along it, and
+`.keep()` decides which images stay — what each point meets first (the
+default; in mode `'normal'`, the nearest image) or, with
+`.keep('all')`, every one.
+
+The result holds one wire per image chain, each running the same way as
+its source, images in source order: `edges()`, `start()` and `end()`
+read it. The source curves are hidden and stay readable; the target is
+read, not used up.
+
+**Returns**: [**`ProjectedCurve`**](/docs/api/types/projected-curve) \| [**`Reference`**](/docs/api/types/reference)
+
+:::tip
+See the [guide](/docs/curves/project) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+project(source: SceneObject | SceneObject[], target: SceneObject | SceneObject[]): ProjectedCurve
+```
+
+[3D] Throws curves onto faces, written outside a sketch: every point of
+the source travels along one line (the default, set by `.direction()`;
+left out, the normal of the plane the source lies in) or, with
+`.mode('normal')`, to the closest point of the target. The line is a
+line, not an arrow: the source is projected both ways along it, and
+`.keep()` decides which images stay — what each point meets first (the
+default; in mode `'normal'`, the nearest image) or, with
+`.keep('all')`, every one.
+
+The result holds one wire per image chain, each running the same way as
+its source, images in source order: `edges()`, `start()` and `end()`
+read it. The source curves are hidden and stay readable; the target is
+read, not used up.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `source` | [SceneObject](/docs/api/types/scene-object) \| SceneObject[] | Curves: a sketch, a sketch statement, a curve object, a selection of edges, or a list of those. |
+| `target` | [SceneObject](/docs/api/types/scene-object) \| SceneObject[] | Faces: a face selection (of solids or surfaces), a surface, a solid (all its faces), or a list of those. |
+
+---
+
+```ts
+project(...sourceObjects: SceneObject[]): Reference
+```
+
+[2D] Projects 3D objects — faces, edges, selections — or previous sketches
+onto the current sketch plane. The output registers as FIXED reference
+geometry — constraints may target it (`tangent(p, l)`, `p.ref(i)`,
+`p.center()`).
+
+A sketch source (`project(s1)`, or an entity it returned such as
+`project(s1.geometries.c)`) is referenced, never consumed: its geometry
+is read as its own body left it, so the reference works whether or not
+an extrude has already used the sketch, and the sketch stays available
+to later features. A sketch cannot project its own geometry.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...sourceObjects` | [SceneObject](/docs/api/types/scene-object)[] | The 3D objects or sketches to project *(optional)* |
+
+## Examples
+
+<CodeBlock language="js">{project_curveExample}</CodeBlock>
+
+![project example](/img/docs/api/project-curve.png)

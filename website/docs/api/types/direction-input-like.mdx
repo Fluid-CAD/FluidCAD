@@ -1,0 +1,21 @@
+---
+sidebar_position: 26.5
+title: "DirectionInputLike"
+description: "A direction, given as an axis or as a plane's normal."
+---
+
+# DirectionInputLike
+
+A direction, as `.direction()` of a [projected curve](/docs/api/types/projected-curve) takes it: an axis gives its own direction, a plane its normal. A direction is a line, not an arrow — what uses it decides which way along it matters. Any of the following are accepted:
+
+| Format | Example | Description |
+|--------|---------|-------------|
+| Standard axis string | `"x"`, `"y"`, `"z"` | The three principal axes |
+| [`Axis`](/docs/api/types/axis) | `axis("z", { offsetX: 50 })` | An axis object created with `axis()` |
+| [`SceneObject`](/docs/api/types/scene-object) | `select(edge().line().first())` | A straight edge, along its line |
+| [`Connector`](/docs/api/types/connector) | `connector("pin", …)` | The connector's Z axis |
+| Standard plane string | `"xy"`, `"xz"`, `"yz"` | The normal of a principal plane |
+| [`Plane`](/docs/api/types/plane) | `plane("xy", { rotateX: 30 })` | The normal of a plane object created with `plane()` |
+| [`SceneObject`](/docs/api/types/scene-object) | `select(face().planar().first())` | The normal of a planar face |
+
+A curved edge or face gives no direction and is refused when the feature builds.

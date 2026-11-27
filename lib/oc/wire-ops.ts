@@ -300,6 +300,19 @@ export class WireOps {
   }
 
   /**
+   * Edges chained into wires — exact first, then within the size-relative
+   * {@link connectTolerance} hand-drawn profiles need — one wire per
+   * connected chain, chains in the order of their earliest edge. The one
+   * chaining of loose edges: a curve argument's edges (`CurveOperand`), a
+   * preview's picks and a section's edges all go through it.
+   */
+  static chainEdges(edges: readonly Edge[]): Wire[] {
+    const tolerance = WireOps.connectTolerance([...edges]);
+    return WireOps.groupConnectedEdges([...edges], tolerance)
+      .flatMap(group => WireOps.makeChainWires(group, tolerance));
+  }
+
+  /**
    * Endpoint-connect tolerance for chaining sketch profile edges: 1/1000 of
    * the largest single-edge extent, floored at 1e-6. Relative to edge size so
    * tiny sketches don't get unrelated geometry merged, while a few

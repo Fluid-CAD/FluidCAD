@@ -110,15 +110,12 @@ export class CurveOperand {
   }
 
   /**
-   * Edges chained into wires — exact first, then within the size-relative
-   * connect tolerance hand-drawn profiles need — one wire per connected
-   * chain, chains in the order of their earliest edge. For readers that
+   * Edges chained into wires, one per connected chain, chains in the order
+   * of their earliest edge: {@link WireOps.chainEdges}, for readers that
    * hold edges already (a preview built from picks).
    */
   static chain(edges: readonly Edge[]): Wire[] {
-    const tolerance = WireOps.connectTolerance([...edges]);
-    return WireOps.groupConnectedEdges([...edges], tolerance)
-      .flatMap(group => WireOps.makeChainWires(group, tolerance));
+    return WireOps.chainEdges(edges);
   }
 
   /**

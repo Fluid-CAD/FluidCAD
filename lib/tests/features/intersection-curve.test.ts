@@ -516,14 +516,14 @@ describe("intersect(first, second) outside a sketch", () => {
       expect(make().getType()).toBe("intersection-curve");
     });
 
-    it("reads as the tool's name in an unnamed row, as the sketch tool of its callee does", () => {
+    it("reads as what it makes in an unnamed row, while the sketch tool of its callee keeps its own name", () => {
       const box = block();
       const ic = intersect(box, slab()) as unknown as IntersectionCurve;
       render();
 
       const labels = DefaultNames.labelsFor(getCurrentScene().getTimelineObjects());
-      expect(ic.getDisplayType()).toBe("Intersect");
-      expect(DefaultNames.labelFor(ic, labels)).toBe("Intersect 1");
+      expect(ic.getDisplayType()).toBe("Intersection Curve");
+      expect(DefaultNames.labelFor(ic, labels)).toBe("Intersection Curve 1");
       expect(Object.create(Intersect.prototype).getDisplayType()).toBe("Intersect");
     });
   });

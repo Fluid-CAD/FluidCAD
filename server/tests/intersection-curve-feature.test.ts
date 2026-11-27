@@ -112,7 +112,7 @@ describe('writing an intersection curve', () => {
       `const s = load('wing.step')`,
       `const fin = load('fin.step')`,
       `sketch('xz', () => { circle([10, 10], 2) })`,
-      `intersect(e.sideFaces(), s).name('Intersect 1')`,
+      `intersect(e.sideFaces(), s).name('Intersection Curve 1')`,
     ));
   });
 
@@ -124,12 +124,12 @@ describe('writing an intersection curve', () => {
     ));
 
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`\nintersect([e.startFaces(), e.sideFaces(0)], [s, fin]).name('Intersect 1')\n`);
+    expect(result.newCode).toContain(`\nintersect([e.startFaces(), e.sideFaces(0)], [s, fin]).name('Intersection Curve 1')\n`);
   });
 
   it('is bound as ic when a later statement takes its edge', async () => {
     const code = CODE.replace(`load('wing.step')`, `const s = load('wing.step')`)
-      + `intersect(e.sideFaces(), s).name('Intersect 1')\n`;
+      + `intersect(e.sideFaces(), s).name('Intersection Curve 1')\n`;
     const result = await applyFeatureEdit(code, {
       feature: 'sweep',
       filePath: FILE,
@@ -143,7 +143,7 @@ describe('writing an intersection curve', () => {
     });
 
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`\nconst ic = intersect(e.sideFaces(), s).name('Intersect 1')\n`);
+    expect(result.newCode).toContain(`\nconst ic = intersect(e.sideFaces(), s).name('Intersection Curve 1')\n`);
     expect(result.newCode).toContain(`sweep(ic.edges(0), p)`);
   });
 
@@ -176,7 +176,7 @@ const WRITTEN = src(
   `const wing = load('wing.step')`,
   `const fin = load('fin.step')`,
   `sketch('xz', () => { circle([10, 10], 2) })`,
-  `intersect(e.sideFaces(), wing).name('Intersect 1')`,
+  `intersect(e.sideFaces(), wing).name('Intersection Curve 1')`,
   `const ic = intersect([e.sideFaces(0),  /* rim */ e.endFaces()], [wing, fin])`,
   `intersect(e)`,
 );
@@ -227,8 +227,8 @@ describe('editing an intersection curve', () => {
 
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe(WRITTEN.replace(
-      `intersect(e.sideFaces(), wing).name('Intersect 1')`,
-      `intersect(e.sideFaces(), fin).name('Intersect 1')`,
+      `intersect(e.sideFaces(), wing).name('Intersection Curve 1')`,
+      `intersect(e.sideFaces(), fin).name('Intersection Curve 1')`,
     ));
   });
 
@@ -248,7 +248,7 @@ describe('editing an intersection curve', () => {
     }, [solid(4, 10), surface(5, 13)], [bucket(0, 'sideFaces'), bucket(0, 'endFaces')]));
 
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`\nintersect([wing, e.sideFaces()], e.endFaces()).name('Intersect 1')\n`);
+    expect(result.newCode).toContain(`\nintersect([wing, e.sideFaces()], e.endFaces()).name('Intersection Curve 1')\n`);
   });
 
   it('refuses an edge selector in a slot and an empty slot, leaving the code alone', async () => {
@@ -405,7 +405,7 @@ describe('the routes', () => {
       parts: [],
     });
     expect(await written(base, CODE)).toContain(`\nconst s = load('wing.step')\n`);
-    expect(await written(base, CODE)).toContain(`\nintersect(fin, s).name('Intersect 1')\n`);
+    expect(await written(base, CODE)).toContain(`\nintersect(fin, s).name('Intersection Curve 1')\n`);
   });
 
   it('refuses an edge in a row, an empty row and a pick of no known kind', async () => {
@@ -443,7 +443,7 @@ describe('the routes', () => {
     expect(relayed[0].spec.edit.intersectionCurve).toEqual({
       second: { kind: 'picks', picks: [{ kind: 'producer', producer: 0 }] },
     });
-    expect(await written(base, WRITTEN)).toContain(`\nintersect(e.sideFaces(), fin).name('Intersect 1')\n`);
+    expect(await written(base, WRITTEN)).toContain(`\nintersect(e.sideFaces(), fin).name('Intersection Curve 1')\n`);
   });
 
   it('asks a boundary of an edit that re-picks faces, and refuses an empty row', async () => {
@@ -564,7 +564,7 @@ describe('through the real engine', () => {
       `const wing = load('${(wing as any).fileName}')`,
       `const fin = load('${(fin as any).fileName}')`,
       `sketch('xz', () => { circle([10, 10], 2) })`,
-      ...(withCurve ? [`intersect(e.sideFaces(), wing).name('Intersect 1')`] : []),
+      ...(withCurve ? [`intersect(e.sideFaces(), wing).name('Intersection Curve 1')`] : []),
     );
     const body = (e as unknown as SceneObject).getShapes().find(shape => shape.isSolid())!;
     return { scene, code, body, side: sideFaceOf(body), curve };
@@ -608,12 +608,12 @@ describe('through the real engine', () => {
 
     expect((await post(`${base}/apply-feature`, request)).status).toBe(200);
     const newCode = await written(base, code);
-    expect(newCode).toBe(`${code}intersect(e.sideFaces(), wing).name('Intersect 1')\n`);
+    expect(newCode).toBe(`${code}intersect(e.sideFaces(), wing).name('Intersection Curve 1')\n`);
 
     const built = runFluid(newCode);
     expect(built.getAllSceneObjects().map(obj => obj.getError()).filter(Boolean)).toEqual([]);
     const ic = built.getAllSceneObjects().find(obj => obj instanceof IntersectionCurve)!;
-    expect(ic.getName()).toBe('Intersect 1');
+    expect(ic.getName()).toBe('Intersection Curve 1');
     expect(circleRadii(ic)).toEqual([10]);
   });
 
@@ -627,7 +627,7 @@ describe('through the real engine', () => {
       second: [statement(5, 13), statement(6, 12)],
     })).status).toBe(200);
     const newCode = await written(base, code);
-    expect(newCode).toContain(`\nintersect(e.sideFaces(), [wing, fin]).name('Intersect 1')\n`);
+    expect(newCode).toContain(`\nintersect(e.sideFaces(), [wing, fin]).name('Intersection Curve 1')\n`);
 
     const ic = runFluid(newCode).getAllSceneObjects().find(obj => obj instanceof IntersectionCurve)!;
     expect(ic.getError()).toBeNull();
@@ -681,8 +681,8 @@ describe('through the real engine', () => {
     expect((await post(`${base}/apply-feature`, edit)).status).toBe(200);
     const newCode = await written(base, code);
     expect(newCode).toBe(code.replace(
-      `intersect(e.sideFaces(), wing).name('Intersect 1')`,
-      `${preview.body.preview}.name('Intersect 1')`,
+      `intersect(e.sideFaces(), wing).name('Intersection Curve 1')`,
+      `${preview.body.preview}.name('Intersection Curve 1')`,
     ));
   });
 

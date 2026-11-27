@@ -75,7 +75,7 @@ function scene(withCurve = false): SceneObjectRender[] {
       sceneShapes: [{ shapeId: 'wing-surface', shapeType: 'surface', meshes: MESH }],
     },
     ...(withCurve ? [{
-      id: 'ic', type: 'intersection-curve', name: 'Intersect 1', ownShapes: [], sourceLocation: at(8),
+      id: 'ic', type: 'intersection-curve', name: 'Intersection Curve 1', ownShapes: [], sourceLocation: at(8),
       sceneShapes: [{ shapeId: 'ic-wire', shapeType: 'wire', meshes: MESH }],
     }] : []),
   ] as unknown as SceneObjectRender[];
@@ -376,7 +376,7 @@ describe('editing an intersection curve', () => {
     firstArg: 'e.sideFaces()',
     secondArg: 'p',
   } as Extract<ParsedFeatureStatement, { feature: 'intersection-curve' }>;
-  const INFO = { index: 3, type: 'intersection-curve', expectedStatement: "intersect(e.sideFaces(), p).name('Intersect 1')" };
+  const INFO = { index: 3, type: 'intersection-curve', expectedStatement: "intersect(e.sideFaces(), p).name('Intersection Curve 1')" };
   const BOUNDARY = { index: 3, type: 'intersection-curve', line: 8, column: 0 };
 
   /** Open the dialog over the curve, the engine resolving its operands, and land at the boundary. */

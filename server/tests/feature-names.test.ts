@@ -45,7 +45,6 @@ import { Subtract } from '../../lib/features/subtract.js';
 import { Common } from '../../lib/features/common.js';
 import { Helix } from '../../lib/features/helix.js';
 import { IntersectionCurve } from '../../lib/features/intersection-curve.js';
-import { Intersect } from '../../lib/features/2d/intersect.js';
 import { PlaneObject } from '../../lib/features/plane.js';
 import { AxisObject } from '../../lib/features/axis.js';
 
@@ -109,9 +108,9 @@ describe('DISPLAY_TYPE_BY_CALLEE', () => {
       subtract: [{ cls: Subtract }],
       common: [{ cls: Common }],
       helix: [{ cls: Helix }],
-      // Outside a sketch the intersection curve; inside, the sketch tool,
-      // which is never named but reads the same.
-      intersect: [{ cls: IntersectionCurve }, { cls: Intersect }],
+      // Outside a sketch the intersection curve. Inside one it is the sketch
+      // tool, which is never named and keeps its own "Intersect".
+      intersect: [{ cls: IntersectionCurve }],
       plane: [{ cls: PlaneObject }],
       axis: [{ cls: AxisObject }],
     };

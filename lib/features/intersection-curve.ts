@@ -95,11 +95,11 @@ export class IntersectionCurve extends CurveObject implements IIntersectionCurve
   }
 
   /**
-   * The tool's name, as its menu and its callee say it: an unnamed row reads
-   * "Intersect 1", where the type would read "Intersection-curve 1".
+   * What it makes: an unnamed row reads "Intersection Curve 1", where the
+   * type would read "Intersection-curve 1".
    */
   override getDisplayType(): string {
-    return 'Intersect';
+    return 'Intersection Curve';
   }
 
   override getDependencies(): SceneObject[] {

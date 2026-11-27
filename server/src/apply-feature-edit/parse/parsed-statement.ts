@@ -642,7 +642,7 @@ export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   subtract: 'Subtract',
   common: 'Common',
   helix: 'Helix',
-  intersect: 'Intersect',
+  intersect: 'Intersection Curve',
   plane: 'Plane',
   axis: 'Axis',
 };

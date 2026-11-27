@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // to it, and its requests carry the values the user set, the picks, the
 // operation and its scope — an edit only what changed. One dialog service
 // per test file: the shared worker binds a service to the first file's api
-// mock.
+// mock. A value that holds several faces or edges grows as the built-in
+// pick dialogs' selections do: a double-click takes a surface rim edge's
+// loop or another pick's bucket, a right-click group its members — as plain
+// picks, since a custom feature writes no chains.
 
 vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api')>()),
@@ -26,6 +29,7 @@ vi.mock('../src/api', async (importOriginal) => ({
 import * as api from '../src/api';
 import type { FeatureCatalogEntry, FeatureMetaSnapshot, ParsedFeatureStatement } from '../src/api';
 import { DerivedLayout, type BareFeatureMeta } from './fixtures/derived-layout';
+import { FakeSelectionServer } from './fixtures/fake-selection-server';
 import { FeatureCatalogDialogs } from '../src/interactive/create-feature/schema/feature-catalog-dialogs';
 import { FeatureSchema } from '../src/interactive/create-feature/schema/feature-schema';
 import { SchemaFeatureService } from '../src/interactive/create-feature/schema/schema-feature-service';
@@ -57,6 +61,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   localStorage.clear();
   setActivePartLocationProvider(() => null);
   document.body.innerHTML = '';
@@ -234,6 +239,7 @@ function stubViewer() {
     currentSceneObjects: [] as SceneObjectRender[],
     suspendSketchEditing: () => {},
     resumeSketchEditing: () => {},
+    clearHover: () => {},
     highlightEntities: (entities: unknown[], _wires: string[] = [], solids: string[] = []) => {
       state.highlighted = entities;
       state.solids = solids;
@@ -1917,6 +1923,57 @@ describe('a select naming a parameter in a custom feature dialog', () => {
     pick('size', 'M3');
     await vi.advanceTimersByTimeAsync(300);
     expect(lastEdit()!.values).toEqual({ size: 'm3' });
+    service.exit();
+  });
+});
+
+describe("a custom feature's list of faces or edges grows like a built-in selection", () => {
+  /** A feature trimming along a list of edges. */
+  const TRIM = meta('acme.trim', 'Trim', {
+    edges: { picker: 'edge', multiple: true, label: 'Edges' },
+  }, { operations: ['remove'], defaultOperation: 'remove' });
+  const edgeOf = (shapeId: string, index: number) => ({ shapeId, sub: { type: 'edge' as const, index } });
+  const RIM = [1, 2, 5].map(i => edgeOf('sheet', i));
+
+  it("takes a surface's rim loop on a double-click, and another edge's bucket, as plain picks", async () => {
+    const server = new FakeSelectionServer().install();
+    server.loop = (entity) => entity.shapeId === 'sheet' ? { rim: true, members: RIM } : { rim: false, members: [] };
+    server.bucket = () => ({ members: [edgeOf('plate-solid', 7), edgeOf('plate-solid', 8)] });
+    const { service, lastCreate } = mount(TRIM);
+    service.enter();
+    // The viewer's double-click: its two clicks land first, toggling the pick on and off.
+    service.handleClick('sheet', RIM[1].sub);
+    service.handleClick('sheet', RIM[1].sub);
+    expect(service.handleDoubleClick('sheet', RIM[1].sub)).toBe(true);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.picks).toEqual({ edges: [{ kind: 'entities', entities: RIM }] });
+
+    service.handleDoubleClick('plate-solid', edgeOf('plate-solid', 7).sub);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.picks).toEqual({
+      edges: [{ kind: 'entities', entities: [...RIM, edgeOf('plate-solid', 7), edgeOf('plate-solid', 8)] }],
+    });
+    service.exit();
+  });
+
+  it("offers a face's connected faces on a right-click, previews them, and takes them as plain picks", async () => {
+    const connected = [faceOf('plate-solid', 1), faceOf('plate-solid', 2), faceOf('plate-solid', 3)];
+    const server = new FakeSelectionServer().install();
+    server.groups = [
+      { kind: 'loop', label: 'Connected Planes', members: connected },
+      { kind: 'same-type', label: 'All Planes', members: [...connected, faceOf('plate-solid', 4)] },
+    ];
+    const { service, container, state, lastCreate } = mount(DRAFT);
+    service.enter();
+    expect(service.handleContextMenu('plate-solid', faceOf('plate-solid', 2).sub, 10, 10)).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    const items = [...container.querySelectorAll<HTMLButtonElement>('#fluidcad-feature-draft-select-menu button')];
+    expect(items.map(b => b.textContent)).toEqual(['Connected Planes (3)', 'All Planes (4)']);
+    items[0].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(state.highlighted).toEqual(connected);
+    items[0].click();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(lastCreate()!.picks).toEqual({ faces: [{ kind: 'entities', entities: connected }] });
     service.exit();
   });
 });

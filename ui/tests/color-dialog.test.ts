@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // selection seeds the tab it fits; the colour field takes hex values,
 // names and swatches and blocks a value that is no colour; and the edit
 // dialog reopens an object paint with its targets and a face paint with the
-// kernel's faces, keeping untouched arguments verbatim.
+// kernel's faces, keeping untouched arguments verbatim. The Face tab's
+// right-click menu offers a face's connected faces, kept as a loop chain.
 
 vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api')>()),
@@ -16,8 +17,6 @@ vi.mock('../src/api', async (importOriginal) => ({
     : { success: true, preview: "color('…')" }),
   applyColorEdit: vi.fn(async () => ({ success: true, preview: "color('…')" })),
   fetchFeatureSources: vi.fn(async () => ({ ok: false, reason: 'unused' })),
-  fetchSelectionGroups: vi.fn(async () => ({ groups: [] })),
-  expandBucket: vi.fn(async () => ({ members: [] })),
   getScopeVariables: vi.fn(async () => []),
   rollback: vi.fn(),
   continueBreakpoint: vi.fn(),
@@ -29,6 +28,7 @@ import { ColorValues } from '../src/interactive/create-feature/color-values';
 import { Navbar } from '../src/ui/navbar';
 import type { SceneObjectRender } from '../src/types';
 import type { SelectedEntity, Viewer } from '../src/viewer';
+import { FakeSelectionServer } from './fixtures/fake-selection-server';
 
 // The toolbar measures itself with a ResizeObserver, which jsdom lacks.
 class ResizeObserverStub {
@@ -126,6 +126,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   document.body.innerHTML = '';
 });
 
@@ -333,5 +334,29 @@ describe('ColorFeatureService', () => {
     rig.apply();
     await settle();
     expect(vi.mocked(applyColorEdit).mock.lastCall?.[1]).toMatchObject({ value: { expr: 'tint' } });
+  });
+
+  it('offers a face\'s connected faces on a right-click, previews them, and keeps them as a chain sent as a loop', async () => {
+    const connected = [FACE(1), FACE(2), FACE(3)];
+    const server = new FakeSelectionServer().install();
+    server.groups = [
+      { kind: 'loop', label: 'Connected Planes', members: connected },
+      { kind: 'same-type', label: 'All Planes', members: [...connected, FACE(4)] },
+    ];
+    const rig = mount();
+    rig.service.enter();
+    rig.tab('Face');
+    rig.service.handleContextMenu('s1', { type: 'face', index: 2 }, 10, 10);
+    await vi.advanceTimersByTimeAsync(0);
+    const items = [...rig.container.querySelectorAll<HTMLButtonElement>('#fluidcad-color-selection-menu button')];
+    expect(items.map(b => b.textContent)).toEqual(['Connected Planes (3)', 'All Planes (4)']);
+    items[0].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(rig.lastHighlight()?.entities).toEqual(connected);
+    items[0].click();
+    expect(rig.chips('faces')).toEqual(['Connected faces (3 faces)']);
+    await settle();
+    expect(vi.mocked(applyColor).mock.lastCall?.[0]).toMatchObject({
+      paint: { kind: 'faces', entities: connected, chains: [{ seed: FACE(2), members: connected, kind: 'loop' }] }, preview: true,
+    });
   });
 });

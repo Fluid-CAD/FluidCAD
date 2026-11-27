@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // regular edges, so a click on one of them is the object — written as its
 // statement, in the slot a sketch path travels in — while an edge of a solid
 // is a path edge pick. A helix is one curve object among others: the dialog
-// asks what the row holds, not what made it.
+// asks what the row holds, not what made it. A loop is a path too: the
+// right-click menu offers the loops of the faces an edge bounds and keeps
+// the one chosen as a chain sent as a loop, and a double-click on a
+// surface's rim edge takes the rim loop.
 
 vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api')>()),
@@ -23,7 +26,8 @@ import * as api from '../src/api';
 import { SweepFeatureService } from '../src/interactive/create-feature/sweep-service';
 import { Navbar } from '../src/ui/navbar';
 import type { SceneObjectRender } from '../src/types';
-import type { Viewer } from '../src/viewer';
+import type { SelectedEntity, Viewer } from '../src/viewer';
+import { FakeSelectionServer } from './fixtures/fake-selection-server';
 
 // The toolbar measures itself with a ResizeObserver, which jsdom lacks.
 class ResizeObserverStub {
@@ -42,6 +46,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   document.body.innerHTML = '';
 });
 
@@ -141,6 +146,47 @@ describe('Sweep — a curve object as the path', () => {
     expect(pathChips()).toEqual(['Copy 1']);
     expect(await sentPath()).toEqual({ kind: 'sketch', ...at(7) });
     expect(vi.mocked(api.applySweep).mock.calls.at(-1)![0].profile).toMatchObject({ line: 2 });
+    service.exit();
+  });
+});
+
+describe('Sweep — a loop as the path', () => {
+  const edgeOf = (shapeId: string, index: number): SelectedEntity => ({ shapeId, sub: { type: 'edge', index } });
+  const FACE_LOOP = [0, 1, 2, 3].map(i => edgeOf('block-solid', i));
+
+  it('the right-click menu offers the loops of the faces an edge bounds, and keeps the one chosen as a chain sent as a loop', async () => {
+    const server = new FakeSelectionServer().install();
+    server.groups = [
+      { kind: 'tangent', label: 'Tangent Edges', members: FACE_LOOP.slice(0, 2) },
+      { kind: 'loop', label: 'Outer Loop of Plane 1', members: FACE_LOOP },
+      { kind: 'loop', label: 'Outer Loop of Plane 2', members: [0, 4, 5, 6].map(i => edgeOf('block-solid', i)) },
+      { kind: 'same-type', label: 'All Lines', members: FACE_LOOP.slice(0, 3) },
+    ];
+    const { service, pathChips, sentPath } = mount();
+    service.handleContextMenu('block-solid', { type: 'edge', index: 1 }, 10, 10);
+    await vi.advanceTimersByTimeAsync(0);
+    const items = [...document.querySelectorAll<HTMLButtonElement>('#fluidcad-sweep-pick-menu button')];
+    // A path is one connected chain: loops, never scattered same-type edges.
+    expect(items.map(b => b.textContent)).toEqual(['Tangent Edges (2)', 'Outer Loop of Plane 1 (4)', 'Outer Loop of Plane 2 (4)']);
+    items[1].click();
+    expect(pathChips()).toEqual(['Loop (4 edges)']);
+    expect(await sentPath()).toEqual({
+      kind: 'edges', entities: FACE_LOOP, chains: [{ seed: edgeOf('block-solid', 1), members: FACE_LOOP, kind: 'loop' }],
+    });
+    service.exit();
+  });
+
+  it('a double-click on a surface\'s rim edge takes the rim loop, as plain picks', async () => {
+    const rim = [1, 2, 5].map(i => edgeOf('sheet', i));
+    const server = new FakeSelectionServer().install();
+    server.loop = () => ({ rim: true, members: rim });
+    const { service, pathChips, edge, sentPath } = mount();
+    edge('sheet', 2);
+    edge('sheet', 2);
+    await service.handleDoubleClick('sheet', { type: 'edge', index: 2 });
+    expect(server.count('api/selection/expand-bucket')).toBe(0);
+    expect(pathChips()).toEqual(['Edge', 'Edge', 'Edge']);
+    expect(await sentPath()).toEqual({ kind: 'edges', entities: rim, chains: [] });
     service.exit();
   });
 });

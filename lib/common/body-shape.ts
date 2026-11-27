@@ -155,6 +155,18 @@ export abstract class BodyShape<T extends TopoDS_Shape = TopoDS_Shape> extends S
   }
 
   /**
+   * Whether `edge` is on this body's open rim: a model edge that bounds
+   * exactly one of its faces. A closed solid has none; a seam, which runs
+   * through its one face twice, is hidden and never on it. The one
+   * definition of a rim edge — `Sheet.getBoundaryEdges` (the
+   * `boundaryEdges()` bucket), the viewport's rim style and the
+   * `edge().boundary()` filter all ask here.
+   */
+  isBoundaryEdge(edge: TopoDS_Shape): boolean {
+    return !this.isHiddenEdge(edge) && this.facesAtEdge(edge).length === 1;
+  }
+
+  /**
    * {@link getFacesOfEdge} for a raw edge, read from the same table and not
    * remembered per edge: for questions about an edge no wrapper stands for.
    */

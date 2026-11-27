@@ -25,6 +25,12 @@ export abstract class BelongsToFaceFilterBase extends FilterBase<Edge> implement
     this.scopeFaces = extraFaces;
   }
 
+  /** Whether a body in scope that owns the edge hides it (a seam, a degenerated edge): never drawn, never between two faces. */
+  protected isHiddenInScope(edge: Edge): boolean {
+    return this.scopeBodies.some(body =>
+      body.getFacesOfEdge(edge).length > 0 && body.isHiddenEdge(edge.getShape()));
+  }
+
   protected findContainingFaces(edge: Edge): Face[] {
     const edgeShape = edge.getShape();
     const seen = new Set<Face>();

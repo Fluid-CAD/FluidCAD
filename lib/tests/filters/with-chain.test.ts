@@ -126,6 +126,23 @@ describe("withChain()", () => {
       expect(walls.getShapes()).toHaveLength(8);
     });
 
+    it("seeds from a trailing rank: the rim loops that touch the bottom", () => {
+      // A strip's rim is one loop of six edges; only its two bottom edges are nearest.
+      surface(() => [TestSheets.strip([[0, 0], [10, 0], [10, 10]], 5)]);
+      // A tube's two rims are loops apart; only the lower one touches the bottom.
+      surface(() => [TopologySheets.squareTube(10, 10, 10)]);
+      const bottom = select(edge().boundary().nearest("z")) as unknown as SceneObject;
+      const loops = select(edge().boundary().nearest("z").withChain()) as unknown as SceneObject;
+      render();
+
+      expect(bottom.getShapes()).toHaveLength(6);
+      expect(loops.getShapes()).toHaveLength(10);
+      const reach = (above: number) => loops.getShapes().filter(shape => ShapeOps.getBoundingBox(shape).maxZ > above);
+      // The strip's whole loop — its two ends and its top edges reach z = 5 — and not the tube's top rim.
+      expect(reach(4)).toHaveLength(4);
+      expect(reach(9)).toHaveLength(0);
+    });
+
     it("seeds from a trailing rank: the loops that hold the nearest edges", () => {
       holedPlate();
       const seed = select(edge().onPlane("xy").nearest("x")) as unknown as SceneObject;

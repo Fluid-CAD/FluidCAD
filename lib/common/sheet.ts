@@ -1,4 +1,4 @@
-import type { TopoDS_Shape, TopoDS_Shell } from "ocjs-fluidcad";
+import type { TopoDS_Shell } from "ocjs-fluidcad";
 import { SheetOps } from "../oc/sheet-ops.js";
 import { ShapeType } from "./shape-type.js";
 import { Shape } from "./shape.js";
@@ -32,18 +32,14 @@ export class Sheet extends BodyShape<TopoDS_Shell> {
 
   /**
    * The open rim: every model edge that bounds exactly one face of this
-   * sheet. A seam lists its one face twice and is hidden anyway, so it is
-   * never part of the rim.
+   * sheet ({@link isBoundaryEdge}). A seam is hidden, so it is never part
+   * of the rim.
    */
   getBoundaryEdges(): Edge[] {
     if (!this.boundaryEdges) {
-      this.boundaryEdges = this.getEdges().filter(edge => this.facesAtEdge(edge.getShape()).length === 1);
+      this.boundaryEdges = this.getEdges().filter(edge => this.isBoundaryEdge(edge.getShape()));
     }
     return this.boundaryEdges;
-  }
-
-  isBoundaryEdge(edge: TopoDS_Shape): boolean {
-    return !this.isHiddenEdge(edge) && this.facesAtEdge(edge).length === 1;
   }
 
   /** The rim as closed loops (and open chains, for a rim a seam interrupts). */

@@ -3,6 +3,8 @@ import { getOC } from "../../oc/init.js";
 import { SheetOps } from "../../oc/sheet-ops.js";
 import { BuildSceneObjectContext } from "../../common/scene-object.js";
 import { Sheet } from "../../common/sheet.js";
+import { Solid } from "../../common/solid.js";
+import { ShapeFactory } from "../../common/shape-factory.js";
 import { SurfaceObject } from "../../features/surface-object.js";
 import { addToScene } from "../setup.js";
 
@@ -61,6 +63,26 @@ export const TopologySheets = {
       maker.delete();
       outer.delete();
       inner.delete();
+    }
+  },
+
+  /**
+   * The four walls of an `x` × `y` × `z` box from the origin, with neither
+   * floor nor lid: a square tube whose two open ends are its two rim loops,
+   * at z = 0 and z = `z`.
+   */
+  squareTube(x: number, y: number, z: number): Sheet {
+    const oc = getOC();
+    const maker = new oc.BRepPrimAPI_MakeBox(x, y, z);
+    const box = ShapeFactory.adopt(maker.Shape()) as Solid;
+    maker.delete();
+    try {
+      const walls = box.getFaces().filter(face => Math.abs(face.center().z - z / 2) < 1e-9);
+      const [sheet, ...rest] = SheetOps.fromFaces(walls);
+      for (const extra of rest) extra.dispose();
+      return sheet;
+    } finally {
+      box.dispose();
     }
   },
 };

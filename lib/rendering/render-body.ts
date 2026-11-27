@@ -94,9 +94,10 @@ function getEdgesMesh(body: BodyShape, facePieces: FacePiece[]): SceneObjectMesh
           edgeIndex: edgeIdx,
         };
         // An edge only one face bounds is the open rim of a surface: the UI
-        // draws it in the rim style. A closed solid has none, and a seam (its
-        // one face listed twice) is hidden above.
-        if (parents.Size() === 1) {
+        // draws it in the rim style. A closed solid has none, and a seam is
+        // hidden above. The body's own rule, which edge().boundary() and the
+        // boundaryEdges() bucket read too.
+        if (body.isBoundaryEdge(edgeShape)) {
           mesh.boundary = true;
         }
         // A junction where the two faces are tangent (a fillet's boundary, a

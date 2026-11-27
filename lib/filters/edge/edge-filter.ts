@@ -32,6 +32,17 @@ import { ConvexityFilter } from "./convexity.js";
 import { ExtremalFilter } from "../rank/extremal.js";
 import { MeasureExtremeFilter, SizeMeasure } from "../rank/measure.js";
 import { BodyKindFilter } from "../body-kind.js";
+import { BoundaryFilter } from "./boundary.js";
+import { BetweenFilter } from "./between.js";
+import { BoundaryOfFilter } from "./boundary-of.js";
+import { GroupArg, ShapeGroup } from "../shape-group.js";
+
+/**
+ * A group of faces a topology predicate takes: face filter builders, or a
+ * face reference — a bucket accessor like `wall.sideFaces()`, or a
+ * select().
+ */
+export type FaceGroupArg = FilterBuilderBase<Face> | ISceneObject;
 
 
 export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
@@ -511,6 +522,113 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
       this.filters.push(new WireMembershipFilter(filterBuilders, role, negate));
     }
     return this;
+  }
+
+  /**
+   * Selects the open rim of a surface: edges that bound exactly one face of
+   * their body. A solid has none, and a seam is never one. The same rule
+   * as a surface's `boundaryEdges()` bucket and the rim the viewport draws,
+   * asked of every body in scope: `select(edge().boundary())` is every open
+   * rim in the model. Pure topology — no size, no position — so it holds
+   * through any edit.
+   */
+  boundary() {
+    this.filters.push(new BoundaryFilter());
+    return this;
+  }
+
+  /** Excludes the open rim of a surface, keeping the edges between two faces (and every edge of a solid). */
+  notBoundary() {
+    this.filters.push(new BoundaryFilter(true));
+    return this;
+  }
+
+  /**
+   * Selects edges shared by a face of `a` and a different face of `b` — the
+   * seam where two groups of faces meet. Order does not matter, and the two
+   * faces must be distinct, so `between(face(), face())` is every interior
+   * edge and never a seam.
+   *
+   * ```js
+   * edge().between(face().planar(), face().freeform())  // by description
+   * edge().between(wall.sideFaces(), cap.faces())        // by reference
+   * edge().between(fl.faces(), face())                   // where the fill meets anything
+   * ```
+   *
+   * Each group is face filter builders or a face reference, as `outerOf()`
+   * takes them, or an array of them (a face of any one counts). A builder
+   * names the faces `select(builder)` would name among the bodies in scope.
+   * A reference is read from the faces as they are now, by identity or by
+   * the surface it lies on, so a later fillet that rebuilt the face does not
+   * break the selection (a free-form face has no surface to match and is
+   * matched by identity only).
+   * @param a - The faces on one side: face filters, a face reference, or an array of them.
+   * @param b - The faces on the other side.
+   */
+  between(a: FaceGroupArg | FaceGroupArg[], b: FaceGroupArg | FaceGroupArg[]): this {
+    this.filters.push(new BetweenFilter(...EdgeFilterBuilder.betweenGroups('between(a, b)', arguments.length, a, b)));
+    return this;
+  }
+
+  /**
+   * Excludes edges shared by a face of `a` and a different face of `b`. An
+   * edge bounding fewer than two faces (a surface's open rim) survives.
+   * @param a - The faces on one side: face filters, a face reference, or an array of them.
+   * @param b - The faces on the other side.
+   */
+  notBetween(a: FaceGroupArg | FaceGroupArg[], b: FaceGroupArg | FaceGroupArg[]): this {
+    this.filters.push(new BetweenFilter(...EdgeFilterBuilder.betweenGroups('notBetween(a, b)', arguments.length, a, b), true));
+    return this;
+  }
+
+  private static betweenGroups(call: string, count: number, a: FaceGroupArg | FaceGroupArg[], b: FaceGroupArg | FaceGroupArg[]): [ShapeGroup<Face>, ShapeGroup<Face>] {
+    if (count !== 2 || a == null || b == null) {
+      throw new Error(`${call}: takes two face groups — face filters or face references — one for each side (got ${count})`);
+    }
+    return [EdgeFilterBuilder.faceGroup(call, a), EdgeFilterBuilder.faceGroup(call, b)];
+  }
+
+  /**
+   * Selects the perimeter of a group of faces: edges that bound exactly one
+   * face of the group. For one face that is all of its loops (use
+   * `outerOf()` / `holeOf()` to tell them apart); for connected faces it is
+   * their outline — what a fill or a ruled surface is built from; for
+   * groups apart from each other, the outline of each.
+   *
+   * ```js
+   * edge().boundaryOf(pocket.internalFaces())  // the mouth of a pocket
+   * edge().boundaryOf(face().cylinder())       // the rims of every cylindrical face group
+   * ```
+   *
+   * The faces are given as for `between()`: face filter builders or face
+   * references, read from the faces as they are now. Several arguments
+   * make one group.
+   * @param faces - Face filter builders, or scene objects whose faces make the group.
+   */
+  boundaryOf(...faces: FaceGroupArg[]): this {
+    this.filters.push(new BoundaryOfFilter(EdgeFilterBuilder.faceGroup('boundaryOf(...faces)', faces, true)));
+    return this;
+  }
+
+  /**
+   * Excludes the perimeter of a group of faces given as for `boundaryOf()`.
+   * @param faces - Face filter builders, or scene objects whose faces make the group.
+   */
+  notBoundaryOf(...faces: FaceGroupArg[]): this {
+    this.filters.push(new BoundaryOfFilter(EdgeFilterBuilder.faceGroup('notBoundaryOf(...faces)', faces, true), true));
+    return this;
+  }
+
+  private static faceGroup(call: string, arg: FaceGroupArg | FaceGroupArg[], requireOne = false): ShapeGroup<Face> {
+    const args = (Array.isArray(arg) ? arg : [arg]) as GroupArg<Face>[];
+    if (requireOne && args.length === 0) {
+      throw new Error(`${call}: name the faces — face filters or a face reference`);
+    }
+    try {
+      return ShapeGroup.of<Face>('face', args);
+    } catch (e) {
+      throw new Error(`${call}: ${(e as Error).message}`);
+    }
   }
 
   /**

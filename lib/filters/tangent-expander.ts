@@ -1,7 +1,7 @@
-import type { TopoDS_Edge, TopoDS_Face } from "ocjs-fluidcad";
+import type { TopoDS_Edge, TopoDS_Face, TopoDS_Shape, TopoDS_Vertex } from "ocjs-fluidcad";
 import { getOC } from "../oc/init.js";
-import { ShapeHasher } from "../oc/shape-hash.js";
 import { Shape, Edge, Face } from "../common/shapes.js";
+import { Connectivity } from "./connectivity.js";
 
 export class TangentExpander {
 
@@ -23,37 +23,14 @@ export class TangentExpander {
 
   /**
    * BFS expansion for edges. Two edges are tangent if they share a vertex
-   * and their tangent vectors at that vertex are parallel.
+   * and one continues the other smoothly there (see {@link areEdgesTangent}).
    */
   private static expandEdges(seeds: Edge[], pool: Edge[]): Edge[] {
-    // Interns shapes for IsSame-consistent Map keys (replaces TopoDS_Shape.HashCode,
-    // removed in OCCT 8.0); scoped to this expansion and freed below.
-    const hasher = new ShapeHasher();
+    const connectivity = Connectivity.ofEdges(pool);
     try {
-      // Build vertex → edge adjacency map for efficient lookup
-      const vertexToEdges = TangentExpander.buildVertexToEdgeMap(pool, hasher);
-
-      const included = new Set<Edge>(seeds);
-      const queue: Edge[] = [...seeds];
-
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        const neighbors = TangentExpander.getAdjacentEdges(current, vertexToEdges, hasher);
-
-        for (const candidate of neighbors) {
-          if (included.has(candidate)) {
-            continue;
-          }
-          if (TangentExpander.areEdgesTangent(current, candidate)) {
-            included.add(candidate);
-            queue.push(candidate);
-          }
-        }
-      }
-
-      return [...included];
+      return connectivity.flood(seeds, (current, candidate) => TangentExpander.areEdgesTangent(current, candidate));
     } finally {
-      hasher.delete();
+      connectivity.delete();
     }
   }
 
@@ -62,40 +39,22 @@ export class TangentExpander {
    * and have G1 or higher continuity across that edge.
    */
   private static expandFaces(seeds: Face[], pool: Face[]): Face[] {
-    // Interns shapes for IsSame-consistent Map keys (replaces TopoDS_Shape.HashCode,
-    // removed in OCCT 8.0); scoped to this expansion and freed below.
-    const hasher = new ShapeHasher();
+    const connectivity = Connectivity.ofFaces(pool);
     try {
-      // Build edge → face adjacency map
-      const edgeToFaces = TangentExpander.buildEdgeToFaceMap(pool, hasher);
-
-      const included = new Set<Face>(seeds);
-      const queue: Face[] = [...seeds];
-
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        const neighbors = TangentExpander.getAdjacentFaces(current, edgeToFaces, hasher);
-
-        for (const [candidate, sharedEdge] of neighbors) {
-          if (included.has(candidate)) {
-            continue;
-          }
-          if (TangentExpander.areFacesTangent(current, candidate, sharedEdge)) {
-            included.add(candidate);
-            queue.push(candidate);
-          }
-        }
-      }
-
-      return [...included];
+      return connectivity.flood(seeds, (current, candidate, shared) =>
+        TangentExpander.areFacesTangent(current, candidate, shared as TopoDS_Edge));
     } finally {
-      hasher.delete();
+      connectivity.delete();
     }
   }
 
   /**
-   * Checks if two edges are tangent at a shared vertex by comparing
-   * their tangent vectors (parallel = tangent).
+   * Whether two edges continue each other smoothly at a vertex they share.
+   * Each edge's tangent is taken in the direction leading **away from** the
+   * shared vertex: a smooth continuation has the two pointing opposite ways
+   * (one arrives where the other leaves), while two edges that fold straight
+   * back onto the same side — a cusp — have them pointing the same way, and
+   * are not tangent.
    */
   static areEdgesTangent(e1: Edge, e2: Edge): boolean {
     const oc = getOC();
@@ -105,72 +64,67 @@ export class TangentExpander {
     const e1Raw = e1.getShape() as TopoDS_Edge;
     const e2Raw = e2.getShape() as TopoDS_Edge;
 
-    const e1First = oc.TopExp.FirstVertex(e1Raw, true);
-    const e1Last = oc.TopExp.LastVertex(e1Raw, true);
-    const e2First = oc.TopExp.FirstVertex(e2Raw, true);
-    const e2Last = oc.TopExp.LastVertex(e2Raw, true);
-
-    // Check all 4 vertex pairings for a shared vertex
-    const pairs = [
-      { v1: e1First, v2: e2First },
-      { v1: e1First, v2: e2Last },
-      { v1: e1Last, v2: e2First },
-      { v1: e1Last, v2: e2Last },
+    // Each edge's ends in its own orientation: the start, where the edge
+    // leaves along its tangent, and the end, where it arrives along it.
+    const ends1 = [
+      { vertex: oc.TopExp.FirstVertex(e1Raw, true), away: 1 },
+      { vertex: oc.TopExp.LastVertex(e1Raw, true), away: -1 },
+    ];
+    const ends2 = [
+      { vertex: oc.TopExp.FirstVertex(e2Raw, true), away: 1 },
+      { vertex: oc.TopExp.LastVertex(e2Raw, true), away: -1 },
     ];
 
-    for (const { v1, v2 } of pairs) {
-      if (!v1.IsPartner(v2)) {
-        continue;
+    try {
+      for (const end1 of ends1) {
+        for (const end2 of ends2) {
+          if (!end1.vertex.IsPartner(end2.vertex)) {
+            continue;
+          }
+          const t1 = TangentExpander.unitTangentAt(e1Raw, end1.vertex);
+          const t2 = TangentExpander.unitTangentAt(e2Raw, end2.vertex);
+          if (!t1 || !t2) {
+            continue;
+          }
+          const dot = end1.away * end2.away * (t1[0] * t2[0] + t1[1] * t2[1] + t1[2] * t2[2]);
+          if (dot < -Math.cos(angTol)) {
+            return true;
+          }
+        }
       }
-
-      // Get raw curves and parameters at the shared vertex
-      const curve1Handle = oc.BRep_Tool.Curve(e1Raw, 0, 1);
-      const curve1 = curve1Handle.returnValue;
-      const param1 = oc.BRep_Tool.Parameter(v1, e1Raw);
-
-      const curve2Handle = oc.BRep_Tool.Curve(e2Raw, 0, 1);
-      const curve2 = curve2Handle.returnValue;
-      const param2 = oc.BRep_Tool.Parameter(v2, e2Raw);
-
-      // Evaluate tangent vectors using D1
-      const pnt1 = new oc.gp_Pnt();
-      const vec1 = new oc.gp_Vec();
-      curve1.D1(param1, pnt1, vec1);
-
-      const pnt2 = new oc.gp_Pnt();
-      const vec2 = new oc.gp_Vec();
-      curve2.D1(param2, pnt2, vec2);
-
-      // Flip tangent if edge is reversed
-      if (e1Raw.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-        vec1.Reverse();
-      }
-      if (e2Raw.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
-        vec2.Reverse();
-      }
-
-      // Check parallelism: |cos(angle)| > cos(angTol)
-      const mag1 = vec1.Magnitude();
-      const mag2 = vec2.Magnitude();
-      let tangent = false;
-
-      if (mag1 > 1e-10 && mag2 > 1e-10) {
-        const dot = Math.abs(vec1.Normalized().Dot(vec2.Normalized()));
-        tangent = dot > Math.cos(angTol);
-      }
-
-      // Cleanup
-      pnt1.delete();
-      vec1.delete();
-      pnt2.delete();
-      vec2.delete();
-
-      if (tangent) {
-        return true;
-      }
+      return false;
+    } finally {
+      for (const { vertex } of [...ends1, ...ends2]) vertex.delete();
     }
+  }
 
-    return false;
+  /**
+   * The edge's unit tangent at `vertex`, in the direction the oriented edge
+   * runs; null where the curve has none (a degenerate edge, a zero derivative).
+   */
+  private static unitTangentAt(edge: TopoDS_Edge, vertex: TopoDS_Vertex): [number, number, number] | null {
+    const oc = getOC();
+    const handle = oc.BRep_Tool.Curve(edge, 0, 1);
+    const curve = handle?.returnValue;
+    if (!curve || curve.isNull()) {
+      handle?.[Symbol.dispose]();
+      return null;
+    }
+    const pnt = new oc.gp_Pnt();
+    const vec = new oc.gp_Vec();
+    try {
+      curve.D1(oc.BRep_Tool.Parameter(vertex, edge), pnt, vec);
+      const mag = vec.Magnitude();
+      if (mag <= 1e-10) {
+        return null;
+      }
+      const sign = edge.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED ? -1 : 1;
+      return [sign * vec.X() / mag, sign * vec.Y() / mag, sign * vec.Z() / mag];
+    } finally {
+      pnt.delete();
+      vec.delete();
+      handle[Symbol.dispose]();
+    }
   }
 
   /**
@@ -178,106 +132,14 @@ export class TangentExpander {
    * Uses BRepLib.ContinuityOfFaces which computes the continuity from geometry
    * on-the-fly (unlike BRep_Tool.Continuity which reads stored flags).
    */
-  static areFacesTangent(f1: Face, f2: Face, sharedEdge: TopoDS_Edge): boolean {
+  static areFacesTangent(f1: Face, f2: Face, sharedEdge: TopoDS_Edge | TopoDS_Shape): boolean {
     const oc = getOC();
     const f1Raw = f1.getShape() as TopoDS_Face;
     const f2Raw = f2.getShape() as TopoDS_Face;
     const angTol = 0.01; // ~0.57 degrees
 
-    const continuity = oc.BRepLib.ContinuityOfFaces(sharedEdge, f1Raw, f2Raw, angTol);
+    const continuity = oc.BRepLib.ContinuityOfFaces(sharedEdge as TopoDS_Edge, f1Raw, f2Raw, angTol);
     // C0 = sharp edge (not tangent). Anything else (G1, C1, G2, C2, C3, CN) = tangent.
     return continuity !== oc.GeomAbs_Shape.GeomAbs_C0;
-  }
-
-  /**
-   * Builds a map from vertex TShape hash to the list of edges that share that vertex.
-   */
-  private static buildVertexToEdgeMap(edges: Edge[], hasher: ShapeHasher): Map<number, Edge[]> {
-    const oc = getOC();
-    const map = new Map<number, Edge[]>();
-
-    for (const edge of edges) {
-      const raw = edge.getShape() as TopoDS_Edge;
-      const first = oc.TopExp.FirstVertex(raw, true);
-      const last = oc.TopExp.LastVertex(raw, true);
-
-      for (const vertex of [first, last]) {
-        const hash = hasher.key(vertex);
-        if (!map.has(hash)) {
-          map.set(hash, []);
-        }
-        map.get(hash)!.push(edge);
-      }
-    }
-
-    return map;
-  }
-
-  /**
-   * Builds a map from edge TShape hash to the list of faces that share that edge.
-   */
-  private static buildEdgeToFaceMap(faces: Face[], hasher: ShapeHasher): Map<number, Face[]> {
-    const map = new Map<number, Face[]>();
-
-    for (const face of faces) {
-      const faceEdges = face.getEdges();
-      for (const edge of faceEdges) {
-        const hash = hasher.key(edge.getShape());
-        if (!map.has(hash)) {
-          map.set(hash, []);
-        }
-        map.get(hash)!.push(face);
-      }
-    }
-
-    return map;
-  }
-
-  /**
-   * Returns edges from the adjacency map that share a vertex with the given edge.
-   */
-  private static getAdjacentEdges(edge: Edge, vertexToEdges: Map<number, Edge[]>, hasher: ShapeHasher): Edge[] {
-    const oc = getOC();
-    const raw = edge.getShape() as TopoDS_Edge;
-    const first = oc.TopExp.FirstVertex(raw, true);
-    const last = oc.TopExp.LastVertex(raw, true);
-
-    const neighbors = new Set<Edge>();
-    for (const vertex of [first, last]) {
-      const hash = hasher.key(vertex);
-      const candidates = vertexToEdges.get(hash);
-      if (candidates) {
-        for (const c of candidates) {
-          if (c !== edge) {
-            neighbors.add(c);
-          }
-        }
-      }
-    }
-
-    return [...neighbors];
-  }
-
-  /**
-   * Returns faces from the adjacency map that share an edge with the given face,
-   * along with the shared edge's raw TopoDS_Edge.
-   */
-  private static getAdjacentFaces(face: Face, edgeToFaces: Map<number, Face[]>, hasher: ShapeHasher): Array<[Face, TopoDS_Edge]> {
-    const result: Array<[Face, TopoDS_Edge]> = [];
-    const faceEdges = face.getEdges();
-
-    for (const edge of faceEdges) {
-      const hash = hasher.key(edge.getShape());
-      const candidates = edgeToFaces.get(hash);
-      if (candidates) {
-        for (const c of candidates) {
-          if (c !== face) {
-            result.push([c, edge.getShape() as TopoDS_Edge]);
-          }
-        }
-      }
-    }
-
-    return result;
   }
 }

@@ -202,15 +202,22 @@ class PlainPaths {
 /**
  * The recognized entries of a plain object-literal argument, keyed by
  * property name. Null when the node is not an object literal or carries a
- * shape the dialogs can't read back (spreads, shorthand, computed keys).
+ * shape the dialogs can't read back (spreads, computed keys, methods, and
+ * shorthand unless `shorthand` is set: then `{ on }` reads as the entry
+ * `on`, its node the shorthand itself, which names its variable as an
+ * identifier does — see {@link resolveIdentifierCall}).
  */
-export function objectLiteralEntries(node: TSNode): Map<string, TSNode> | null {
+export function objectLiteralEntries(node: TSNode, options: { shorthand?: boolean } = {}): Map<string, TSNode> | null {
   if (node.type !== 'object') {
     return null;
   }
   const entries = new Map<string, TSNode>();
   for (const child of node.namedChildren) {
     if (child.type === 'comment') {
+      continue;
+    }
+    if (options.shorthand && child.type === 'shorthand_property_identifier') {
+      entries.set(child.text, child);
       continue;
     }
     if (child.type !== 'pair') {
@@ -257,13 +264,14 @@ export function numericArrayValues(node: TSNode): ValueExpr[] | null {
 
 /**
  * The call a plain identifier argument is bound to: a `const <name> = <call>`
- * declaration preceding the statement in a scope that encloses it. Null for
- * anything else (inline calls, unresolvable names, non-call initializers);
- * the nearest preceding declaration wins when a name is declared more than
- * once.
+ * declaration preceding the statement in a scope that encloses it. A
+ * shorthand property (`{ on }`) names its variable as an identifier does.
+ * Null for anything else (inline calls, unresolvable names, non-call
+ * initializers); the nearest preceding declaration wins when a name is
+ * declared more than once.
  */
 export function resolveIdentifierCall(node: TSNode, statementStart: number): TSNode | null {
-  if (node.type !== 'identifier') {
+  if (node.type !== 'identifier' && node.type !== 'shorthand_property_identifier') {
     return null;
   }
   let root: TSNode = node;

@@ -1,7 +1,8 @@
 // The shared pieces of a statement written from rows of curve or surface
 // picks, on a fixture tool `join(left, right)` — a curve row and a surface
-// row: OperandRows (the rows' check, rendering, read-back, edit and part
-// ledger), WordOption (a chained one-word option) and the `.direction(…)`
+// row — and one written `wrap(gap, along, { onto })`, a value before its rows
+// and a row in an options object: OperandRows (the rows' check, rendering,
+// read-back, edit and part ledger), WordOption (a chained one-word option) and the `.direction(…)`
 // chain helpers of Directions.
 
 import { describe, it, expect } from 'vitest';
@@ -165,6 +166,95 @@ describe('OperandRows', () => {
       expect(JOIN.edited({ left: { kind: 'picks', picks: [] } }, parsed, editSpec(), named())).toEqual({
         error: 'join: the left side is empty — pick a curve or edges for it',
       });
+    });
+  });
+
+  describe('with a value before the rows and a row in an options object', () => {
+    /** The fixture: `wrap(gap, along, { onto })` — a value, a curve row and a surface row written as an option. */
+    const WRAP = new OperandRows<'along' | 'onto'>({
+      callee: 'wrap',
+      tool: 'wrap',
+      values: ['gap'],
+      rows: {
+        along: { kind: 'curve', label: 'the curves', wants: 'a curve or edges' },
+        onto: { kind: 'surface', label: '{ onto }', wants: 'faces', option: true },
+      },
+      shapeError: 'wrap() takes the gap, the curves and { onto } — edit it in the source',
+      optionsError: 'wrap: the only option is { onto: faces } — edit it in the source',
+    });
+    const WRAPPED = src(
+      `const rail = sketch('xy', () => {})`,
+      `const onto = load('skin.step')`,
+      `wrap(2, rail, { onto: [onto, e.endFaces()] })`,
+      `wrap(gap * 2, [rail], { onto })`,
+      `wrap(2, rail)`,
+      `wrap(2, ...rails, { onto })`,
+      `wrap(2, rail, onto)`,
+      `wrap(2, rail, {})`,
+      `wrap(2, rail, { onto, extend: true })`,
+      `wrap(2, rail, { [key]: onto })`,
+      `wrap(2, rail, { ...options })`,
+      `wrap(2, rail, { 'onto': onto, /* kept */ })`,
+    );
+
+    it('lists every row, the option among them, with the kind each takes', () => {
+      expect(WRAP.names).toEqual(['along', 'onto']);
+      expect(WRAP.kinds).toEqual({ along: 'curve', onto: 'surface' });
+    });
+
+    it('writes the values first, the argument rows, then the option rows as one object, shorthand for a variable of its own name', () => {
+      const args = WRAP.arguments({ along: [whole(0)], onto: [whole(1), selector(1)] }, SPEC.parts, named('rail', 'skin', 'e'));
+      expect(args).toEqual({ along: 'rail', onto: '[skin, e.endFaces()]' });
+      expect(WRAP.call(args, ['2'])).toBe('wrap(2, rail, { onto: [skin, e.endFaces()] })');
+      expect(WRAP.call({ along: 'rail', onto: 'onto' }, ['gap'])).toBe('wrap(gap, rail, { onto })');
+    });
+
+    it('reads the rows back past the values, an option by its key and a shorthand as the variable it names', async () => {
+      const listed = await callAt(WRAPPED, 3);
+      expect(WRAP.parse(listed.args, listed.start)).toEqual({
+        alongTexts: ['rail'],
+        alongRefs: [{ line: 1, column: 13 }],
+        ontoTexts: ['onto', 'e.endFaces()'],
+        ontoRefs: [{ line: 2, column: 13 }, null],
+        alongArg: 'rail',
+        ontoArg: '[onto, e.endFaces()]',
+      });
+      const shorthand = await callAt(WRAPPED, 4);
+      expect(WRAP.parse(shorthand.args, shorthand.start)).toEqual({
+        alongTexts: ['rail'],
+        alongRefs: [{ line: 1, column: 13 }],
+        ontoTexts: ['onto'],
+        ontoRefs: [{ line: 2, column: 13 }],
+        alongArg: '[rail]',
+        ontoArg: 'onto',
+      });
+      const quoted = await callAt(WRAPPED, 12);
+      expect(WRAP.parse(quoted.args, quoted.start)).toMatchObject({ ontoTexts: ['onto'], ontoArg: 'onto' });
+    });
+
+    it('refuses another count of arguments, a spread or no options object in the shape\'s words', async () => {
+      for (const line of [5, 6, 7]) {
+        const { args, start } = await callAt(WRAPPED, line);
+        expect(WRAP.parse(args, start), `line ${line}`).toEqual({ error: 'wrap() takes the gap, the curves and { onto } — edit it in the source' });
+      }
+    });
+
+    it('refuses an options object missing its row, with another key, a computed key or a spread in the options\' words', async () => {
+      for (const line of [8, 9, 10, 11]) {
+        const { args, start } = await callAt(WRAPPED, line);
+        expect(WRAP.parse(args, start), `line ${line}`).toEqual({ error: 'wrap: the only option is { onto: faces } — edit it in the source' });
+      }
+    });
+
+    it('writes an edit with the rows kept or re-picked in their places', () => {
+      const parsed = {
+        alongTexts: ['rail'], alongRefs: [null], ontoTexts: ['onto'], ontoRefs: [null], alongArg: 'rail', ontoArg: 'onto',
+      };
+      const edited = WRAP.edited({ along: { kind: 'picks', picks: [whole(0)] } }, parsed, {
+        feature: 'intersection-curve', producers: [wire(3, 'rail2')], parts: [],
+      }, named());
+      expect(edited).toEqual({ args: { along: 'rail2', onto: 'onto' }, parts: [] });
+      expect(WRAP.call((edited as { args: Record<'along' | 'onto', string> }).args, ['2.50'])).toBe('wrap(2.50, rail2, { onto })');
     });
   });
 

@@ -1,8 +1,9 @@
-import type { SourceSlotRef } from '../../api';
+import type { SelectionBoundaryRef, SourceSlotRef } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { holdsSurface, modelShapeIdsOf } from '../../helpers/scene-utils';
 import type { SceneObjectRender, SubSelection } from '../../types';
 import type { SelectedEntity } from '../../viewer';
+import { expandDoubleClick } from '../pick-expansion';
 import { PickSlot, type PickSlotChip } from '../pick-slot';
 import { consumedLabel, consumerName } from './consumed-option';
 import { consumedReveal } from './consumed-reveal';
@@ -79,6 +80,11 @@ type OperandKeep = { text: string; ref: SourceSlotRef | null };
  * solid, piece by piece. Which rows are curve objects and which hold a
  * surface is asked of what the scene rows hold (`isCurveObject`,
  * `holdsSurface`), so a tool that leaves one is taken without being listed.
+ * A list grows the edges and faces it takes as themselves as the built-in
+ * pick dialogs' selections do: a double-click takes a surface rim edge's
+ * loop or any other pick's bucket ({@link takeDoubleClick}), and a
+ * right-click group's members join it ({@link takeMembers}), as plain
+ * picks.
  *
  * Whole objects are addressed by call site and re-found after each render
  * ({@link setScene}); picked edges and faces die with the render that minted
@@ -210,12 +216,66 @@ export class OperandSlotControl {
       return 'ignored';
     }
     // A face of a surface stands for the whole object holding it.
-    const holder = this.scene.find(obj => obj.sourceLocation && holdsSurface(obj)
-      && modelShapeIdsOf(obj, this.scene, ['surface']).includes(shapeId));
+    const holder = this.surfaceHolder(shapeId);
     if (holder?.sourceLocation) {
       return this.takeObject(holder, holder.sourceLocation);
     }
     return this.take({ kind: 'entity', entity: { shapeId, sub } });
+  }
+
+  /**
+   * Whether a double-click or a right-click group on this pick grows the
+   * slot: a list that takes the edge or the face as itself — an edge of a
+   * solid or a surface in a curve row, a face of a solid in a surface row.
+   * A pick that stands for a whole object is whole already.
+   */
+  expands(shapeId: string, sub: SubSelection): boolean {
+    if (!this.multiple || !sub) {
+      return false;
+    }
+    if (this.kind === 'curve') {
+      return sub.type === 'edge' && !resolveWireByShapeId(shapeId, this.scene)?.sourceLocation;
+    }
+    return sub.type === 'face' && !this.surfaceHolder(shapeId)?.sourceLocation;
+  }
+
+  /**
+   * A double-click, routed by the host like {@link takeClick} (its two
+   * clicks have already toggled the pick): an edge or a face the slot takes
+   * as itself expands — a surface's rim edge to its rim loop, any other to
+   * its classified bucket ({@link expandDoubleClick}) — and the members join
+   * the picks, so the seed ends up picked either way. `before` is an edit
+   * session's boundary. A render that lands meanwhile drops the answer: its
+   * ids are stale.
+   */
+  async takeDoubleClick(shapeId: string, sub: SubSelection, before?: SelectionBoundaryRef): Promise<PickOutcome> {
+    if (!sub || (sub.type !== 'edge' && sub.type !== 'face') || !this.expands(shapeId, sub)) {
+      return 'ignored';
+    }
+    const scene = this.scene;
+    const result = await expandDoubleClick({ shapeId, sub }, before);
+    if (this.scene !== scene) {
+      return 'ignored';
+    }
+    return 'error' in result ? { message: result.error } : this.takeMembers(result.members);
+  }
+
+  /**
+   * A right-click group's members, or a double-click's expansion: each the
+   * slot takes as itself joins the picks as an edge or a face, and the ones
+   * it holds stay — a list only; an operand writes no chains.
+   */
+  takeMembers(members: SelectedEntity[]): PickOutcome {
+    const taken = members.filter(member => member.sub.type !== 'vertex' && this.expands(member.shapeId, member.sub));
+    if (taken.length === 0) {
+      return 'ignored';
+    }
+    this.startPicking();
+    const fresh = taken.filter(member => !this.picked.some(pick => pick.kind === 'entity' && sameEntity(pick.entity, member)));
+    this.picked.push(...fresh.map((entity): OperandPick => ({ kind: 'entity', entity })));
+    this.settle();
+    this.render();
+    return fresh.length > 0 ? 'taken' : 'ignored';
   }
 
   /**
@@ -355,6 +415,12 @@ export class OperandSlotControl {
       return picks;
     }
     return null;
+  }
+
+  /** The object holding the surface a face is on, when it is a surface's face. */
+  private surfaceHolder(shapeId: string): SceneObjectRender | undefined {
+    return this.scene.find(obj => obj.sourceLocation && holdsSurface(obj)
+      && modelShapeIdsOf(obj, this.scene, ['surface']).includes(shapeId));
   }
 
   private optionAt(loc: { filePath: string; line: number }): OperandOption | undefined {

@@ -9,8 +9,11 @@ import type { StandardAxisId } from '../../../scene/standard-axes';
 import type { StandardPlaneId } from '../../../scene/standard-planes';
 import type { SceneObjectRender, SourceLocation, SubSelection } from '../../../types';
 import type { Navbar } from '../../../ui/navbar';
-import type { Viewer } from '../../../viewer';
+import type { SelectedEntity, Viewer } from '../../../viewer';
+import { mergeUniqueEntities } from '../../../helpers/entities';
 import { EditSession } from '../../edit-session';
+import { expandDoubleClick } from '../../pick-expansion';
+import { SelectionContextMenu } from '../../selection-menu';
 import type {
   ConnectorPickDetail, FeatureDialogExit, FeatureDialogService, FeatureEditInfo, ParsedFeatureKind,
 } from '../../feature-dialog-registry';
@@ -61,6 +64,12 @@ export type SchemaFeatureHooks = {
  * shape — the values the user set, the picks, the operation and its scope —
  * and an edit rewrites only what the user changed. The re-render is the
  * preview, editor undo the rollback.
+ *
+ * A value that holds several faces or edges grows as the built-in pick
+ * dialogs' selections do: a double-click takes a surface rim edge's loop or
+ * any other pick's bucket, and a right-click offers the shared multi-select
+ * menu. Their members join the value as plain picks — a custom feature
+ * writes no tangent or loop chains.
  *
  * While the dialog previews, the feature's ghost draws in the viewport —
  * built by the engine from the same values and picks. The feature's metadata
@@ -120,6 +129,8 @@ export class SchemaFeatureService implements FeatureDialogService {
   private readonly pickMenu: ConnectorPickMenu | null;
   /** Picked faces' surfaces as the engine classified them, by shape id and face index — null while asked. */
   private readonly faceSurfaces = new Map<string, FeaturePickedSurface | null>();
+  /** The right-click multi-select menu — only for a feature with a value that holds several faces or edges. */
+  private readonly selectionMenu: SelectionContextMenu | null;
 
   constructor(
     container: HTMLElement,
@@ -215,6 +226,20 @@ export class SchemaFeatureService implements FeatureDialogService {
 
     const pickers = [...this.panel.pickers.values()];
     this.pickMenu = pickers.some(p => p.takesConnectors) ? new ConnectorPickMenu(container) : null;
+    // Every group is offered, and each lands as plain picks (takeMembers).
+    this.selectionMenu = pickers.some(p => p.isList && (p.takes('face') || p.takes('edge')))
+      ? new SelectionContextMenu(container, `fluidcad-feature-${schema.id.replace(/\W/g, '-')}-select-menu`, {
+        kinds: ['tangent', 'loop', 'classified', 'same-type', 'equal', 'sibling'],
+        onSelectGroup: (_kind, _seed, members) => {
+          const picker = this.expandingPicker();
+          if (picker) {
+            this.land(picker, picker.takeMembers(members));
+          }
+        },
+        onPreview: (members) => this.refreshHighlight(members ?? []),
+        boundary: () => this.session.boundary ?? undefined,
+      })
+      : null;
     if (pickers.some(p => p.takes('anchor'))) {
       this.connectorGhost = new ConnectorGhostOverlay(viewer);
       // A custom feature takes the bare anchor wherever it is — never a
@@ -371,6 +396,7 @@ export class SchemaFeatureService implements FeatureDialogService {
       opts = { ...opts, resume: 'lazy' };
     }
     this.armed = false;
+    this.selectionMenu?.hide();
     this.editTarget = null;
     this.parsed = null;
     this.editSceneStale = false;
@@ -538,6 +564,61 @@ export class SchemaFeatureService implements FeatureDialogService {
         return true;
       }
       this.landGeometry(picker, shapeId, sub, null);
+    }
+    return true;
+  }
+
+  /**
+   * The armed value when a double-click or a right-click group grows it: a
+   * list that takes faces or edges as themselves — not one whose clicks
+   * stand for the feature that made them.
+   */
+  private expandingPicker(sub?: SubSelection): SchemaPicker | null {
+    if (!this.armed || this.panel.armedSlot === 'scope') {
+      return null;
+    }
+    const picker = this.panel.armedPicker;
+    if (!picker || picker.takesFeatureRows || (sub !== undefined && !picker.expands(sub))) {
+      return null;
+    }
+    return picker;
+  }
+
+  /**
+   * A double-click on a face or an edge the armed value holds as itself:
+   * the pick expands ({@link expandDoubleClick}) — a surface's rim edge to
+   * its rim loop, any other pick to its classified bucket — and the members
+   * join the value. The gesture's own two clicks have already toggled the
+   * pick; the merge leaves the seed picked either way.
+   */
+  handleDoubleClick(shapeId: string | null, sub: SubSelection): boolean {
+    if (!this.armed) {
+      return false;
+    }
+    const picker = this.expandingPicker(sub);
+    if (picker && shapeId && sub && (sub.type === 'face' || sub.type === 'edge')) {
+      this.selectionMenu?.hide();
+      void expandDoubleClick({ shapeId, sub }, this.session.boundary ?? undefined).then(result => {
+        if (this.expandingPicker() !== picker) {
+          return;
+        }
+        this.land(picker, 'error' in result ? { message: result.error } : picker.takeMembers(result.members));
+      });
+    }
+    return true;
+  }
+
+  /** A right-click on a face or an edge the armed value holds as itself: the multi-select menu for that pick. */
+  handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): boolean {
+    if (!this.armed) {
+      return false;
+    }
+    this.selectionMenu?.hide();
+    if (this.selectionMenu && shapeId && sub && (sub.type === 'face' || sub.type === 'edge') && this.expandingPicker(sub)) {
+      // The hover tint would otherwise be stashed as an "original" colour by
+      // the preview highlight and stick around after the preview restores it.
+      this.viewer.clearHover();
+      void this.selectionMenu.open({ shapeId, sub }, clientX, clientY);
     }
     return true;
   }
@@ -1190,8 +1271,11 @@ export class SchemaFeatureService implements FeatureDialogService {
     this.refreshHighlight();
   }
 
-  /** Light up every value's picks and the scope's solids in one pass. */
-  private refreshHighlight(): void {
+  /**
+   * Light up every value's picks and the scope's solids in one pass — with
+   * `preview`, the members a hovered menu item would add.
+   */
+  private refreshHighlight(preview: SelectedEntity[] = []): void {
     if (!this.armed) {
       return;
     }
@@ -1201,6 +1285,7 @@ export class SchemaFeatureService implements FeatureDialogService {
         picker.highlight(highlight);
       }
     }
+    highlight.entities.push(...mergeUniqueEntities(highlight.entities, preview).slice(highlight.entities.length));
     if (this.panel.scopeSlot?.visible) {
       highlight.solidIds.push(...this.scope.shapeIds());
     }

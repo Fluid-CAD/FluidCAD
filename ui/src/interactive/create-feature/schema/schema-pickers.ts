@@ -486,6 +486,41 @@ export class SchemaPicker {
     return this.add({ kind: 'entity', entity });
   }
 
+  /**
+   * Whether a double-click or a right-click group on this sub-shape grows
+   * the value: a list that takes the face or the edge as itself — not as a
+   * solid, a feature or an anchor's point.
+   */
+  expands(sub: SubSelection): boolean {
+    const kind = this.clickKind(sub);
+    return this.isList && (kind === 'face' || kind === 'edge');
+  }
+
+  /**
+   * A double-click's expansion or a right-click group's members: every
+   * member the value takes as a face or an edge joins it, as plain picks —
+   * a custom feature writes no chains — and the ones it holds stay. A group
+   * that would overflow the value's `max` is refused whole.
+   */
+  takeMembers(members: SelectedEntity[]): PickOutcome {
+    if (!this.isList) {
+      return 'ignored';
+    }
+    const fresh = members
+      .filter(member => member.sub.type !== 'vertex' && this.expands(member.sub))
+      .map((entity): PickElement => ({ kind: 'entity', entity }))
+      .filter(element => !this.elements.some(held => SchemaPicker.same(held, element)));
+    if (fresh.length === 0) {
+      return 'ignored';
+    }
+    if (this.elements.length + fresh.length > this.capacity) {
+      return { message: `${this.spec.label} takes at most ${this.capacity}.` };
+    }
+    this.elements.push(...fresh);
+    this.render();
+    return 'taken';
+  }
+
   /** A face's or an edge's anchor, locked from the hover suggestions. */
   takeAnchor(locked: LockedAnchor): PickOutcome {
     if (!this.takes('anchor')) {

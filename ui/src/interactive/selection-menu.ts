@@ -20,12 +20,15 @@ const MUTED_CLASS = 'px-3 py-1.5 text-base-content/50 whitespace-nowrap select-n
 
 /**
  * Shared right-click menu for edge/face picking (neutral mode, fillet/
- * chamfer/shell, the sweep path): multi-select groups fetched from the
- * server — tangent chain, classified bucket ("Extrude End Edges"),
- * same-type and equal-measure edges — plus "Select other" listing the
- * producing feature's other classified buckets (a startEdges pick offers
- * End Edges, Side Edges, …). Hovering any item previews exactly what
- * clicking it would select.
+ * chamfer/shell, the sweep path, the colour dialog's faces, the Project
+ * tool, custom feature dialogs): multi-select groups fetched from the
+ * server — tangent chain, loops (a surface rim edge's "Boundary Loop", the
+ * "Outer / Hole Loop" of each face an edge bounds, a face's "Connected …"
+ * faces of its kind), classified bucket ("Extrude End Edges"), same-type
+ * and equal-measure edges — plus "Select other" listing the producing
+ * feature's other classified buckets (a startEdges pick offers End Edges,
+ * Side Edges, …). Hovering any item previews exactly what clicking it
+ * would select.
  */
 export class SelectionContextMenu {
   private el: HTMLDivElement;

@@ -288,6 +288,13 @@ export interface ICurveResult extends ISceneObject {
 }
 
 /**
+ * The curve where two sets of faces meet: `intersect(first, second)`
+ * written outside a sketch. One wire per connected chain of intersection
+ * edges; `edges()` lists them curve after curve, each in the order it runs.
+ */
+export interface IIntersectionCurve extends ICurveResult {}
+
+/**
  * What every tool that leaves a surface answers: its faces, and the edges
  * of its open rim.
  */

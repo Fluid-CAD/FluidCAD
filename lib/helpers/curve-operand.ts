@@ -219,7 +219,8 @@ export class CurveOperand {
     return String(+value.toFixed(decimals) + 0);
   }
 
-  private static formatPoint(point: Point): string {
+  /** A point as a refusal names it: its coordinates, rounded to the active unit's display decimals. */
+  static formatPoint(point: Point): string {
     return `(${[point.x, point.y, point.z].map(CurveOperand.formatLength).join(', ')})`;
   }
 }

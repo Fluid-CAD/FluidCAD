@@ -17,7 +17,7 @@ export class SceneTypes {
   static readonly ENGINE: ReadonlySet<string> = new Set([
     // Features and operations
     'chamfer', 'color', 'common', 'copy-circular', 'copy-linear', 'copy-pattern', 'cut', 'cylinder',
-    'draft', 'extrude', 'fillet', 'fuse', 'helix', 'hole', 'load', 'loft', 'mirror', 'remove',
+    'draft', 'extrude', 'fillet', 'fuse', 'helix', 'hole', 'intersection-curve', 'load', 'loft', 'mirror', 'remove',
     'repeat-circular', 'repeat-linear', 'repeat-matrix', 'revolve', 'rib', 'rotate', 'section',
     'shell', 'sphere', 'split', 'split-cutter', 'subtract', 'sweep', 'translate', 'wrap',
     // Selections, datums and references

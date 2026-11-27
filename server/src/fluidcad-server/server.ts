@@ -2454,6 +2454,28 @@ export class FluidCadServer {
     return this.sceneManager.expandBucket(scene, ref, before);
   }
 
+  /**
+   * Whether a picked edge is on a surface's open rim, and its rim loop when
+   * it is — the double-click on an edge. A workspace kernel predating it
+   * answers with a reason.
+   */
+  expandLoop(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    if (!this.sceneManager.expandLoop) {
+      return { ok: false, reason: "the workspace's FluidCAD version does not support loop selection — update its fluidcad dependency" };
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.expandLoop(scene, ref, before);
+  }
+
   listSelectionGroups(
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
     before?: SelectionBoundary,

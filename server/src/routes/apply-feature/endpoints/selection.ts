@@ -238,8 +238,18 @@ export function registerSelectionEndpoints(router: Router, services: ApplyFeatur
     (pick, before) => fluidCadServer.expandBucket(pick, before),
     result => ({ members: result.members }));
 
+  // Whether a picked edge is on a surface's open rim, and the rim loop when
+  // it is — the double-click on an edge: a rim edge takes its loop, any
+  // other pick its bucket (/selection/expand-bucket). `members` is empty
+  // when `rim` is false.
+  selectionQueryRoute('/selection/expand-loop',
+    (pick, before) => fluidCadServer.expandLoop(pick, before),
+    result => ({ rim: result.rim, members: result.members }));
+
   // Every multi-select group a pick can expand to (the right-click menu):
-  // tangent chain, classified bucket, same-type and equal-measure edges.
+  // tangent chain, loops (a rim loop, the loops of the faces an edge
+  // bounds, a face's connected faces of its kind), classified bucket,
+  // same-type and equal-measure edges.
   selectionQueryRoute('/selection/groups',
     (pick, before) => fluidCadServer.listSelectionGroups(pick, before),
     result => ({ groups: result.groups }));

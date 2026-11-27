@@ -226,6 +226,12 @@ export type SceneManager = {
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
     before?: SelectionBoundary,
   ): any;
+  // Optional: predates the loop selection (double-click on a surface's rim).
+  expandLoop?(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    before?: SelectionBoundary,
+  ): any;
   resolveFeatureSources(scene: any, boundary: SelectionBoundary): any;
   // Optional: predates the live dialog geometry preview ("ghost").
   buildFeatureGhost?(scene: any, request: KernelGhostRequest): any;

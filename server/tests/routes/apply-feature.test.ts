@@ -163,6 +163,10 @@ const fakeServer = {
     queryCalls.push({ method: 'expandBucket', before });
     return currentQueryResult;
   },
+  expandLoop: (_pick: unknown, before?: unknown) => {
+    queryCalls.push({ method: 'expandLoop', before });
+    return currentQueryResult;
+  },
   listSelectionGroups: (_pick: unknown, before?: unknown) => {
     queryCalls.push({ method: 'listSelectionGroups', before });
     return currentQueryResult;
@@ -3892,6 +3896,14 @@ describe('apply-feature route validation', () => {
       const { status } = await postTo('/selection/explain', { entities: [PICK], before: BEFORE });
       expect(status).toBe(200);
       expect(queryCalls.map(c => c.before)).toEqual([BEFORE, BEFORE, BEFORE, BEFORE]);
+    });
+
+    it('passes the boundary through to expand-loop, and answers with whether the edge is a rim edge', async () => {
+      currentQueryResult = { ok: true, rim: true, members: [PICK] };
+      const { status, body } = await postTo('/selection/expand-loop', { entity: PICK, before: BEFORE });
+      expect(status).toBe(200);
+      expect(body).toEqual({ rim: true, members: [PICK] });
+      expect(queryCalls).toEqual([{ method: 'expandLoop', before: BEFORE }]);
     });
 
     it('omits the boundary when the request carries none', async () => {

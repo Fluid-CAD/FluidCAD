@@ -94,6 +94,14 @@ export class IntersectionCurve extends CurveObject implements IIntersectionCurve
     return 'intersection-curve';
   }
 
+  /**
+   * The tool's name, as its menu and its callee say it: an unnamed row reads
+   * "Intersect 1", where the type would read "Intersection-curve 1".
+   */
+  override getDisplayType(): string {
+    return 'Intersect';
+  }
+
   override getDependencies(): SceneObject[] {
     return [...this.first, ...this.second];
   }

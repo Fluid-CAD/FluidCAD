@@ -37,7 +37,8 @@ import type { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { Explorer } from "../../oc/explorer.js";
 import { testRect } from "../helpers/profiles.js";
-import { getSceneManager } from "../../scene-manager.js";
+import { getSceneManager, getCurrentScene } from "../../scene-manager.js";
+import { DefaultNames } from "../../rendering/default-names.js";
 import { TestSheets } from "../helpers/sheets.js";
 import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
 import { expectOptionsCarried } from "../helpers/option-contract.js";
@@ -513,6 +514,17 @@ describe("intersect(first, second) outside a sketch", () => {
       });
       expect(make().getDependencies()).toEqual([side, surface]);
       expect(make().getType()).toBe("intersection-curve");
+    });
+
+    it("reads as the tool's name in an unnamed row, as the sketch tool of its callee does", () => {
+      const box = block();
+      const ic = intersect(box, slab()) as unknown as IntersectionCurve;
+      render();
+
+      const labels = DefaultNames.labelsFor(getCurrentScene().getTimelineObjects());
+      expect(ic.getDisplayType()).toBe("Intersect");
+      expect(DefaultNames.labelFor(ic, labels)).toBe("Intersect 1");
+      expect(Object.create(Intersect.prototype).getDisplayType()).toBe("Intersect");
     });
   });
 

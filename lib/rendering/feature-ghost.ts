@@ -3585,7 +3585,6 @@ function resolveIntersectionSide(
   const label = `intersect: the ${side} selection`;
   const scope = allObjects(scene);
   const held: HeldFace[] = [];
-  const seen = new Set<Face>();
   for (const ref of refs) {
     if (ref.kind === 'statement') {
       const holder = findByLocation(scene, ref, obj => !obj.isContainer() && !(obj instanceof PlaneObjectBase)
@@ -3593,12 +3592,7 @@ function resolveIntersectionSide(
       if (!holder) {
         return null;
       }
-      for (const entry of FaceOperand.faces(holder, scope, label)) {
-        if (!seen.has(entry.face)) {
-          seen.add(entry.face);
-          held.push(entry);
-        }
-      }
+      held.push(...FaceOperand.faces(holder, scope, label));
     } else if (ref.kind === 'face') {
       const face = resolvePickedFace(scene, ref, scratch);
       if (!face) {

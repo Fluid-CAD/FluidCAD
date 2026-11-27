@@ -45,8 +45,9 @@ const SURFACE_WORDS: Record<SurfaceKind, string> = {
 
 /**
  * A side read from the faces an argument stands for (`FaceOperand.faces`):
- * its faces in that order, and the bodies it names whole. A side with no
- * face at all is refused, in the words of `label`.
+ * its faces in that order, each once (a face named twice — by its body and
+ * by a selection — counts at its first place), and the bodies it names
+ * whole. A side with no face at all is refused, in the words of `label`.
  */
 export function intersectionFaces(held: readonly HeldFace[], label: string): IntersectionFaces {
   if (held.length === 0) {
@@ -55,14 +56,27 @@ export function intersectionFaces(held: readonly HeldFace[], label: string): Int
       `Check that the selection matches faces at this point of the model.`,
     );
   }
-  const counts = new Map<BodyShape, number>();
-  for (const { body } of held) {
-    if (body) {
-      counts.set(body, (counts.get(body) ?? 0) + 1);
+  const hasher = new ShapeHasher();
+  try {
+    const seen = new Set<number>();
+    const faces: Face[] = [];
+    const counts = new Map<BodyShape, number>();
+    for (const { face, body } of held) {
+      const key = hasher.key(face.getShape());
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      faces.push(face);
+      if (body) {
+        counts.set(body, (counts.get(body) ?? 0) + 1);
+      }
     }
+    const wholeBodies = [...counts].filter(([body, count]) => count === body.getFaces().length).map(([body]) => body);
+    return { faces, wholeBodies };
+  } finally {
+    hasher.delete();
   }
-  const wholeBodies = [...counts].filter(([body, count]) => count === body.getFaces().length).map(([body]) => body);
-  return { faces: held.map(({ face }) => face), wholeBodies };
 }
 
 /**
@@ -103,9 +117,7 @@ export function buildIntersectionWires(first: IntersectionFaces, second: Interse
   try {
     for (const entry of section) {
       const face = crossingFace(entry, sides[0], sides[1]);
-      if (face === null) {
-        entry.edge.dispose();
-      } else {
+      if (face !== null) {
         kept.push({ edge: entry.edge, face });
       }
     }
@@ -138,7 +150,9 @@ export function buildIntersectionWires(first: IntersectionFaces, second: Interse
       throw error;
     }
   } finally {
-    kept.forEach(({ edge }) => edge.dispose());
+    // The wires hold the edges they were built from; the section's own
+    // wrappers, kept or left out, are freed here.
+    section.forEach(({ edge }) => edge.dispose());
     sides.forEach(side => side.dispose());
   }
 }
@@ -171,18 +185,19 @@ function describeFace(face: Face): string {
 
 /** The kernel shape a side is sectioned as: its whole bodies as they are, its other faces loose, in one compound when more than one. */
 function sideShape(side: IntersectionFaces): { shape: TopoDS_Shape; dispose: () => void } {
-  const whole = new Set(side.wholeBodies);
   const parts: TopoDS_Shape[] = side.wholeBodies.map(body => body.getShape());
   const hasher = new ShapeHasher();
   try {
-    const inWhole = new Set<number>();
+    const taken = new Set<number>();
     for (const body of side.wholeBodies) {
       for (const face of body.getFaces()) {
-        inWhole.add(hasher.key(face.getShape()));
+        taken.add(hasher.key(face.getShape()));
       }
     }
     for (const face of side.faces) {
-      if (whole.size === 0 || !inWhole.has(hasher.key(face.getShape()))) {
+      const key = hasher.key(face.getShape());
+      if (!taken.has(key)) {
+        taken.add(key);
         parts.push(face.getShape());
       }
     }

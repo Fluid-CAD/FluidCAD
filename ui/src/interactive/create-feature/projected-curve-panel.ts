@@ -1,12 +1,10 @@
 import type { ProjectionKeep, ProjectionMode } from '../../api';
-import { iconUrl } from '../../ui/icon-url';
 import { DirectionSlotControl } from './direction-slot';
-import { FeaturePanel } from './feature-panel';
-import { OperandSlotControl } from './operand-slot';
+import { OperandRowPanel } from './operand-row-panel';
 import { ChoiceTabs } from './panel-controls';
 
-/** The rows a pick can land in: the curves thrown, the faces they land on, the line they travel along. */
-export type ProjectionRow = 'source' | 'target' | 'direction';
+/** The operand rows: the curves thrown, and the faces they land on. */
+export type ProjectionRow = 'source' | 'target';
 
 /** What the Direction row says while it holds nothing: the default it stands for, and what it takes. */
 export const DIRECTION_HINT = 'Empty: the normal of the plane the curves lie in. Pick an axis, a straight edge, a connector, a plane or a planar face';
@@ -25,34 +23,42 @@ export const DIRECTION_HINT = 'Empty: the normal of the plane the curves lie in.
  *   it is the normal of the plane the curves lie in, which its prompt says;
  * - **Keep**, *Nearest* or *All*: which images of the curves stay.
  *
- * One row is armed at a time — the primary border, where viewport and
- * timeline picks land; a click on a row arms it. The dialog opens with
- * Curves armed, the first pick there handing the border to an empty Onto;
- * the Direction row is armed only by a click on it. Switching to *Normal to
- * surface* hides the Direction row but keeps what it holds, so switching
- * back restores it; the service leaves it out of the requests. A curve puts
- * no material anywhere, so there is no operation and no scope. Pure DOM
- * state — the service owns the scene, the previews and the apply call.
+ * The dialog opens with Curves armed, the first pick there handing the
+ * border to an empty Onto ({@link OperandRowPanel}); the Direction row is
+ * armed only by a click on it. Switching to *Normal to surface* hides the
+ * Direction row but keeps what it holds, so switching back restores it;
+ * the service leaves it out of the requests. A curve puts no material
+ * anywhere, so there is no operation and no scope.
  */
-export class ProjectedCurvePanel extends FeaturePanel {
-  /** Another row took the armed border — the service re-aims the viewer. */
-  onArmedRowChange?: () => void;
-
-  readonly source: OperandSlotControl;
-  readonly target: OperandSlotControl;
+export class ProjectedCurvePanel extends OperandRowPanel<ProjectionRow, 'direction'> {
   readonly direction: DirectionSlotControl;
   private readonly modeTabs: ChoiceTabs<ProjectionMode>;
   private readonly keepTabs: ChoiceTabs<ProjectionKeep>;
   private readonly directionGroup: HTMLElement;
-  private armed: ProjectionRow = 'source';
 
   constructor(container: HTMLElement) {
     super(container, {
-      id: 'fluidcad-projected-curve-panel',
+      id: 'projected-curve',
       title: 'Project',
-      icon: iconUrl('projected-curve'),
+      editTitle: 'Edit project',
       // Room for the mode's two labels on one line each.
       width: 'wider',
+      rows: [
+        {
+          row: 'source',
+          kind: 'curve',
+          label: 'Curves',
+          prompt: 'Pick sketches, curves, or edges of a body',
+          empty: 'Pick the curves to project: sketches, curves, or edges of a body.',
+        },
+        {
+          row: 'target',
+          kind: 'surface',
+          label: 'Onto',
+          prompt: 'Pick surfaces, or faces of a body',
+          empty: 'Pick the faces to project onto: surfaces, or faces of a body.',
+        },
+      ],
       bodyHtml: `
         <div data-role="source-slot"></div>
         <div data-role="target-slot"></div>
@@ -68,16 +74,6 @@ export class ProjectedCurvePanel extends FeaturePanel {
           <div data-role="keep-tabs" class="join w-full"></div>
         </div>
       `,
-    });
-    this.source = this.operandRow('source', {
-      kind: 'curve',
-      label: 'Curves',
-      prompt: 'Pick sketches, curves, or edges of a body',
-    });
-    this.target = this.operandRow('target', {
-      kind: 'surface',
-      label: 'Onto',
-      prompt: 'Pick surfaces, or faces of a body',
     });
 
     this.modeTabs = new ChoiceTabs<ProjectionMode>(this.role('mode-tabs'), [
@@ -95,20 +91,18 @@ export class ProjectedCurvePanel extends FeaturePanel {
     this.modeTabs.onChange = () => {
       this.syncDirectionVisibility();
       // The hidden row can't stay the pick target.
-      if (this.modeTabs.value === 'normal' && this.armed === 'direction') {
-        this.armRow(ProjectedCurvePanel.holds(this.source) ? 'target' : 'source');
+      if (this.modeTabs.value === 'normal' && this.armedRow === 'direction') {
+        this.armRow(OperandRowPanel.holds(this.slot('source')) ? 'target' : 'source');
       }
       this.onChange?.();
     };
 
     this.directionGroup = this.role('direction-group');
-    this.direction = new DirectionSlotControl(this.role('direction-slot'), {
+    this.direction = this.armable('direction', new DirectionSlotControl(this.role('direction-slot'), {
       label: 'Direction',
       prompt: DIRECTION_HINT,
       optional: true,
-    });
-    this.direction.onArm = () => this.armRow('direction');
-    this.direction.onChange = () => this.onChange?.();
+    }));
 
     this.keepTabs = new ChoiceTabs<ProjectionKeep>(this.role('keep-tabs'), [
       {
@@ -135,103 +129,26 @@ export class ProjectedCurvePanel extends FeaturePanel {
     return this.keepTabs.value;
   }
 
-  /** The row picks land in. */
-  get armedRow(): ProjectionRow {
-    return this.armed;
-  }
-
   /** The Direction row is on show: the mode is *Along direction*. */
   get directionShown(): boolean {
     return this.modeTabs.value === 'direction';
   }
 
-  /** The operand control of `row`. */
-  slot(row: 'source' | 'target'): OperandSlotControl {
-    return row === 'source' ? this.source : this.target;
-  }
-
-  /** Create mode: every row empty, the defaults chosen, Curves armed. */
-  show(): void {
-    this.shell.setTitle(null);
-    this.source.reset();
-    this.target.reset();
-    this.direction.reset();
-    this.modeTabs.reset();
-    this.keepTabs.reset();
-    this.syncDirectionVisibility();
-    this.armRow('source');
-    this.shell.show();
-  }
-
-  /**
-   * Edit mode: the service seeds the rows with the statement's own
-   * arguments and direction; the mode and what is kept open as written,
-   * Curves armed, a pick there replacing (or adding to) what the statement
-   * has.
-   */
-  showEdit(state: { mode: ProjectionMode; keep: ProjectionKeep }): void {
-    this.shell.setTitle('Edit project');
+  /** Edit mode: the mode and what is kept, as the statement writes them. */
+  seedOptions(state: { mode: ProjectionMode; keep: ProjectionKeep }): void {
     this.modeTabs.setValue(state.mode);
     this.keepTabs.setValue(state.keep);
     this.syncDirectionVisibility();
-    this.armRow('source');
-    this.shell.show();
   }
 
-  /** Arm one row: it wears the primary border and takes the next pick. */
-  armRow(row: ProjectionRow): void {
-    const changed = this.armed !== row;
-    this.armed = row;
-    this.source.setArmed(row === 'source');
-    this.target.setArmed(row === 'target');
-    this.direction.setArmed(row === 'direction');
-    if (changed) {
-      this.onArmedRowChange?.();
-    }
-  }
-
-  /**
-   * A pick just landed in `row`: once Curves holds a pick, an empty Onto
-   * takes the armed border, so the next click fills it. An Onto that holds
-   * something — picks, or an edit's own argument — leaves Curves armed for
-   * more; the Direction row is never armed but by a click on it.
-   */
-  advanceFrom(row: ProjectionRow): void {
-    if (row === 'source' && ProjectedCurvePanel.holds(this.source) && ProjectedCurvePanel.isEmpty(this.target)) {
-      this.armRow('target');
-    }
-  }
-
-  /** Release the rows: no chips, and no consumed object kept drawn for them. */
-  clearRows(): void {
-    this.source.reset();
-    this.target.reset();
-    this.direction.reset();
-  }
-
-  /** The row holds at least one pick of its own. */
-  static holds(slot: OperandSlotControl): boolean {
-    const picks = slot.picks();
-    return !('keep' in picks) && picks.picks.length > 0;
-  }
-
-  /** The row holds nothing: no pick, and no statement argument it keeps. */
-  static isEmpty(slot: OperandSlotControl): boolean {
-    const picks = slot.picks();
-    return !('keep' in picks) && picks.picks.length === 0;
+  /** Create mode: the defaults chosen. */
+  protected override resetOptions(): void {
+    this.modeTabs.reset();
+    this.keepTabs.reset();
+    this.syncDirectionVisibility();
   }
 
   private syncDirectionVisibility(): void {
     this.directionGroup.classList.toggle('hidden', !this.directionShown);
-  }
-
-  private operandRow(
-    row: 'source' | 'target',
-    opts: { kind: 'curve' | 'surface'; label: string; prompt: string },
-  ): OperandSlotControl {
-    const control = new OperandSlotControl(this.role(`${row}-slot`), { ...opts, multiple: true });
-    control.onArm = () => this.armRow(row);
-    control.onChange = () => this.onChange?.();
-    return control;
   }
 }

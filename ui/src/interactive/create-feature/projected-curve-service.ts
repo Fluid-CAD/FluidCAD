@@ -4,7 +4,7 @@ import {
   type OperandInputRef, type ParsedFeatureStatement, type ProjectedCurveApplyOptions, type ProjectedCurveEditOptions,
   type SourceSlotRef,
 } from '../../api';
-import { mergeUniqueEntities, sameEntity } from '../../helpers/entities';
+import { mergeUniqueEntities } from '../../helpers/entities';
 import { hasSolid, hasSurface } from '../../helpers/scene-utils';
 import type { StandardAxisId } from '../../scene/standard-axes';
 import type { StandardPlaneId } from '../../scene/standard-planes';
@@ -35,10 +35,18 @@ type EditSources = Record<OperandRow, SourceSlotRef[]> & { direction: SourceSlot
 
 const OPERAND_ROWS: readonly OperandRow[] = ['source', 'target'];
 
+/** The same sub-shape of the same shape. */
+function samePick(a: { shapeId: string; sub: NonNullable<SubSelection> }, b: { shapeId: string; sub: NonNullable<SubSelection> }): boolean {
+  return a.shapeId === b.shapeId && a.sub.type === b.sub.type && a.sub.index === b.sub.index;
+}
+
+/** What a viewport click picked: an edge, a face, a sketch's wire. */
+type ClickedPick = { shapeId: string; sub: NonNullable<SubSelection> };
+
 /** One viewport click, as a double-click that follows it reads it back. */
 type RecentClick = {
   row: ProjectionRow;
-  entity: SelectedEntity;
+  pick: ClickedPick;
   /** The row took it (or took it back off). */
   taken: boolean;
   /** It handed the armed border on to another row. */
@@ -429,14 +437,17 @@ export class ProjectedCurveFeatureService {
     }
     const outcome = this.panel.slot(row).takeClick(shapeId, sub);
     this.land(row, outcome);
-    this.recentClicks = sub.type === 'face' || sub.type === 'edge'
-      ? [...this.recentClicks.slice(-1), {
-        row,
-        entity: { shapeId, sub },
-        taken: outcome === 'taken',
-        handedOn: this.panel.armedRow !== row,
-      }]
-      : [];
+    this.remember(row, { shapeId, sub }, outcome);
+  }
+
+  /** Keep the last two clicks for a double-click that may follow them. */
+  private remember(row: OperandRow, pick: ClickedPick, outcome: PickOutcome): void {
+    this.recentClicks = [...this.recentClicks.slice(-1), {
+      row,
+      pick,
+      taken: outcome === 'taken',
+      handedOn: this.panel.armedRow !== row,
+    }];
   }
 
   /** A sketch's wire clicked while Curves is armed: the whole sketch. */
@@ -445,8 +456,10 @@ export class ProjectedCurveFeatureService {
       return false;
     }
     this.selectionMenu.hide();
-    this.recentClicks = [];
-    this.land('source', this.panel.source.takeClick(shapeId, { type: 'sketch', index: 0 }));
+    const pick: ClickedPick = { shapeId, sub: { type: 'sketch', index: 0 } };
+    const outcome = this.panel.source.takeClick(shapeId, pick.sub);
+    this.land('source', outcome);
+    this.remember('source', pick, outcome);
     return true;
   }
 
@@ -485,11 +498,8 @@ export class ProjectedCurveFeatureService {
       return;
     }
     this.selectionMenu.hide();
-    const gesture = sub.type === 'face' || sub.type === 'edge'
-      ? this.gestureRow({ shapeId, sub })
-      : { row: this.panel.armedRow as OperandRow, repaired: false };
-    const { row, repaired } = gesture;
-    const outcome = await this.panel.slot(row).takeDoubleClick(shapeId, sub, this.session.boundary ?? undefined);
+    const { row, seed, repaired } = this.gestureRow({ shapeId, sub });
+    const outcome = await this.panel.slot(row).takeDoubleClick(seed.shapeId, seed.sub, this.session.boundary ?? undefined);
     if (!this.armed || this.panel.armedRow !== row) {
       return;
     }
@@ -503,25 +513,28 @@ export class ProjectedCurveFeatureService {
   }
 
   /**
-   * The row a double-click on `entity` belongs to. Its first click can fill
-   * Curves and hand the border to an empty Onto, which its second click then
-   * lands in: that click is taken back out of Onto, and the gesture goes on
-   * in Curves, where it started.
+   * The row a double-click at `pick` belongs to, and what it grows from.
+   * Its first click can fill Curves and hand the border to an empty Onto,
+   * which its second click then lands in — on the face under the cursor,
+   * since Onto picks faces where Curves picked the edge (or the sketch's
+   * wire) in front of it. That click is taken back out of Onto, and the
+   * gesture goes on in Curves, where it started, from what its first click
+   * picked.
    */
-  private gestureRow(entity: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } }): { row: OperandRow; repaired: boolean } {
+  private gestureRow(pick: ClickedPick): { row: OperandRow; seed: ClickedPick; repaired: boolean } {
     const [first, second] = this.recentClicks.length === 2 ? this.recentClicks : [];
     this.recentClicks = [];
     const armed = this.panel.armedRow as OperandRow;
     if (!first || !second || !first.handedOn || second.row === first.row || first.row === 'direction'
-      || !sameEntity(first.entity, entity) || !sameEntity(second.entity, entity)) {
-      return { row: armed, repaired: false };
+      || !(samePick(second.pick, pick) || samePick(first.pick, pick))) {
+      return { row: armed, seed: pick, repaired: false };
     }
     if (second.taken && second.row !== 'direction') {
-      this.panel.slot(second.row).takeClick(entity.shapeId, entity.sub);
+      this.panel.slot(second.row).takeClick(second.pick.shapeId, second.pick.sub);
     }
     this.panel.armRow(first.row);
     this.refreshHighlight();
-    return { row: first.row, repaired: true };
+    return { row: first.row, seed: first.pick, repaired: true };
   }
 
   /** A right-click on an edge or a face of a body: the multi-select menu for it, its group landing in the armed operand row. */

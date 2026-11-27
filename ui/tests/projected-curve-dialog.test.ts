@@ -516,11 +516,14 @@ describe('the Project dialog', () => {
     server.bucket = () => ({ members: [edge(1), edge(2), edge(3)] });
     const { service, chips, click } = mount();
     service.enter();
-    // The viewer's double-click: its two clicks land first. The first fills
-    // Curves and arms Onto; the second, an edge, is nothing Onto takes.
+    // The viewer's double-click: its two clicks land first. The first takes
+    // the edge into Curves and arms Onto, which picks faces: the second takes
+    // the face behind the edge into Onto, and the double-click names it too.
     click(edge(1));
-    click(edge(1));
-    await service.handleDoubleClick('dome-solid', edge(1).sub);
+    click(face(4));
+    expect(chips('target')).toEqual(['Picked face']);
+    await service.handleDoubleClick('dome-solid', face(4).sub);
+    // The face is taken back out of Onto; Curves grows from the edge.
     expect(chips('source')).toEqual(['Picked edge', 'Picked edge', 'Picked edge']);
     expect(chips('target')).toEqual([]);
     expect(service.dialogPanel.armedRow).toBe('target');
@@ -533,6 +536,19 @@ describe('the Project dialog', () => {
     await service.handleDoubleClick('dome-solid', face(5).sub);
     expect(chips('target')).toEqual(['Picked face', 'Picked face']);
     expect(chips('source')).toHaveLength(3);
+  });
+
+  it('keeps a double-clicked sketch in Curves alone, the face behind its wire out of Onto', async () => {
+    const { service, chips } = mount();
+    service.enter();
+    service.handleSketchPick('ring-wire');
+    service.handleClick('dome-solid', face(3).sub);
+    await service.handleDoubleClick('dome-solid', face(3).sub);
+    expect(chips('source')).toEqual(['Sketch']);
+    expect(chips('target')).toEqual([]);
+    // A sketch is whole already: nothing to grow, and Onto takes the border again.
+    expect(service.dialogPanel.armedRow).toBe('target');
+    expect(server.count('api/selection/expand-bucket')).toBe(0);
   });
 
   it('lands a right-click group in the armed row as plain picks, and offers none for Direction', async () => {

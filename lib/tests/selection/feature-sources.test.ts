@@ -33,6 +33,7 @@ import { horizontal, vertical } from "../../core/constraints/index.js";
 import { testRect } from "../helpers/profiles.js";
 import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
 import { chord } from "../helpers/result-fixtures.js";
+import { TestSheets } from "../helpers/sheets.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { Point } from "../../math/point.js";
 import type { SceneObject } from "../../common/scene-object.js";
@@ -1123,6 +1124,59 @@ describe("feature sources (edit-dialog seeding)", () => {
     expect(result.ok).toBe(true);
     if (result.ok && result.feature === "plane") {
       expect(result.bases).toEqual([{ kind: "opaque" }]);
+    }
+  });
+
+  it("resolves an intersection curve's two sides: a face selection as entities, a surface and a plane by statement", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 4);
+    const sheet = loadShapes([TestSheets.plate(10, 10)]);
+    setLocation(sheet, 5);
+    const p = plane("xy", 10);
+    setLocation(p as never, 6);
+    const ic = intersect([e.endFaces(), sheet as never], p);
+    setLocation(ic, 8);
+
+    const scene = render();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "intersection-curve", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "intersection-curve") {
+      expect(result.first).toEqual([
+        { kind: "entities", entities: faceRefsWhere(box, m => Math.abs(m.z - 25) < 1e-6) },
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 },
+      ]);
+      expect(result.second).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 }]);
+    }
+  });
+
+  it("resolves a face selection on a surface, in an intersection curve, onto the surface", () => {
+    sketch(plane("xy", -10), () => {
+        testRect(40, 40);
+      });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 4);
+    const sheet = loadShapes([TestSheets.plate(60, 60)]);
+    setLocation(sheet, 5);
+    const floor = select(face().ofSurface());
+    setLocation(floor, 6);
+    const ic = intersect(e.sideFaces(), floor);
+    setLocation(ic, 8);
+
+    const scene = render();
+    expect((ic as unknown as SceneObject).getError()).toBeNull();
+    const surface = (sheet as unknown as SceneObject).getShapes()[0];
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "intersection-curve", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "intersection-curve") {
+      expect(result.second).toEqual([
+        { kind: "entities", entities: [{ shapeId: surface.id, sub: { type: "face", index: 0 } }] },
+      ]);
     }
   });
 

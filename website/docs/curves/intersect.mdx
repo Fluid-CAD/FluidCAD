@@ -18,7 +18,7 @@ Intersect makes the curve where two sets of faces meet: the section of a body cu
 1. Open the **Curves** menu on the toolbar and click **Intersect**. The dialog opens with the **First** row armed (blue border).
 2. Click the faces of the first side. A face of a solid is taken as that face; a face of a surface takes the whole surface. A surface's row in the timeline works too. Once **First** holds a pick, **Second** is armed.
 3. Click the faces of the other side. As soon as both rows hold a pick, the curve previews in blue.
-4. Click **Apply**. The timeline gains an **Intersect** row and the statement is written to the file.
+4. Click **Apply**. The timeline gains an **Intersection Curve** row and the statement is written to the file.
 
 <UiFigure
   src="/img/docs/ui/intersect-dialog.png"
@@ -49,7 +49,7 @@ A face of a surface already stands for the whole surface, so neither gesture app
 
 ## Editing
 
-Double-click the **Intersect** row in the timeline. The view rolls back to just before the statement and the dialog reopens with each row on its argument as written, as **Current: …** chips, and the faces they name lit up. Pick in a row to change it. Where the row names faces or surfaces, the first pick adds to them and a chip's ✕ takes one off; anything else in the row (a `plane()`, an expression) is replaced by the pick. **Apply** rewrites only the row you changed; the other argument is written back exactly as it was.
+Double-click the **Intersection Curve** row in the timeline. The view rolls back to just before the statement and the dialog reopens with each row on its argument as written, as **Current: …** chips, and the faces they name lit up. Pick in a row to change it. Where the row names faces or surfaces, the first pick adds to them and a chip's ✕ takes one off; anything else in the row (a `plane()`, an expression) is replaced by the pick. **Apply** rewrites only the row you changed; the other argument is written back exactly as it was.
 
 ## What it is for
 

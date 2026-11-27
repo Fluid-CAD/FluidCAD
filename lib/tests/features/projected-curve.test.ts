@@ -564,6 +564,35 @@ describe("project(source, target) outside a sketch", () => {
       expect(last[2]).toBeCloseTo(12, 4);
     });
 
+    it("lays a helix of many turns onto the cylinder whole, one wire from its start to its end", () => {
+      // The kernel's normal projector walks a long winding curve badly: in
+      // one go, this helix came back as three stretches with a whole turn
+      // missing between each, so keep 'nearest' kept the first turn alone.
+      const h = helix(axis("z", { offsetX: -100 })).radius(10).pitch(8).height(40);
+      sketch("xy", () => {
+        circle([-100, 0], 40);
+      });
+      const shaft = extrude(60).new() as unknown as Extrude;
+      const nearest = project(asObject(h), shaft.sideFaces()).mode("normal") as unknown as ProjectedCurve;
+      const all = project(asObject(h), shaft.sideFaces()).mode("normal").keep("all") as unknown as ProjectedCurve;
+      render();
+
+      for (const pc of [nearest, all]) {
+        expect(pc.getError()).toBeNull();
+        expect(wiresOf(pc)).toHaveLength(1);
+        const [first, last] = ends(wiresOf(pc)[0]);
+        expect(first[2]).toBeCloseTo(0, 4);
+        expect(last[2]).toBeCloseTo(40, 4);
+        // Five turns of a helix of radius 20: its length, every stretch there.
+        expect(lengthOf(wiresOf(pc)[0])).toBeCloseTo(5 * Math.hypot(2 * Math.PI * 20, 8), 1);
+        for (const e of bucketOf(pc)) {
+          for (const point of pointsAlong(e, 4)) {
+            expect(Math.hypot(point.x + 100, point.y)).toBeCloseTo(20, 4);
+          }
+        }
+      }
+    });
+
     it("keeps the image at the smallest distance, and every one with keep('all')", () => {
       const box = block();
       const sk = above(20, () => {

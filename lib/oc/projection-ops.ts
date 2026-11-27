@@ -347,12 +347,110 @@ export class ProjectionOps {
    * target face it lies on.
    */
   static normal(wire: Wire, target: TopoDS_Shape): Wire[] {
-    const edges = ProjectionOps.normalProjectionEdges([wire.getShape()], target, true)
-      .map(raw => Edge.fromTopoDSEdge(raw));
+    const pieces = ProjectionOps.normalPieces(wire);
     try {
-      return edges.length === 0 ? [] : WireOps.chainEdges(edges);
+      const edges = ProjectionOps.normalProjectionEdges(pieces ?? [wire.getShape()], target, true)
+        .map(raw => Edge.fromTopoDSEdge(raw));
+      try {
+        return edges.length === 0 ? [] : WireOps.chainEdges(edges);
+      } finally {
+        edges.forEach(edge => edge.dispose());
+      }
     } finally {
-      edges.forEach(edge => edge.dispose());
+      pieces?.forEach(piece => piece.delete());
+    }
+  }
+
+  /** The most a source edge's tangent may turn in one piece handed to the normal projector: one turn. */
+  private static readonly NORMAL_PIECE_TURNING = 2 * Math.PI;
+
+  /**
+   * The wire's edges cut into pieces that each turn at most one turn
+   * ({@link NORMAL_PIECE_TURNING}), for the normal projector — or null when
+   * no edge turns more than that, and the wire goes in whole. The projector
+   * walks a long winding curve badly: a helix of five turns came back as
+   * three stretches with a whole turn missing between each, while each of
+   * its turns projected on its own comes back whole and chains into one
+   * wire again. The pieces are the caller's to free.
+   */
+  private static normalPieces(wire: Wire): TopoDS_Shape[] | null {
+    const edges = wire.getEdges();
+    const counts = edges.map(edge => Math.max(1,
+      Math.ceil(ProjectionOps.turningOf(edge.getShape() as TopoDS_Edge) / ProjectionOps.NORMAL_PIECE_TURNING - 1e-9)));
+    if (counts.every(count => count === 1)) {
+      return null;
+    }
+    const oc = getOC();
+    const pieces: TopoDS_Shape[] = [];
+    try {
+      edges.forEach((edge, index) => {
+        const info = oc.BRep_Tool.Curve(edge.getShape() as TopoDS_Edge, 0, 1);
+        try {
+          const count = counts[index];
+          for (let i = 0; i < count; i++) {
+            const from = info.First + (info.Last - info.First) * i / count;
+            const to = info.First + (info.Last - info.First) * (i + 1) / count;
+            const maker = new oc.BRepBuilderAPI_MakeEdge(info.returnValue, from, to);
+            try {
+              if (maker.IsDone()) {
+                pieces.push(maker.Edge());
+              }
+            } finally {
+              maker.delete();
+            }
+          }
+        } finally {
+          // The curve handle the read hands back is the caller's to release.
+          info[Symbol.dispose]();
+        }
+      });
+    } catch (error) {
+      pieces.forEach(piece => piece.delete());
+      throw error;
+    }
+    return pieces;
+  }
+
+  /**
+   * How far an edge's tangent turns from one end to the other, in radians:
+   * the angles between the tangents at evenly spaced points, summed, the
+   * spacing halved until no step turns more than an eighth of a turn (a
+   * line 0, a circle 2π, a helix about 2π a turn).
+   */
+  private static turningOf(edge: TopoDS_Edge): number {
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_Curve(edge);
+    const point = new oc.gp_Pnt();
+    const tangent = new oc.gp_Vec();
+    try {
+      const first = adaptor.FirstParameter();
+      const last = adaptor.LastParameter();
+      const tangentAt = (u: number): Vector3d | null => {
+        adaptor.D1(u, point, tangent);
+        const length = tangent.Magnitude();
+        return length > 1e-12 ? new Vector3d(tangent.X() / length, tangent.Y() / length, tangent.Z() / length) : null;
+      };
+      for (let samples = 64; ; samples *= 2) {
+        let total = 0;
+        let widest = 0;
+        let previous = tangentAt(first);
+        for (let i = 1; i <= samples; i++) {
+          const next = tangentAt(first + (last - first) * i / samples);
+          if (previous && next) {
+            const step = Math.acos(Math.min(1, Math.max(-1, previous.dot(next))));
+            total += step;
+            widest = Math.max(widest, step);
+          }
+          previous = next ?? previous;
+        }
+        if (widest <= Math.PI / 4 || samples >= 4096) {
+          return total;
+        }
+      }
+    } finally {
+      tangent.delete();
+      point.delete();
+      adaptor.delete();
     }
   }
 

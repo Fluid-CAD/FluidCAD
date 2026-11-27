@@ -4,12 +4,12 @@ title: Helix
 summary: "A 3D helix wire — a single edge that traces a helix curve on a cylindrical or conical surface."
 tags: [api, type, interface]
 symbols: [Helix, IHelix]
-seeAlso: [api/types/scene-object]
+seeAlso: [api/types/curve-result]
 ---
 # Helix
 
 ```ts
-interface Helix extends SceneObject {
+interface Helix extends CurveResult {
   pitch(pitch: number): this;
   turns(turns: number): this;
   startOffset(offset: number): this;
@@ -31,7 +31,7 @@ Created from one of:
 - A line edge: axis = the line, height = line length.
 - A circular edge: axis = circle normal, radius = circle radius.
 
-Extends [[api/types/scene-object]].
+Extends [[api/types/curve-result]].
 
 ## Methods
 
@@ -108,5 +108,7 @@ from the axis tip looking back toward the origin — instead of the default
 clockwise (left-handed) winding.
 
 ## Inherited
+
+From [[api/types/curve-result]]: `edges()`, `start()`, `end()`
 
 From [[api/types/scene-object]]: `name()`

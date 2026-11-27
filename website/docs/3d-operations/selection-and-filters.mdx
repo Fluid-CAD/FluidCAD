@@ -14,7 +14,7 @@ Fillet, chamfer, shell, color, connectors and sketches on faces all need to be t
 
 - **Click** a face, edge or vertex to select it. The selection info overlay names what you picked and the feature that produced it.
 - <kbd>Ctrl</kbd> / <kbd>Shift</kbd> + click adds to the selection.
-- With a pick tool armed, **double-click** an edge or a face to take the whole bucket it belongs to (every end edge of an extrude). On an edge of a surface's open rim, a double-click takes the **rim loop** that edge belongs to instead, on a surface loaded from a file too, which has no bucket.
+- With a pick tool armed, **double-click** an edge or a face to take the whole bucket it belongs to (every end edge of an extrude). On an edge of a surface's open rim, a double-click takes the **rim loop** that edge belongs to instead, on a surface loaded from a file too, which has no bucket, and keeps it as one pick, as the menu's **Boundary Loop** below.
 - **Right-click** a picked entity for the multi-select menu, fetched from the model:
   - the **tangent chain** the edge belongs to (a filleted outline in one go),
   - the **loops**: on a surface's rim edge, the **Boundary Loop**; on any other edge, the loop of each face the edge bounds (**Outer Loop of Planar Face**, **Hole Loop of Cylindrical Face** …); on a face, its **connected faces** of the same kind (**Connected Planar Faces** …),

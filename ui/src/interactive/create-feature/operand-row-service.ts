@@ -16,6 +16,7 @@ import type { FeatureLauncher } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import type { OperandRowPanel } from './operand-row-panel';
 import type { OperandKind } from './operand-slot';
+import { refreshScopeVariables } from './option-relabeler';
 import { RecentClicks, type ClickedPick } from './recent-clicks';
 import { applyPickChannels, type PickOutcome } from './schema/schema-pickers';
 import { collectSketchProfiles } from './sketch-profiles';
@@ -26,6 +27,13 @@ export type RowLists<R extends string, T> = Record<R, T[]>;
 
 /** An edit's operand rows: a re-picked row's picks, and nothing for a row that keeps the statement's own argument. */
 export type RowEdits<R extends string> = Partial<RowLists<R, OperandInputRef>>;
+
+/**
+ * What a tool answers in place of a request its own values keep from being
+ * sent — a distance that does not read, or reads zero: the message Apply
+ * shows. The statement preview and the curve wait until it is gone.
+ */
+export type Blocked = { error: string };
 
 /**
  * The wire types of an operand-row tool, each carrying a row under its name
@@ -107,10 +115,12 @@ const PICKED: Record<OperandKind, string> = { curve: 'edges', surface: 'faces' }
  *
  * A tool declares its rows and options in its panel, and here only what
  * differs: whether the scene offers what it works on, its request building
- * ({@link createRequest}, {@link editRequest}, {@link ghostRequest}), the
+ * ({@link createRequest}, {@link editRequest}, {@link ghostRequest}) — which
+ * may answer {@link Blocked} while a value of its own does not read — the
  * options and extra rows an edit seeds ({@link seedEdit},
  * {@link seedSources}) and the rows beside its operand rows that take picks
- * of their own ({@link ExtraPickRow}).
+ * of their own ({@link ExtraPickRow}). A panel with value fields has the
+ * variables in scope listed for them each time the dialog opens.
  */
 export abstract class OperandRowService<
   R extends string,
@@ -249,15 +259,19 @@ export abstract class OperandRowService<
   /** Whether the scene holds what the tool works on: without it the launcher greys out and an open dialog closes. */
   protected abstract isAvailable(sceneObjects: SceneObjectRender[]): boolean;
 
-  /** The create request from the rows' picks, each row holding at least one: the rows, then the tool's options. */
-  protected abstract createRequest(rows: RowLists<R, OperandInputRef>): T['create'];
+  /**
+   * The create request from the rows' picks, each row holding at least one:
+   * the rows, then the tool's options — or {@link Blocked} while one of its
+   * values does not read.
+   */
+  protected abstract createRequest(rows: RowLists<R, OperandInputRef>): T['create'] | Blocked;
 
   /**
    * The edit request: the re-picked rows (a row left out keeps the
    * statement's own argument), what changed of the tool's options, and
-   * {@link editSession}.
+   * {@link editSession} — or {@link Blocked}, as for {@link createRequest}.
    */
-  protected abstract editRequest(rows: RowEdits<R>, parsed: T['parsed']): T['edit'];
+  protected abstract editRequest(rows: RowEdits<R>, parsed: T['parsed']): T['edit'] | Blocked;
 
   /** The preview request from the rows as the preview addresses them, or null while something it needs is not known yet. */
   protected abstract ghostRequest(rows: RowLists<R, GhostOperandRef>): T['ghost'] | null;
@@ -386,6 +400,7 @@ export abstract class OperandRowService<
     this.syncLauncher();
     this.panel.show();
     this.panel.setMessage(null);
+    this.loadScopeVariables();
     this.setRowScenes({ dropEntities: true });
     this.syncChannels();
     this.refreshHighlight();
@@ -421,6 +436,7 @@ export abstract class OperandRowService<
       this.panel.slot(row).seedKeep(this.rowTexts(parsed, row));
     }
     this.seedEdit(parsed);
+    this.loadScopeVariables();
     this.setRowScenes({ dropEntities: true });
     void this.loadEditSources();
     this.syncChannels();
@@ -465,6 +481,20 @@ export abstract class OperandRowService<
     }
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
+  }
+
+  /**
+   * The variables in scope where the statement sits — the edited one, or
+   * the end of the active part a new one lands at — for the panel's value
+   * fields, when it has any. An answer landing after the dialog closed or
+   * moved to another statement is dropped.
+   */
+  private loadScopeVariables(): void {
+    if (!this.panel.hasValueFields) {
+      return;
+    }
+    const line = this.editTarget?.line ?? null;
+    void refreshScopeVariables(line, this.panel, () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
   // -------------------------------------------------------------------------
@@ -669,8 +699,8 @@ export abstract class OperandRowService<
   // Requests
   // -------------------------------------------------------------------------
 
-  /** The create request: every row's picks and the tool's options, or the message of the first empty row. */
-  private buildCreateRequest(): OperandRowRequest<T['create'], T['edit']> | { error: string } {
+  /** The create request: every row's picks and the tool's options, or the message of the first empty row or of what the tool blocks. */
+  private buildCreateRequest(): OperandRowRequest<T['create'], T['edit']> | Blocked {
     const rows = {} as RowLists<R, OperandInputRef>;
     for (const row of this.panel.rows) {
       const inputs = this.rowInputs(row);
@@ -679,7 +709,8 @@ export abstract class OperandRowService<
       }
       rows[row] = inputs;
     }
-    return { kind: 'create', request: this.createRequest(rows) };
+    const request = this.createRequest(rows);
+    return isBlocked(request) ? request : { kind: 'create', request };
   }
 
   /**
@@ -688,7 +719,7 @@ export abstract class OperandRowService<
    * row ships its picks, edges and faces synthesized against the session
    * boundary.
    */
-  private buildEditRequest(target: FeatureEditTarget): OperandRowRequest<T['create'], T['edit']> | { error: string } {
+  private buildEditRequest(target: FeatureEditTarget): OperandRowRequest<T['create'], T['edit']> | Blocked {
     const rows: RowEdits<R> = {};
     for (const row of this.panel.rows) {
       const inputs = this.rowInputs(row);
@@ -699,7 +730,8 @@ export abstract class OperandRowService<
         rows[row] = inputs;
       }
     }
-    return { kind: 'edit', target, request: this.editRequest(rows, this.parsed) };
+    const request = this.editRequest(rows, this.parsed);
+    return isBlocked(request) ? request : { kind: 'edit', target, request };
   }
 
   /** A row's picks as the apply route takes them, in pick order; null while it keeps the statement's own argument. */
@@ -913,4 +945,9 @@ export abstract class OperandRowService<
     this.launcher.setDisabled(!this.available);
     this.hooks.onActiveChange?.();
   }
+}
+
+/** The tool answered the message blocking its request, not the request. */
+function isBlocked<Q extends object>(request: Q | Blocked): request is Blocked {
+  return 'error' in request;
 }

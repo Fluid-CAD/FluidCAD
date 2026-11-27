@@ -1,3 +1,5 @@
+import type { VariableInfo } from '../../ui/expression-core';
+import type { ExpressionField } from '../../ui/expression-field';
 import { iconUrl } from '../../ui/icon-url';
 import { FeaturePanel } from './feature-panel';
 import { OperandSlotControl, type OperandKind } from './operand-slot';
@@ -42,7 +44,8 @@ export type ArmableControl = {
  * ({@link advanceFrom}); a row beside them is armed only by a click on it.
  *
  * A subclass declares its rows, lays them out in its body HTML (one under
- * another by default) and adds its options; it resets them with
+ * another by default) and adds its options — a value typed in a field among
+ * them ({@link valueField}: Offset's distance) — and resets them with
  * {@link resetOptions}. Pure DOM state — the service owns the scene, the
  * previews and the apply call.
  */
@@ -55,6 +58,7 @@ export abstract class OperandRowPanel<R extends string, X extends string = never
   private readonly specs = new Map<R, OperandRowSpec<R>>();
   private readonly slots = new Map<R, OperandSlotControl>();
   private readonly extras = new Map<X, ArmableControl>();
+  private readonly valueFields: ExpressionField[] = [];
   private readonly editTitle: string;
   private armed: R | X;
 
@@ -104,6 +108,18 @@ export abstract class OperandRowPanel<R extends string, X extends string = never
   /** The rows beside the operand rows, in the order they were added. */
   get extraRows(): readonly X[] {
     return [...this.extras.keys()];
+  }
+
+  /** The panel holds value fields ({@link valueField}): the service lists the variables in scope for them as the dialog opens. */
+  get hasValueFields(): boolean {
+    return this.valueFields.length > 0;
+  }
+
+  /** The variables every value field's dropdown offers and its expressions read. */
+  setScopeVariables(variables: VariableInfo[]): void {
+    for (const field of this.valueFields) {
+      field.setVariables(variables);
+    }
   }
 
   /** The control of an operand row. */
@@ -193,6 +209,18 @@ export abstract class OperandRowPanel<R extends string, X extends string = never
 
   /** Create mode, after the rows emptied: the subclass's options back to their defaults. */
   protected resetOptions(): void {}
+
+  /**
+   * Make the body's `data-role="<role>"` input a value field, a number or
+   * an expression ({@link ExpressionField}): Enter applies, typing is a
+   * change of the panel's, and its dropdown offers the variables in scope
+   * where the statement lands. The subclass reads it into its requests.
+   */
+  protected valueField(role: string): ExpressionField {
+    const field = this.enhance(role);
+    this.valueFields.push(field);
+    return field;
+  }
 
   /** Add a row beside the operand rows: a click on it arms it, a change in it is the panel's. */
   protected armable<C extends ArmableControl>(row: X, control: C): C {

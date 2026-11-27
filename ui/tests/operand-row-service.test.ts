@@ -3,16 +3,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PerspectiveCamera, Scene } from 'three';
 import type {
   ApplyFeatureResponse, FeatureEditTarget, FeatureSourcesResult, IntersectionCurveApplyOptions, IntersectionCurveEditOptions,
-  IntersectionCurveGhostRequest, OperandInputRef, GhostOperandRef, SelectionGroup,
+  IntersectionCurveGhostRequest, NewVariable, OperandInputRef, GhostOperandRef, SelectionGroup, ValueExpr,
 } from '../src/api';
 import type { ExtraPickRow, ExtraRowHighlight } from '../src/interactive/create-feature/extra-pick-row';
 import type { FeatureLauncher } from '../src/interactive/create-feature/feature-button';
 import { OperandRowPanel, type ArmableControl } from '../src/interactive/create-feature/operand-row-panel';
-import { OperandRowService, type RowEdits, type RowLists } from '../src/interactive/create-feature/operand-row-service';
+import { OperandRowService, type Blocked, type RowEdits, type RowLists } from '../src/interactive/create-feature/operand-row-service';
 import { RecentClicks, type ClickedPick } from '../src/interactive/create-feature/recent-clicks';
 import { NO_CHANNELS, type PickChannels, type PickOutcome } from '../src/interactive/create-feature/schema/schema-pickers';
 import type { ParsedFeatureOf } from '../src/interactive/feature-dialog-registry';
 import type { SceneObjectRender, SubSelection } from '../src/types';
+import type { ExpressionField } from '../src/ui/expression-field';
 import type { SelectedEntity, Viewer } from '../src/viewer';
 import { FakeSelectionServer } from './fixtures/fake-selection-server';
 
@@ -81,13 +82,16 @@ const rowOf = (id: string) => scene().find(o => o.id === id)!;
 
 type FixtureRow = 'first' | 'second';
 
-/** The fixture borrows the intersection curve's wires (rows `first` and `second`), with an option of its own. */
+/** The size a fixture with a value field sends, and the declaration its expression committed. */
+type FixtureSize = { size?: ValueExpr; newVariables?: NewVariable[] };
+
+/** The fixture borrows the intersection curve's wires (rows `first` and `second`), with an option and a size of its own. */
 type FixtureWires = {
   parsed: ParsedFeatureOf<'intersection-curve'>;
   sources: Extract<FeatureSourcesResult, { feature: 'intersection-curve' }>;
-  create: IntersectionCurveApplyOptions & { option: string };
-  edit: IntersectionCurveEditOptions & { option?: string };
-  ghost: IntersectionCurveGhostRequest & { option: string };
+  create: IntersectionCurveApplyOptions & { option: string } & FixtureSize;
+  edit: IntersectionCurveEditOptions & { option?: string } & FixtureSize;
+  ghost: IntersectionCurveGhostRequest & { option: string; size?: ValueExpr };
 };
 
 /** A row beside the operand rows that takes what the test tells it to, and records what the service asked of it. */
@@ -150,12 +154,13 @@ class StubControl implements ArmableControl {
   }
 }
 
-/** A curve row, a surface row, a row beside them and one option. */
+/** A curve row, a surface row, a row beside them, one option and, `withValue`, a size typed in a value field. */
 class FixturePanel extends OperandRowPanel<FixtureRow, 'extra'> {
   readonly extra: StubControl;
+  readonly size: ExpressionField | null;
   option = 'default';
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, withValue: boolean) {
     super(container, {
       id: 'fixture-tool',
       title: 'Fixture',
@@ -164,12 +169,17 @@ class FixturePanel extends OperandRowPanel<FixtureRow, 'extra'> {
         { row: 'first', kind: 'curve', label: 'Curves', prompt: 'Pick curves', empty: 'Pick the curves.' },
         { row: 'second', kind: 'surface', label: 'Faces', prompt: 'Pick faces', empty: 'Pick the faces.' },
       ],
+      bodyHtml: withValue
+        ? '<div data-role="first-slot"></div><div data-role="second-slot"></div><input data-role="size" value="2" />'
+        : undefined,
     });
     this.extra = this.armable('extra', new StubControl());
+    this.size = withValue ? this.valueField('size') : null;
   }
 
   protected override resetOptions(): void {
     this.option = 'default';
+    this.size?.setValue(2);
   }
 }
 
@@ -188,10 +198,10 @@ class FixtureService extends OperandRowService<FixtureRow, 'extra', FixtureWires
   /** The tool's preview request is complete. */
   previewReady = true;
 
-  constructor(container: HTMLElement, viewer: Viewer, launcher: FeatureLauncher) {
+  constructor(container: HTMLElement, viewer: Viewer, launcher: FeatureLauncher, withValue: boolean) {
     const sent: Sent[] = [];
     const extraRow = new StubExtraRow();
-    super(container, viewer, launcher, {}, new FixturePanel(container), {
+    super(container, viewer, launcher, {}, new FixturePanel(container, withValue), {
       kind: 'intersection-curve',
       noun: 'fixture curve',
       create: async request => {
@@ -212,20 +222,42 @@ class FixtureService extends OperandRowService<FixtureRow, 'extra', FixtureWires
     return sceneObjects.length > 0;
   }
 
-  protected createRequest(rows: RowLists<FixtureRow, OperandInputRef>): FixtureWires['create'] {
-    return { ...rows, option: this.panel.option };
+  protected createRequest(rows: RowLists<FixtureRow, OperandInputRef>): FixtureWires['create'] | Blocked {
+    const size = this.size();
+    return 'error' in size ? size : { ...rows, option: this.panel.option, ...size };
   }
 
-  protected editRequest(rows: RowEdits<FixtureRow>): FixtureWires['edit'] {
+  protected editRequest(rows: RowEdits<FixtureRow>): FixtureWires['edit'] | Blocked {
+    const size = this.size();
+    if ('error' in size) {
+      return size;
+    }
     return {
       ...rows,
       option: this.panel.option !== 'default' ? this.panel.option : undefined,
+      ...size,
       ...this.editSession(rows, this.ownEntityPick),
     };
   }
 
   protected ghostRequest(rows: RowLists<FixtureRow, GhostOperandRef>): FixtureWires['ghost'] | null {
-    return this.previewReady ? { feature: 'intersection-curve', ...rows, option: this.panel.option } : null;
+    const size = this.size();
+    if (!this.previewReady || 'error' in size) {
+      return null;
+    }
+    return { feature: 'intersection-curve', ...rows, option: this.panel.option, ...(size.size !== undefined ? { size: size.size } : {}) };
+  }
+
+  /** The size field's value and declaration — none without the field — or the message blocking the request: empty, unreadable or zero. */
+  private size(): FixtureSize | Blocked {
+    const read = this.panel.size?.read();
+    if (!read) {
+      return {};
+    }
+    if ('error' in read || read.value === 0) {
+      return { error: 'Enter a size other than zero.' };
+    }
+    return { size: read.value, ...(read.newVariable ? { newVariables: [read.newVariable] } : {}) };
   }
 
   protected override seedEdit(parsed: FixtureWires['parsed']): void {
@@ -262,7 +294,7 @@ function stubViewer() {
   return { viewer, highlights, channels: base };
 }
 
-function mount() {
+function mount(opts: { withValue?: boolean } = {}) {
   unmount();
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -277,7 +309,7 @@ function mount() {
     remove: () => {},
   };
   const { viewer, highlights, channels } = stubViewer();
-  const service = new FixtureService(container, viewer, launcher);
+  const service = new FixtureService(container, viewer, launcher, opts.withValue ?? false);
   services.push(service);
   service.update(scene());
   const panel = () => document.getElementById('fluidcad-fixture-tool-panel')!;
@@ -287,9 +319,15 @@ function mount() {
   const armRow = (row: FixtureRow) => panel().querySelector<HTMLElement>(`[data-role="${row}-slot"]`)!.click();
   const apply = () => panel().querySelector<HTMLButtonElement>('[data-role="apply"]')!.click();
   const click = (entity: SelectedEntity) => service.handleClick(entity.shapeId, entity.sub);
+  /** Type into the size field, as the user does: the value, then the input event. */
+  const typeSize = (text: string) => {
+    const input = panel().querySelector<HTMLInputElement>('[data-role="size"]')!;
+    input.value = text;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
   return {
     container, service, viewer, highlights, channels, launcher, launcherState, panel, chips, message, armRow, apply, click,
-    extra: service.extraRow, dialog: service.dialogPanel,
+    typeSize, extra: service.extraRow, dialog: service.dialogPanel,
   };
 }
 
@@ -661,6 +699,105 @@ describe('the operand-row service — requests', () => {
     own.apply();
     await vi.advanceTimersByTimeAsync(0);
     expect(lastEdit(own)).toEqual({ kind: 'edit', request: { expectedStatement: INFO.expectedStatement, before: BOUNDARY } });
+  });
+});
+
+describe('the operand-row service — a value field', () => {
+  const TARGET: FeatureEditTarget = at(8);
+  const PARSED = {
+    feature: 'intersection-curve', firstTexts: ['sk'], firstRefs: [{ line: 2, column: 0 }], secondTexts: ['wing'],
+    secondRefs: [{ line: 6, column: 0 }], firstArg: 'sk', secondArg: 'wing',
+  } as ParsedFeatureOf<'intersection-curve'>;
+  const INFO = { index: 4, type: 'intersection-curve', expectedStatement: 'fixture(sk, wing)' };
+
+  /** Pick a sketch and a surface: both rows hold what the preview can address. */
+  function fillRows(rig: ReturnType<typeof mount>): void {
+    rig.service.handleSketchPick('ring-wire');
+    rig.service.handleTimelinePick(rowOf('wing'));
+  }
+
+  it('lists the variables in scope for a panel with value fields each time it opens, where the statement lands or sits', async () => {
+    server.routes.set('api/scope-variables', () => ({ variables: [{ name: 'gap', initializer: '4', numeric: true }] }));
+    const plain = mount();
+    plain.service.enter();
+    expect(server.count('api/scope-variables')).toBe(0);
+
+    const rig = mount({ withValue: true });
+    rig.service.enter();
+    expect(server.bodies('api/scope-variables')).toEqual([{ sketchSourceLine: null }]);
+    await vi.advanceTimersByTimeAsync(0);
+    // A name in scope reads as itself: no declaration rides along.
+    fillRows(rig);
+    rig.typeSize('gap');
+    rig.apply();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(applied(rig.service).at(-1)!.request).toMatchObject({ size: 'gap' });
+    expect(applied(rig.service).at(-1)!.request).not.toHaveProperty('newVariables');
+
+    server.routes.set('api/feature/sources', () => ({ ok: true, feature: 'intersection-curve', first: [], second: [] }));
+    rig.service.enterEdit(TARGET, PARSED, INFO);
+    expect(server.bodies('api/scope-variables').at(-1)).toEqual({ sketchSourceLine: 8 });
+  });
+
+  it('holds back Apply and the preview while the tool blocks its request, and sends both once its value reads', async () => {
+    server.routes.set('api/feature-ghost', () => ({ success: true, solids: [] }));
+    const rig = mount({ withValue: true });
+    rig.service.enter();
+    fillRows(rig);
+    rig.typeSize('0');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(rig.service.sent).toEqual([]);
+    expect(server.count('api/feature-ghost')).toBe(0);
+    rig.apply();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.message()).toBe('Enter a size other than zero.');
+    expect(applied(rig.service)).toEqual([]);
+
+    // Typing is a change: the message clears and the preview runs with the value.
+    rig.typeSize('3');
+    expect(rig.message()).toBe('');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(server.bodies('api/feature-ghost').at(-1)).toMatchObject({ size: 3 });
+    // A new name declares itself, on Apply as in the statement preview (as
+    // a param() or a const, as the session's P toggle says).
+    const DEPTH = [{ name: 'depth', initializer: expect.stringContaining('5') }];
+    rig.typeSize('depth = 5');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(rig.service.sent.at(-1)!.request).toMatchObject({ size: 'depth', newVariables: DEPTH, preview: true });
+    rig.apply();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(applied(rig.service)).toEqual([{
+      kind: 'create',
+      request: {
+        first: [{ kind: 'statement', ...at(2) }],
+        second: [{ kind: 'statement', ...at(6) }],
+        option: 'default',
+        size: 'depth',
+        newVariables: DEPTH,
+      },
+    }]);
+  });
+
+  it('blocks an edit the same way, and Enter in the field applies it', async () => {
+    server.routes.set('api/feature/sources', () => ({
+      ok: true, feature: 'intersection-curve', first: [{ kind: 'sketch', ...at(2) }], second: [{ kind: 'sketch', ...at(6) }],
+    }));
+    const rig = mount({ withValue: true });
+    rig.service.enterEdit(TARGET, PARSED, INFO);
+    await vi.advanceTimersByTimeAsync(0);
+    rig.service.handleSceneRendered(scene(true), 3, true);
+    await vi.advanceTimersByTimeAsync(300);
+    rig.typeSize('');
+    rig.apply();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.message()).toBe('Enter a size other than zero.');
+    expect(applied(rig.service)).toEqual([]);
+
+    rig.typeSize('7');
+    rig.panel().querySelector<HTMLInputElement>('[data-role="size"]')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(applied(rig.service)).toEqual([{ kind: 'edit', request: { size: 7, expectedStatement: INFO.expectedStatement } }]);
   });
 });
 

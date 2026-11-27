@@ -4,7 +4,7 @@ title: project / intersect
 summary: Reduce 3D geometry to 2D sketch wires. `project` flattens edges along the sketch normal; `intersect` cuts the sketch plane through 3D objects.
 tags: [api, 2d, modifier, projection]
 symbols: [project, intersect]
-seeAlso: [api/sketch, api/offset, api/constraints, api/intersection-curve]
+seeAlso: [api/sketch, api/offset, api/constraints, api/intersection-curve, api/projected-curve]
 ---
 
 # project / intersect
@@ -20,9 +20,11 @@ intersect(targetPlane, sourceObjects)
 ```
 
 Both operate inside a sketch context and return `ExtrudableGeometry`.
-Outside a sketch, `intersect(first, second)` is another tool: the 3D curve
-where two sets of faces meet (a curve object with `edges()`, `start()`,
-`end()`) — see [[api/intersection-curve]].
+Outside a sketch, each is another tool, building a 3D curve (a curve
+object with `edges()`, `start()`, `end()`): `intersect(first, second)`,
+the curve where two sets of faces meet — see [[api/intersection-curve]];
+`project(source, target)`, curves thrown onto faces along a line or to
+the closest point — see [[api/projected-curve]].
 
 - `project(obj)` projects the edges of 3D faces or edges down to the
   active sketch plane along the normal — the resulting 2D wire matches

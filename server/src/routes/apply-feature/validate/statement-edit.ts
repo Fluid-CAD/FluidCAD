@@ -27,6 +27,8 @@ import { isKeepSlot, validateProfileFeature, validateThinOffsets } from './commo
 import { validateCopyEdit, type CopyEditAxisInput } from './copy.ts';
 import { FACE_PROFILE_SHAPE, validateExtrudeOptions, validateFaceProfilePick } from './extrude.ts';
 import { validateHelixOption, validateHelixSource, type HelixSourceInput } from './helix.ts';
+import { validateIntersectionCurveEdit } from './intersection-curve.ts';
+import { OperandInputs, type OperandInput } from '../operand-inputs.ts';
 import {
   validateEditLoftGuides,
   validateEditLoftProfiles,
@@ -55,7 +57,7 @@ import { validateSplitEdit, type SplitPlaneInput } from './split.ts';
 import { validateSweepExtend } from './sweep.ts';
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color', 'intersection-curve']);
 
 export type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
@@ -106,6 +108,10 @@ export type StatementEditRequest = {
   revolveAxis?: RevolveAxisInput;
   /** Re-sourced helix source (axis-family or face); absent keeps the statement's. */
   helixSource?: HelixSourceInput;
+  /** The intersection curve's re-picked first argument; absent keeps the statement's. */
+  intersectionFirst?: OperandInput[];
+  /** The intersection curve's re-picked second argument; absent keeps the statement's. */
+  intersectionSecond?: OperandInput[];
   /** Full replacement loft profile list; absent keeps the statement's. */
   loftProfiles?: EditLoftProfileInput[];
   /** Full replacement loft guide list; absent keeps the statement's. */
@@ -210,7 +216,7 @@ export type StatementEditRequest = {
 export function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole" or "split" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole", "split" or "intersection-curve" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -521,6 +527,18 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
       result.helixSource = source;
       result.needsPicks ||= source.kind === 'edge' || source.kind === 'face';
     }
+    return result;
+  }
+
+  if (feature === 'intersection-curve') {
+    // No options: an edit re-picks either argument, or neither.
+    const slots = validateIntersectionCurveEdit(body);
+    if ('error' in slots) {
+      return slots;
+    }
+    edit.intersectionCurve = {};
+    const result: StatementEditRequest = { ...base, intersectionFirst: slots.first, intersectionSecond: slots.second };
+    result.needsPicks = [slots.first, slots.second].some(inputs => inputs !== undefined && OperandInputs.picksGeometry(inputs));
     return result;
   }
 

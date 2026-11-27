@@ -9,6 +9,7 @@ import type {
   GhostEntityRef,
   GhostExtrudeTargetRef,
   GhostFaceRef,
+  GhostOperandRef,
   GhostPlaneBaseRef,
   GhostRepeatDirection,
 } from '../../fluidcad-server/index.ts';
@@ -22,6 +23,7 @@ import {
   parseFaceProfile,
   parseFaceRefs,
   parseHelixSource,
+  parseOperandRefs,
   parsePath,
   parsePlaneBases,
   parseSections,
@@ -98,6 +100,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // which way its walls go is the sign of its thickness, not an op.
     const isShell = body.feature === 'shell';
     const isHelix = body.feature === 'helix';
+    // The intersection curve is a curve too: it reads its two rows of faces
+    // and changes nothing.
+    const isIntersectionCurve = body.feature === 'intersection-curve';
     const isRepeat = body.feature === 'repeat';
     const isCopy = body.feature === 'copy';
     // The mirror is NOT exempt: its reflected bodies land the way its own op
@@ -117,7 +122,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror2D = body.feature === 'mirror2d';
     // A hole is always a removal — no op to declare.
     const isHole = body.feature === 'hole';
-    if (!isHole && !isBand && !isShell && !isHelix && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
+    if (!isHole && !isBand && !isShell && !isHelix && !isIntersectionCurve && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
       && !isOffset && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -284,6 +289,18 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     if (isHelix && !helixSource) {
       res.status(400).json({ success: false, reason: 'Invalid helix source' });
       return;
+    }
+    // Each row's picks in pick order — surfaces whole by call site, faces by
+    // viewport address. A row with no pick has no curve to show yet.
+    let intersectionRows: { first: GhostOperandRef[]; second: GhostOperandRef[] } | null = null;
+    if (isIntersectionCurve) {
+      const first = parseOperandRefs(body.first, 'surface');
+      const second = parseOperandRefs(body.second, 'surface');
+      if (!first || !second || first.length === 0 || second.length === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid intersection selections' });
+        return;
+      }
+      intersectionRows = { first, second };
     }
     const axis = body.feature === 'revolve' ? parseAxis(body.axis) : null;
     if (body.feature === 'revolve' && !axis) {
@@ -548,6 +565,12 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         height,
         startOffset,
         endOffset,
+      };
+    } else if (isIntersectionCurve) {
+      request = {
+        feature: 'intersection-curve',
+        first: intersectionRows!.first,
+        second: intersectionRows!.second,
       };
     } else if (isPlane) {
       const rotationAxes = slots.choice(planeAxes, ['local', 'world'] as PlaneRotationAxes[], 'Rotation axes');

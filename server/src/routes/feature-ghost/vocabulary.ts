@@ -48,6 +48,9 @@ export type GhostBody = {
   startCondition?: unknown;
   endCondition?: unknown;
   source?: unknown;
+  /** The intersection curve: the picks of its first and second rows. */
+  first?: unknown;
+  second?: unknown;
   radius?: unknown;
   endRadius?: unknown;
   pitch?: unknown;
@@ -86,7 +89,7 @@ export type GhostBody = {
 export const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
   'rotate', 'translate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
-  'shell',
+  'shell', 'intersection-curve',
 ];
 
 /** The split's keep choices. */

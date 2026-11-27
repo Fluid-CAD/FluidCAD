@@ -16,6 +16,7 @@ import {
   type ConnectorAnchorSpec,
   type CopyEditAxis,
   type FeatureStatementEditTarget,
+  type IntersectionCurveEdit,
   type RepeatEditAxis,
   type RotateEditAxis,
   type ValueExpr,
@@ -25,6 +26,7 @@ import type { SketchLoc } from '../locations.ts';
 import { validateBoundary, type Pick, type PickChain } from '../picks.ts';
 import { allocateProducerVars, makeProducerMerger } from '../synthesis.ts';
 import { AxisInputs } from '../axis-inputs.ts';
+import { OperandInputs } from '../operand-inputs.ts';
 import type { CopyEditAxisInput } from '../validate/copy.ts';
 import { loftProfileOwners, synthesizeLoftConnections } from '../validate/loft.ts';
 import { projectSketchRefusal } from '../validate/project.ts';
@@ -102,6 +104,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.colorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
+      ...OperandInputs.statements([...request.intersectionFirst ?? [], ...request.intersectionSecond ?? []]),
     ];
     for (const loc of sketchLocs) {
       if (normalizePath(loc.filePath) !== normalizePath(request.target.filePath)) {
@@ -145,7 +148,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     /** Synthesize one re-picked slot against the pre-statement scene. */
     const synthesizeSlot = (
       picks: Pick[],
-      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color',
+      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color' | 'intersection-curve',
       value: ValueExpr | undefined,
       chains: PickChain[],
       extra?: { connector?: { anchor?: ConnectorAnchorSpec } },
@@ -1012,6 +1015,33 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
             featureType: 'feature', nameHint: 'f', bind: true,
           }),
         });
+    }
+    if (request.feature === 'intersection-curve') {
+      // Each re-picked argument: whole surfaces bound by call site, its faces
+      // synthesized together against the pre-statement scene.
+      const slots: IntersectionCurveEdit = {};
+      for (const [slot, inputs] of [['first', request.intersectionFirst], ['second', request.intersectionSecond]] as const) {
+        if (!inputs) {
+          continue;
+        }
+        const picks = await OperandInputs.resolve(inputs, 'surface', { producers, merge: mergeProducer }, entities => {
+          const synthesis = synthesizeSlot(entities, 'intersection-curve', undefined, []);
+          if (!synthesis) {
+            return null;
+          }
+          if (normalizePath(synthesis.spec.filePath) !== normalizePath(request.target.filePath)) {
+            res.status(422).json({ success: false, reason: 'a re-picked face lives in a different file than the edited statement' });
+            return null;
+          }
+          const firstPart = foldSynthesis(synthesis);
+          return synthesis.spec.parts.map((_: unknown, i: number) => firstPart + i);
+        });
+        if (!picks) {
+          return;
+        }
+        slots[slot] = { kind: 'picks', picks };
+      }
+      edit.intersectionCurve = slots;
     }
     if (request.feature === 'color' && request.colorTargets) {
       // The Solid tab's list, the boolean's way; an empty list makes the

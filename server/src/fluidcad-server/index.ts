@@ -56,6 +56,7 @@ export type {
   GhostSketchAxisRef,
   GhostSolid,
   HelixGhostRequest,
+  IntersectionCurveGhostRequest,
   LoftGhostRequest,
   Mirror2DGhostRequest,
   MirrorGhostRequest,

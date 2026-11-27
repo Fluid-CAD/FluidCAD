@@ -18,6 +18,7 @@ export type FeatureGhostRequest =
   | FilletGhostRequest
   | ShellGhostRequest
   | HelixGhostRequest
+  | IntersectionCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -283,6 +284,18 @@ export type HelixGhostRequest = {
   height: number | null;
   startOffset: number | null;
   endOffset: number | null;
+};
+
+/**
+ * The intersection curve — `intersect(first, second)` outside a sketch. Like
+ * the helix it is a curve, so its ghost is that curve: no `op`, just the
+ * picks of its two rows in pick order, each a surface (or, on the second
+ * row, a `plane()`) by its statement or a face by its viewport address.
+ */
+export type IntersectionCurveGhostRequest = {
+  feature: 'intersection-curve';
+  first: GhostOperandRef[];
+  second: GhostOperandRef[];
 };
 
 /**

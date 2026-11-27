@@ -12,6 +12,7 @@ import { handleSweep } from './handlers/sweep.ts';
 import { handleWrap } from './handlers/wrap.ts';
 import { handleRevolve } from './handlers/revolve.ts';
 import { handleHelix } from './handlers/helix.ts';
+import { handleIntersectionCurve } from './handlers/intersection-curve.ts';
 import { handleLoft } from './handlers/loft.ts';
 import { handlePlane } from './handlers/plane.ts';
 import { handleRepeat } from './handlers/repeat.ts';
@@ -156,6 +157,15 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
     // its own). It consumes no sketch, so there is no profile producer.
     if (feature === 'helix') {
       await handleHelix(ctx, req, res);
+      return;
+    }
+
+    // The intersection curve — `intersect(first, second)` outside a sketch —
+    // takes two rows of surface picks: a surface whole (its statement, bound
+    // to a variable) or faces of bodies, each row's faces synthesized
+    // together into selectors.
+    if (feature === 'intersection-curve') {
+      await handleIntersectionCurve(ctx, req, res);
       return;
     }
 

@@ -7,6 +7,7 @@ import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { getOC } from "../oc/init.js";
+import { EdgeOps } from "../oc/edge-ops.js";
 import { ProjectionOps } from "../oc/projection-ops.js";
 import { ShapeMeasure } from "../oc/shape-measure.js";
 import { WireOps } from "../oc/wire-ops.js";
@@ -346,17 +347,7 @@ function nearestIndex(places: readonly Vector3d[], place: Vector3d): number {
 
 /** The smallest distance between two wires. */
 function minimumDistance(a: Wire, b: Wire): number {
-  const oc = getOC();
-  const progress = new oc.Message_ProgressRange();
-  const extrema = new oc.BRepExtrema_DistShapeShape(
-    a.getShape(), b.getShape(), oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN, oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad, progress,
-  );
-  try {
-    return extrema.IsDone() ? extrema.Value() : Infinity;
-  } finally {
-    extrema.delete();
-    progress.delete();
-  }
+  return EdgeOps.distanceBetweenRaw(a.getShape(), b.getShape());
 }
 
 /**

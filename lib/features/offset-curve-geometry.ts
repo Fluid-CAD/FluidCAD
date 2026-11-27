@@ -245,17 +245,25 @@ function sideOf(
 }
 
 /**
- * Whether the kept chain is not the offset curve it should be: a point of it
- * nearer the source than the distance (the tube folded over itself on the
- * inside of a bend tighter than the distance, or failed to trim a corner),
- * or farther. The kernel's fits allow ten times the edges' tolerance, and a
- * part in ten thousand of the distance.
+ * Whether the kept chain is not the offset curve it should be: some point of
+ * it nearer the source than the distance — the tube folded over itself on
+ * the inside of a bend tighter than the distance, or failed to trim a corner
+ * — found as the smallest distance between the two, wherever it is; or a
+ * point of it farther than the distance, or edges the kernel fitted so
+ * loosely that their points say nothing. The kernel's fits allow ten times
+ * the edges' tolerance, and a part in ten thousand of the distance.
  */
 function folds(chain: Wire, source: Wire, radius: number): boolean {
   const oc = getOC();
   const edges = chain.getEdges();
   const fit = Math.max(...edges.map(edge => oc.BRep_Tool.Tolerance(edge.getShape() as TopoDS_Edge)));
+  if (fit > Math.max(mmTol(1e-3), radius * 1e-2)) {
+    return true;
+  }
   const tolerance = Math.max(mmTol(1e-3), radius * 1e-4, fit * 10);
+  if (EdgeOps.distanceBetweenRaw(chain.getShape(), source.getShape()) < radius - tolerance) {
+    return true;
+  }
   return edges.some(edge => sampleEdge(edge, CANDIDATE_SAMPLES).some(({ point }) =>
     Math.abs(EdgeOps.distancePointToEdge(point, source) - radius) > tolerance));
 }

@@ -487,27 +487,35 @@ export class EdgeOps {
   /** The smallest distance from `point` to any raw shape — an edge, a wire, faces; Infinity when the kernel finds none. */
   static distancePointToShapeRaw(point: Point, shape: TopoDS_Shape): number {
     const oc = getOC();
-
     const gpPnt = new oc.gp_Pnt(point.x, point.y, point.z);
     const vertexMaker = new oc.BRepBuilderAPI_MakeVertex(gpPnt);
     const vertexShape = vertexMaker.Shape();
     gpPnt.delete();
+    try {
+      return EdgeOps.distanceBetweenRaw(vertexShape, shape);
+    } finally {
+      vertexShape.delete();
+      vertexMaker.delete();
+    }
+  }
 
+  /** The smallest distance between two raw shapes, anywhere along them; Infinity when the kernel finds none. */
+  static distanceBetweenRaw(a: TopoDS_Shape, b: TopoDS_Shape): number {
+    const oc = getOC();
     const progress = new oc.Message_ProgressRange();
-    const distCalc = new oc.BRepExtrema_DistShapeShape(
-      vertexShape,
-      shape,
+    const extrema = new oc.BRepExtrema_DistShapeShape(
+      a,
+      b,
       oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN,
       oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
       progress,
     );
-    const distance = distCalc.IsDone() ? distCalc.Value() : Infinity;
-    distCalc.delete();
-    progress.delete();
-    vertexShape.delete();
-    vertexMaker.delete();
-
-    return distance;
+    try {
+      return extrema.IsDone() ? extrema.Value() : Infinity;
+    } finally {
+      extrema.delete();
+      progress.delete();
+    }
   }
 
   /**

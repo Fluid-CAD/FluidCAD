@@ -3,6 +3,7 @@
 import type { ApplyFeatureEditSpec, DirectionSpec } from '../../apply-feature-edit/index.ts';
 import { AxisInputs } from './axis-inputs.ts';
 import { validateSketchLoc, type SketchLoc } from './locations.ts';
+import { isKeepSlot } from './validate/common.ts';
 import { validatePick, type Pick } from './picks.ts';
 import { validateRevolveAxis, type RevolveAxisInput } from './validate/revolve.ts';
 
@@ -20,6 +21,12 @@ export type DirectionInput =
   | { kind: 'standard-plane'; plane: 'xy' | 'xz' | 'yz' }
   | { kind: 'plane'; loc: SketchLoc }
   | { kind: 'face'; pick: Pick };
+
+/**
+ * An edit's direction on the wire, once read: a new direction, or the
+ * statement's own `.direction(…)` dropped.
+ */
+export type DirectionEditInput = DirectionInput | { kind: 'cleared' };
 
 /** The producer list an arm builds and the merge that folds a statement into it once (see `makeProducerMerger`). */
 type ProducerMerge = (producer: ApplyFeatureEditSpec['producers'][number]) => number;
@@ -56,6 +63,23 @@ export class DirectionInputs {
       return validateRevolveAxis(input);
     }
     return { error: `${slot} must be {kind: "standard"|"axis"|"edge"|"connector"|"standard-plane"|"plane"|"face", …}` };
+  }
+
+  /**
+   * Reads an edit's direction: absent, null or `{kind: "keep"}` keeps the
+   * statement's own `.direction(…)` as written (`edit` undefined),
+   * `{kind: "cleared"}` drops it, anything else is a new direction read as
+   * {@link validate} reads one.
+   */
+  static validateEdit(raw: unknown, slot = 'direction'): { edit: DirectionEditInput | undefined } | { error: string } {
+    if ((raw as { kind?: unknown } | null | undefined)?.kind === 'cleared') {
+      return { edit: { kind: 'cleared' } };
+    }
+    if (isKeepSlot(raw)) {
+      return { edit: undefined };
+    }
+    const direction = DirectionInputs.validate(raw, slot);
+    return 'error' in direction ? direction : { edit: direction };
   }
 
   /** Whether the input is a picked edge or face — what needs synthesis (and, in an edit, a boundary). */

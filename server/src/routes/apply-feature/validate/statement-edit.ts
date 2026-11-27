@@ -27,10 +27,10 @@ import { isKeepSlot, validateProfileFeature, validateThinOffsets } from './commo
 import { validateCopyEdit, type CopyEditAxisInput } from './copy.ts';
 import { FACE_PROFILE_SHAPE, validateExtrudeOptions, validateFaceProfilePick } from './extrude.ts';
 import { validateHelixOption, validateHelixSource, type HelixSourceInput } from './helix.ts';
-import { validateIntersectionCurveEdit } from './intersection-curve.ts';
+import { validateIntersectionCurveEdit, type IntersectionCurveEditRequest } from './intersection-curve.ts';
 import { validateProjectedCurveEdit, type ProjectedCurveEditRequest } from './projected-curve.ts';
 import { DirectionInputs } from '../direction-inputs.ts';
-import { OperandInputs, type OperandInput } from '../operand-inputs.ts';
+import { OperandInputs } from '../operand-inputs.ts';
 import {
   validateEditLoftGuides,
   validateEditLoftProfiles,
@@ -110,10 +110,8 @@ export type StatementEditRequest = {
   revolveAxis?: RevolveAxisInput;
   /** Re-sourced helix source (axis-family or face); absent keeps the statement's. */
   helixSource?: HelixSourceInput;
-  /** The intersection curve's re-picked first argument; absent keeps the statement's. */
-  intersectionFirst?: OperandInput[];
-  /** The intersection curve's re-picked second argument; absent keeps the statement's. */
-  intersectionSecond?: OperandInput[];
+  /** The intersection curve's re-picked rows; an absent row keeps the statement's argument. */
+  intersectionCurve?: IntersectionCurveEditRequest;
   /**
    * The projected curve's re-picked rows and its direction (new, or
    * `cleared`); each absent keeps the statement's own. The mode and what is
@@ -540,14 +538,12 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
 
   if (feature === 'intersection-curve') {
     // No options: an edit re-picks either argument, or neither.
-    const slots = validateIntersectionCurveEdit(body);
-    if ('error' in slots) {
-      return slots;
+    const request = validateIntersectionCurveEdit(body);
+    if ('error' in request) {
+      return request;
     }
     edit.intersectionCurve = {};
-    const result: StatementEditRequest = { ...base, intersectionFirst: slots.first, intersectionSecond: slots.second };
-    result.needsPicks = [slots.first, slots.second].some(inputs => inputs !== undefined && OperandInputs.picksGeometry(inputs));
-    return result;
+    return { ...base, intersectionCurve: request, needsPicks: OperandInputs.rowsPickGeometry(request.rows) };
   }
 
   if (feature === 'projected-curve') {
@@ -564,7 +560,7 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
       ...(slots.direction?.kind === 'cleared' ? { direction: { kind: 'cleared' as const } } : {}),
     };
     const result: StatementEditRequest = { ...base, projectedCurve: slots };
-    result.needsPicks = [slots.source, slots.target].some(inputs => inputs !== undefined && OperandInputs.picksGeometry(inputs))
+    result.needsPicks = OperandInputs.rowsPickGeometry(slots.rows)
       || (slots.direction !== undefined && slots.direction.kind !== 'cleared' && DirectionInputs.picksGeometry(slots.direction));
     return result;
   }

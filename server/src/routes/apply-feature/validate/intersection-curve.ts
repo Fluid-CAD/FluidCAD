@@ -1,7 +1,7 @@
 // intersection curve request validation.
 
-import { OperandInputs, type OperandInput } from '../operand-inputs.ts';
-import { isKeepSlot } from './common.ts';
+import { INTERSECTION_CURVE_ROWS, type IntersectionCurveRow } from '../../../apply-feature-edit/index.ts';
+import { OperandInputs, type RowInputs } from '../operand-inputs.ts';
 
 /**
  * The intersection curve request: the picks of its two rows, each a
@@ -9,39 +9,24 @@ import { isKeepSlot } from './common.ts';
  * tool has no options.
  */
 export type IntersectionCurveRequest = {
-  first: OperandInput[];
-  second: OperandInput[];
+  rows: RowInputs<IntersectionCurveRow>;
 };
 
-export function validateIntersectionCurve(body: any): IntersectionCurveRequest | { error: string } {
-  const first = OperandInputs.validate(body?.first, 'surface', 'first');
-  if ('error' in first) {
-    return first;
-  }
-  const second = OperandInputs.validate(body?.second, 'surface', 'second');
-  if ('error' in second) {
-    return second;
-  }
-  return { first, second };
+/** An edit of an intersection curve: the rows re-picked; an absent row keeps the statement's own. */
+export type IntersectionCurveEditRequest = {
+  rows: Partial<RowInputs<IntersectionCurveRow>>;
+};
+
+export function validateIntersectionCurve(body: unknown): IntersectionCurveRequest | { error: string } {
+  const rows = OperandInputs.validateRows(body, INTERSECTION_CURVE_ROWS.kinds);
+  return 'error' in rows ? rows : { rows };
 }
 
 /**
  * An edit's two rows: each absent or `{kind: "keep"}` to keep the
  * statement's own argument, else its new picks.
  */
-export function validateIntersectionCurveEdit(
-  body: any,
-): { first?: OperandInput[]; second?: OperandInput[] } | { error: string } {
-  const slots: { first?: OperandInput[]; second?: OperandInput[] } = {};
-  for (const slot of ['first', 'second'] as const) {
-    if (isKeepSlot(body?.[slot])) {
-      continue;
-    }
-    const inputs = OperandInputs.validate(body[slot], 'surface', slot);
-    if ('error' in inputs) {
-      return inputs;
-    }
-    slots[slot] = inputs;
-  }
-  return slots;
+export function validateIntersectionCurveEdit(body: unknown): IntersectionCurveEditRequest | { error: string } {
+  const rows = OperandInputs.validateRowEdits(body, INTERSECTION_CURVE_ROWS.kinds);
+  return 'error' in rows ? rows : { rows };
 }

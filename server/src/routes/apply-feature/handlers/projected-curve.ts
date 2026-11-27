@@ -41,7 +41,7 @@ export async function handleProjectedCurve(ctx: ApplyFeatureRequestContext, req:
     const imports = new Set<string>();
     const directionSite = request.direction ? DirectionInputs.statement(request.direction) : null;
     const files = [
-      ...OperandInputs.statements([...request.source, ...request.target]),
+      ...OperandInputs.statements([...request.rows.source, ...request.rows.target]),
       ...(directionSite ? [directionSite] : []),
     ].map(loc => loc.filePath);
 
@@ -81,11 +81,11 @@ export async function handleProjectedCurve(ctx: ApplyFeatureRequestContext, req:
       return added;
     };
 
-    const source = await OperandInputs.resolve(request.source, 'curve', merger, synthesize);
+    const source = await OperandInputs.resolve(request.rows.source, 'curve', merger, synthesize);
     if (!source) {
       return;
     }
-    const target = await OperandInputs.resolve(request.target, 'surface', merger, synthesize);
+    const target = await OperandInputs.resolve(request.rows.target, 'surface', merger, synthesize);
     if (!target) {
       return;
     }

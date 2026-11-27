@@ -5,9 +5,11 @@ import {
   enclosingSketchLine,
   extractNumericParams,
   HolePlacements,
+  INTERSECTION_CURVE_ROWS,
   LoftConnections,
   makeProducerNamer,
   parseFeatureStatement,
+  PROJECTED_CURVE_ROWS,
   renderEditedStatement,
   resolveEditedStatementLine,
   resolveParamValues,
@@ -16,7 +18,6 @@ import {
   type ConnectorAnchorSpec,
   type CopyEditAxis,
   type FeatureStatementEditTarget,
-  type IntersectionCurveEdit,
   type RepeatEditAxis,
   type RotateEditAxis,
   type ValueExpr,
@@ -105,8 +106,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.colorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
-      ...OperandInputs.statements([...request.intersectionFirst ?? [], ...request.intersectionSecond ?? []]),
-      ...OperandInputs.statements([...request.projectedCurve?.source ?? [], ...request.projectedCurve?.target ?? []]),
+      ...OperandInputs.rowStatements(request.intersectionCurve?.rows),
+      ...OperandInputs.rowStatements(request.projectedCurve?.rows),
       ...(request.projectedCurve?.direction && request.projectedCurve.direction.kind !== 'cleared'
         ? [DirectionInputs.statement(request.projectedCurve.direction)].filter((loc): loc is SketchLoc => loc !== null)
         : []),
@@ -186,6 +187,25 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       }
       return parts.length - synthesis.spec.parts.length;
     };
+    /**
+     * The synthesis of a re-picked operand row: its edges or faces together,
+     * against the pre-statement scene, folded into the spec; the indices of
+     * the parts it added. A pick in another file than the edited statement
+     * is refused with `crossFile`.
+     */
+    const synthesizeRepickedRow = (kind: 'intersection-curve' | 'projected-curve', crossFile: string) =>
+      (entities: Pick[]): number[] | null => {
+        const synthesis = synthesizeSlot(entities, kind, undefined, []);
+        if (!synthesis) {
+          return null;
+        }
+        if (normalizePath(synthesis.spec.filePath) !== normalizePath(request.target.filePath)) {
+          res.status(422).json({ success: false, reason: crossFile });
+          return null;
+        }
+        const firstPart = foldSynthesis(synthesis);
+        return synthesis.spec.parts.map((_: unknown, i: number) => firstPart + i);
+      };
     const sketchRef = (loc: SketchLoc, nameHint: string): number => mergeProducer({
       line: loc.line, column: loc.column, featureType: 'sketch', nameHint, bind: true,
     });
@@ -1021,32 +1041,17 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
           }),
         });
     }
-    if (request.feature === 'intersection-curve') {
+    if (request.feature === 'intersection-curve' && request.intersectionCurve) {
       // Each re-picked argument: whole surfaces bound by call site, its faces
       // synthesized together against the pre-statement scene.
-      const slots: IntersectionCurveEdit = {};
-      for (const [slot, inputs] of [['first', request.intersectionFirst], ['second', request.intersectionSecond]] as const) {
-        if (!inputs) {
-          continue;
-        }
-        const picks = await OperandInputs.resolve(inputs, 'surface', { producers, merge: mergeProducer }, entities => {
-          const synthesis = synthesizeSlot(entities, 'intersection-curve', undefined, []);
-          if (!synthesis) {
-            return null;
-          }
-          if (normalizePath(synthesis.spec.filePath) !== normalizePath(request.target.filePath)) {
-            res.status(422).json({ success: false, reason: 'a re-picked face lives in a different file than the edited statement' });
-            return null;
-          }
-          const firstPart = foldSynthesis(synthesis);
-          return synthesis.spec.parts.map((_: unknown, i: number) => firstPart + i);
-        });
-        if (!picks) {
-          return;
-        }
-        slots[slot] = { kind: 'picks', picks };
+      const rows = await OperandInputs.resolveRowEdits(
+        request.intersectionCurve.rows, INTERSECTION_CURVE_ROWS.kinds, { producers, merge: mergeProducer },
+        synthesizeRepickedRow('intersection-curve', 'a re-picked face lives in a different file than the edited statement'),
+      );
+      if (!rows) {
+        return;
       }
-      edit.intersectionCurve = slots;
+      edit.intersectionCurve = rows;
     }
     if (request.feature === 'projected-curve' && request.projectedCurve) {
       // Each re-picked row: whole sketches, curves and surfaces bound by
@@ -1054,29 +1059,16 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       // pre-statement scene; a new direction a literal, a bound statement,
       // or a picked edge or face synthesized on its own.
       const target = edit.projectedCurve!;
-      const synthesizePicks = (entities: Pick[]): number[] | null => {
-        const synthesis = synthesizeSlot(entities, 'projected-curve', undefined, []);
-        if (!synthesis) {
-          return null;
-        }
-        if (normalizePath(synthesis.spec.filePath) !== normalizePath(request.target.filePath)) {
-          res.status(422).json({ success: false, reason: 'a re-picked edge or face lives in a different file than the edited statement' });
-          return null;
-        }
-        const firstPart = foldSynthesis(synthesis);
-        return synthesis.spec.parts.map((_: unknown, i: number) => firstPart + i);
-      };
-      for (const [slot, kind] of [['source', 'curve'], ['target', 'surface']] as const) {
-        const inputs = request.projectedCurve[slot];
-        if (!inputs) {
-          continue;
-        }
-        const picks = await OperandInputs.resolve(inputs, kind, { producers, merge: mergeProducer }, synthesizePicks);
-        if (!picks) {
-          return;
-        }
-        target[slot] = { kind: 'picks', picks };
+      const synthesizePicks = synthesizeRepickedRow(
+        'projected-curve', 'a re-picked edge or face lives in a different file than the edited statement',
+      );
+      const rows = await OperandInputs.resolveRowEdits(
+        request.projectedCurve.rows, PROJECTED_CURVE_ROWS.kinds, { producers, merge: mergeProducer }, synthesizePicks,
+      );
+      if (!rows) {
+        return;
       }
+      Object.assign(target, rows);
       const direction = request.projectedCurve.direction;
       if (direction && direction.kind !== 'cleared') {
         const spec = await DirectionInputs.resolve(direction, mergeProducer, synthesizePicks, reason => {

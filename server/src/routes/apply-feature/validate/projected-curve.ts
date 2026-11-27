@@ -2,14 +2,15 @@
 
 import {
   DIRECTION_WITH_NORMAL,
-  PROJECTION_KEEPS,
-  PROJECTION_MODES,
+  PROJECTED_CURVE_ROWS,
+  PROJECTION_KEEP,
+  PROJECTION_MODE,
+  type ProjectedCurveRow,
   type ProjectionKeep,
   type ProjectionMode,
 } from '../../../apply-feature-edit/index.ts';
-import { DirectionInputs, type DirectionInput } from '../direction-inputs.ts';
-import { OperandInputs, type OperandInput } from '../operand-inputs.ts';
-import { isKeepSlot } from './common.ts';
+import { DirectionInputs, type DirectionEditInput, type DirectionInput } from '../direction-inputs.ts';
+import { OperandInputs, type RowInputs } from '../operand-inputs.ts';
 
 /**
  * The projected curve request: the picks of its source row (sketches and
@@ -19,8 +20,7 @@ import { isKeepSlot } from './common.ts';
  * in — and which images stay.
  */
 export type ProjectedCurveRequest = {
-  source: OperandInput[];
-  target: OperandInput[];
+  rows: RowInputs<ProjectedCurveRow>;
   mode: ProjectionMode;
   direction: DirectionInput | null;
   keep: ProjectionKeep;
@@ -31,52 +31,36 @@ export type ProjectedCurveRequest = {
  * statement's own `.direction(…)` as written, `{kind: "cleared"}` drops it,
  * anything else is the new direction.
  */
-export type ProjectedCurveDirectionInput = DirectionInput | { kind: 'cleared' };
+export type ProjectedCurveDirectionInput = DirectionEditInput;
 
-/** An edit of a projected curve: each part absent keeps the statement's own. */
+/** An edit of a projected curve: the rows re-picked, and each option absent keeps the statement's own. */
 export type ProjectedCurveEditRequest = {
-  source?: OperandInput[];
-  target?: OperandInput[];
+  rows: Partial<RowInputs<ProjectedCurveRow>>;
   mode?: ProjectionMode;
   direction?: ProjectedCurveDirectionInput;
   keep?: ProjectionKeep;
 };
 
-/** `.mode()` / `.keep()`: absent reads as the default (the first word); anything else must be one of the words. */
-function validateChoice<T extends string>(
-  raw: unknown,
-  name: string,
-  choices: readonly T[],
-  fallback: T | undefined,
-): { value: T | undefined } | { error: string } {
-  if (raw === undefined || raw === null) {
-    return { value: fallback };
-  }
-  return (choices as readonly unknown[]).includes(raw)
-    ? { value: raw as T }
-    : { error: `${name} must be ${choices.map(choice => `"${choice}"`).join(' or ')}` };
-}
+/** The option fields of a request body, as sent. */
+type OptionFields = { mode?: unknown; keep?: unknown; direction?: unknown } | null | undefined;
 
-export function validateProjectedCurve(body: any): ProjectedCurveRequest | { error: string } {
-  const source = OperandInputs.validate(body?.source, 'curve', 'source');
-  if ('error' in source) {
-    return source;
+export function validateProjectedCurve(body: unknown): ProjectedCurveRequest | { error: string } {
+  const rows = OperandInputs.validateRows(body, PROJECTED_CURVE_ROWS.kinds);
+  if ('error' in rows) {
+    return rows;
   }
-  const target = OperandInputs.validate(body?.target, 'surface', 'target');
-  if ('error' in target) {
-    return target;
-  }
-  const mode = validateChoice(body?.mode, 'mode', PROJECTION_MODES, PROJECTION_MODES[0]);
+  const options = body as OptionFields;
+  const mode = PROJECTION_MODE.fromRequest(options?.mode);
   if ('error' in mode) {
     return mode;
   }
-  const keep = validateChoice(body?.keep, 'keep', PROJECTION_KEEPS, PROJECTION_KEEPS[0]);
+  const keep = PROJECTION_KEEP.fromRequest(options?.keep);
   if ('error' in keep) {
     return keep;
   }
   let direction: DirectionInput | null = null;
-  if (body?.direction !== undefined && body?.direction !== null) {
-    const valid = DirectionInputs.validate(body.direction);
+  if (options?.direction !== undefined && options?.direction !== null) {
+    const valid = DirectionInputs.validate(options.direction);
     if ('error' in valid) {
       return valid;
     }
@@ -86,7 +70,7 @@ export function validateProjectedCurve(body: any): ProjectedCurveRequest | { err
   if (mode.value === 'normal' && direction !== null) {
     return { error: DIRECTION_WITH_NORMAL };
   }
-  return { source, target, mode: mode.value!, direction, keep: keep.value! };
+  return { rows, mode: mode.value, direction, keep: keep.value };
 }
 
 /**
@@ -97,23 +81,18 @@ export function validateProjectedCurve(body: any): ProjectedCurveRequest | { err
  * the engine's words; a kept one is the edit renderer's to refuse, since
  * only the statement says whether it has one.
  */
-export function validateProjectedCurveEdit(body: any): ProjectedCurveEditRequest | { error: string } {
-  const request: ProjectedCurveEditRequest = {};
-  for (const slot of ['source', 'target'] as const) {
-    if (isKeepSlot(body?.[slot])) {
-      continue;
-    }
-    const inputs = OperandInputs.validate(body[slot], slot === 'source' ? 'curve' : 'surface', slot);
-    if ('error' in inputs) {
-      return inputs;
-    }
-    request[slot] = inputs;
+export function validateProjectedCurveEdit(body: unknown): ProjectedCurveEditRequest | { error: string } {
+  const rows = OperandInputs.validateRowEdits(body, PROJECTED_CURVE_ROWS.kinds);
+  if ('error' in rows) {
+    return rows;
   }
-  const mode = validateChoice(body?.mode, 'mode', PROJECTION_MODES, undefined);
+  const request: ProjectedCurveEditRequest = { rows };
+  const options = body as OptionFields;
+  const mode = PROJECTION_MODE.editFromRequest(options?.mode);
   if ('error' in mode) {
     return mode;
   }
-  const keep = validateChoice(body?.keep, 'keep', PROJECTION_KEEPS, undefined);
+  const keep = PROJECTION_KEEP.editFromRequest(options?.keep);
   if ('error' in keep) {
     return keep;
   }
@@ -123,17 +102,15 @@ export function validateProjectedCurveEdit(body: any): ProjectedCurveEditRequest
   if (keep.value !== undefined) {
     request.keep = keep.value;
   }
-  if (body?.direction?.kind === 'cleared') {
-    request.direction = { kind: 'cleared' };
-  } else if (!isKeepSlot(body?.direction)) {
-    const direction = DirectionInputs.validate(body.direction);
-    if ('error' in direction) {
-      return direction;
-    }
-    if (request.mode === 'normal') {
+  const direction = DirectionInputs.validateEdit(options?.direction);
+  if ('error' in direction) {
+    return direction;
+  }
+  if (direction.edit !== undefined) {
+    if (direction.edit.kind !== 'cleared' && request.mode === 'normal') {
       return { error: DIRECTION_WITH_NORMAL };
     }
-    request.direction = direction;
+    request.direction = direction.edit;
   }
   return request;
 }

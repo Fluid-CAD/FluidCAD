@@ -1,7 +1,14 @@
 // One curve or surface operand row's request input, as every operand-taking route reads it.
 
-import type { ApplyFeatureEditSpec, OperandPick } from '../../apply-feature-edit/index.ts';
+import type {
+  ApplyFeatureEditSpec,
+  OperandPick,
+  OperandRowKind,
+  RowEdits,
+  RowPicks,
+} from '../../apply-feature-edit/index.ts';
 import { normalizePath } from '../../normalize-path.ts';
+import { isKeepSlot } from './validate/common.ts';
 import type { Pick } from './picks.ts';
 
 /**
@@ -15,6 +22,12 @@ import type { Pick } from './picks.ts';
 export type OperandInput =
   | { kind: 'statement'; filePath: string; line: number; column: number }
   | { kind: 'edge' | 'face'; shapeId: string; index: number };
+
+/** What each row of an operand-row tool takes, by row, in argument order (`OperandRows.kinds`). */
+export type RowKinds<R extends string> = Readonly<Record<R, OperandRowKind>>;
+
+/** Each row's picks on the wire, by row. */
+export type RowInputs<R extends string> = Record<R, OperandInput[]>;
 
 /** What each kind of row takes, as a refusal says it. */
 const TAKES = { curve: 'curves and edges', surface: 'surfaces and faces' } as const;
@@ -68,6 +81,101 @@ export class OperandInputs {
       return { error: `${slot} holds a pick of an unknown kind` };
     }
     return inputs;
+  }
+
+  /**
+   * Reads a create request's rows: each row's field of `body`, by its name,
+   * as the picks of its kind ({@link validate}). The first refusal, in row
+   * order, is the answer.
+   */
+  static validateRows<R extends string>(body: unknown, kinds: RowKinds<R>): RowInputs<R> | { error: string } {
+    const rows = {} as RowInputs<R>;
+    for (const row of rowNames(kinds)) {
+      const inputs = OperandInputs.validate(fieldOf(body, row), kinds[row], row);
+      if ('error' in inputs) {
+        return inputs;
+      }
+      rows[row] = inputs;
+    }
+    return rows;
+  }
+
+  /**
+   * Reads an edit request's rows: a row absent or `{kind: "keep"}` keeps
+   * the statement's own argument and is left out; any other is read as a
+   * create's row is.
+   */
+  static validateRowEdits<R extends string>(body: unknown, kinds: RowKinds<R>): Partial<RowInputs<R>> | { error: string } {
+    const rows: Partial<RowInputs<R>> = {};
+    for (const row of rowNames(kinds)) {
+      const raw = fieldOf(body, row);
+      if (isKeepSlot(raw)) {
+        continue;
+      }
+      const inputs = OperandInputs.validate(raw, kinds[row], row);
+      if ('error' in inputs) {
+        return inputs;
+      }
+      rows[row] = inputs;
+    }
+    return rows;
+  }
+
+  /** Whether any row picks an edge or a face — what needs synthesis (and, in an edit, a boundary). */
+  static rowsPickGeometry(rows: Partial<Record<string, OperandInput[]>>): boolean {
+    return Object.values(rows).some(inputs => inputs !== undefined && OperandInputs.picksGeometry(inputs));
+  }
+
+  /** The call sites of the whole objects the rows pick, row by row in pick order. */
+  static rowStatements(rows: Partial<Record<string, OperandInput[]>> | undefined): { filePath: string; line: number; column: number }[] {
+    return Object.values(rows ?? {}).flatMap(inputs => inputs === undefined ? [] : OperandInputs.statements(inputs));
+  }
+
+  /**
+   * Every row's picks ({@link resolve}), in row order, through one merger
+   * and one synthesis; null once `synthesize` has refused the request.
+   */
+  static async resolveRows<R extends string>(
+    rows: RowInputs<R>,
+    kinds: RowKinds<R>,
+    merger: ProducerMerger,
+    synthesize: (picks: Pick[]) => Promise<number[] | null> | number[] | null,
+  ): Promise<RowPicks<R> | null> {
+    const picks = {} as RowPicks<R>;
+    for (const row of rowNames(kinds)) {
+      const resolved = await OperandInputs.resolve(rows[row], kinds[row], merger, synthesize);
+      if (!resolved) {
+        return null;
+      }
+      picks[row] = resolved;
+    }
+    return picks;
+  }
+
+  /**
+   * An edit's re-picked rows as the edit spec writes them — each `{kind:
+   * "picks"}` with its resolved picks ({@link resolve}), in row order; a kept
+   * row is left out. Null once `synthesize` has refused the request.
+   */
+  static async resolveRowEdits<R extends string>(
+    rows: Partial<RowInputs<R>>,
+    kinds: RowKinds<R>,
+    merger: ProducerMerger,
+    synthesize: (picks: Pick[]) => Promise<number[] | null> | number[] | null,
+  ): Promise<RowEdits<R> | null> {
+    const edits: RowEdits<R> = {};
+    for (const row of rowNames(kinds)) {
+      const inputs = rows[row];
+      if (!inputs) {
+        continue;
+      }
+      const picks = await OperandInputs.resolve(inputs, kinds[row], merger, synthesize);
+      if (!picks) {
+        return null;
+      }
+      edits[row] = { kind: 'picks', picks };
+    }
+    return edits;
   }
 
   /** Whether any of the inputs is an edge or a face — what needs synthesis (and, in an edit, a boundary). */
@@ -132,4 +240,14 @@ export class OperandInputs {
   static sameFile(paths: string[]): boolean {
     return new Set(paths.map(path => normalizePath(path))).size <= 1;
   }
+}
+
+/** The rows of a tool, in argument order. */
+function rowNames<R extends string>(kinds: RowKinds<R>): R[] {
+  return Object.keys(kinds) as R[];
+}
+
+/** A request body's field, by name; undefined when the body is not an object. */
+function fieldOf(body: unknown, name: string): unknown {
+  return typeof body === 'object' && body !== null ? (body as Record<string, unknown>)[name] : undefined;
 }

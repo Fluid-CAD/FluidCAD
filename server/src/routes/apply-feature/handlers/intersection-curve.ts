@@ -33,7 +33,7 @@ export async function handleIntersectionCurve(ctx: ApplyFeatureRequestContext, r
     const merger = makeProducerMerger();
     const parts: ApplyFeatureEditSpec['parts'] = [];
     const imports = new Set<string>();
-    const files = OperandInputs.statements([...request.first, ...request.second]).map(loc => loc.filePath);
+    const files = OperandInputs.statements([...request.rows.first, ...request.rows.second]).map(loc => loc.filePath);
 
     // Built on the first row that picks faces — a row of whole surfaces
     // runs no synthesis.
@@ -71,11 +71,11 @@ export async function handleIntersectionCurve(ctx: ApplyFeatureRequestContext, r
       return added;
     };
 
-    const first = await OperandInputs.resolve(request.first, 'surface', merger, synthesize);
+    const first = await OperandInputs.resolve(request.rows.first, 'surface', merger, synthesize);
     if (!first) {
       return;
     }
-    const second = await OperandInputs.resolve(request.second, 'surface', merger, synthesize);
+    const second = await OperandInputs.resolve(request.rows.second, 'surface', merger, synthesize);
     if (!second) {
       return;
     }

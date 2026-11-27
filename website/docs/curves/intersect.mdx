@@ -1,0 +1,114 @@
+---
+sidebar_position: 2
+title: "Intersect"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import intersectBasic from '!!raw-loader!./_examples/intersect-basic.js';
+import intersectSweep from '!!raw-loader!./_examples/intersect-sweep.js';
+import intersectPlane from '!!raw-loader!./_examples/intersect-plane.js';
+
+# Intersect
+
+Intersect makes the curve where two sets of faces meet: the section of a body cut by a face, or the seam between two surfaces. The faces stay as they are; the result is a [curve](/docs/curves/introduction) to sweep along, to set a plane on, or to measure.
+
+## In the viewport
+
+1. Open the **Curves** menu on the toolbar and click **Intersect**. The dialog opens with the **First** row armed (blue border).
+2. Click the faces of the first side. A face of a solid is taken as that face; a face of a surface takes the whole surface. A surface's row in the timeline works too. Once **First** holds a pick, **Second** is armed.
+3. Click the faces of the other side. As soon as both rows hold a pick, the curve previews in blue.
+4. Click **Apply**. The timeline gains an **Intersect** row and the statement is written to the file.
+
+<UiFigure
+  src="/img/docs/ui/intersect-dialog.png"
+  alt="The Intersect dialog with a face picked in each row"
+  markers={[
+    {n: 1, x: 5, y: 18, label: 'First', description: 'The first set of faces. Each row takes several picks: faces of solids, whole surfaces, or both. Click a chip’s ✕ to drop it; click a picked face again to take it back off.'},
+    {n: 2, x: 5, y: 51, label: 'Second', description: 'The faces the first set is cut with. Click a row to arm it before picking for it; the armed row wears the blue border.'},
+    {n: 3, x: 5, y: 90, label: 'Apply', description: 'Writes intersect(first, second). Both rows need a pick. Exit closes the dialog without writing anything.'},
+  ]}
+/>
+
+If the two sides do not cross, the dialog says so instead of drawing a preview: faces that only touch along an edge, or lie on top of each other, have no intersection curve.
+
+A pipe standing through the sloped face of a block, with the pipe's wall in **First** and the slope in **Second**:
+
+![The ellipse where a pipe crosses a chamfer](/img/docs/curves/intersect-basic.png)
+
+<ExplainedCode code={intersectBasic} fileName="pipe.part.js">
+The dialog names a picked face with a selector of its own; any face selection works in its place, as the slope's does here.
+</ExplainedCode>
+
+### Picking several faces at once
+
+- **Double-click** a face of a solid: the row takes the whole group the face belongs to, such as every side face of an extrude.
+- **Right-click** a face of a solid: a menu lists the groups it belongs to, such as its tangent faces, the faces of its kind connected to it and the faces of the feature that made it. Hover an item to preview it; click it to add those faces to the armed row.
+
+A face of a surface already stands for the whole surface, so neither gesture applies to it.
+
+## Editing
+
+Double-click the **Intersect** row in the timeline. The view rolls back to just before the statement and the dialog reopens with each row on its argument as written, as **Current: …** chips, and the faces they name lit up. Pick in a row to change it. Where the row names faces or surfaces, the first pick adds to them and a chip's ✕ takes one off; anything else in the row (a `plane()`, an expression) is replaced by the pick. **Apply** rewrites only the row you changed; the other argument is written back exactly as it was.
+
+## What it is for
+
+The curve is construction geometry. A sweep along it adds material where the two sides meet, here a bead round the foot of the pipe. The sweep hides the curve, which later statements can still read.
+
+![A bead swept along the curve where the pipe meets the slope](/img/docs/curves/intersect-sweep.png)
+
+<ExplainedCode code={intersectSweep} fileName="pipe.part.js" />
+
+## In code
+
+```js
+import { intersect } from 'fluidcad/core';
+
+const ic = intersect(first, second);
+```
+
+| Argument | Takes |
+|----------|-------|
+| `first` | A face selection (faces of solids or of surfaces), a surface, a solid (all its faces), or a list of those: `intersect([a, b], c)` |
+| `second` | The same, or one `plane()` on its own, taken as infinite |
+
+Written outside a sketch, `intersect` is this tool. Inside a `sketch()` callback it is the sketch tool that sections the sketch plane: see [Intersect in a sketch](/docs/sketching/tools/intersect).
+
+### A plane as the second argument
+
+A `plane()` cuts as far as the faces go, whatever size its quad is drawn at. The dialog does not pick planes yet: write the plane in code. Editing such a statement from the timeline keeps the plane as written while you change the first row.
+
+![A cylinder's wall cut by a tilted plane](/img/docs/curves/intersect-plane.png)
+
+<ExplainedCode code={intersectPlane} fileName="tube.part.js" />
+
+### One wire per chain
+
+The result holds one wire for each connected run of intersection edges. A plane through a cylinder's wall gives one closed wire; a rod passing through a pipe gives two, one where it enters and one where it leaves; two surfaces that cross and end give an open wire whose ends lie on their rims.
+
+```js
+ic.edges()        // every edge, wire after wire, each in the order it runs
+ic.edges(0)       // one edge
+ic.start()        // where the first wire starts
+ic.end()          // where it ends
+```
+
+The order does not depend on the kernel: wires come by the face of the first argument each starts on, then by their start point, so `ic.edges(1)` names the same edge after an upstream dimension changes.
+
+A cut that is a circle or an ellipse reads as one to the [edge filters](/docs/3d-operations/selection-and-filters) (`edge().circle()`), even where the kernel stores it as a spline.
+
+## Errors
+
+| Situation | Message |
+|-----------|---------|
+| The two sides only touch, along an edge or tangentially, or lie on each other | `intersect: the two selections do not cross.` |
+| A face is in both arguments | `intersect: the <kind> face at (x, y, z) is in both selections.` |
+| An argument holds edges, a curve or a sketch | `intersect: the first selection is an edge selection; it needs faces.` |
+| A `plane()` as the first argument, or inside a list | `intersect: a plane can only be the second argument, given on its own.` |
+| The curves branch, as where two equal cylinders cross | `intersect: the intersection branches at (x, y, z): 4 of its edges meet there.` |
+| Fewer than two arguments outside a sketch | `intersect: outside a sketch, give the two sets of faces to intersect: intersect(first, second).` |
+
+## Limitations
+
+- Datum planes (the origin planes, `plane()` quads) cannot be picked in the dialog; write them in code.
+- A sweep along a closed curve that does not lie in a plane, such as the saddle where two pipes cross, can fail in the sweep. A curve that lies in a plane, like the ellipses above, and an open curve sweep.

@@ -1,0 +1,55 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+
+# Curves
+
+A curve is a body made of edges only: a line in space with no faces and no volume. It renders as a blue line and its edges can be picked like any other edge. A curve does not add material by itself. Other tools use it: a [sweep](/docs/3d-operations/sweep) carries a profile along it, a [loft](/docs/3d-operations/loft) follows it as a guide, and a plane can be set square to it at a point.
+
+## The curve tools
+
+All of them are in the **Curves** menu of the toolbar.
+
+| Tool | Menu | What it makes |
+|------|------|---------------|
+| [Helix](/docs/3d-operations/helix) | **Curves** › **Helix** | A helical wire around an axis or on a cylindrical face: the path of a spring or a thread |
+| [Intersect](/docs/curves/intersect) | **Curves** › **Intersect** | The curve where two sets of faces meet: a section of a body, or the seam between two surfaces |
+
+<ModeTable columns={[
+  {title: 'Helix', code: 'helix("z")', image: '/img/docs/3d-operations/helix-basic.png', description: 'A coil around the Z axis.'},
+  {title: 'Intersect', code: 'intersect(pipe.sideFaces(), slope)', image: '/img/docs/curves/intersect-basic.png', description: 'The ellipse where a pipe crosses a sloped face.'},
+]} />
+
+## Curves are construction geometry
+
+A curve is there to build something else. When a tool uses it, the curve hides: after a sweep along an intersection curve, only the swept solid is drawn. The curve is still in the model: later statements can read its edges, and a dialog that takes curves offers it again, drawn while it is picked.
+
+The tools that read a curve never use it up the way an extrude uses up its sketch. Two sweeps can follow the same helix.
+
+## Picking a curve
+
+In a dialog that takes curves, such as the **Path** slot of the Sweep dialog, a click on any edge of a curve takes the whole curve, and its row in the timeline does the same. An edge of a solid is taken as that edge only.
+
+## Reading a curve in code
+
+Every curve tool returns an object that answers the same accessors:
+
+```js
+c.edges()        // every edge, in the order the curve runs
+c.edges(0)       // one edge, by index
+c.edges(edge().arc())   // the edges an edge filter keeps
+c.start()        // the point the (first) curve starts at
+c.end()          // the point it ends at
+```
+
+An edge of a curve is also where a plane square to it is set up, for a profile to sweep along it:
+
+```js
+const profile = sketch(plane(c.edges(0), 'start'), () => {
+  circle([0, 0], 4);
+});
+sweep(c, profile);
+```

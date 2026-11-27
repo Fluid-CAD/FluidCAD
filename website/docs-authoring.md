@@ -22,6 +22,7 @@ website/docs/
   sketching/         introduction; primitives/, compound/, tools/, constraints/{positional,dimensional}
   3d-operations/     introduction, selection-and-filters, extrude, revolve, sweep, loft,
                      shell, fillet, chamfer, wrap, rib, helix, split
+  curves/            introduction (what a curve is, the curve tools), intersect
   booleans/          introduction, fuse, common, subtract
   transforms/        introduction, translate, rotate, mirror
   patterns/          copy, repeat
@@ -284,7 +285,7 @@ document unit / mm / in / *Same as project*.
 create tools **Extrude**, **Revolve**, **Sweep**, **Loft**, **Wrap**,
 **Rib**, the pick tools **Fillet**, **Chamfer**, **Shell**,
 **Offset** (face outline), then **Plane**, **Repeat**, **Copy**, the
-**Curves** menu (**Helix**) and the **Surfaces** menu (no tools yet), **Mirror**,
+**Curves** menu (**Helix**, **Intersect**) and the **Surfaces** menu (no tools yet), **Mirror**,
 **Rotate**, **Boolean** (Fuse / Subtract / Common), and the structure tools
 **Part** (appends `part('Part N', () => {})`) and **Connector**. The pick
 tools show a small panel with one value (**Radius** / **Distance** /
@@ -319,6 +320,11 @@ Dialog fields:
 - **Wrap**: sketch, **Cylindrical face** slot, thickness, Add / Remove / New.
 - **Helix**: **From axis** / **From face** source, **Radius**, **Pitch**,
   **Turns**, height, **end radius**, **start offset / end offset**.
+- **Intersect** (Curves menu): two rows, **First** and **Second**, each
+  taking several picks — a face of a solid as that face, a face of a
+  surface as the whole surface, a surface's timeline row. First opens
+  armed; its first pick arms Second. Double-click / right-click grow the
+  armed row by a face's group. No datum planes (code only).
 - **Plane**: type **Offset / Mid plane / From edge**, **Base** slot (a face,
   an origin plane quad in the viewport, or a plane row in the timeline),
   **Distance**, edge position 0–1, per-axis rotation.

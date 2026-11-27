@@ -26,6 +26,7 @@ import type { SketchLoc } from '../locations.ts';
 import { validateBoundary, type Pick, type PickChain } from '../picks.ts';
 import { allocateProducerVars, makeProducerMerger } from '../synthesis.ts';
 import { AxisInputs } from '../axis-inputs.ts';
+import { DirectionInputs } from '../direction-inputs.ts';
 import { OperandInputs } from '../operand-inputs.ts';
 import type { CopyEditAxisInput } from '../validate/copy.ts';
 import { loftProfileOwners, synthesizeLoftConnections } from '../validate/loft.ts';
@@ -105,6 +106,10 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.colorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
       ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
       ...OperandInputs.statements([...request.intersectionFirst ?? [], ...request.intersectionSecond ?? []]),
+      ...OperandInputs.statements([...request.projectedCurve?.source ?? [], ...request.projectedCurve?.target ?? []]),
+      ...(request.projectedCurve?.direction && request.projectedCurve.direction.kind !== 'cleared'
+        ? [DirectionInputs.statement(request.projectedCurve.direction)].filter((loc): loc is SketchLoc => loc !== null)
+        : []),
     ];
     for (const loc of sketchLocs) {
       if (normalizePath(loc.filePath) !== normalizePath(request.target.filePath)) {
@@ -148,7 +153,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     /** Synthesize one re-picked slot against the pre-statement scene. */
     const synthesizeSlot = (
       picks: Pick[],
-      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color' | 'intersection-curve',
+      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color' | 'intersection-curve' | 'projected-curve',
       value: ValueExpr | undefined,
       chains: PickChain[],
       extra?: { connector?: { anchor?: ConnectorAnchorSpec } },
@@ -1042,6 +1047,46 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         slots[slot] = { kind: 'picks', picks };
       }
       edit.intersectionCurve = slots;
+    }
+    if (request.feature === 'projected-curve' && request.projectedCurve) {
+      // Each re-picked row: whole sketches, curves and surfaces bound by
+      // call site, a row's edges or faces synthesized together against the
+      // pre-statement scene; a new direction a literal, a bound statement,
+      // or a picked edge or face synthesized on its own.
+      const target = edit.projectedCurve!;
+      const synthesizePicks = (entities: Pick[]): number[] | null => {
+        const synthesis = synthesizeSlot(entities, 'projected-curve', undefined, []);
+        if (!synthesis) {
+          return null;
+        }
+        if (normalizePath(synthesis.spec.filePath) !== normalizePath(request.target.filePath)) {
+          res.status(422).json({ success: false, reason: 'a re-picked edge or face lives in a different file than the edited statement' });
+          return null;
+        }
+        const firstPart = foldSynthesis(synthesis);
+        return synthesis.spec.parts.map((_: unknown, i: number) => firstPart + i);
+      };
+      for (const [slot, kind] of [['source', 'curve'], ['target', 'surface']] as const) {
+        const inputs = request.projectedCurve[slot];
+        if (!inputs) {
+          continue;
+        }
+        const picks = await OperandInputs.resolve(inputs, kind, { producers, merge: mergeProducer }, synthesizePicks);
+        if (!picks) {
+          return;
+        }
+        target[slot] = { kind: 'picks', picks };
+      }
+      const direction = request.projectedCurve.direction;
+      if (direction && direction.kind !== 'cleared') {
+        const spec = await DirectionInputs.resolve(direction, mergeProducer, synthesizePicks, reason => {
+          res.status(422).json({ success: false, reason });
+        });
+        if (!spec) {
+          return;
+        }
+        target.direction = spec;
+      }
     }
     if (request.feature === 'color' && request.colorTargets) {
       // The Solid tab's list, the boolean's way; an empty list makes the

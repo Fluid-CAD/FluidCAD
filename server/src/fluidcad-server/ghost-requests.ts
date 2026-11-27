@@ -19,6 +19,7 @@ export type FeatureGhostRequest =
   | ShellGhostRequest
   | HelixGhostRequest
   | IntersectionCurveGhostRequest
+  | ProjectedCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -296,6 +297,24 @@ export type IntersectionCurveGhostRequest = {
   feature: 'intersection-curve';
   first: GhostOperandRef[];
   second: GhostOperandRef[];
+};
+
+/**
+ * The projected curve — `project(source, target)` outside a sketch. A curve,
+ * like the intersection curve: no `op`, the picks of its source row (a
+ * sketch or a curve by its statement, an edge by its viewport address) and
+ * its target row (a surface by its statement, a face by its viewport
+ * address) in pick order, then its options. `direction` is null when left
+ * out — the normal of the plane the source lies in — and must be null with
+ * mode `'normal'`, as the engine refuses the pair.
+ */
+export type ProjectedCurveGhostRequest = {
+  feature: 'projected-curve';
+  source: GhostOperandRef[];
+  target: GhostOperandRef[];
+  mode: 'direction' | 'normal';
+  direction: GhostDirectionRef | null;
+  keep: 'nearest' | 'all';
 };
 
 /**

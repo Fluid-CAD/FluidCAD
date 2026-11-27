@@ -6,6 +6,7 @@ import type {
   FeatureGhostRequest,
   FluidCadServer,
   HoleGhostRequest,
+  GhostDirectionRef,
   GhostEntityRef,
   GhostExtrudeTargetRef,
   GhostFaceRef,
@@ -18,6 +19,7 @@ import type { RegionPickSpec } from '../../apply-feature-edit/index.ts';
 import { CONDITION_CHOICES, parseCondition, parseLoftConnections } from './loft.ts';
 import {
   parseAxis,
+  parseDirection,
   parseEntityRefs,
   parseExtrudeTarget,
   parseFaceProfile,
@@ -54,7 +56,8 @@ import { ValueScope } from './value-scope.ts';
 import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
 import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
 import {
-  BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, SHELL_JOINS, SPLIT_KEEPS, type GhostBody,
+  BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, PROJECTION_KEEPS, PROJECTION_MODES, SHELL_JOINS,
+  SPLIT_KEEPS, type GhostBody,
 } from './vocabulary.ts';
 
 /**
@@ -103,6 +106,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // The intersection curve is a curve too: it reads its two rows of faces
     // and changes nothing.
     const isIntersectionCurve = body.feature === 'intersection-curve';
+    // So is the projected curve: it throws its source row onto its target
+    // row's faces.
+    const isProjectedCurve = body.feature === 'projected-curve';
     const isRepeat = body.feature === 'repeat';
     const isCopy = body.feature === 'copy';
     // The mirror is NOT exempt: its reflected bodies land the way its own op
@@ -122,7 +128,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror2D = body.feature === 'mirror2d';
     // A hole is always a removal — no op to declare.
     const isHole = body.feature === 'hole';
-    if (!isHole && !isBand && !isShell && !isHelix && !isIntersectionCurve && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
+    if (!isHole && !isBand && !isShell && !isHelix && !isIntersectionCurve && !isProjectedCurve && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
       && !isOffset && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -301,6 +307,37 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
       intersectionRows = { first, second };
+    }
+    // The source row's curves and edges, the target row's surfaces and
+    // faces, each in pick order; the mode and what is kept as their words;
+    // the direction a direction slot's ref, or null for none. The engine
+    // refuses a direction with mode 'normal', and says why (422).
+    let projection: {
+      source: GhostOperandRef[];
+      target: GhostOperandRef[];
+      mode: 'direction' | 'normal';
+      direction: GhostDirectionRef | null;
+      keep: 'nearest' | 'all';
+    } | null = null;
+    if (isProjectedCurve) {
+      const source = parseOperandRefs(body.source, 'curve');
+      const target = parseOperandRefs(body.target, 'surface');
+      if (!source || !target || source.length === 0 || target.length === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid projection selections' });
+        return;
+      }
+      const mode = PROJECTION_MODES.find(word => word === body.mode);
+      const keep = PROJECTION_KEEPS.find(word => word === body.keep);
+      if (!mode || !keep) {
+        res.status(400).json({ success: false, reason: 'Invalid projection options' });
+        return;
+      }
+      const direction = body.direction === null || body.direction === undefined ? null : parseDirection(body.direction);
+      if (direction === null && body.direction !== null && body.direction !== undefined) {
+        res.status(400).json({ success: false, reason: 'Invalid direction reference' });
+        return;
+      }
+      projection = { source, target, mode, direction, keep };
     }
     const axis = body.feature === 'revolve' ? parseAxis(body.axis) : null;
     if (body.feature === 'revolve' && !axis) {
@@ -572,6 +609,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         first: intersectionRows!.first,
         second: intersectionRows!.second,
       };
+    } else if (isProjectedCurve) {
+      request = { feature: 'projected-curve', ...projection! };
     } else if (isPlane) {
       const rotationAxes = slots.choice(planeAxes, ['local', 'world'] as PlaneRotationAxes[], 'Rotation axes');
       if ('reason' in rotationAxes) {

@@ -51,6 +51,10 @@ export type GhostBody = {
   /** The intersection curve: the picks of its first and second rows. */
   first?: unknown;
   second?: unknown;
+  /** The projected curve: the target row's picks (`source` is its source row), its mode and its direction. */
+  target?: unknown;
+  mode?: unknown;
+  direction?: unknown;
   radius?: unknown;
   endRadius?: unknown;
   pitch?: unknown;
@@ -74,7 +78,7 @@ export type GhostBody = {
   rotationAxes?: unknown;
   position?: unknown;
   skip?: unknown;
-  /** Split: the side kept — a literal, or an expression resolved at the statement. */
+  /** Split: the side kept — a literal, or an expression resolved at the statement. The projected curve: which images stay. */
   keep?: unknown;
   /** The copy's "Along a repeat" kind: the `repeat()` it follows, by call site. */
   pattern?: unknown;
@@ -89,8 +93,14 @@ export type GhostBody = {
 export const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
   'rotate', 'translate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
-  'shell', 'intersection-curve',
+  'shell', 'intersection-curve', 'projected-curve',
 ];
+
+/** The projected curve's modes — `.mode()`; the first is the default. */
+export const PROJECTION_MODES = ['direction', 'normal'] as const;
+
+/** The projected curve's keep choices — `.keep()`; the first is the default. */
+export const PROJECTION_KEEPS = ['nearest', 'all'] as const;
 
 /** The split's keep choices. */
 export const SPLIT_KEEPS = ['both', 'front', 'back'];

@@ -28,6 +28,8 @@ import { validateCopyEdit, type CopyEditAxisInput } from './copy.ts';
 import { FACE_PROFILE_SHAPE, validateExtrudeOptions, validateFaceProfilePick } from './extrude.ts';
 import { validateHelixOption, validateHelixSource, type HelixSourceInput } from './helix.ts';
 import { validateIntersectionCurveEdit } from './intersection-curve.ts';
+import { validateProjectedCurveEdit, type ProjectedCurveEditRequest } from './projected-curve.ts';
+import { DirectionInputs } from '../direction-inputs.ts';
 import { OperandInputs, type OperandInput } from '../operand-inputs.ts';
 import {
   validateEditLoftGuides,
@@ -57,7 +59,7 @@ import { validateSplitEdit, type SplitPlaneInput } from './split.ts';
 import { validateSweepExtend } from './sweep.ts';
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color', 'intersection-curve']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color', 'intersection-curve', 'projected-curve']);
 
 export type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
@@ -112,6 +114,12 @@ export type StatementEditRequest = {
   intersectionFirst?: OperandInput[];
   /** The intersection curve's re-picked second argument; absent keeps the statement's. */
   intersectionSecond?: OperandInput[];
+  /**
+   * The projected curve's re-picked rows and its direction (new, or
+   * `cleared`); each absent keeps the statement's own. The mode and what is
+   * kept ride the edit target itself.
+   */
+  projectedCurve?: Omit<ProjectedCurveEditRequest, 'mode' | 'keep'>;
   /** Full replacement loft profile list; absent keeps the statement's. */
   loftProfiles?: EditLoftProfileInput[];
   /** Full replacement loft guide list; absent keeps the statement's. */
@@ -216,7 +224,7 @@ export type StatementEditRequest = {
 export function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole", "split" or "intersection-curve" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole", "split", "intersection-curve" or "projected-curve" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -539,6 +547,25 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     edit.intersectionCurve = {};
     const result: StatementEditRequest = { ...base, intersectionFirst: slots.first, intersectionSecond: slots.second };
     result.needsPicks = [slots.first, slots.second].some(inputs => inputs !== undefined && OperandInputs.picksGeometry(inputs));
+    return result;
+  }
+
+  if (feature === 'projected-curve') {
+    // Each row kept or re-picked, the mode and what is kept replaced when
+    // sent, the direction kept, cleared or new.
+    const request = validateProjectedCurveEdit(body);
+    if ('error' in request) {
+      return request;
+    }
+    const { mode, keep, ...slots } = request;
+    edit.projectedCurve = {
+      ...(mode !== undefined ? { mode } : {}),
+      ...(keep !== undefined ? { keep } : {}),
+      ...(slots.direction?.kind === 'cleared' ? { direction: { kind: 'cleared' as const } } : {}),
+    };
+    const result: StatementEditRequest = { ...base, projectedCurve: slots };
+    result.needsPicks = [slots.source, slots.target].some(inputs => inputs !== undefined && OperandInputs.picksGeometry(inputs))
+      || (slots.direction !== undefined && slots.direction.kind !== 'cleared' && DirectionInputs.picksGeometry(slots.direction));
     return result;
   }
 

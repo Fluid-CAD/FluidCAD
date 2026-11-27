@@ -160,6 +160,23 @@ const topFaces = select(face().onPlane("xy", 30));
 edge().belongsToFace(topFaces)                // edges belonging to those faces
 ```
 
+### By topology
+
+These name an edge by the faces around it — no size, no position — so they hold through dimension edits, and they work the same on solids and surfaces:
+
+```js
+edge().boundary()                              // the open rim of a surface: edges that bound one face of their body
+edge().between(face().planar(), face().cylinder())  // where flat faces meet round ones, in either order
+edge().between(wall.sideFaces(), cap.endFaces())    // where two features' faces meet
+edge().between(face(), face())                 // every interior edge (never a seam, never an open rim)
+edge().boundaryOf(pocket.internalFaces())      // the perimeter of a group of faces: a pocket's mouth
+edge().boundaryOf(face().cylinder())           // the rims of every group of cylindrical faces
+```
+
+`boundary()` is the same rule as a surface's `boundaryEdges()` and the rim the viewport draws; a solid has none. `boundaryOf()` keeps the edges that bound exactly one face of the group: for one face, all its loops; for connected faces, their outline; for groups apart from each other, each one's outline.
+
+The faces are given as face filters or as a face reference — an accessor or a `select()`. A reference is read from the faces as they are now: a face counts when it is the referenced face or lies on the same plane, cylinder, cone, sphere or torus, so a fillet that rebuilt the face later does not break the selection.
+
 ### By source object
 
 Restrict the selection to edges that come from one or more specific scene objects — useful when several solids share the scene:
@@ -195,6 +212,7 @@ edge().notCircle()             // edges that aren't circular
 edge().notBelongsToFace(face().cylinder())  // edges NOT on cylindrical faces
 edge().notFarthest("z")        // everything but the top layer
 edge().notConvex()             // inner corners and smooth transitions only
+edge().notBoundary()           // every edge but a surface's open rim
 ```
 
 ## Face filters
@@ -254,6 +272,17 @@ face().freeform()              // everything else: a loft between unlike section
 
 As for edges, shapes are told by geometry: a flat wall a loft stores as a B-spline surface is `planar()`, and a round one is a `cylinder()` or `cylinderCurve()`.
 
+### By neighbours
+
+```js
+face().adjacentTo(fl.faces())                 // the faces next to a feature's faces, those left out
+face().adjacentTo(select(edge().boundary()))  // the faces along a surface's open rim
+face().adjacentTo(face().freeform())          // the faces next to any free-form face
+face().notAdjacentTo(base.endFaces())         // every face that does not touch the base's top
+```
+
+`adjacentTo()` keeps a face that shares an edge with a referenced face, or that a referenced edge bounds; the referenced faces themselves do not match. It takes face or edge filters, or a reference to faces or edges, read as for `between()`.
+
 ### By edge properties
 
 ```js
@@ -265,6 +294,8 @@ face().hasEdge(edge().circle(10))  // faces with a circular edge of diameter 10
 const circularEdges = select(edge().circle());
 face().hasEdge(circularEdges)  // faces that share an edge with the selection
 ```
+
+`hasEdge()` with a selection is slated for removal: `face().adjacentTo(circularEdges)` says the same.
 
 ### By source object
 
@@ -286,6 +317,25 @@ face().notEdgeCount(4)         // faces that don't have exactly 4 edges
 face().notHasEdge(edge().arc())  // faces without any arc edges
 face().notLargest()            // every face but the largest
 ```
+
+## Picking one, and growing a chain
+
+A filter can keep one of its matches, and grow from it:
+
+```js
+edge().line().at(2)                 // the third straight edge (first(), last() too)
+edge().onPlane("xy").withTangents() // grow along edges that continue smoothly, as a filleted outline does
+face().cylinder().at(0).withChain() // grow along connected faces: the run of cylindrical faces holding the first
+```
+
+`withTangents()` follows neighbours that continue each other without a corner. `withChain()` follows every connected neighbour — edges through a shared vertex, faces through a shared edge — but never leaves what the filter accepts: the filter is the territory, and the seed is what `at(i)`, `first()` or `last()` picks. With none of those, a rank written as the filter's last step plants the seeds:
+
+```js
+s.boundaryEdges(edge().at(3).withChain())           // the rim loop that holds rim edge 3
+select(edge().boundary().nearest("z").withChain())  // the rim loops that touch the bottom
+```
+
+A `withChain()` with no seed at all is an error where it is written, since every match would be a seed and the chain would add nothing.
 
 ## Using selections
 

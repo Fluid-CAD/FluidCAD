@@ -399,6 +399,49 @@ Excludes faces that intersect with the given plane.
 
 ---
 
+### .adjacentTo()
+
+```ts
+.adjacentTo(...refs: AdjacentArg[][]): this
+```
+
+Selects faces next to the given faces or edges: a face that shares an
+edge with a referenced face, or that a referenced edge bounds. The
+referenced faces themselves do not match.
+
+```js
+face().adjacentTo(fl.faces())                 // the neighbours of a fill
+face().adjacentTo(select(edge().boundary()))  // the faces along the rim
+face().adjacentTo(face().freeform())          // by description
+```
+
+Takes face filter builders, edge filter builders, or references to faces
+or edges — a bucket accessor or a select(); a face of any one counts.
+A filter builder names what `select(builder)` would name among the
+bodies in scope. A face reference is read from the faces as they are
+now, by identity or by the surface it lies on, so a later fillet that
+rebuilt the face does not break the selection; an edge reference names
+the edge itself. Pure topology — no size, no position.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...refs` | AdjacentArg[] | Face or edge filter builders, or scene objects whose faces or edges are the reference. *(optional)* |
+
+### .notAdjacentTo()
+
+```ts
+.notAdjacentTo(...refs: AdjacentArg[][]): this
+```
+
+Excludes faces next to the given faces or edges, taken as for
+`adjacentTo()`. The referenced faces themselves survive.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...refs` | AdjacentArg[] | Face or edge filter builders, or scene objects whose faces or edges are the reference. *(optional)* |
+
+---
+
 ### .hasEdge()
 
 ```ts

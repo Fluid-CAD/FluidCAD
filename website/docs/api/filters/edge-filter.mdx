@@ -390,6 +390,114 @@ face reference. An edge bounding no such face survives.
 
 ---
 
+### .boundary()
+
+```ts
+.boundary(): this
+```
+
+Selects the open rim of a surface: edges that bound exactly one face of
+their body. A solid has none, and a seam is never one. The same rule
+as a surface's `boundaryEdges()` bucket and the rim the viewport draws,
+asked of every body in scope: `select(edge().boundary())` is every open
+rim in the model. Pure topology — no size, no position — so it holds
+through any edit.
+
+### .notBoundary()
+
+```ts
+.notBoundary(): this
+```
+
+Excludes the open rim of a surface, keeping the edges between two faces (and every edge of a solid).
+
+---
+
+### .between()
+
+```ts
+.between(a: FaceGroupArg | FaceGroupArg[], b: FaceGroupArg | FaceGroupArg[]): this
+```
+
+Selects edges shared by a face of `a` and a different face of `b` — the
+seam where two groups of faces meet. Order does not matter, and the two
+faces must be distinct, so `between(face(), face())` is every interior
+edge and never a seam.
+
+```js
+edge().between(face().planar(), face().freeform())  // by description
+edge().between(wall.sideFaces(), cap.faces())        // by reference
+edge().between(fl.faces(), face())                   // where the fill meets anything
+```
+
+Each group is face filter builders or a face reference, as `outerOf()`
+takes them, or an array of them (a face of any one counts). A builder
+names the faces `select(builder)` would name among the bodies in scope.
+A reference is read from the faces as they are now, by identity or by
+the surface it lies on, so a later fillet that rebuilt the face does not
+break the selection (a free-form face has no surface to match and is
+matched by identity only).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | FaceGroupArg \| FaceGroupArg[] | The faces on one side: face filters, a face reference, or an array of them. |
+| `b` | FaceGroupArg \| FaceGroupArg[] | The faces on the other side. |
+
+### .notBetween()
+
+```ts
+.notBetween(a: FaceGroupArg | FaceGroupArg[], b: FaceGroupArg | FaceGroupArg[]): this
+```
+
+Excludes edges shared by a face of `a` and a different face of `b`. An
+edge bounding fewer than two faces (a surface's open rim) survives.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | FaceGroupArg \| FaceGroupArg[] | The faces on one side: face filters, a face reference, or an array of them. |
+| `b` | FaceGroupArg \| FaceGroupArg[] | The faces on the other side. |
+
+---
+
+### .boundaryOf()
+
+```ts
+.boundaryOf(...faces: FaceGroupArg[][]): this
+```
+
+Selects the perimeter of a group of faces: edges that bound exactly one
+face of the group. For one face that is all of its loops (use
+`outerOf()` / `holeOf()` to tell them apart); for connected faces it is
+their outline — what a fill or a ruled surface is built from; for
+groups apart from each other, the outline of each.
+
+```js
+edge().boundaryOf(pocket.internalFaces())  // the mouth of a pocket
+edge().boundaryOf(face().cylinder())       // the rims of every cylindrical face group
+```
+
+The faces are given as for `between()`: face filter builders or face
+references, read from the faces as they are now. Several arguments
+make one group.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...faces` | FaceGroupArg[] | Face filter builders, or scene objects whose faces make the group. *(optional)* |
+
+### .notBoundaryOf()
+
+```ts
+.notBoundaryOf(...faces: FaceGroupArg[][]): this
+```
+
+Excludes the perimeter of a group of faces given as for `boundaryOf()`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...faces` | FaceGroupArg[] | Face filter builders, or scene objects whose faces make the group. *(optional)* |
+
+---
+
 ### .intersectsWith()
 
 ```ts

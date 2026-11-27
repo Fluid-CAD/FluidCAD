@@ -28,7 +28,10 @@ import { buildHelixGhostWires } from "../features/helix-ghost.js";
 import {
   buildIntersectionWires, intersectionFaces, type IntersectionFaces, type IntersectionSide,
 } from "../features/intersection-curve-geometry.js";
+import { buildProjectedWires, naturalDirection } from "../features/projected-curve-geometry.js";
+import { sketchGeometryOwner } from "../features/2d/projection.js";
 import { FaceOperand, type HeldFace } from "../helpers/face-operand.js";
+import { DirectionInput } from "../helpers/direction-input.js";
 import { BuildError } from "../common/build-error.js";
 import { describeError } from "../common/describe-error.js";
 import {
@@ -97,6 +100,7 @@ export type FeatureGhostRequest =
   | ShellGhostRequest
   | HelixGhostRequest
   | IntersectionCurveGhostRequest
+  | ProjectedCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -387,6 +391,37 @@ export type IntersectionCurveGhostRequest = {
   first: GhostOperandRef[];
   second: GhostOperandRef[];
 };
+
+/**
+ * The projected curve — `project(source, target)` outside a sketch: the
+ * source row's curves thrown onto the target row's faces, built by the call
+ * the feature's build makes. Each row lists its picks in pick order, the
+ * order the statement writes them in. `direction` is what `.direction()`
+ * holds, null when it is left out (the normal of the plane the source lies
+ * in); with mode `'normal'` it must be null, and a direction sent with it is
+ * refused as the build refuses it.
+ */
+export type ProjectedCurveGhostRequest = {
+  feature: 'projected-curve';
+  source: GhostOperandRef[];
+  target: GhostOperandRef[];
+  mode: 'direction' | 'normal';
+  direction: GhostDirectionRef | null;
+  keep: 'nearest' | 'all';
+};
+
+/**
+ * A direction slot on the wire: the axis forms of {@link GhostAxisRef} — a
+ * world axis, an `axis()` statement, a connector, a picked straight edge —
+ * plus the plane forms, each standing for its normal: an origin plane, a
+ * `plane()` statement, a picked planar face. Mirrors the server's
+ * `GhostDirectionRef`.
+ */
+export type GhostDirectionRef =
+  | GhostAxisRef
+  | { kind: 'standard-plane'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'plane'; filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
 
 /**
  * One pick of a curve or surface operand row on the wire: a whole object by
@@ -897,6 +932,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'intersection-curve') {
     return buildIntersectionCurveGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'projected-curve') {
+    return buildProjectedCurveGhost(scene, request, meshConfig);
   }
   if (request.feature === 'repeat') {
     return buildRepeatGhost(scene, request, meshConfig);
@@ -3582,7 +3620,24 @@ function resolveIntersectionSide(
       return (plane as PlaneObjectBase).getPlane();
     }
   }
-  const label = `intersect: the ${side} selection`;
+  return resolveFaceRow(scene, refs, `intersect: the ${side} selection`, scratch);
+}
+
+/**
+ * A row of faces as the build reads its argument: a statement as the faces
+ * `FaceOperand` reads off it, a picked face as that face, in pick order.
+ * Null when a pick names nothing the scene holds, or is not a face. `label`
+ * names the argument in the tool's refusals.
+ */
+function resolveFaceRow(
+  scene: Scene,
+  refs: GhostOperandRef[],
+  label: string,
+  scratch: Shape[],
+): IntersectionFaces | null {
+  if (refs.length === 0) {
+    return null;
+  }
   const scope = allObjects(scene);
   const held: HeldFace[] = [];
   for (const ref of refs) {
@@ -3604,6 +3659,120 @@ function resolveIntersectionSide(
     }
   }
   return intersectionFaces(held, label);
+}
+
+/**
+ * The projected curve's preview: the source row resolved to its curves, the
+ * target row to its faces, the direction to the line it stands for (or, left
+ * out, the normal of the plane the source lies in), then the curves the
+ * feature would build, as lines. A row naming what the scene no longer holds
+ * shows nothing; a refusal of the build — the projection misses, the source
+ * has no natural direction, a curved edge given as the direction — is said,
+ * since changing a pick or an option is what the user can do about it.
+ */
+function buildProjectedCurveGhost(
+  scene: Scene,
+  request: ProjectedCurveGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  const scratch: Shape[] = [];
+  let wires: Wire[];
+  try {
+    if (request.mode === 'normal' && request.direction) {
+      throw new BuildError(`project: .direction() is for mode 'direction'.`);
+    }
+    const source = resolveProjectionSource(scene, request.source, scratch);
+    const target = resolveFaceRow(scene, request.target, 'project: the target', scratch);
+    const direction = request.mode === 'direction' && request.direction
+      ? resolveGhostDirection(scene, request.direction, scratch)
+      : null;
+    if (!source || !target || (request.mode === 'direction' && request.direction && !direction)) {
+      scratch.forEach(shape => shape.dispose());
+      return { ok: false, reason: 'Those picks are not in the rendered scene.' };
+    }
+    const along = request.mode === 'normal' ? null : direction ?? naturalDirection(source.planes, source.edges);
+    const sources = CurveOperand.chain(source.edges);
+    scratch.push(...sources);
+    wires = buildProjectedWires(sources, target, { mode: request.mode, direction: along, keep: request.keep });
+  } catch (error) {
+    scratch.forEach(shape => shape.dispose());
+    return error instanceof BuildError
+      ? { ok: false, reason: error.diagnostic, surface: true }
+      : { ok: false, reason: describeError(error) };
+  }
+  return ghostOfCurves(wires, meshConfig, scratch);
+}
+
+/**
+ * The projected curve's source row as the build reads its argument: the
+ * statements' edges as `CurveOperand` reads them (a sketch, a curve, a
+ * sketch statement, an edge selection), then the picked edges in pick order,
+ * with the plane of the sketch each pick belongs to (null for anything that
+ * is not sketch geometry). Null when a pick names nothing the scene holds,
+ * or is not a curve.
+ */
+function resolveProjectionSource(
+  scene: Scene,
+  refs: GhostOperandRef[],
+  scratch: Shape[],
+): { edges: Edge[]; planes: (Plane | null)[] } | null {
+  if (refs.length === 0) {
+    return null;
+  }
+  const objects: SceneObject[] = [];
+  const picked: Edge[] = [];
+  const planes: (Plane | null)[] = [];
+  for (const ref of refs) {
+    if (ref.kind === 'statement') {
+      const holder = findWireSource(scene, ref)
+        ?? findByLocation(scene, ref, obj => !obj.isContainer()
+          && obj.getShapes().some(shape => shape.isEdge() || shape.isWire()));
+      if (!holder) {
+        return null;
+      }
+      objects.push(holder);
+      planes.push(sketchGeometryOwner(holder)?.getPlane() ?? null);
+    } else if (ref.kind === 'edge') {
+      const edge = resolvePickedEdge(scene, ref, scratch);
+      if (!edge) {
+        return null;
+      }
+      picked.push(edge);
+      planes.push(null);
+    } else {
+      return null;
+    }
+  }
+  const read = objects.length > 0 ? CurveOperand.edges(objects, 'project: the source') : [];
+  return { edges: [...read, ...picked], planes };
+}
+
+/**
+ * The line a direction slot stands for, read as the build reads
+ * `.direction()` (`DirectionInput`): a world axis, an `axis()` statement or a
+ * connector by its axis, a picked straight edge by its canonical direction,
+ * an origin plane, a `plane()` statement or a picked planar face by its
+ * normal. Null when the scene no longer holds what the slot names; a curved
+ * edge or face is the build's refusal.
+ */
+function resolveGhostDirection(scene: Scene, ref: GhostDirectionRef, scratch: Shape[]): Vector3d | null {
+  const label = 'project: the direction';
+  if (ref.kind === 'standard-plane') {
+    return toPlane(ref.plane).normal.normalize();
+  }
+  if (ref.kind === 'plane') {
+    const obj = findByLocation(scene, ref, o => o instanceof PlaneObjectBase);
+    return (obj as PlaneObjectBase | null)?.getPlane()?.normal.normalize() ?? null;
+  }
+  if (ref.kind === 'face') {
+    const face = resolvePickedFace(scene, ref, scratch);
+    return face ? DirectionInput.ofShape(face, label) : null;
+  }
+  if (ref.kind === 'edge') {
+    const edge = resolvePickedEdge(scene, ref, scratch);
+    return edge ? DirectionInput.ofShape(edge, label) : null;
+  }
+  return resolveGhostAxis(scene, ref)?.direction.normalize() ?? null;
 }
 
 /**

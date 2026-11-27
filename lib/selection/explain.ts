@@ -162,6 +162,20 @@ export function synthesizeApplyFeature(
       return { ok: false, reason: 'intersect takes faces — pick faces only', pick: edge };
     }
   }
+  if (feature === 'projected-curve') {
+    // The picks are one row of the projection: the edges of its source
+    // curves, or the faces of its target — one kind per row.
+    const members = [...refs, ...chains.flatMap(c => c.members)];
+    const kind = members[0].sub.type;
+    const odd = members.find(r => (r.sub.type !== 'edge' && r.sub.type !== 'face') || r.sub.type !== kind);
+    if (odd) {
+      return {
+        ok: false,
+        reason: 'project takes edges for its curves and faces for its target — pick one kind per row',
+        pick: odd,
+      };
+    }
+  }
   if (feature === 'helix') {
     // The helix source is a single edge — its axis, via axis() — or a single
     // cylindrical/conical face, which supplies the frame directly.
@@ -419,7 +433,7 @@ export function synthesizeApplyFeature(
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
         || feature === 'project' || feature === 'connector' || feature === 'expose' || feature === 'hole'
-        || feature === 'color' || feature === 'intersection-curve'
+        || feature === 'color' || feature === 'intersection-curve' || feature === 'projected-curve'
         ? {} : { value }),
       ...(connectorPayload ? { connector: connectorPayload } : {}),
       ...(exposePayload ? { expose: exposePayload } : {}),
@@ -720,6 +734,11 @@ function renderPreview(
     // The args are one side's face selectors; the route composes the
     // statement from both sides.
     return `intersect(${args})`;
+  }
+  if (feature === 'projected-curve') {
+    // The args are one row's selectors (the source's edges or the target's
+    // faces); the route composes the statement from both rows.
+    return `project(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

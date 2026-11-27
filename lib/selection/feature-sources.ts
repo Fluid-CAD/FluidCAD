@@ -46,6 +46,7 @@ import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
 import { Intersect } from "../features/2d/intersect.js";
 import { IntersectionCurve } from "../features/intersection-curve.js";
+import { ProjectedCurve } from "../features/projected-curve.js";
 import { Feature } from "../sdk/feature.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
@@ -123,6 +124,18 @@ export type FeatureSources =
    * mirror's plane does.
    */
   | { feature: 'intersection-curve'; first: SourceSlot[]; second: SourceSlot[] }
+  /**
+   * A projected curve — `project(source, target)` outside a sketch: one slot
+   * per operand of each argument, in its order, and the direction
+   * `.direction()` holds (null when it is left out). A source sketch or
+   * curve resolves by the statement that built it, an edge selection as
+   * viewport entities on the pre-statement solids and surfaces; the target
+   * as an intersection curve's side does. The direction resolves as an axis
+   * or a plane does — a world axis or origin plane literal is `opaque`, read
+   * off the argument text — and a picked edge or face as viewport entities.
+   * The mode and what is kept are read off the statement.
+   */
+  | { feature: 'projected-curve'; source: SourceSlot[]; target: SourceSlot[]; direction: SourceSlot | null }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -245,6 +258,16 @@ export function resolveFeatureSources(
         feature: 'intersection-curve',
         first: feature.firstOperands.map(operand => resolver.faceOperandSlot(operand)),
         second: feature.secondOperands.map(operand => resolver.faceOperandSlot(operand)),
+      };
+    }
+    if (feature instanceof ProjectedCurve) {
+      const direction = feature.directionOperand;
+      return {
+        ok: true,
+        feature: 'projected-curve',
+        source: feature.sourceOperands.map(operand => resolver.curveOperandSlot(operand)),
+        target: feature.targetOperands.map(operand => resolver.faceOperandSlot(operand)),
+        direction: direction ? resolver.directionSlot(direction) : null,
       };
     }
     // A top-level (face-target) offset: its targets are face selections, the
@@ -700,6 +723,43 @@ class SourceResolver {
    * the statement that built it.
    */
   faceOperandSlot(obj: SceneObject): SourceSlot {
+    if (obj instanceof PlaneObjectBase) {
+      return this.planeSlot(obj);
+    }
+    if (obj.isSelection() || obj.isLazy()) {
+      return this.entitiesSlot([obj], true);
+    }
+    return this.callSiteSlot(obj);
+  }
+
+  /**
+   * One operand a curve tool reads as curves: a sketch or a curve object by
+   * the statement that built it, an edge selection as viewport entities on
+   * the pre-statement solids and surfaces, anything else (a sketch
+   * statement) by its call site.
+   */
+  curveOperandSlot(obj: SceneObject): SourceSlot {
+    if (this.isWireSource(obj)) {
+      return this.callSiteSlot(obj);
+    }
+    if (obj.isSelection() || obj.isLazy()) {
+      return this.entitiesSlot([obj], true);
+    }
+    return this.callSiteSlot(obj);
+  }
+
+  /**
+   * What a tool's `.direction()` holds: an axis as an axis slot resolves (a
+   * connector by its site), a plane as a mirror's plane does, a picked edge
+   * or face as viewport entities on the pre-statement solids and surfaces,
+   * anything else (a sketch line) by its call site. A world axis or origin
+   * plane literal makes an axis or plane of the statement's own, with no
+   * call site: `opaque`, read off the argument text.
+   */
+  directionSlot(obj: SceneObject): SourceSlot {
+    if (obj instanceof AxisObjectBase) {
+      return this.axisSlot(obj);
+    }
     if (obj instanceof PlaneObjectBase) {
       return this.planeSlot(obj);
     }

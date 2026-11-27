@@ -157,7 +157,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'connector' | 'expose' | 'section' | 'hole' | 'split' | 'color' | 'intersection-curve';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'connector' | 'expose' | 'section' | 'hole' | 'split' | 'color' | 'intersection-curve' | 'projected-curve';
 
 /**
  * How a chain is written: `tangent` — the "Select with tangents" gesture —
@@ -451,6 +451,7 @@ export function nameHintFor(featureType: string): string {
     case 'shell': return 'sh';
     case 'helix': return 'h';
     case 'intersection-curve': return 'ic';
+    case 'projected-curve': return 'pc';
     case 'plane': return 'p';
     case 'sketch': return 's';
     case 'axis': return 'a';

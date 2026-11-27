@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDirection, parseOperandRefs } from '../src/routes/feature-ghost/refs.ts';
+import { parseDirection, parseOperandRefs, parseOperandRows } from '../src/routes/feature-ghost/refs.ts';
 
 const FILE = '/ws/model.fluid.js';
 
@@ -35,6 +35,22 @@ describe('parseOperandRefs', () => {
     expect(parseOperandRefs([{ kind: 'keep', text: 'spine' }], 'curve')).toBeNull();
     expect(parseOperandRefs([null], 'surface')).toBeNull();
     expect(parseOperandRefs({ kind: 'statement', filePath: FILE, line: 3 }, 'curve')).toBeNull();
+  });
+});
+
+describe('parseOperandRows', () => {
+  const kinds = { left: 'curve', right: 'surface' } as const;
+  const edge = { kind: 'edge', shapeId: 'solid-1', index: 4 };
+  const face = { kind: 'face', shapeId: 'solid-1', index: 0 };
+
+  it('reads each row by its name as a row of its kind', () => {
+    expect(parseOperandRows({ left: [edge], right: [face] }, kinds)).toEqual({ left: [edge], right: [face] });
+  });
+
+  it('answers null when a row is missing, of the wrong kind or empty', () => {
+    expect(parseOperandRows({ left: [edge] }, kinds)).toBeNull();
+    expect(parseOperandRows({ left: [face], right: [face] }, kinds)).toBeNull();
+    expect(parseOperandRows({ left: [edge], right: [] }, kinds)).toBeNull();
   });
 });
 

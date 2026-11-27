@@ -128,6 +128,26 @@ export function parseOperandRefs(value: unknown, kind: 'curve' | 'surface'): Gho
 }
 
 /**
+ * The rows of an operand-row tool's preview, each read off the body by its
+ * name as {@link parseOperandRefs} reads a row of its kind. Null when any
+ * row is missing, malformed or empty: there is no curve to show yet.
+ */
+export function parseOperandRows<R extends string>(
+  body: Partial<Record<R, unknown>>,
+  kinds: Readonly<Record<R, 'curve' | 'surface'>>,
+): Record<R, GhostOperandRef[]> | null {
+  const rows = {} as Record<R, GhostOperandRef[]>;
+  for (const row of Object.keys(kinds) as R[]) {
+    const refs = parseOperandRefs(body[row], kinds[row]);
+    if (!refs || refs.length === 0) {
+      return null;
+    }
+    rows[row] = refs;
+  }
+  return rows;
+}
+
+/**
  * The helix's single source slot. The axis forms mirror {@link parseAxis}
  * — a picked edge arrives as `axis-edge`, since the helix dialog writes an edge
  * pick as `axis(<edge>)` — and the two the helix adds are a cylindrical/conical

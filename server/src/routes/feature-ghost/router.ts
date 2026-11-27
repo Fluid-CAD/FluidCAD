@@ -1,7 +1,13 @@
 // The feature-ghost router: validates a ghost request and asks the server for the preview solids.
 
 import { Router } from 'express';
-import type { ChoiceSlot, PlaneRotationAxes } from '../../apply-feature-edit/index.ts';
+import {
+  INTERSECTION_CURVE_ROWS,
+  PROJECTED_CURVE_ROWS,
+  type ChoiceSlot,
+  type IntersectionCurveRow,
+  type PlaneRotationAxes,
+} from '../../apply-feature-edit/index.ts';
 import type {
   FeatureGhostRequest,
   FluidCadServer,
@@ -25,7 +31,7 @@ import {
   parseFaceProfile,
   parseFaceRefs,
   parseHelixSource,
-  parseOperandRefs,
+  parseOperandRows,
   parsePath,
   parsePlaneBases,
   parseSections,
@@ -298,15 +304,13 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     }
     // Each row's picks in pick order — surfaces whole by call site, faces by
     // viewport address. A row with no pick has no curve to show yet.
-    let intersectionRows: { first: GhostOperandRef[]; second: GhostOperandRef[] } | null = null;
+    let intersectionRows: Record<IntersectionCurveRow, GhostOperandRef[]> | null = null;
     if (isIntersectionCurve) {
-      const first = parseOperandRefs(body.first, 'surface');
-      const second = parseOperandRefs(body.second, 'surface');
-      if (!first || !second || first.length === 0 || second.length === 0) {
+      intersectionRows = parseOperandRows(body, INTERSECTION_CURVE_ROWS.kinds);
+      if (!intersectionRows) {
         res.status(400).json({ success: false, reason: 'Invalid intersection selections' });
         return;
       }
-      intersectionRows = { first, second };
     }
     // The source row's curves and edges, the target row's surfaces and
     // faces, each in pick order; the mode and what is kept as their words;
@@ -320,9 +324,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       keep: 'nearest' | 'all';
     } | null = null;
     if (isProjectedCurve) {
-      const source = parseOperandRefs(body.source, 'curve');
-      const target = parseOperandRefs(body.target, 'surface');
-      if (!source || !target || source.length === 0 || target.length === 0) {
+      const rows = parseOperandRows(body, PROJECTED_CURVE_ROWS.kinds);
+      if (!rows) {
         res.status(400).json({ success: false, reason: 'Invalid projection selections' });
         return;
       }
@@ -337,7 +340,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         res.status(400).json({ success: false, reason: 'Invalid direction reference' });
         return;
       }
-      projection = { source, target, mode, direction, keep };
+      projection = { ...rows, mode, direction, keep };
     }
     const axis = body.feature === 'revolve' ? parseAxis(body.axis) : null;
     if (body.feature === 'revolve' && !axis) {
@@ -604,11 +607,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         endOffset,
       };
     } else if (isIntersectionCurve) {
-      request = {
-        feature: 'intersection-curve',
-        first: intersectionRows!.first,
-        second: intersectionRows!.second,
-      };
+      request = { feature: 'intersection-curve', ...intersectionRows! };
     } else if (isProjectedCurve) {
       request = { feature: 'projected-curve', ...projection! };
     } else if (isPlane) {

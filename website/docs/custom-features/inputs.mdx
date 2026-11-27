@@ -316,7 +316,7 @@ A picked value is clicked in the viewport, or chosen from a History row. The dia
 
 More fields narrow what the dialog takes:
 
-- **A list of picks:** `multiple: true`, or `max: 3` for at most three. The feature always gets a list, `[]` for none. `ordered: true` lets the user drag the picks into order. An `axis` or a `plane` is always one pick.
+- **A list of picks:** `multiple: true`, or `max: 3` for at most three. The feature always gets a list, `[]` for none. `ordered: true` lets the user drag the picks into order. An `axis` or a `plane` is always one pick. A list of faces or edges grows as the Fillet tool's picks do: a double-click takes the whole bucket a pick belongs to, or the rim loop of a surface's rim edge, and a right-click opens the multi-select menu; every edge or face they add is a pick of its own.
 - **What kind:** `surface: 'planar' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'freeform'` on a face, `curve: 'line' | 'circle' | 'arc' | 'ellipse' | 'spline'` on an edge. The dialog refuses anything else with the reason (**On face: the picked face is not planar**). A call written by hand is not checked: check in `buildTool()` when it matters.
 - **A sketch:** `hasGeometry: true` refuses an empty one. `implicitDefault: true` lets the call leave it out.
 - **An anchor:** `anchors: ['center']` suggests the centres only (`'center'`, `'start'`, `'end'`, `'offset'`).

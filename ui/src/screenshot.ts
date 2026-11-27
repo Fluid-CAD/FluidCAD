@@ -23,6 +23,7 @@ import {
   type ScreenshotHighlightRef,
 } from './screenshot-overlays';
 import { SectionController, SectionPlaneMath, SectionStyles, type SectionSpec } from './scene/section-controller';
+import { FaceDepthPrepass } from './scene/face-depth-prepass';
 import { ScreenshotShapeFraming, type ScreenshotShapeFit } from './screenshot-shape-framing';
 
 export type { ScreenshotAnnotation, ScreenshotHighlightRef } from './screenshot-overlays';
@@ -382,7 +383,11 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   if (ownsEnvironment) {
     scene.environment = environmentFor(tmpRenderer);
   }
-  tmpRenderer.render(scene, camera);
+  // A curve's line tests its centerline against the faces' depth, drawn
+  // first in this renderer's own context when the capture has one.
+  const faceDepth = new FaceDepthPrepass();
+  faceDepth.render(tmpRenderer, scene, camera);
+  faceDepth.dispose();
   if (ownsEnvironment) {
     scene.environment = liveEnvironment;
     disposeEnvironmentOf(tmpRenderer);

@@ -31,6 +31,7 @@ import { runFrameHooks } from '../meshes/frame-hooks';
 import { setScreenScaleSource } from '../meshes/screen-scale';
 import { worldFromMm } from '../units/scene-scale';
 import { disposeEnvironmentOf, environmentFor } from '../meshes/appearance/environment';
+import { FaceDepthPrepass } from './face-depth-prepass';
 
 // Install camera-controls with only the Three.js submodules it needs
 CameraControls.install({
@@ -118,6 +119,8 @@ export class SceneContext {
   /** Radius of the last fitted sphere — near/far are re-derived from it
    * when the camera is swapped, so a switch keeps the fit's depth range. */
   private lastFitRadius = 0;
+  /** The faces' depth a curve's line tests against, drawn only in a frame that has one. */
+  private faceDepth = new FaceDepthPrepass();
   private cameraChangeListeners = new Set<() => void>();
   private viewportResizeListeners = new Set<() => void>();
   private userCameraInputListeners = new Set<() => void>();
@@ -623,7 +626,7 @@ export class SceneContext {
     // what is visible this frame, so they must run before the draw — Three's
     // own onBeforeRender never fires for the objects they need to un-hide.
     runFrameHooks(this.renderer, this.camera);
-    this.renderer.render(this.scene, this.camera);
+    this.faceDepth.render(this.renderer, this.scene, this.camera);
     if (this.gizmoVisible) {
       this.gizmo.render();
     }
@@ -637,6 +640,7 @@ export class SceneContext {
     this.transition.dispose();
     this._cc.dispose();
     this.scene.clear();
+    this.faceDepth.dispose();
     disposeEnvironmentOf(this.renderer);
     this.renderer.dispose();
   }

@@ -17,6 +17,7 @@ import { disposeEnvironmentOf, environmentFor } from '../../meshes/appearance/en
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
 import { geometryBoundsOf } from '../../scene/scene-geometry-bounds';
+import { FaceDepthPrepass } from '../../scene/face-depth-prepass';
 import { AssemblySolverModel, Solver } from '../../../../lib/assembly-solver/index.js';
 import { PartMateGeometryReader } from '../../scene/part-mate-geometry';
 import type {
@@ -60,6 +61,8 @@ export type ThumbnailSubject = {
  */
 export class PartThumbnailRenderer {
   private renderer: WebGLRenderer | null = null;
+  /** The faces' depth a curve's line tests against, in the shared renderer's context. */
+  private readonly faceDepth = new FaceDepthPrepass();
   private solver = new Solver();
   private readonly size: number;
   private measured: Box3 | null = null;
@@ -144,6 +147,7 @@ export class PartThumbnailRenderer {
   }
 
   dispose(): void {
+    this.faceDepth.dispose();
     if (this.renderer) {
       disposeEnvironmentOf(this.renderer);
       this.renderer.dispose();
@@ -258,7 +262,7 @@ export class PartThumbnailRenderer {
     scene.add(light);
     scene.add(light.target);
 
-    renderer.render(scene, camera);
+    this.faceDepth.render(renderer, scene, camera);
     const dataUrl = renderer.domElement.toDataURL('image/png');
 
     scene.remove(group);

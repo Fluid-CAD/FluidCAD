@@ -45,6 +45,7 @@ import { Sketch } from "../features/2d/sketch.js";
 import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
 import { Intersect } from "../features/2d/intersect.js";
+import { IntersectionCurve } from "../features/intersection-curve.js";
 import { Feature } from "../sdk/feature.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
@@ -114,6 +115,14 @@ export type FeatureSources =
      */
     sketches: SourceSlot[];
   }
+  /**
+   * An intersection curve — `intersect(first, second)` outside a sketch: one
+   * slot per operand of each argument, in its order. A face selection
+   * resolves as viewport entities on the pre-statement solids and surfaces,
+   * a solid or a surface by the statement that built it, a `plane()` as a
+   * mirror's plane does.
+   */
+  | { feature: 'intersection-curve'; first: SourceSlot[]; second: SourceSlot[] }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -229,6 +238,14 @@ export function resolveFeatureSources(
     }
     if (feature instanceof Intersect) {
       return { ok: true, feature: 'intersect', selection: resolver.entitiesSlot(feature.sources), sketches: [] };
+    }
+    if (feature instanceof IntersectionCurve) {
+      return {
+        ok: true,
+        feature: 'intersection-curve',
+        first: feature.firstOperands.map(operand => resolver.faceOperandSlot(operand)),
+        second: feature.secondOperands.map(operand => resolver.faceOperandSlot(operand)),
+      };
     }
     // A top-level (face-target) offset: its targets are face selections, the
     // same shape as shell's. In-sketch offsets never reach here — their edit
@@ -456,6 +473,7 @@ const UNCONSUMED = new Set<SceneObject>();
 class SourceResolver {
   private hasher = new ShapeHasher();
   private solids: Shape[] | null = null;
+  private bodies: Shape[] | null = null;
   private keyMaps = new Map<string, Map<number, number>>();
   private callSiteCounts: Map<string, number> | null = null;
 
@@ -675,6 +693,22 @@ class SourceResolver {
     return this.callSiteSlot(obj);
   }
 
+  /**
+   * One operand a surface tool reads as faces: a face selection as viewport
+   * entities on the pre-statement solids and surfaces, a `plane()` as a
+   * mirror's plane resolves, and anything else — a solid, a surface — by
+   * the statement that built it.
+   */
+  faceOperandSlot(obj: SceneObject): SourceSlot {
+    if (obj instanceof PlaneObjectBase) {
+      return this.planeSlot(obj);
+    }
+    if (obj.isSelection() || obj.isLazy()) {
+      return this.entitiesSlot([obj], true);
+    }
+    return this.callSiteSlot(obj);
+  }
+
   /** Statements by call site — a repeat's targets are features, not sketches. */
   statementSlots(objects: SceneObject[] | null): SourceSlot[] {
     return (objects ?? []).map(obj => this.callSiteSlot(obj));
@@ -736,17 +770,17 @@ class SourceResolver {
 
   /**
    * Selection inputs as viewport entities on the pre-statement terminal
-   * solids. The selections' `addedShapes` are the exact shapes the feature
-   * consumed at build time.
+   * solids — and surfaces, with `surfaces`. The selections' `addedShapes`
+   * are the exact shapes the feature consumed at build time.
    */
-  entitiesSlot(selections: SceneObject[]): SourceSlot {
+  entitiesSlot(selections: SceneObject[], surfaces = false): SourceSlot {
     const shapes = selections.flatMap(sel => sel.getAddedShapes());
     if (shapes.length === 0) {
       return OPAQUE;
     }
     const entities: PickRef[] = [];
     for (const shape of shapes) {
-      const ref = this.mapShape(shape);
+      const ref = this.mapShape(shape, surfaces);
       if (!ref) {
         return OPAQUE;
       }
@@ -755,14 +789,14 @@ class SourceResolver {
     return { kind: 'entities', entities };
   }
 
-  /** Hash-map one consumed sub-shape onto a terminal solid's mesh-order universe. */
-  private mapShape(shape: Shape): PickRef | null {
+  /** Hash-map one consumed sub-shape onto a terminal solid's (or surface's) mesh-order universe. */
+  private mapShape(shape: Shape, surfaces = false): PickRef | null {
     const kind = shape.getType() === 'edge' ? 'edge' : shape.getType() === 'face' ? 'face' : null;
     if (!kind) {
       return null;
     }
     const key = this.hasher.key(shape.getShape());
-    for (const solid of this.terminalSolids()) {
+    for (const solid of surfaces ? this.terminalBodies() : this.terminalSolids()) {
       const index = this.keyMapFor(solid, kind).get(key);
       if (index !== undefined) {
         return { shapeId: solid.id, sub: { type: kind, index } };
@@ -793,6 +827,26 @@ class SourceResolver {
       }
     }
     return this.solids;
+  }
+
+  /** {@link terminalSolids} and the terminal surfaces, in prefix order. */
+  private terminalBodies(): Shape[] {
+    if (this.bodies) {
+      return this.bodies;
+    }
+    const scope = new Set(this.prefix);
+    this.bodies = [];
+    for (const obj of this.prefix) {
+      if (obj.isLazy()) {
+        continue;
+      }
+      for (const shape of obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, scope)) {
+        if (shape.getType() === 'solid' || shape.getType() === 'surface') {
+          this.bodies.push(shape);
+        }
+      }
+    }
+    return this.bodies;
   }
 
   private keyMapFor(solid: Shape, kind: 'edge' | 'face'): Map<number, number> {

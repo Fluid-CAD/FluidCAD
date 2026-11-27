@@ -154,6 +154,14 @@ export function synthesizeApplyFeature(
       return { ok: false, reason: 'a colour paints faces — pick faces only', pick: edge };
     }
   }
+  if (feature === 'intersection-curve') {
+    // The picks are the faces one side of the intersection reads: each a
+    // face of a solid or a surface.
+    const edge = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'face');
+    if (edge) {
+      return { ok: false, reason: 'intersect takes faces — pick faces only', pick: edge };
+    }
+  }
   if (feature === 'helix') {
     // The helix source is a single edge — its axis, via axis() — or a single
     // cylindrical/conical face, which supplies the frame directly.
@@ -411,7 +419,7 @@ export function synthesizeApplyFeature(
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
         || feature === 'project' || feature === 'connector' || feature === 'expose' || feature === 'hole'
-        || feature === 'color'
+        || feature === 'color' || feature === 'intersection-curve'
         ? {} : { value }),
       ...(connectorPayload ? { connector: connectorPayload } : {}),
       ...(exposePayload ? { expose: exposePayload } : {}),
@@ -707,6 +715,11 @@ function renderPreview(
     // The args are the face selectors; the route composes the statement
     // around the colour it quotes.
     return `color(${args})`;
+  }
+  if (feature === 'intersection-curve') {
+    // The args are one side's face selectors; the route composes the
+    // statement from both sides.
+    return `intersect(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

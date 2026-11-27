@@ -26,6 +26,12 @@ import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildShellGhostWalls } from "../features/shell-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
 import {
+  buildIntersectionWires, intersectionFaces, type IntersectionFaces, type IntersectionSide,
+} from "../features/intersection-curve-geometry.js";
+import { FaceOperand, type HeldFace } from "../helpers/face-operand.js";
+import { BuildError } from "../common/build-error.js";
+import { describeError } from "../common/describe-error.js";
+import {
   HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
 } from "../features/helix-geometry.js";
 import { buildLoftGhostSolids, loftMatchLines, LoftGhostProfile } from "../features/loft-ghost.js";
@@ -90,6 +96,7 @@ export type FeatureGhostRequest =
   | FilletGhostRequest
   | ShellGhostRequest
   | HelixGhostRequest
+  | IntersectionCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -368,6 +375,28 @@ export type GhostHelixSourceRef =
   | { kind: 'axis-edge'; shapeId: string; index: number }
   | { kind: 'edge'; shapeId: string; index: number }
   | { kind: 'face'; shapeId: string; index: number };
+
+/**
+ * The intersection curve — `intersect(first, second)` outside a sketch: the
+ * curve where the two rows' picks meet, built by the call the feature's
+ * build makes. Each row lists its picks in pick order, the order the
+ * statement writes them in.
+ */
+export type IntersectionCurveGhostRequest = {
+  feature: 'intersection-curve';
+  first: GhostOperandRef[];
+  second: GhostOperandRef[];
+};
+
+/**
+ * One pick of a curve or surface operand row on the wire: a whole object by
+ * its statement's call site — a solid, a surface, a face selection, a curve,
+ * a sketch, or (on the intersection's second row) a `plane()` — or an edge
+ * or a face of a body by its viewport address.
+ */
+export type GhostOperandRef =
+  | { kind: 'statement'; filePath: string; line: number }
+  | { kind: 'edge' | 'face'; shapeId: string; index: number };
 
 /**
  * The repeat. Alone among the features it builds nothing: the instances it
@@ -865,6 +894,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'helix') {
     return meshGhostBodies(buildHelixGhost(scene, request), meshConfig);
+  }
+  if (request.feature === 'intersection-curve') {
+    return buildIntersectionCurveGhost(scene, request, meshConfig);
   }
   if (request.feature === 'repeat') {
     return buildRepeatGhost(scene, request, meshConfig);
@@ -3494,6 +3526,90 @@ function resolveHelixGhostSource(
     // Not a straight edge (the axis form), or neither line nor circle.
     return null;
   }
+}
+
+/**
+ * The intersection curve's preview: both rows resolved to faces (or, alone
+ * on the second row, a plane), then the curve the feature would build, as
+ * lines. A row naming what the scene no longer holds shows nothing; a
+ * refusal of the build — the picks do not cross, a face is in both rows —
+ * is said, since changing a pick is what the user can do about it.
+ */
+function buildIntersectionCurveGhost(
+  scene: Scene,
+  request: IntersectionCurveGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  const scratch: Shape[] = [];
+  let wires: Wire[];
+  try {
+    const first = resolveIntersectionSide(scene, request.first, 'first', scratch);
+    const second = resolveIntersectionSide(scene, request.second, 'second', scratch);
+    if (!first || !second) {
+      scratch.forEach(shape => shape.dispose());
+      return { ok: false, reason: 'Those picks are not in the rendered scene.' };
+    }
+    wires = buildIntersectionWires(first as IntersectionFaces, second);
+  } catch (error) {
+    scratch.forEach(shape => shape.dispose());
+    return error instanceof BuildError
+      ? { ok: false, reason: error.diagnostic, surface: true }
+      : { ok: false, reason: describeError(error) };
+  }
+  return ghostOfCurves(wires, meshConfig, scratch);
+}
+
+/**
+ * One row of the intersection dialog as the build reads its argument: a
+ * statement as the faces `FaceOperand` reads off it, a picked face as that
+ * face, in pick order. The second row may instead be one `plane()`
+ * statement. Null when a pick names nothing the scene holds, or is not a
+ * face (an edge, a plane where none is taken).
+ */
+function resolveIntersectionSide(
+  scene: Scene,
+  refs: GhostOperandRef[],
+  side: 'first' | 'second',
+  scratch: Shape[],
+): IntersectionSide | null {
+  if (refs.length === 0) {
+    return null;
+  }
+  const only = refs[0];
+  if (side === 'second' && refs.length === 1 && only.kind === 'statement') {
+    const plane = findByLocation(scene, only, obj => obj instanceof PlaneObjectBase);
+    if (plane) {
+      return (plane as PlaneObjectBase).getPlane();
+    }
+  }
+  const label = `intersect: the ${side} selection`;
+  const scope = allObjects(scene);
+  const held: HeldFace[] = [];
+  const seen = new Set<Face>();
+  for (const ref of refs) {
+    if (ref.kind === 'statement') {
+      const holder = findByLocation(scene, ref, obj => !obj.isContainer() && !(obj instanceof PlaneObjectBase)
+        && obj.getShapes().some(shape => shape.isBody() || shape.isFace()));
+      if (!holder) {
+        return null;
+      }
+      for (const entry of FaceOperand.faces(holder, scope, label)) {
+        if (!seen.has(entry.face)) {
+          seen.add(entry.face);
+          held.push(entry);
+        }
+      }
+    } else if (ref.kind === 'face') {
+      const face = resolvePickedFace(scene, ref, scratch);
+      if (!face) {
+        return null;
+      }
+      held.push({ face, body: null, holder: null });
+    } else {
+      return null;
+    }
+  }
+  return intersectionFaces(held, label);
 }
 
 /**

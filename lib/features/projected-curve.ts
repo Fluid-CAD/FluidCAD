@@ -2,6 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Shape } from "../common/shape.js";
 import { BuildError } from "../common/build-error.js";
 import { requireShapes } from "../common/operand-check.js";
+import { Operands } from "../common/operands.js";
 import { IProjectedCurve } from "../core/interfaces.js";
 import { CurveOperand } from "../helpers/curve-operand.js";
 import { DirectionInput } from "../helpers/direction-input.js";
@@ -169,42 +170,30 @@ export class ProjectedCurve extends CurveObject implements IProjectedCurve {
   }
 
   override getDependencies(): SceneObject[] {
-    return [...this.source, ...this.target, ...(this._direction ? [this._direction] : [])];
+    return Operands.all(this.source, this.target, this._direction);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new ProjectedCurve(
-      this.source.map(operand => remap.get(operand) ?? operand),
-      this.target.map(operand => remap.get(operand) ?? operand),
-      this.toDirection,
-    );
+    const copy = new ProjectedCurve(Operands.remap(this.source, remap), Operands.remap(this.target, remap), this.toDirection);
     copy._mode = this._mode;
-    copy._direction = this._direction ? remap.get(this._direction) ?? this._direction : null;
+    copy._direction = Operands.remapOne(this._direction, remap);
     copy._keep = this._keep;
     return copy;
   }
 
   override compareTo(other: SceneObject): boolean {
-    if (!(other instanceof ProjectedCurve) || !super.compareTo(other)) {
-      return false;
-    }
-    const same = (a: SceneObject[], b: SceneObject[]) =>
-      a.length === b.length && a.every((operand, i) => operand.compareTo(b[i]));
-    if (!same(this.source, other.source) || !same(this.target, other.target)) {
-      return false;
-    }
-    if (this._mode !== other._mode || this._keep !== other._keep || !this._direction !== !other._direction) {
-      return false;
-    }
-    return !this._direction || this._direction.compareTo(other._direction!);
+    return other instanceof ProjectedCurve && super.compareTo(other)
+      && Operands.same(this.source, other.source) && Operands.same(this.target, other.target)
+      && this._mode === other._mode && this._keep === other._keep
+      && Operands.sameOne(this._direction, other._direction);
   }
 
   serialize() {
     return {
-      source: this.source.map(operand => operand.serialize()),
-      target: this.target.map(operand => operand.serialize()),
+      source: Operands.serialize(this.source),
+      target: Operands.serialize(this.target),
       mode: this._mode,
-      direction: this._direction ? this._direction.serialize() : null,
+      direction: Operands.serializeOne(this._direction),
       keep: this._keep,
     };
   }

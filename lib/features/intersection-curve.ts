@@ -2,6 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Shape } from "../common/shape.js";
 import { BuildError } from "../common/build-error.js";
 import { requireShapes } from "../common/operand-check.js";
+import { Operands } from "../common/operands.js";
 import { IIntersectionCurve } from "../core/interfaces.js";
 import { FaceOperand } from "../helpers/face-operand.js";
 import { Plane } from "../math/plane.js";
@@ -103,29 +104,22 @@ export class IntersectionCurve extends CurveObject implements IIntersectionCurve
   }
 
   override getDependencies(): SceneObject[] {
-    return [...this.first, ...this.second];
+    return Operands.all(this.first, this.second);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    return new IntersectionCurve(
-      this.first.map(operand => remap.get(operand) ?? operand),
-      this.second.map(operand => remap.get(operand) ?? operand),
-    );
+    return new IntersectionCurve(Operands.remap(this.first, remap), Operands.remap(this.second, remap));
   }
 
   override compareTo(other: SceneObject): boolean {
-    if (!(other instanceof IntersectionCurve) || !super.compareTo(other)) {
-      return false;
-    }
-    const same = (a: SceneObject[], b: SceneObject[]) =>
-      a.length === b.length && a.every((operand, i) => operand.compareTo(b[i]));
-    return same(this.first, other.first) && same(this.second, other.second);
+    return other instanceof IntersectionCurve && super.compareTo(other)
+      && Operands.same(this.first, other.first) && Operands.same(this.second, other.second);
   }
 
   serialize() {
     return {
-      first: this.first.map(operand => operand.serialize()),
-      second: this.second.map(operand => operand.serialize()),
+      first: Operands.serialize(this.first),
+      second: Operands.serialize(this.second),
     };
   }
 }

@@ -128,8 +128,36 @@ describe("TubeOps.around", () => {
     expect(faces).toHaveLength(1);
     const surface = SurfaceClassifier.classifyRaw(faces[0]);
     expect(surface.kind).toBe("torus");
+    expect(surface.recovered).toBe(false);
     expect(surface.majorRadius).toBeCloseTo(10, 9);
     expect(surface.minorRadius).toBeCloseTo(2, 9);
+    expect(rimEdges(shape)).toHaveLength(0);
+  });
+
+  it("sweeps a closed edge whose parameters do not start at zero along its two halves, its seam a real edge", () => {
+    const oc = getOC();
+    const placement = new oc.gp_Ax2(new oc.gp_Pnt(0, 0, 0), new oc.gp_Dir(0, 0, -1), new oc.gp_Dir(0, 1, 0));
+    const circle = new oc.gp_Circ(placement, 15);
+    const maker = new oc.BRepBuilderAPI_MakeEdge(circle, Math.PI / 2, 5 * Math.PI / 2);
+    const edge = Edge.fromTopoDSEdge(maker.Edge());
+    const wire = WireOps.makeWireFromEdges([edge]);
+    wires.push(wire);
+    edge.dispose();
+    maker.delete();
+    circle.delete();
+    placement.delete();
+
+    const shape = tube(wire, 1.5);
+    const degenerate = subShapes(shape, "EDGE").filter(e => {
+      const typed = oc.TopoDS.Edge(e);
+      try {
+        return oc.BRep_Tool.Degenerated(typed);
+      } finally {
+        typed.delete();
+      }
+    });
+    expect(degenerate).toHaveLength(0);
+    expect(subShapes(shape, "FACE").map(face => SurfaceClassifier.classifyRaw(face).kind)).toEqual(["torus", "torus"]);
     expect(rimEdges(shape)).toHaveLength(0);
   });
 

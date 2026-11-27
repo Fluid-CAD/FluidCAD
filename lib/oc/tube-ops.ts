@@ -1,8 +1,11 @@
-import type { TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
+import type { TopoDS_Edge, TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
+import type { Edge } from "../common/edge.js";
 import type { Wire } from "../common/wire.js";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
+import { EdgeOps } from "./edge-ops.js";
 import { PathSampler } from "./path-sampler.js";
+import { WireOps } from "./wire-ops.js";
 import { mmTol } from "../units/tolerance.js";
 
 /**
@@ -25,6 +28,11 @@ export class TubeOps {
    * cylinder, round a circle a torus, round a corner a surface of
    * revolution.
    *
+   * A wire of one closed edge whose parameters do not start at zero — a
+   * projected circle's do not — is swept along its two halves: round such
+   * an edge the kernel marks the tube's seam as degenerate, and the section
+   * of that tube with anything is garbage.
+   *
    * A sweep the kernel cannot finish is refused with an `Error`. The shape
    * is the caller's to delete.
    */
@@ -32,6 +40,44 @@ export class TubeOps {
     if (!(radius > 0)) {
       throw new Error(`TubeOps.around: the radius must be positive, got ${radius}.`);
     }
+    const spine = TubeOps.spineOf(wire);
+    try {
+      return TubeOps.sweep(spine, radius);
+    } finally {
+      if (spine !== wire) {
+        spine.dispose();
+      }
+    }
+  }
+
+  /**
+   * The wire the circle is swept along: `wire`, or for one closed edge whose
+   * parameters do not start at zero, a new wire of its two halves.
+   */
+  private static spineOf(wire: Wire): Wire {
+    const edges = wire.getEdges();
+    if (edges.length !== 1 || !EdgeOps.isClosed(edges[0]) || TubeOps.firstParameter(edges[0]) === 0) {
+      return wire;
+    }
+    const { pieces } = EdgeOps.splitEdgeAtMid(edges[0]);
+    try {
+      return WireOps.makeWireFromEdges(pieces);
+    } finally {
+      pieces.forEach(piece => piece.dispose());
+    }
+  }
+
+  /** Where an edge's parameters start, in its curve's own parameter. */
+  private static firstParameter(edge: Edge): number {
+    const adaptor = new (getOC().BRepAdaptor_Curve)(edge.getShape() as TopoDS_Edge);
+    try {
+      return adaptor.FirstParameter();
+    } finally {
+      adaptor.delete();
+    }
+  }
+
+  private static sweep(wire: Wire, radius: number): TopoDS_Shape {
     const oc = getOC();
     const sampler = new PathSampler(wire);
     let start;

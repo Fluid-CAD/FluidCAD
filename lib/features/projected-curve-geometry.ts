@@ -16,7 +16,7 @@ import { facesShape, type IntersectionFaces } from "./intersection-curve-geometr
 /** How each point of the source travels: along one line, or to the closest point of the target. */
 export type ProjectionMode = 'direction' | 'normal';
 
-/** Which images stay: for each source chain the nearest one, or every one. */
+/** Which images stay: for each source chain what lies nearest it (see {@link buildProjectedWires}), or every one. */
 export type ProjectionKeep = 'nearest' | 'all';
 
 /** What a projection is asked, its direction already read. */

@@ -23,6 +23,7 @@ import { Explorer } from "./explorer.js";
 import { AnalyticEdgeProjection } from "./projection/analytic-projection.js";
 import { SilhouetteOps } from "./projection/silhouette.js";
 import { WireOps } from "./wire-ops.js";
+import { BooleanBuilders } from "./boolean-builders.js";
 import { mmTol } from "../units/tolerance.js";
 
 /**
@@ -269,7 +270,7 @@ export class ProjectionOps {
       return wires;
     } finally {
       progress.delete();
-      splitter.delete();
+      BooleanBuilders.release(splitter);
       tools.delete();
       args.delete();
     }

@@ -1,0 +1,62 @@
+---
+sidebar_position: 12.66
+title: "SurfaceResult"
+description: "The SurfaceResult type. Extends SceneObject."
+---
+
+# SurfaceResult
+
+Extends [`SceneObject`](/docs/api/types/scene-object)
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+
+</details>
+
+## Methods
+
+### faces()
+
+```ts
+faces(...args: (number | FaceFilter)[]): ISelection
+```
+
+The faces of the surface. With no argument, all of them.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| FaceFilter)[] | Face indices, or face filters to narrow the faces by. *(optional)* |
+
+---
+
+### boundaryEdges()
+
+```ts
+boundaryEdges(...args: (number | EdgeFilter)[]): ISelection
+```
+
+The edges of the surface's open rim: those that bound one face only.
+With no argument, all of them.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilter)[] | Edge indices, or edge filters to narrow the edges by. *(optional)* |
+

@@ -1,23 +1,61 @@
 ---
 sidebar_position: 26
 title: "intersect"
-description: "Intersects 3D objects with the current sketch plane, producing cross-section edges."
+description: "[3D] The curve where two sets of faces meet, written outside a sketch. The result holds one wire per connected chain of intersection edges, in an order that does not change between rebuilds: `edges()`, `start()` and `end()` read it. The faces are read, not used up."
 ---
+
+import intersect_curveExample from '!!raw-loader!../../_examples/intersect-curve.js';
+import CodeBlock from '@theme/CodeBlock';
 
 # intersect()
 
-Intersects 3D objects with the current sketch plane, producing cross-section edges.
+[3D] The curve where two sets of faces meet, written outside a sketch.
+The result holds one wire per connected chain of intersection edges, in
+an order that does not change between rebuilds: `edges()`, `start()`
+and `end()` read it. The faces are read, not used up.
 
-**Returns**: [**`Reference`**](/docs/api/types/reference)
+Faces that only touch — along an edge, tangentially, or lying on each
+other — have no intersection curve.
+
+**Returns**: [**`IntersectionCurve`**](/docs/api/types/intersection-curve) \| [**`Reference`**](/docs/api/types/reference)
+
+:::tip
+See the [guide](/docs/curves/intersect) for detailed usage examples.
+:::
 
 ## Signatures
+
+```ts
+intersect(first: SceneObject | SceneObject[], second: SceneObject | SceneObject[]): IntersectionCurve
+```
+
+[3D] The curve where two sets of faces meet, written outside a sketch.
+The result holds one wire per connected chain of intersection edges, in
+an order that does not change between rebuilds: `edges()`, `start()`
+and `end()` read it. The faces are read, not used up.
+
+Faces that only touch — along an edge, tangentially, or lying on each
+other — have no intersection curve.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `first` | [SceneObject](/docs/api/types/scene-object) \| SceneObject[] | Faces: a face selection (of solids or surfaces), a surface, a solid (all its faces), or a list of those. |
+| `second` | [SceneObject](/docs/api/types/scene-object) \| SceneObject[] | Faces, as `first` takes them, or a `plane()`, taken as infinite. |
+
+---
 
 ```ts
 intersect(...sourceObjects: SceneObject[]): Reference
 ```
 
-Intersects 3D objects with the current sketch plane, producing cross-section edges.
+[2D] Intersects 3D objects with the current sketch plane, producing cross-section edges.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `...sourceObjects` | [SceneObject](/docs/api/types/scene-object)[] | The 3D objects to intersect *(optional)* |
+
+## Examples
+
+<CodeBlock language="js">{intersect_curveExample}</CodeBlock>
+
+![intersect example](/img/docs/api/intersect-curve.png)

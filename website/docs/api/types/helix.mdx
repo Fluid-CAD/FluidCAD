@@ -1,12 +1,60 @@
 ---
 sidebar_position: 12.7
 title: "Helix"
-description: "The Helix type. Extends SceneObject."
+description: "The Helix type. Extends CurveResult."
 ---
 
 # Helix
 
-Extends [`SceneObject`](/docs/api/types/scene-object)
+Extends [`CurveResult`](/docs/api/types/curve-result)
+
+
+<details>
+<summary>Inherited from [`CurveResult`](/docs/api/types/curve-result)</summary>
+
+### edges()
+
+```ts
+edges(...args: (number | EdgeFilter)[]): ISelection
+```
+
+The edges of the curve, in the order the curve runs. With no argument,
+all of them.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilter)[] | Edge indices, or edge filters to narrow the edges by. *(optional)* |
+
+---
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+The point the curve starts at. When the result is several separate
+curves, the first one's.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+The point the curve ends at. When the result is several separate
+curves, the first one's.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+
+</details>
 
 
 <details>

@@ -85,7 +85,7 @@ import { Producers, type StatementProduct } from "./selection/producers.js";
 import { ContactPickResolution, resolveContactPick } from "./selection/contact-pick.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
-import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
+import { expandBucket, expandLoop, expandTangentChain, ExpandBucketResult, ExpandLoopResult, ExpandTangentsResult } from "./selection/expand.js";
 import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
 import { resolveFeatureSources, FeatureSourcesResult } from "./selection/feature-sources.js";
 import { resolveScopedScene } from "./selection/types.js";
@@ -819,6 +819,11 @@ class SceneManager {
 
   expandBucket(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandBucketResult {
     return withBoundary(scene, before, scoped => expandBucket(scoped, ref));
+  }
+
+  /** Whether a picked edge is on a surface's open rim, and the rim loop when it is — the double-click on an edge. */
+  expandLoop(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandLoopResult {
+    return withBoundary(scene, before, scoped => expandLoop(scoped, ref));
   }
 
   listSelectionGroups(scene: Scene, ref: PickRef, before?: SelectionBoundary): SelectionGroupsResult {

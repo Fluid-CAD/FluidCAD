@@ -1,6 +1,10 @@
 import { Shape } from "../common/shape.js";
+import type { BodyShape } from "../common/body-shape.js";
+import type { Edge } from "../common/edge.js";
+import type { Sheet } from "../common/sheet.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
 import { TangentExpander } from "../filters/tangent-expander.js";
+import { ChainExpander } from "../filters/chain-expander.js";
 import { attributePick, resolvePickShape } from "./attribution.js";
 import { BucketRecord, SelectionIndex } from "./selection-index.js";
 import { PickRef, PickSubRef, SelectionScene } from "./types.js";
@@ -18,6 +22,18 @@ export type ExpandBucketResult =
     /** The bucket's public accessor, e.g. `endEdges`. */
     accessor: string;
   }
+  | { ok: false; reason: string };
+
+/**
+ * The double-click on an edge, answered in one question: whether the edge is
+ * on the open rim of the body it was picked on, and if so the rim loop it
+ * belongs to (`members`, the seed included, in mesh order). Any other pick —
+ * a solid's edge, a surface's interior edge, a curve's edge, a face — is no
+ * rim edge (`rim: false`, no members), and the gesture takes its bucket as
+ * before (`/selection/expand-bucket`).
+ */
+export type ExpandLoopResult =
+  | { ok: true; rim: boolean; members: PickRef[] }
   | { ok: false; reason: string };
 
 /**
@@ -152,4 +168,69 @@ export function expandBucket(scene: SelectionScene, ref: PickRef): ExpandBucketR
   } finally {
     index.dispose();
   }
+}
+
+/**
+ * Expand a picked edge to the rim loop it belongs to — the double-click on
+ * the open rim of a surface. A surface loaded from a file has no bucket to
+ * expand to, and its rim is still a loop. Read off the body's own kept
+ * wrappers; nothing is wrapped to answer.
+ */
+export function expandLoop(scene: SelectionScene, ref: PickRef): ExpandLoopResult {
+  if (ref.sub.type !== 'edge') {
+    return { ok: true, rim: false, members: [] };
+  }
+  const shape = findPickedShape(scene, ref.shapeId);
+  const indexed = shape ? pickUniverse(shape, 'edge') : [];
+  if (!shape || !Number.isInteger(ref.sub.index) || !indexed[ref.sub.index]) {
+    return { ok: false, reason: 'pick does not resolve to a sub-shape in the current scene' };
+  }
+  const loop = rimLoopIndices(shape, ref.sub.index);
+  return loop
+    ? { ok: true, rim: true, members: toPickRefs(ref, loop) }
+    : { ok: true, rim: false, members: [] };
+}
+
+/**
+ * The rim loop that holds edge `index` of `owner` (an index into its indexed
+ * edges), as indexed-edge positions in mesh order, the seed among them —
+ * null when the edge is not on the owner's open rim (`BodyShape.isBoundaryEdge`):
+ * a solid's edge, a surface's interior edge, a seam, a curve's edge. The
+ * loop is the rim edges connected to the seed through rim edges, grown over
+ * the body's own wrappers so each maps back to its pick index.
+ */
+export function rimLoopIndices(owner: Shape, index: number): number[] | null {
+  if (!owner.isBody()) {
+    return null;
+  }
+  const body = owner as BodyShape;
+  const edges = body.getIndexedShapes('edge') as Edge[];
+  const seed = edges[index];
+  if (!seed || !body.isBoundaryEdge(seed.getShape())) {
+    return null;
+  }
+  // A surface keeps its rim; a body of any other kind has none to keep.
+  const rim = body.isSheet()
+    ? (body as unknown as Sheet).getBoundaryEdges()
+    : body.getEdges().filter(edge => body.isBoundaryEdge(edge.getShape()));
+  const loop = new Set<Shape>(ChainExpander.expand([seed], rim));
+  const indices: number[] = [];
+  edges.forEach((edge, position) => {
+    if (loop.has(edge)) {
+      indices.push(position);
+    }
+  });
+  return indices;
+}
+
+/** The rendered shape a pick was made on, found by id among the objects' added shapes, as `resolvePickShape` finds it. */
+function findPickedShape(scene: SelectionScene, shapeId: string): Shape | null {
+  for (const obj of scene.getAllSceneObjects()) {
+    for (const shape of obj.getAddedShapes()) {
+      if (shape.id === shapeId) {
+        return shape;
+      }
+    }
+  }
+  return null;
 }

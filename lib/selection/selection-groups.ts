@@ -7,8 +7,10 @@ import type { EdgeProperties } from "../oc/edge-props.js";
 import { FaceProps } from "../oc/face-props.js";
 import type { FaceProperties } from "../oc/face-props.js";
 import { HiddenEdges } from "../oc/hidden-edges.js";
+import { SurfaceClassifier } from "../oc/surface-classifier.js";
+import { TopologyIndex } from "../oc/topology-index.js";
 import { attributePick, resolvePickShape, type PickAttribution } from "./attribution.js";
-import { bucketMembers, buildPickUniverse, expandTangentChain } from "./expand.js";
+import { bucketMembers, buildPickUniverse, expandTangentChain, rimLoopIndices } from "./expand.js";
 import { SelectionIndex } from "./selection-index.js";
 import { PickRef, SelectionScene } from "./types.js";
 import { mmTol } from "../units/tolerance.js";
@@ -16,8 +18,12 @@ import { mmTol } from "../units/tolerance.js";
 /**
  * `sibling` marks the "Select other" section: the producing feature's OTHER
  * classified buckets (a startEdges pick offers End Edges, Side Edges, …).
+ * `loop` groups follow the pick's topology: the rim loop of a surface edge,
+ * the loops of the faces an edge bounds, the connected faces of a face's
+ * kind. A consumer keeps a `tangent` or `loop` group as a chain, so it is
+ * written as one (`.withTangents()`, `.withChain()`), not member by member.
  */
-export type SelectionGroupKind = 'tangent' | 'classified' | 'same-type' | 'equal' | 'sibling';
+export type SelectionGroupKind = 'tangent' | 'classified' | 'same-type' | 'equal' | 'sibling' | 'loop';
 
 export type SelectionGroup = {
   kind: SelectionGroupKind;
@@ -55,10 +61,23 @@ const CURVE_TYPE_NAMING: Partial<Record<EdgeProperties['curveType'], { plural: s
   spline: { plural: 'Splines' },
 };
 
-/** Menu vocabulary per surface type, for the faces of one kind a pick offers. */
-const SURFACE_TYPE_NAMING: Partial<Record<FaceProperties['surfaceType'], { plural: string }>> = {
-  sphere: { plural: 'Spheres' },
-  freeform: { plural: 'Freeform Faces' },
+/**
+ * Menu vocabulary per surface type: `singular` names one face (a loop's
+ * owner, "Outer Loop of Planar Face"), `plural` several ("Connected
+ * Cylindrical Faces"); `allOfType` marks the types that also offer every
+ * face of their kind ("All Spheres") — a plane or a cylinder would offer
+ * half the body.
+ */
+const SURFACE_TYPE_NAMING: Record<FaceProperties['surfaceType'], { singular: string; plural: string; allOfType?: boolean }> = {
+  plane: { singular: 'Planar Face', plural: 'Planar Faces' },
+  circle: { singular: 'Circular Face', plural: 'Circular Faces' },
+  cylinder: { singular: 'Cylindrical Face', plural: 'Cylindrical Faces' },
+  cone: { singular: 'Conical Face', plural: 'Conical Faces' },
+  torus: { singular: 'Toroidal Face', plural: 'Toroidal Faces' },
+  sphere: { singular: 'Sphere', plural: 'Spheres', allOfType: true },
+  revolved: { singular: 'Revolved Face', plural: 'Revolved Faces' },
+  extruded: { singular: 'Extruded Face', plural: 'Extruded Faces' },
+  freeform: { singular: 'Freeform Face', plural: 'Freeform Faces', allOfType: true },
 };
 
 function nearlyEqual(a: number | undefined, b: number | undefined): boolean {
@@ -107,6 +126,11 @@ export function listSelectionGroups(scene: SelectionScene, ref: PickRef): Select
   const tangent = expandTangentChain(scene, ref);
   if (tangent.ok && tangent.members.length > 1) {
     groups.push({ kind: 'tangent', label: `Tangent ${noun}`, members: tangent.members });
+  }
+
+  if (resolved.shape.isBody()) {
+    const body = resolved.shape as BodyShape;
+    groups.push(...(ref.sub.type === 'edge' ? edgeLoopGroups(body, ref) : connectedFaceGroups(body, ref)));
   }
 
   groups.push(...classifiedGroups(scene, ref));
@@ -237,9 +261,10 @@ function visibleEdges(owner: Shape, edges: Edge[]): Set<Edge> {
 
 /**
  * Every face of the picked body of the seed's surface type, for the types
- * {@link SURFACE_TYPE_NAMING} names: the spheres of a body, its free-form
- * faces. Read off the body's own indexed faces, seed first: a pick on a
- * plane or a cylinder, which no group names, classifies no other face.
+ * {@link SURFACE_TYPE_NAMING} offers all of: the spheres of a body, its
+ * free-form faces. Read off the body's own indexed faces, seed first: a
+ * pick on a plane or a cylinder, which no such group names, classifies no
+ * other face.
  */
 function geometricFaceGroups(body: Shape, ref: PickRef): SelectionGroup[] {
   const faces = body.getIndexedShapes('face') as Face[];
@@ -249,7 +274,7 @@ function geometricFaceGroups(body: Shape, ref: PickRef): SelectionGroup[] {
   }
   const type = FaceProps.of(seed).surfaceType;
   const naming = SURFACE_TYPE_NAMING[type];
-  if (!naming) {
+  if (!naming.allOfType) {
     return [];
   }
   const members: PickRef[] = [];
@@ -259,4 +284,123 @@ function geometricFaceGroups(body: Shape, ref: PickRef): SelectionGroup[] {
     }
   });
   return members.length > 1 ? [{ kind: 'same-type', label: `All ${naming.plural}`, members }] : [];
+}
+
+/**
+ * The loops an edge lies on, as `loop` groups over the picked body's edges:
+ *
+ * - a rim edge (it bounds one face of a surface) offers its rim loop,
+ *   "Boundary Loop" — what a double-click on it takes;
+ * - any other model edge — a solid's, or one where two faces of a surface
+ *   meet — offers, per face it bounds, the loop of that face it lies on:
+ *   "Outer Loop of Planar Face", "Hole Loop of Cylindrical Face".
+ *
+ * Seams and degenerated edges are never members (the viewport does not draw
+ * them), and a loop of one edge — the seed alone — is no group. Two faces
+ * whose loops are the same edges offer it once; two loops whose labels
+ * coincide (an edge between two planes) are numbered in face order.
+ * Read off the body's own kept wrappers, seed first: a seam offers nothing.
+ */
+function edgeLoopGroups(body: BodyShape, ref: PickRef): SelectionGroup[] {
+  const edges = body.getIndexedShapes('edge') as Edge[];
+  const seed = edges[ref.sub.index];
+  if (!seed || body.isHiddenEdge(seed.getShape())) {
+    return [];
+  }
+  const rim = rimLoopIndices(body, ref.sub.index);
+  if (rim) {
+    return rim.length > 1 ? [{ kind: 'loop', label: 'Boundary Loop', members: indexRefs(ref, 'edge', rim) }] : [];
+  }
+
+  const groups: SelectionGroup[] = [];
+  const seen = new Set<string>();
+  for (const face of body.getFacesOfEdge(seed)) {
+    const wire = face.getWires().find(w => w.getEdges().some(e => e.getShape().IsPartner(seed.getShape())));
+    if (!wire) {
+      continue;
+    }
+    const loop = TopologyIndex.buildShapeSet(wire.getEdges().map(e => e.getShape()));
+    const members: number[] = [];
+    try {
+      edges.forEach((edge, index) => {
+        if (loop.Contains(edge.getShape()) && !body.isHiddenEdge(edge.getShape())) {
+          members.push(index);
+        }
+      });
+    } finally {
+      loop.delete();
+    }
+    const key = members.join(',');
+    if (members.length < 2 || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const role = wire === face.getOuterWire() ? 'Outer' : 'Hole';
+    const naming = SURFACE_TYPE_NAMING[SurfaceClassifier.classify(face).kind];
+    groups.push({ kind: 'loop', label: `${role} Loop of ${naming.singular}`, members: indexRefs(ref, 'edge', members) });
+  }
+  return numberRepeatedLabels(groups);
+}
+
+/**
+ * "Connected Cylindrical Faces": the faces of the seed's surface kind that
+ * reach it through faces of that kind sharing an edge — the run of fillets
+ * a rounded face sits in, the flats of a folded sheet. The chain
+ * `face().<kind>().at(i).withChain()` names. Offered when the seed has a
+ * neighbour of its kind. Grown from the seed over the body's edge→faces
+ * table, so only the faces it reaches are read; kinds come from each face
+ * wrapper's kept class.
+ */
+function connectedFaceGroups(body: BodyShape, ref: PickRef): SelectionGroup[] {
+  const faces = body.getIndexedShapes('face') as Face[];
+  const seed = faces[ref.sub.index];
+  if (!seed) {
+    return [];
+  }
+  const kind = SurfaceClassifier.classify(seed).kind;
+  const reached = new Set<Face>([seed]);
+  const queue: Face[] = [seed];
+  while (queue.length > 0) {
+    const face = queue.shift()!;
+    for (const edge of face.getEdges()) {
+      for (const neighbour of body.getFacesOfEdge(edge)) {
+        if (!reached.has(neighbour) && SurfaceClassifier.classify(neighbour).kind === kind) {
+          reached.add(neighbour);
+          queue.push(neighbour);
+        }
+      }
+    }
+  }
+  if (reached.size < 2) {
+    return [];
+  }
+  const members: number[] = [];
+  faces.forEach((face, index) => {
+    if (reached.has(face)) {
+      members.push(index);
+    }
+  });
+  return [{ kind: 'loop', label: `Connected ${SURFACE_TYPE_NAMING[kind].plural}`, members: indexRefs(ref, 'face', members) }];
+}
+
+/** Pick refs on the picked shape for indexed positions, in order. */
+function indexRefs(ref: PickRef, type: 'edge' | 'face', indices: number[]): PickRef[] {
+  return indices.map(index => ({ shapeId: ref.shapeId, sub: { type, index } }));
+}
+
+/** Groups whose labels coincide, numbered in order ("Outer Loop of Planar Face 1", "… 2"); the rest as they are. */
+function numberRepeatedLabels(groups: SelectionGroup[]): SelectionGroup[] {
+  const counts = new Map<string, number>();
+  for (const group of groups) {
+    counts.set(group.label, (counts.get(group.label) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  return groups.map(group => {
+    if ((counts.get(group.label) ?? 0) < 2) {
+      return group;
+    }
+    const n = (seen.get(group.label) ?? 0) + 1;
+    seen.set(group.label, n);
+    return { ...group, label: `${group.label} ${n}` };
+  });
 }

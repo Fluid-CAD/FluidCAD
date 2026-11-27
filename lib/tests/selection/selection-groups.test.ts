@@ -18,6 +18,11 @@ import { Solid } from "../../common/solid.js";
 import type { Shape } from "../../common/shape.js";
 import { edgeRefsWhere, faceRefsWhere, findSolid, findSolids } from "./pick-helpers.js";
 import { testRect } from "../helpers/profiles.js";
+import { surface, TopologySheets } from "../helpers/topology-surfaces.js";
+import { TestSheets } from "../helpers/sheets.js";
+import { useLoadedBodies, loadShapes } from "../helpers/loaded-bodies.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
+import type { SceneObject } from "../../common/scene-object.js";
 
 function groupsFor(result: ReturnType<typeof listSelectionGroups>): SelectionGroup[] {
   expect(result.ok).toBe(true);
@@ -412,4 +417,137 @@ describe("selection groups (right-click multi-select menu)", () => {
     const { EdgeOps } = await import("../../oc/edge-ops.js");
     expect(EdgeOps.getEdgeMidPoint(endEdge).z).toBeCloseTo(0, 6);
   });
+});
+
+describe("loop groups (right-click)", () => {
+  setupOC();
+  useLoadedBodies();
+
+  const loops = (groups: SelectionGroup[]) => groups.filter(g => g.kind === 'loop');
+  const mid = (shape: Shape, ref: PickRef) => EdgeOps.getEdgeMidPoint(Explorer.findEdgesWrapped(shape)[ref.sub.index]);
+  /** Which of a 30-wide plate's two square loops an edge lies on, read from its middle. */
+  const squareOf = (shape: Shape, ref: PickRef) => {
+    const m = mid(shape, ref);
+    return Math.max(Math.abs(m.x), Math.abs(m.y)) > 10 ? 'outer' : 'inner';
+  };
+
+  it("offers a rim edge of a surface its Boundary Loop, and no face loop", () => {
+    const s = surface(() => [TopologySheets.plateWithSquareHole(30, 10)]) as unknown as SceneObject;
+    const scene = render();
+    const sheet = s.getShapes()[0];
+    const all = edgeRefsWhere(sheet, () => true);
+    expect(all).toHaveLength(8);
+
+    for (const seed of all) {
+      const offered = loops(groupsFor(listSelectionGroups(scene, seed)));
+      expect(offered.map(g => g.label)).toEqual(['Boundary Loop']);
+      const members = offered[0].members;
+      expect(members).toHaveLength(4);
+      expect(members).toContainEqual(seed);
+      expect(new Set(members.map(m => squareOf(sheet, m)))).toEqual(new Set([squareOf(sheet, seed)]));
+    }
+  });
+
+  it("offers a loaded surface's rim edge its loop too, though it has no bucket", () => {
+    const l = loadShapes([TopologySheets.squareTube(10, 10, 20)]) as unknown as SceneObject;
+    const scene = render();
+    const tube = l.getShapes()[0];
+    const [bottom] = edgeRefsWhere(tube, m => Math.abs(m.z) < 1e-6);
+
+    const offered = loops(groupsFor(listSelectionGroups(scene, bottom)));
+    expect(offered.map(g => [g.label, g.members.length])).toEqual([['Boundary Loop', 4]]);
+    expect(offered[0].members.every(m => Math.abs(mid(tube, m).z) < 1e-6)).toBe(true);
+  });
+
+  it("offers an edge of a solid the loop of each face it bounds, numbered when their names coincide", () => {
+    sketch("xy", () => {
+      testRect(30, 30, { at: [-15, -15] });
+      testRect(10, 10, { at: [-5, -5] });
+    });
+    extrude(10);
+    const scene = render();
+    const solid = findSolid(scene);
+
+    // A top edge of the outer square: the top face's outer loop and the side wall's.
+    const [outerTop] = edgeRefsWhere(solid, m => Math.abs(m.y + 15) < 1e-6 && Math.abs(m.z - 10) < 1e-6);
+    const outer = loops(groupsFor(listSelectionGroups(scene, outerTop)));
+    expect(outer.map(g => g.label).sort()).toEqual(['Outer Loop of Planar Face 1', 'Outer Loop of Planar Face 2']);
+    for (const group of outer) {
+      expect(group.members).toHaveLength(4);
+      expect(group.members).toContainEqual(outerTop);
+    }
+    const onTop = outer.find(g => g.members.every(m => Math.abs(mid(solid, m).z - 10) < 1e-6))!;
+    expect(onTop.members.every(m => squareOf(solid, m) === 'outer')).toBe(true);
+
+    // A top edge of the hole: the top face's hole loop, and the hole wall's outer loop.
+    const [holeTop] = edgeRefsWhere(solid, m => Math.abs(m.y + 5) < 1e-6 && Math.abs(m.z - 10) < 1e-6);
+    const hole = loops(groupsFor(listSelectionGroups(scene, holeTop)));
+    expect(hole.map(g => g.label).sort()).toEqual(['Hole Loop of Planar Face', 'Outer Loop of Planar Face']);
+    const holeLoop = hole.find(g => g.label === 'Hole Loop of Planar Face')!;
+    expect(holeLoop.members).toHaveLength(4);
+    expect(holeLoop.members.every(m => squareOf(solid, m) === 'inner' && Math.abs(mid(solid, m).z - 10) < 1e-6)).toBe(true);
+  });
+
+  it("offers an interior edge of a surface the loops of its two faces, and leaves a seam out of a cylinder's loop", () => {
+    const s = surface(() => [TestSheets.openBox(10, 10, 10)]) as unknown as SceneObject;
+    sketch("xy", () => {
+      circle([100, 0], 20);
+    });
+    extrude(10);
+    const scene = render();
+    const box = s.getShapes()[0];
+    // A fold between the floor and a wall.
+    const [fold] = edgeRefsWhere(box, m => Math.abs(m.z) < 1e-6 && Math.abs(m.y) < 1e-6);
+    const folds = loops(groupsFor(listSelectionGroups(scene, fold)));
+    expect(folds.map(g => [g.label, g.members.length])).toEqual([
+      ['Outer Loop of Planar Face 1', 4],
+      ['Outer Loop of Planar Face 2', 4],
+    ]);
+
+    // The cylinder's top circle: its wall's outer loop holds both circles, never the seam;
+    // the disc's loop is the circle alone, which is no group.
+    const cylinder = findSolid(scene);
+    const [rim] = edgeRefsWhere(cylinder, m => Math.abs(m.z - 10) < 1e-6);
+    const onRim = loops(groupsFor(listSelectionGroups(scene, rim)));
+    expect(onRim.map(g => [g.label, g.members.length])).toEqual([['Outer Loop of Cylindrical Face', 2]]);
+  });
+
+  it("offers a face its connected faces of the same kind, and nothing when it has no such neighbour", () => {
+    sketch("xy", () => {
+      testRect(100, 50);
+      fillet(5);
+    });
+    extrude(20);
+    const scene = render();
+    const solid = findSolid(scene) as Solid;
+
+    // The top reaches the bottom through the four flat sides; the four rounded corners stay out.
+    const [top] = faceRefsWhere(solid, m => Math.abs(m.z - 20) < 1e-6);
+    const connected = loops(groupsFor(listSelectionGroups(scene, top)));
+    expect(connected.map(g => [g.label, g.members.length])).toEqual([['Connected Planar Faces', 6]]);
+    expect(connected[0].members).toContainEqual(top);
+
+    // A rounded corner touches only flats: no corner is its neighbour.
+    const [corner] = facesOfKind(solid, 'cylinder');
+    expect(loops(groupsFor(listSelectionGroups(scene, corner)))).toEqual([]);
+
+    const s = surface(() => [TestSheets.openBox(10, 10, 10)]) as unknown as SceneObject;
+    const scene2 = render();
+    const box = s.getShapes()[0];
+    const [floor] = faceRefsWhere(box, m => Math.abs(m.z) < 1e-6);
+    const flats = loops(groupsFor(listSelectionGroups(scene2, floor)));
+    expect(flats.map(g => [g.label, g.members.length])).toEqual([['Connected Planar Faces', 5]]);
+    expect(flats[0].members).toContainEqual(floor);
+  });
+
+  /** The refs of every face of `solid` whose surface type is `type`. */
+  function facesOfKind(solid: Solid, type: string): PickRef[] {
+    const refs: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      if (FaceProps.getProperties(f.getShape()).surfaceType === type) {
+        refs.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    return refs;
+  }
 });

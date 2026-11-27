@@ -1,9 +1,9 @@
 import { SceneObject } from "../../common/scene-object.js";
 import { Intersect } from "../../features/2d/intersect.js";
 import { IntersectionCurve } from "../../features/intersection-curve.js";
-import { SelectSceneObject } from "../../features/select.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { IIntersectionCurve, IReference, ISceneObject } from "../interfaces.js";
+import { OperandArguments, type OperandCall } from "../operand-arguments.js";
 
 interface IntersectFunction {
   /**
@@ -26,8 +26,16 @@ interface IntersectFunction {
   (...sourceObjects: ISceneObject[]): IReference;
 }
 
-/** The refusal of a call outside a sketch that does not name two sides. */
-const TWO_SIDES = "intersect: outside a sketch, give the two sets of faces to intersect: intersect(first, second).";
+/** `intersect(first, second)` outside a sketch: two arguments of faces, and the words of its refusals. */
+const INTERSECT_CALL: OperandCall<'first' | 'second'> = {
+  callee: 'intersect',
+  arguments: {
+    first: { takes: 'faces, a surface or a solid,', wants: 'the faces to intersect' },
+    second: { takes: 'faces, a surface or a solid,', wants: 'the faces to intersect' },
+  },
+  missing: "intersect: outside a sketch, give the two sets of faces to intersect: intersect(first, second).",
+  tooMany: count => `intersect: outside a sketch, intersect takes two arguments, got ${count}: put several objects on one side in a list, as in intersect([a, b], c).`,
+};
 
 /**
  * The two sides of `intersect(first, second)` outside a sketch, each a list
@@ -36,40 +44,8 @@ const TWO_SIDES = "intersect: outside a sketch, give the two sets of faces to in
  * object is refused.
  */
 export function partIntersectArgs(args: readonly unknown[]): [SceneObject[], SceneObject[]] {
-  if (args.length < 2) {
-    throw new Error(TWO_SIDES);
-  }
-  if (args.length > 2) {
-    throw new Error(
-      `intersect: outside a sketch, intersect takes two arguments, got ${args.length}: put several objects on one side in a list, as in intersect([a, b], c).`,
-    );
-  }
-  return [operandList(args[0], 'first'), operandList(args[1], 'second')];
-}
-
-function operandList(arg: unknown, side: 'first' | 'second'): SceneObject[] {
-  const list = Array.isArray(arg) ? arg : [arg];
-  if (list.length === 0) {
-    throw new Error(`intersect: the ${side} argument is an empty list; give it the faces to intersect.`);
-  }
-  for (const item of list) {
-    if (!(item instanceof SceneObject)) {
-      throw new Error(
-        `intersect: the ${side} argument must be faces, a surface or a solid, or a list of them; got ${describe(item)}.`,
-      );
-    }
-  }
-  return list as SceneObject[];
-}
-
-function describe(value: unknown): string {
-  if (value === null || value === undefined) {
-    return String(value);
-  }
-  if (typeof value === 'string') {
-    return `'${value}'`;
-  }
-  return Array.isArray(value) ? 'a nested list' : typeof value === 'object' ? 'an object' : String(value);
+  const { first, second } = OperandArguments.read(args, INTERSECT_CALL);
+  return [first, second];
 }
 
 /** Inside a sketch: the sketch tool, sectioning its arguments with the sketch plane. */
@@ -86,13 +62,7 @@ function build(context: SceneParserContext): IntersectFunction {
       return sketchIntersect(context, args);
     }
     const [first, second] = partIntersectArgs(args);
-    context.addSceneObjects([...first, ...second]);
-    const result = new IntersectionCurve(first, second);
-    context.addSceneObject(result);
-    // registerBuilder claims the selections passed bare; those inside a
-    // list are claimed here, with the statement's own location.
-    SelectSceneObject.claimOperands([...first, ...second], result.getSourceLocation());
-    return result;
+    return OperandArguments.addTool(context, [...first, ...second], () => new IntersectionCurve(first, second));
   } as IntersectFunction;
 }
 

@@ -1,10 +1,10 @@
 import { SceneObject } from "../../common/scene-object.js";
 import { Projection } from "../../features/2d/projection.js";
 import { ProjectedCurve } from "../../features/projected-curve.js";
-import { SelectSceneObject } from "../../features/select.js";
 import { DirectionInput } from "../../helpers/direction-input.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { IProjectedCurve, IReference, ISceneObject } from "../interfaces.js";
+import { OperandArguments, type OperandCall } from "../operand-arguments.js";
 
 interface ProjectFunction {
   /**
@@ -42,20 +42,16 @@ interface ProjectFunction {
   (...sourceObjects: ISceneObject[]): IReference;
 }
 
-/** The refusal of a call outside a sketch that does not name a source and a target. */
-const TWO_ARGUMENTS = "project: outside a sketch, give the curves to project and the faces to project them onto: project(source, target).";
-
-/** What each argument of `project(source, target)` takes, as a refusal says it. */
-const TAKES = {
-  source: 'curves — a sketch, a curve, a selection of edges —',
-  target: 'faces, a surface or a solid,',
-} as const;
-
-/** What an empty list is asked to hold, as a refusal says it. */
-const WANTS = {
-  source: 'the curves to project',
-  target: 'the faces to project onto',
-} as const;
+/** `project(source, target)` outside a sketch: curves and the faces they land on, and the words of its refusals. */
+const PROJECT_CALL: OperandCall<'source' | 'target'> = {
+  callee: 'project',
+  arguments: {
+    source: { takes: 'curves — a sketch, a curve, a selection of edges —', wants: 'the curves to project' },
+    target: { takes: 'faces, a surface or a solid,', wants: 'the faces to project onto' },
+  },
+  missing: "project: outside a sketch, give the curves to project and the faces to project them onto: project(source, target).",
+  tooMany: count => `project: outside a sketch, project takes two arguments, got ${count}: put several objects in one argument as a list, as in project([a, b], faces).`,
+};
 
 /**
  * The two arguments of `project(source, target)` outside a sketch, each a
@@ -64,38 +60,8 @@ const WANTS = {
  * object is refused.
  */
 export function partProjectArgs(args: readonly unknown[]): [SceneObject[], SceneObject[]] {
-  if (args.length < 2) {
-    throw new Error(TWO_ARGUMENTS);
-  }
-  if (args.length > 2) {
-    throw new Error(
-      `project: outside a sketch, project takes two arguments, got ${args.length}: put several objects in one argument as a list, as in project([a, b], faces).`,
-    );
-  }
-  return [operandList(args[0], 'source'), operandList(args[1], 'target')];
-}
-
-function operandList(arg: unknown, role: 'source' | 'target'): SceneObject[] {
-  const list = Array.isArray(arg) ? arg : [arg];
-  if (list.length === 0) {
-    throw new Error(`project: the ${role} argument is an empty list; give it ${WANTS[role]}.`);
-  }
-  for (const item of list) {
-    if (!(item instanceof SceneObject)) {
-      throw new Error(`project: the ${role} argument must be ${TAKES[role]} or a list of them; got ${describe(item)}.`);
-    }
-  }
-  return list as SceneObject[];
-}
-
-function describe(value: unknown): string {
-  if (value === null || value === undefined) {
-    return String(value);
-  }
-  if (typeof value === 'string') {
-    return `'${value}'`;
-  }
-  return Array.isArray(value) ? 'a nested list' : typeof value === 'object' ? 'an object' : String(value);
+  const { source, target } = OperandArguments.read(args, PROJECT_CALL);
+  return [source, target];
 }
 
 /** Inside a sketch: the sketch tool, projecting its arguments onto the sketch plane. */
@@ -112,13 +78,9 @@ function build(context: SceneParserContext): ProjectFunction {
       return sketchProject(context, args);
     }
     const [source, target] = partProjectArgs(args);
-    context.addSceneObjects([...source, ...target]);
-    const result = new ProjectedCurve(source, target, value => DirectionInput.from(value, context));
-    context.addSceneObject(result);
-    // registerBuilder claims the selections passed bare; those inside a
-    // list are claimed here, with the statement's own location.
-    SelectSceneObject.claimOperands([...source, ...target], result.getSourceLocation());
-    return result;
+    return OperandArguments.addTool(
+      context, [...source, ...target], () => new ProjectedCurve(source, target, value => DirectionInput.from(value, context)),
+    );
   } as ProjectFunction;
 }
 

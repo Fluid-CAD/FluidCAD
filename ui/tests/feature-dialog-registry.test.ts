@@ -32,6 +32,8 @@ class FakeService {
   axisPicking = false;
   connectorPicking = false;
   planePicking = false;
+  directionPicking = false;
+  curvePicking = false;
   calls: string[] = [];
   edits: unknown[][] = [];
   readonly toolbarButton: FeatureButton;
@@ -78,6 +80,14 @@ class FakeService {
 
   get isConnectorPicking(): boolean {
     return this.armed && this.connectorPicking;
+  }
+
+  get isDirectionPicking(): boolean {
+    return this.armed && this.directionPicking;
+  }
+
+  get isCurvePicking(): boolean {
+    return this.armed && this.curvePicking;
   }
 
   /** What every real service does: the onEnter hook runs, then it arms. */
@@ -140,7 +150,7 @@ class FakeService {
 }
 
 const PART_ORDER = [
-  'extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'intersection-curve',
+  'extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'intersection-curve', 'projected-curve',
   'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'color', 'plane', 'text',
 ] as const;
 type PartId = typeof PART_ORDER[number];
@@ -275,7 +285,7 @@ describe('PartFeatureDialogs', () => {
       id, new FakeService(id, () => registry.exitAll({ except: id })),
     ])) as Record<PartId, FakeService>;
     // The services are keyed as main.ts names them; the dialogs by their ids.
-    const services = { ...fakes, intersectionCurve: fakes['intersection-curve'] };
+    const services = { ...fakes, intersectionCurve: fakes['intersection-curve'], projectedCurve: fakes['projected-curve'] };
     PartFeatureDialogs.register(registry, services as unknown as PartDialogServices);
   });
 
@@ -392,7 +402,7 @@ describe('PartFeatureDialogs', () => {
       fakes[id].calls = [];
     }
 
-    const sketchTakers: PartId[] = ['extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'split', 'plane'];
+    const sketchTakers: PartId[] = ['extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'projected-curve', 'split', 'plane'];
     for (const id of PART_ORDER) {
       arm(id);
       expect(registry.routeSketchPick('w1'), id).toBe(sketchTakers.includes(id));
@@ -508,7 +518,7 @@ describe('PartFeatureDialogs', () => {
 
   it('edits the rows each dialog owns, and opens the dialog for its parsed kind', () => {
     const rowTypes = [
-      'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'intersection-curve',
+      'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'intersection-curve', 'projected-curve',
       'repeat-linear', 'repeat-circular', 'repeat-matrix', 'copy-linear', 'copy-circular', 'copy-pattern',
       'mirror', 'translate', 'rotate', 'split', 'connector', 'fuse', 'subtract', 'common', 'color', 'plane', 'text',
     ];
@@ -521,7 +531,7 @@ describe('PartFeatureDialogs', () => {
     const kinds: [ParsedFeatureStatement['feature'], PartId][] = [
       ['extrude', 'extrude'], ['rib', 'rib'], ['hole', 'hole'], ['revolve', 'revolve'], ['sweep', 'sweep'],
       ['wrap', 'wrap'], ['loft', 'loft'], ['helix', 'helix'], ['intersection-curve', 'intersection-curve'],
-      ['repeat', 'repeat'], ['copy', 'copy'],
+      ['projected-curve', 'projected-curve'], ['repeat', 'repeat'], ['copy', 'copy'],
       ['mirror', 'mirror'], ['translate', 'translate'], ['rotate', 'rotate'], ['split', 'split'], ['connector', 'connector'], ['boolean', 'boolean'],
       ['color', 'color'], ['plane', 'plane'], ['text', 'text'],
     ];
@@ -566,6 +576,49 @@ describe('PartFeatureDialogs', () => {
     expect(registry.routeSketchPick('w1')).toBe(false);
     expect(registry.routeHover('s1', FACE, 1, 2)).toBe(false);
     expect(takers('click')).toEqual(['intersection-curve']);
+    // Nor does it pin the sketch toolbar: it finishes no sketch.
+    service.suspended = true;
+    expect(registry.pinsSketchToolbar).toBe(false);
+  });
+
+  it('registers Project for projected-curve rows, opened from the Curves menu with its icon, with the claims of a curve row, a surface row and a direction', () => {
+    const dialog = registry.get('projected-curve')!;
+    expect(dialog.editRowTypes).toEqual(['projected-curve']);
+    expect(registry.forParsedFeature('projected-curve')).toBe(dialog);
+    // A curve tool has no create-group button: its cell in the Curves menu opens it.
+    expect(dialog.toolbarButton).toBeNull();
+    const main = readFileSync(fileURLToPath(new URL('../src/main.ts', import.meta.url)), 'utf8');
+    expect(main).toMatch(/new ProjectedCurveFeatureService\(container, viewer, navbar,\s*curvesMenu\.add\(\{\s*id: 'projected-curve',\s*label: 'Project',\s*iconSrc: iconUrl\('projected-curve'\),[^}]*tip: 'Project a curve onto faces',\s*order: 20,/);
+    expect(existsSync(fileURLToPath(new URL('../public/icons/projected-curve.png', import.meta.url)))).toBe(true);
+
+    // Armed, a click lands in the armed row, an edge or a face of a body
+    // grows its operand row by the right-click menu or a double-click, and a
+    // timeline row lands there too.
+    expect(dialog.isPicking).toBe(false);
+    expect(registry.routeClick('s1', FACE)).toBe(false);
+    const service = arm('projected-curve');
+    expect(dialog.isPicking).toBe(true);
+    expect(registry.routeClick('s1', FACE)).toBe(true);
+    expect(registry.routeContextMenu('s1', FACE, 1, 2)).toBe(true);
+    expect(registry.routeDoubleClick('s1', FACE)).toBe(true);
+    expect(registry.routeTimelinePick(ROW)).toBe(true);
+    // The curve row takes a sketch's wire.
+    expect(registry.routeSketchPick('w1')).toBe(true);
+    expect(service.calls).toEqual(['click', 'context', 'dblclick', 'timeline', 'sketch']);
+    // Axis lines, plane quads and connector gizmos are the Direction row's,
+    // only while it is armed.
+    expect(registry.routeAxisPick('a1', AXIS)).toBe(false);
+    expect(registry.routePlanePick('q1')).toBe(false);
+    expect(registry.routeConnectorPick('c1', {})).toBe(false);
+    service.directionPicking = true;
+    service.calls = [];
+    expect(registry.routeAxisPick('a1', AXIS)).toBe(true);
+    expect(registry.routePlanePick('q1')).toBe(true);
+    expect(registry.routeConnectorPick('c1', {})).toBe(true);
+    // An axis line reaches the service's own click handler, as for every dialog.
+    expect(service.calls).toEqual(['click', 'plane', 'connector']);
+    expect(registry.routeHover('s1', FACE, 1, 2)).toBe(false);
+    expect(takers('click')).toEqual(['projected-curve']);
     // Nor does it pin the sketch toolbar: it finishes no sketch.
     service.suspended = true;
     expect(registry.pinsSketchToolbar).toBe(false);

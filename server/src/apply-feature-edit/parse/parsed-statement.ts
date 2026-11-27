@@ -8,6 +8,7 @@ import type { ConnectorOffsetSpec, ConnectorRotateSpec } from '../features/conne
 import type { ExtrudeTargetKind } from '../features/extrude.ts';
 import type { LoftConditionSpec } from '../features/loft.ts';
 import type { ParsedPlaneBase, PlaneRotationAxes } from '../features/plane.ts';
+import type { ProjectionKeep, ProjectionMode } from '../features/projected-curve.ts';
 import type { ProjectionOp } from '../features/projection.ts';
 import type { ShellJoinSlot } from '../features/shell.ts';
 import type { ParsedHole } from '../features/hole.ts';
@@ -18,7 +19,7 @@ import type { RegionName, ValueExpr } from '../value-expr.ts';
 import type { BooleanSlot, ChoiceSlot, TextSlot } from '../value-slots.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color' | 'intersection-curve';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color' | 'intersection-curve' | 'projected-curve';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -150,6 +151,27 @@ export type ParsedFeatureStatement =
     firstArg: string;
     /** The second argument as written. */
     secondArg: string;
+  }
+  | {
+    feature: 'projected-curve';
+    /** The source argument's operands, verbatim: a list's elements, or the bare expression. */
+    sourceTexts: string[];
+    /** The statement each source operand names, by call site, or null (same length as `sourceTexts`). */
+    sourceRefs: ({ line: number; column: number } | null)[];
+    /** The target argument's operands, verbatim. */
+    targetTexts: string[];
+    /** The statement each target operand names, or null (same length as `targetTexts`). */
+    targetRefs: ({ line: number; column: number } | null)[];
+    /** The source argument as written — what a kept slot writes back. */
+    sourceArg: string;
+    /** The target argument as written. */
+    targetArg: string;
+    /** `.mode(…)`: 'direction' when the chain is absent. */
+    mode: ProjectionMode;
+    /** The `.direction(…)` argument, verbatim, or null when the chain is absent. */
+    directionText: string | null;
+    /** `.keep(…)`: 'nearest' when the chain is absent. */
+    keep: ProjectionKeep;
   }
   | (ParsedScopeChain & {
     feature: 'loft';
@@ -534,7 +556,7 @@ const PLACED_CALLEES: Record<string, {
   part?: (chain: KindChain) => EditableFeatureKind | null;
 }> = {
   offset: { sketch: 'offset' },
-  project: { sketch: 'project' },
+  project: { sketch: 'project', part: () => 'projected-curve' },
   intersect: { sketch: 'project', part: () => 'intersection-curve' },
 };
 
@@ -580,7 +602,7 @@ export function editableKindOf(chain: KindChain, call: TSNode): EditableFeatureK
  * alone. Everything else that leaves a curve — an imported one, a repeat of
  * one, a custom feature's — is the scene's to answer (`FeatureCallees`).
  */
-const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix', 'intersection-curve']);
+const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix', 'intersection-curve', 'projected-curve']);
 
 /** Whether the statement `call` is read, with no scene to ask, as leaving a curve of its own. */
 export function readsAsCurve(call: TSNode): boolean {
@@ -591,8 +613,8 @@ export function readsAsCurve(call: TSNode): boolean {
 
 /**
  * The callees a statement is read as leaving a curve by, as a refusal names
- * them: those whose callee alone says so. `intersect` leaves one only
- * outside a sketch, so a refusal does not offer it.
+ * them: those whose callee alone says so. `intersect` and `project` leave
+ * one only outside a sketch, so a refusal does not offer them.
  */
 export function curveCallees(): string[] {
   return Object.keys(EDITABLE_CALLEES).filter(callee => CURVE_KINDS.has(EDITABLE_CALLEES[callee]));
@@ -612,10 +634,10 @@ export function curveCallees(): string[] {
  * Callees missing here are never auto-named: a part, a connector, an
  * exposure and a section name themselves by their first argument; a
  * `select()`, a region, a constraint, a sketch entity and the in-sketch
- * derived ops (`offset`, `project`) keep their bare type in the timeline.
- * `intersect` is named outside a sketch, where it draws an intersection
- * curve; inside one it is the sketch tool, and nothing in a sketch body is
- * named (`FeatureNames.chainFor`).
+ * derived op `offset` keep their bare type in the timeline. `intersect` and
+ * `project` are named outside a sketch, where they draw an intersection
+ * curve and a projected curve; inside one they are the sketch tools, and
+ * nothing in a sketch body is named (`FeatureNames.chainFor`).
  */
 export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   extrude: 'Extrude',
@@ -643,6 +665,7 @@ export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   common: 'Common',
   helix: 'Helix',
   intersect: 'Intersection Curve',
+  project: 'Projected Curve',
   plane: 'Plane',
   axis: 'Axis',
 };
@@ -704,6 +727,11 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // options; `.name()` and friends are unrecognized members and survive
   // verbatim.
   'intersection-curve': new Set(),
+  // The source and the target are the root call's arguments; how each point
+  // travels, its direction and what is kept are chained options, read in any
+  // order and written in this one. `.name()` and friends are unrecognized
+  // members and survive verbatim.
+  'projected-curve': new Set(['mode', 'direction', 'keep']),
   // The bases and the transform options are all root-call arguments; `.name()`
   // and friends are unrecognized members and survive verbatim.
   plane: new Set(),

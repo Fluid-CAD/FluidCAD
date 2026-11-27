@@ -60,7 +60,10 @@ describe('editableKindOf', () => {
 
   it('keeps the kind each callee names outside a sketch, until the form outside has a dialog', async () => {
     expect(await kindAt(MODEL, 10)).toBe('offset');
-    expect(await kindAt(MODEL, 11)).toBe('project');
+  });
+
+  it('reads project outside a sketch as the projected curve', async () => {
+    expect(await kindAt(MODEL, 11)).toBe('projected-curve');
   });
 
   it('reads intersect outside a sketch as the intersection curve', async () => {

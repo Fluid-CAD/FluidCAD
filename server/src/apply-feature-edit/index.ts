@@ -109,6 +109,18 @@ export {
   type IntersectionCurveEditOptions,
 } from './features/intersection-curve.ts';
 export {
+  DIRECTION_WITH_NORMAL,
+  PROJECTED_CURVE_CALLEE,
+  PROJECTION_KEEPS,
+  PROJECTION_MODES,
+  renderProjectedCurveStatement,
+  type ProjectedCurveDirectionEdit,
+  type ProjectedCurveEdit,
+  type ProjectedCurveEditOptions,
+  type ProjectionKeep,
+  type ProjectionMode,
+} from './features/projected-curve.ts';
+export {
   renderRepeatAxisExpr,
   renderRepeatPlaneExpr,
   renderRepeatStatement,

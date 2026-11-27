@@ -38,6 +38,7 @@ import type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts
 import type { ExtrudeEditOptions, ExtrudeTargetKind } from './features/extrude.ts';
 import type { HelixEditOptions, HelixSourceSpec } from './features/helix.ts';
 import type { IntersectionCurveEdit, IntersectionCurveEditOptions } from './features/intersection-curve.ts';
+import type { ProjectedCurveEdit, ProjectedCurveEditOptions } from './features/projected-curve.ts';
 import type {
   EditLoftGuide,
   EditLoftProfile,
@@ -77,7 +78,7 @@ import type { BooleanSlot, TextSlot } from './value-slots.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'color' | 'custom' | 'intersection-curve';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'color' | 'custom' | 'intersection-curve' | 'projected-curve';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -142,6 +143,13 @@ export type ApplyFeatureEditSpec = {
    * bound surface producer or a face selector rendered from `parts`.
    */
   intersectionCurve?: IntersectionCurveEditOptions;
+  /**
+   * Projected-curve-only payload: the picks of its source (bound curve
+   * producers or edge selector parts) and its target (bound surface
+   * producers or face selector parts), its mode, its direction (a picked
+   * edge or face renders its own selector part) and what it keeps.
+   */
+  projectedCurve?: ProjectedCurveEditOptions;
   /** Repeat-only payload; `parts` (if any) render the axis/plane selector. */
   repeat?: RepeatEditOptions;
   /** Copy-only payload; `parts` (if any) render the axis selector. */
@@ -757,6 +765,14 @@ export type FeatureStatementEditTarget = {
    * and faces from `producers`/`parts`.
    */
   intersectionCurve?: IntersectionCurveEdit;
+  /**
+   * Projected curve: each argument `keep` (or absent) re-emits the
+   * statement's own text verbatim, `picks` writes the re-picked curves or
+   * faces; the mode and what is kept replace the statement's when given; the
+   * direction is kept as written (absent or `keep`), dropped (`cleared`) or
+   * a new direction.
+   */
+  projectedCurve?: ProjectedCurveEdit;
   /**
    * Sketch retarget (the sketch dialog's re-pick): rewrite the statement's
    * target argument — an origin-plane literal, a bound `plane(…)` producer,

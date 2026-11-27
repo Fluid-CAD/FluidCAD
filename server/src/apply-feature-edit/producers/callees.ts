@@ -23,13 +23,14 @@ const PRODUCER_CALLEES = new Set([
  * (`endEdges()`, `sideFaces()`), as they have no `edges()`: a helix
  * produces only for a helix, so a stale line that lands on the other kind of
  * call is refused, not bound to an accessor the call does not have. An
- * intersection curve is an `intersect(…)` outside a sketch: inside one the
- * callee is the sketch tool, which {@link FeatureCallees.binds} refuses by
- * where the call sits.
+ * intersection curve is an `intersect(…)` and a projected curve a
+ * `project(…)` outside a sketch: inside one the callee is the sketch tool,
+ * which {@link FeatureCallees.binds} refuses by where the call sits.
  */
 const CURVE_PRODUCER_CALLEES: Record<string, string[]> = {
   helix: ['helix'],
   'intersection-curve': ['intersect'],
+  'projected-curve': ['project'],
 };
 
 /**
@@ -39,12 +40,12 @@ const CURVE_PRODUCER_CALLEES: Record<string, string[]> = {
  * never chains selector accessors onto it, so modifier and primitive calls
  * qualify too. The move, copy and colour targets take the same list: what
  * they name may hold a surface or a curve rather than a solid — `load()`
- * brings both in from a file, `helix()` and `intersect()` outside a sketch
- * draw a curve.
+ * brings both in from a file, `helix()`, and `intersect()` and `project()`
+ * outside a sketch, draw a curve.
  */
 const REPEAT_TARGET_CALLEES = new Set([
   ...PRODUCER_CALLEES,
-  'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix', 'intersect',
+  'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix', 'intersect', 'project',
   'fuse', 'subtract', 'common', 'mirror', 'translate', 'rotate',
   'repeat', 'copy', 'load', 'part', 'select',
   // A split holds the pieces it made, so it is the body a later target pick
@@ -308,7 +309,7 @@ export class FeatureCallees {
   /**
    * Whether `call` is the form of its callee that `producer`'s type names,
    * for a callee that means a sketch tool inside a `sketch(…)` callback and
-   * a part-scope tool outside one (`intersect`): a sketch-geometry producer
+   * a part-scope tool outside one (`intersect`, `project`): a sketch-geometry producer
    * binds only the call inside, every other producer only the call outside.
    * A stale line that lands on the other form would bind accessors the
    * object it builds does not have. Every other call is the one form its

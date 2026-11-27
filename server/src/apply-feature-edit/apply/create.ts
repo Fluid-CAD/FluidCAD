@@ -22,6 +22,7 @@ import type { CopyAxisSpec } from '../features/copy.ts';
 import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { intersectionCurveCreateError } from '../features/intersection-curve.ts';
+import { projectedCurveCreateError } from '../features/projected-curve.ts';
 import { renderLoftConnections, validEditCondition } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
 import { isLocalAxes, renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
@@ -222,6 +223,14 @@ export async function applyCreateEdit(
     // Both arguments hold picks: bound surface producers, or face selector
     // parts whose own producers ride the list — each part one pick's.
     const refusal = intersectionCurveCreateError(spec);
+    if (refusal) {
+      return { newCode: code, error: refusal };
+    }
+  } else if (spec.feature === 'projected-curve') {
+    // The source holds curve picks and the target surface picks, a picked
+    // edge or face direction renders its own selector part, and a direction
+    // with mode 'normal' is refused as the engine refuses it.
+    const refusal = projectedCurveCreateError(spec);
     if (refusal) {
       return { newCode: code, error: refusal };
     }

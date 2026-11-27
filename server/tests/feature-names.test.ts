@@ -45,6 +45,7 @@ import { Subtract } from '../../lib/features/subtract.js';
 import { Common } from '../../lib/features/common.js';
 import { Helix } from '../../lib/features/helix.js';
 import { IntersectionCurve } from '../../lib/features/intersection-curve.js';
+import { ProjectedCurve } from '../../lib/features/projected-curve.js';
 import { PlaneObject } from '../../lib/features/plane.js';
 import { AxisObject } from '../../lib/features/axis.js';
 
@@ -111,6 +112,9 @@ describe('DISPLAY_TYPE_BY_CALLEE', () => {
       // Outside a sketch the intersection curve. Inside one it is the sketch
       // tool, which is never named and keeps its own "Intersect".
       intersect: [{ cls: IntersectionCurve }],
+      // Outside a sketch the projected curve. Inside one it is the sketch
+      // tool, which is never named and keeps its own "Projection".
+      project: [{ cls: ProjectedCurve }],
       plane: [{ cls: PlaneObject }],
       axis: [{ cls: AxisObject }],
     };

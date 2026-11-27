@@ -19,6 +19,7 @@ import { parseIntersectionCurveChain } from '../features/intersection-curve.ts';
 import { parseConditionSegment } from '../features/loft.ts';
 import { parseMirrorChain } from '../features/mirror.ts';
 import { parsePlaneChain } from '../features/plane.ts';
+import { parseProjectedCurveChain } from '../features/projected-curve.ts';
 import type { ProjectionOp } from '../features/projection.ts';
 import { parseRepeatChain } from '../features/repeat.ts';
 import { parseRotateChain } from '../features/rotate.ts';
@@ -305,6 +306,10 @@ export function parseFeatureChain(
 
   if (feature === 'intersection-curve') {
     return parseIntersectionCurveChain(args, start, end);
+  }
+
+  if (feature === 'projected-curve') {
+    return parseProjectedCurveChain(args, recognized, start, end);
   }
 
   const isCut = chain.root.name === 'cut';

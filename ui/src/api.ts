@@ -5479,6 +5479,18 @@ export async function expandBucket(
   return selectionQuery('api/selection/expand-bucket', entity, before);
 }
 
+/**
+ * Whether a picked edge is on a surface's open rim, and the rim loop that
+ * holds it when it is (seed included); `members` is empty when `rim` is
+ * false — a solid's edge, a surface's interior edge, a face.
+ */
+export async function expandLoop(
+  entity: ApplyFeatureEntity,
+  before?: SelectionBoundaryRef,
+): Promise<{ rim: boolean; members: ApplyFeatureEntity[] } | { error: string }> {
+  return selectionQuery('api/selection/expand-loop', entity, before);
+}
+
 /** Every multi-select group a pick can expand to (the right-click menu). */
 export async function fetchSelectionGroups(
   entity: ApplyFeatureEntity,

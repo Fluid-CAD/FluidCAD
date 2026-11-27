@@ -3368,6 +3368,9 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {
 viewer.setDoubleClickHandler((shapeId, sub) => {
   if (modifyService.isActive) {
     modifyService.handleDoubleClick(shapeId, sub);
+  } else if (projectionService.isPicking) {
+    // The armed Project tool: a rim edge takes its loop, any other pick its bucket.
+    void projectionService.handleDoubleClick(shapeId, sub);
   } else {
     featureDialogs.routeDoubleClick(shapeId, sub);
   }

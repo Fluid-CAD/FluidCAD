@@ -1,10 +1,11 @@
 import {
-  applySweep, applySweepEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, expandBucket,
+  applySweep, applySweepEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources,
   ApplyFeatureEntity, FeatureEditTarget, GhostPathRef, GhostSolid, ParsedFeatureStatement,
   SelectionGroupKind, SourceSlotRef, SweepApplyOptions,
 } from '../../api';
 import { mergeUniqueEntities } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import { expandDoubleClick } from '../pick-expansion';
 import { PickSelection } from '../pick-selection';
 import { SelectionContextMenu } from '../selection-menu';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
@@ -563,13 +564,16 @@ export class SweepFeatureService {
     this.toggleEntity(row.members[0]);
   }
 
-  /** Double-click: expand the pick to its whole classified bucket. */
+  /**
+   * Double-click: expand the pick ({@link expandDoubleClick}) — a surface's
+   * rim edge to its rim loop, any other edge to its whole classified bucket.
+   */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
     if (!this.isEdgePicking || !shapeId || !sub || sub.type !== 'edge') {
       return;
     }
     this.hideContextMenu();
-    const result = await expandBucket({ shapeId, sub }, this.session.boundary ?? undefined);
+    const result = await expandDoubleClick({ shapeId, sub }, this.session.boundary ?? undefined);
     if (!this.isEdgePicking) {
       return;
     }
@@ -578,7 +582,7 @@ export class SweepFeatureService {
       return;
     }
     this.ensureEdgesSeed();
-    this.mergeEntities(result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })));
+    this.mergeEntities(result.members);
   }
 
   /** Merge group members into the path selection as plain picks. */

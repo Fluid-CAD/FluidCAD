@@ -1,11 +1,12 @@
 import {
   applyColor, applyColorEdit, ColorApplyOptions, ColorEditOptions, ColorEditTargetRef,
-  expandBucket, fetchFeatureSources, FeatureEditTarget, FeatureExprValue, ParsedFeatureStatement, SelectionGroupKind,
+  fetchFeatureSources, FeatureEditTarget, FeatureExprValue, ParsedFeatureStatement, SelectionGroupKind,
 } from '../../api';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import { expandDoubleClick } from '../pick-expansion';
 import { PickSelection } from '../pick-selection';
 import { SelectionContextMenu } from '../selection-menu';
 import { SolidPickSelection } from '../solid-pick';
@@ -490,7 +491,8 @@ export class ColorFeatureService {
 
   /**
    * Double-click on the Face tab: expand the pick to its whole classified
-   * bucket ("every end face"). The gesture's own two single clicks have
+   * bucket ("every end face"), by the rule every dialog shares
+   * ({@link expandDoubleClick}). The gesture's own two single clicks have
    * already toggled the face; the expansion merges every surviving bucket
    * member as a plain pick, so the seed ends up selected either way.
    */
@@ -500,7 +502,7 @@ export class ColorFeatureService {
     }
     this.selectionMenu.hide();
     const entity: SelectedEntity = { shapeId, sub };
-    const result = await expandBucket(entity, this.session.boundary ?? undefined);
+    const result = await expandDoubleClick(entity, this.session.boundary ?? undefined);
     if (!this.isFacePicking) {
       return;
     }
@@ -509,7 +511,7 @@ export class ColorFeatureService {
       return;
     }
     this.panel.setMessage(null);
-    this.mergeFaces(result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })));
+    this.mergeFaces(result.members);
   }
 
   /** Right-click on a face (Face tab): the multi-select menu for that pick. */

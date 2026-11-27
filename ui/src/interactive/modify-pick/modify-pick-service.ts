@@ -1,5 +1,5 @@
 import {
-  applyFeature, applyValueFeatureEdit, continueBreakpoint, expandBucket, featureGhostScope, fetchFeatureGhostResult,
+  applyFeature, applyValueFeatureEdit, continueBreakpoint, featureGhostScope, fetchFeatureGhostResult,
   fetchFeatureSources, parseFeatureAt, removeFeature, setSketchClosed, ApplyFeatureResponse,
   FeatureEditTarget, FeatureExprValue, FeatureGhostRequest, NewVariable, ParsedFeatureStatement, SelectionGroupKind,
   ShellJoinType, SketchSourceRef, ValueExpr,
@@ -14,6 +14,7 @@ import { FeatureButton } from '../create-feature/feature-button';
 import { SketchUISuspender } from '../create-feature/sketch-suspender';
 import { refreshScopeVariables } from '../create-feature/option-relabeler';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import { expandDoubleClick } from '../pick-expansion';
 import { PickSelection } from '../pick-selection';
 import { SelectionContextMenu } from '../selection-menu';
 import { StandardPlaneId } from '../../scene/standard-planes';
@@ -80,8 +81,10 @@ type SketchSession = {
  * chamfer a face selection means "all edges of that face" — the features
  * explode faces at build time; shell and sketch pick faces only); picks
  * accumulate as a highlighted selection; right-click offers the multi-select
- * menu (tangent chain — a `.withTangents()` selector —, classified bucket,
- * same-type / equal-measure edges, occluded picks); the expression
+ * menu (tangent chain — a `.withTangents()` selector —, loops — a rim loop,
+ * a face's loop, connected faces, each written as the loop —, classified
+ * bucket, same-type / equal-measure edges, occluded picks); a double-click
+ * takes a surface rim edge's loop and any other pick's bucket; the expression
  * row shows the synthesized code before Apply and is editable, with verified
  * alternatives in a dropdown; hovering shows the teach-mode attribution
  * tooltip. Apply asks the server to write the feature call into the source
@@ -1408,10 +1411,11 @@ export class ModifyPickService {
   }
 
   /**
-   * Double-click: expand the pick to its whole classified bucket ("the whole
-   * top rim"). The gesture's own two single clicks have already toggled the
-   * entity; the expansion merges every surviving bucket member as a plain
-   * pick, so the seed ends up selected either way.
+   * Double-click: expand the pick ({@link expandDoubleClick}) — a surface's
+   * rim edge to its rim loop, any other pick to its whole classified bucket
+   * ("the whole top rim"). The gesture's own two single clicks have already
+   * toggled the entity; the expansion merges every member as a plain pick,
+   * so the seed ends up selected either way.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
     if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
@@ -1426,7 +1430,7 @@ export class ModifyPickService {
     this.tooltip.hide();
 
     const entity: SelectedEntity = { shapeId, sub };
-    const result = await expandBucket(entity, this.session.boundary ?? undefined);
+    const result = await expandDoubleClick(entity, this.session.boundary ?? undefined);
     if (!this.feature) {
       return;
     }
@@ -1435,7 +1439,7 @@ export class ModifyPickService {
       return;
     }
     this.panel.setMessage(null);
-    this.mergeEntities(result.members.map(m => ({ shapeId: m.shapeId, sub: m.sub })));
+    this.mergeEntities(result.members);
   }
 
   /** Merge group members into the selection as plain picks. */

@@ -12,6 +12,7 @@ import {
 } from './create-feature/sketch-profiles';
 import { SketchUISuspender } from './create-feature/sketch-suspender';
 import { EditSession, EditSessionInfo } from './edit-session';
+import { expandDoubleClick } from './pick-expansion';
 import { PickSelection } from './pick-selection';
 import { PROJECTION_OP_SPECS, ProjectionOpSpec } from './projection-op';
 import { ProjectionPanel } from './projection-panel';
@@ -58,8 +59,10 @@ type ParsedProject = Extract<ParsedFeatureStatement, { feature: 'project' }>;
  * toggles an edge or a face into the pick set — or, on a previous sketch's
  * geometry, that whole sketch (`project(s1)`, bound like an extrude's
  * profile). Right-click opens the shared
- * multi-select menu — tangent chain, classified bucket, same-type and equal
- * edges — the same filtering the modify tools offer. The selection is explained by
+ * multi-select menu — tangent chain, loops, classified bucket, same-type and
+ * equal edges — the same filtering the modify tools offer, and a double-click
+ * takes a surface rim edge's loop or any other pick's bucket, as there. The
+ * selection is explained by
  * the same synthesis the modify tools use — the dialog's expression row shows
  * the winning `project(…)` arguments and its verified alternatives, editable
  * in place. Apply writes the statement into the sketch's own body; Cancel
@@ -561,6 +564,29 @@ export class ProjectionPickService {
     }
     this.sketches = picks.map((pick, i) => names[i] ? { ...pick, label: names[i]! } : pick);
     this.refresh();
+  }
+
+  /**
+   * Double-click on an edge or face: expand the pick ({@link expandDoubleClick})
+   * — a surface's rim edge to its rim loop, any other pick to its classified
+   * bucket. The gesture's own two clicks have already toggled the pick; the
+   * members merge as plain picks, so the seed ends up picked either way.
+   */
+  async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
+    if (!this.isPicking || !shapeId || !this.accepts(sub)) {
+      return;
+    }
+    this.selectionMenu.hide();
+    const result = await expandDoubleClick({ shapeId, sub }, this.session.boundary ?? undefined);
+    if (!this.isPicking) {
+      return;
+    }
+    if ('error' in result) {
+      this.panel.setMessage(result.error);
+      return;
+    }
+    this.panel.setMessage(null);
+    this.mergeEntities(result.members.filter(m => m.sub.type !== 'vertex' && this.accepts(m.sub)));
   }
 
   /** Right-click on an edge/face: the multi-select menu for that pick. */

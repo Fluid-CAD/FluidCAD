@@ -137,7 +137,7 @@ export class ProjectionPickService {
     // the modify tools offer (a projection picks edges and faces alike), so a
     // tangent chain, a classified bucket or every equal edge lands in one gesture.
     this.selectionMenu = new SelectionContextMenu(container, 'fluidcad-projection-pick-menu', {
-      kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
+      kinds: ['tangent', 'loop', 'classified', 'same-type', 'equal', 'sibling'],
       onSelectGroup: (kind, seed, members) => this.applyGroup(kind, seed, members),
       onPreview: (members) => this.previewSelection(members),
     });
@@ -584,9 +584,10 @@ export class ProjectionPickService {
       return;
     }
     this.panel.setMessage(null);
-    if (kind === 'tangent') {
-      // Tangent chains stay chains — they synthesize to `.withTangents()`.
-      this.selection.addChain(seed, members);
+    if (kind === 'tangent' || kind === 'loop') {
+      // Tangent and loop groups stay chains — a tangent chain synthesizes to
+      // `.withTangents()`, a loop to the loop it is.
+      this.selection.addChain(seed, members, kind);
       this.refresh();
     } else {
       this.mergeEntities(members);

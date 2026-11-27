@@ -24,13 +24,15 @@ export function toggleEntity(current: SelectedEntity | null, next: SelectedEntit
 
 /**
  * The removable chip rows for a pick set: one row per plain pick, a whole
- * tangent chain as a single row — removing it removes the chain like a
- * viewport click on a member would. Shared by the fillet/chamfer/shell
- * dialog and the sweep path slot.
+ * chain as a single row — removing it removes the chain like a viewport
+ * click on a member would. A tangent chain reads "Tangent chain", a loop
+ * of edges "Loop", a run of connected faces "Connected faces".
+ * Shared by the fillet/chamfer/shell dialog, the sweep path slot, the
+ * colour dialog's Face tab and the Project tool.
  */
 export function selectionChipRows(
   entities: SelectedEntity[],
-  chains: { seed: SelectedEntity; members: SelectedEntity[] }[],
+  chains: { seed: SelectedEntity; members: SelectedEntity[]; kind?: 'tangent' | 'loop' }[],
 ): { label: string; members: SelectedEntity[] }[] {
   const chainOf = new Map<string, (typeof chains)[number]>();
   for (const chain of chains) {
@@ -45,10 +47,7 @@ export function selectionChipRows(
     if (chain) {
       if (!seen.has(chain)) {
         seen.add(chain);
-        rows.push({
-          label: `Tangent chain (${chain.members.length} edges)`,
-          members: chain.members,
-        });
+        rows.push({ label: chainLabel(chain), members: chain.members });
       }
     } else {
       const labels = { face: 'Face', edge: 'Edge', vertex: 'Vertex' };
@@ -56,6 +55,16 @@ export function selectionChipRows(
     }
   }
   return rows;
+}
+
+/** A chain's chip: what kind of chain it is and how many edges or faces it holds. */
+function chainLabel(chain: { members: SelectedEntity[]; kind?: 'tangent' | 'loop' }): string {
+  const faces = chain.members.every(m => m.sub.type === 'face');
+  const count = `${chain.members.length} ${faces ? 'faces' : 'edges'}`;
+  if (chain.kind === 'loop') {
+    return faces ? `Connected faces (${count})` : `Loop (${count})`;
+  }
+  return `Tangent chain (${count})`;
 }
 
 /** `base` plus the members of `added` it doesn't already contain, in order. */

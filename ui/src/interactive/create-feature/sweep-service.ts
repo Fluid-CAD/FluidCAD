@@ -148,10 +148,11 @@ export class SweepFeatureService {
     };
 
     // Right-click menu for path edge picks: multi-select groups + sibling
-    // buckets ("Select other"). A path is one connected chain, so the
-    // geometric same-type/equal groups (scattered edges) are not offered.
+    // buckets ("Select other"). A path is one connected chain, so the loops
+    // (a surface's rim loop, a face's loop) are offered and the geometric
+    // same-type/equal groups (scattered edges) are not.
     this.selectionMenu = new SelectionContextMenu(container, 'fluidcad-sweep-pick-menu', {
-      kinds: ['tangent', 'classified', 'sibling'],
+      kinds: ['tangent', 'loop', 'classified', 'sibling'],
       onSelectGroup: (kind, seed, members) => this.applyGroup(kind, seed, members),
       onPreview: (members) => {
         if (this.isEdgePicking) {
@@ -612,16 +613,16 @@ export class SweepFeatureService {
     }
     this.panel.setMessage(null);
     this.ensureEdgesSeed();
-    if (kind === 'tangent') {
-      this.addChain(seed, members);
+    if (kind === 'tangent' || kind === 'loop') {
+      this.addChain(seed, members, kind);
     } else {
       this.mergeEntities(members);
     }
   }
 
-  /** Record a tangent chain: it owns its members, replacing overlapping picks. */
-  private addChain(seed: SelectedEntity, members: SelectedEntity[]): void {
-    this.picks.addChain(seed, members);
+  /** Record a tangent or loop chain: it owns its members, replacing overlapping picks. */
+  private addChain(seed: SelectedEntity, members: SelectedEntity[], kind: 'tangent' | 'loop'): void {
+    this.picks.addChain(seed, members, kind);
     this.refreshPathChips();
     this.refreshHighlight();
     this.runner.schedulePreview();

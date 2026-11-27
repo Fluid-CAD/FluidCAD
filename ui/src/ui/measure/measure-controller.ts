@@ -101,10 +101,11 @@ export class MeasureController {
   ) {
     // Right-click menu: multi-select groups + sibling buckets ("Select
     // other"). Groups merge into the measure selection, which seeds the
-    // modify tools. Group members come back instance-less (they are the
+    // modify tools — as plain picks: a tangent or loop group is not kept
+    // as a chain here. Group members come back instance-less (they are the
     // seed's shape), so they inherit the seed's instance.
     this.menu = !menuFactory ? null : menuFactory({
-      kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
+      kinds: ['tangent', 'loop', 'classified', 'same-type', 'equal', 'sibling'],
       onSelectGroup: (_kind, seed, members) => {
         this.setSelection(mergeUniqueEntities(this.entities, this.withInstanceOf(seed, members)));
       },

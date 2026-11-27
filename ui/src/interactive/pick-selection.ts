@@ -3,15 +3,26 @@ import { entityKey, mergeUniqueEntities, sameEntity, selectionChipRows } from '.
 import { SelectedEntity } from '../viewer';
 
 /**
+ * How a chain is written: `tangent` with `.withTangents()`, `loop` (a rim
+ * loop, a face's loop, a run of connected faces) as a loop.
+ */
+export type PickChainKind = NonNullable<ApplyFeatureChain['kind']>;
+
+/** A right-click group kept whole: the right-clicked pick, the group's members (the seed among them), and its kind. */
+export type PickChain = { seed: SelectedEntity; members: SelectedEntity[]; kind: PickChainKind };
+
+/**
  * The chain-aware pick set the multi-pick tools share (fillet/chamfer/shell,
- * the sweep path): plain picks accumulate; a tangent chain owns its members
- * (it synthesizes to `.withTangents()`), so a member click toggles the whole
- * chain and an overlapping chain replaces older picks. The fields stay
- * public — services seed and filter them directly on renders.
+ * the sweep path, the colour dialog's faces, the Project tool): plain picks
+ * accumulate; a chain — a tangent group, written `.withTangents()`, or a
+ * loop group, written as a loop — owns its members, so a member click
+ * toggles the whole chain and an overlapping chain replaces older picks.
+ * The fields stay public — services seed and filter them directly on
+ * renders.
  */
 export class PickSelection {
   entities: SelectedEntity[] = [];
-  chains: { seed: SelectedEntity; members: SelectedEntity[] }[] = [];
+  chains: PickChain[] = [];
 
   get isEmpty(): boolean {
     return this.entities.length === 0;
@@ -49,15 +60,19 @@ export class PickSelection {
     return true;
   }
 
-  /** Record a tangent chain: it owns its members, replacing overlapping picks. */
-  addChain(seed: SelectedEntity, members: SelectedEntity[]): void {
+  /**
+   * Record a chain of `kind` (tangent unless said): it owns its members,
+   * replacing overlapping picks and chains — choosing the same group twice
+   * leaves one chain.
+   */
+  addChain(seed: SelectedEntity, members: SelectedEntity[], kind: PickChainKind = 'tangent'): void {
     const memberKeys = new Set(members.map(entityKey));
     this.chains = this.chains.filter(c => !c.members.some(m => memberKeys.has(entityKey(m))));
     this.entities = [
       ...this.entities.filter(e => !memberKeys.has(entityKey(e))),
       ...members,
     ];
-    this.chains.push({ seed, members });
+    this.chains.push({ seed, members, kind });
   }
 
   /**
@@ -84,7 +99,8 @@ export class PickSelection {
     return this.entities.map(entityKey).sort().join('|');
   }
 
+  /** The chains as the apply and preview requests carry them, each with its kind. */
   apiChains(): ApplyFeatureChain[] {
-    return this.chains.map(c => ({ seed: c.seed, members: c.members }));
+    return this.chains.map(c => ({ seed: c.seed, members: c.members, kind: c.kind }));
   }
 }

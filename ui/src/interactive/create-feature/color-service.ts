@@ -60,7 +60,7 @@ export class ColorFeatureService {
   private targetOptions: SolidTargetOption[] = [];
   /** The Shape tab's chosen solids, in argument order. */
   private targets: ColorTargetChoice[] = [];
-  /** The Face tab's picks (chains included, for `.withTangents()` selectors). */
+  /** The Face tab's picks (chains included, for `.withTangents()` and loop selectors). */
   private faces = new PickSelection();
   /** The Face tab's chip rows, one per plain pick, a chain as one row. */
   private faceRows: { label: string; members: SelectedEntity[] }[] = [];
@@ -162,7 +162,7 @@ export class ColorFeatureService {
     };
 
     this.selectionMenu = new SelectionContextMenu(container, 'fluidcad-color-selection-menu', {
-      kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
+      kinds: ['tangent', 'loop', 'classified', 'same-type', 'equal', 'sibling'],
       onSelectGroup: (kind, seed, members) => this.applyGroup(kind, seed, members),
       onPreview: (members) => this.previewFaces(members),
       boundary: () => this.session.boundary ?? undefined,
@@ -567,9 +567,10 @@ export class ColorFeatureService {
       return;
     }
     this.panel.setMessage(null);
-    if (kind === 'tangent') {
-      // Tangent chains stay chains — they synthesize to `.withTangents()`.
-      this.faces.addChain(seed, members);
+    if (kind === 'tangent' || kind === 'loop') {
+      // Tangent and loop groups stay chains — a tangent chain synthesizes to
+      // `.withTangents()`, a run of connected faces to the loop it is.
+      this.faces.addChain(seed, members, kind);
       this.refresh();
     } else {
       this.mergeFaces(members);

@@ -360,7 +360,7 @@ export class ModifyPickService {
 
     // Right-click menu: multi-select groups + sibling buckets ("Select other").
     this.selectionMenu = new SelectionContextMenu(container, 'fluidcad-modify-pick-menu', {
-      kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
+      kinds: ['tangent', 'loop', 'classified', 'same-type', 'equal', 'sibling'],
       onSelectGroup: (kind, seed, members) => this.applyGroup(kind, seed, members),
       onPreview: (members) => this.previewSelection(members),
       boundary: () => this.session.boundary ?? undefined,
@@ -1473,10 +1473,12 @@ export class ModifyPickService {
     if (!this.feature) {
       return;
     }
-    if (kind === 'tangent') {
-      // Tangent chains stay chains — they synthesize to `.withTangents()`.
+    if (kind === 'tangent' || kind === 'loop') {
+      // Tangent and loop groups stay chains — a tangent chain synthesizes to
+      // `.withTangents()`, a loop to the loop it is (its bucket,
+      // `boundary()`, or a seeded `.withChain()`).
       this.panel.setMessage(null);
-      this.selection.addChain(seed, members);
+      this.selection.addChain(seed, members, kind);
       this.viewer.highlightEntities(this.selection.entities);
       this.refresh();
     } else {

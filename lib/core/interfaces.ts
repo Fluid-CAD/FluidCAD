@@ -319,9 +319,11 @@ export interface IProjectedCurve extends ICurveResult {
   direction(value: DirectionInputLike): this;
 
   /**
-   * Which images stay: `'nearest'` (the default), for each source chain only
-   * the image nearest it; `'all'`, every image, the far side of a closed
-   * body too.
+   * Which images stay: `'nearest'` (the default) — along the direction,
+   * what the line through each point of the source meets first, so the far
+   * side of a body is left out and every stretch of the near side stays; in
+   * mode `'normal'`, the image nearest the source — or `'all'`, every image,
+   * the far side of a closed body too.
    * @param value - `'nearest'` or `'all'`.
    */
   keep(value: 'nearest' | 'all'): this;

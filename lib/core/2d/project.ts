@@ -13,8 +13,9 @@ interface ProjectFunction {
    * left out, the normal of the plane the source lies in) or, with
    * `.mode('normal')`, to the closest point of the target. The line is a
    * line, not an arrow: the source is projected both ways along it, and
-   * `.keep()` decides which images stay — for each source chain the nearest
-   * (the default) or, with `.keep('all')`, every one.
+   * `.keep()` decides which images stay — what each point meets first (the
+   * default; in mode `'normal'`, the nearest image) or, with
+   * `.keep('all')`, every one.
    *
    * The result holds one wire per image chain, each running the same way as
    * its source, images in source order: `edges()`, `start()` and `end()`

@@ -360,6 +360,41 @@ describe("project(source, target) outside a sketch", () => {
       expect(bucketOf(all)).toHaveLength(3);
     });
 
+    it("leaves out the far side of a ball where the image folds round its silhouette", () => {
+      const ball = sphere(10);
+      const sk = above(20, () => {
+        line([-15, 3], [15, 3]);
+      });
+      const nearest = project(sk, asObject(ball)) as unknown as ProjectedCurve;
+      const all = project(sk, asObject(ball)).keep("all") as unknown as ProjectedCurve;
+      const wall = cylinder(10, 40);
+      const across = sketch(plane("yz", 30), () => {
+        line([-15, 20], [15, 20]);
+      });
+      const halfRound = project(across, asObject(wall)) as unknown as ProjectedCurve;
+      render();
+
+      // The upper half of the circle the line's plane cuts, from fold to fold.
+      expect(nearest.getError()).toBeNull();
+      expect(wiresOf(nearest)).toHaveLength(1);
+      const r = round(Math.sqrt(91));
+      expect(ends(wiresOf(nearest)[0])).toEqual([[-r, 3, 0], [r, 3, 0]]);
+      for (const e of bucketOf(nearest)) {
+        for (const point of pointsAlong(e)) {
+          expect(point.z).toBeGreaterThan(-1e-6);
+        }
+      }
+      // Every image: the whole circle, one closed wire.
+      expect(wiresOf(all)).toHaveLength(1);
+      expect(closed(wiresOf(all)[0])).toBe(true);
+      expect(lengthOf(wiresOf(all)[0])).toBeCloseTo(2 * Math.PI * Math.sqrt(91), 6);
+      // A line wider than a cylinder: the half of the wall facing it.
+      expect(halfRound.getError()).toBeNull();
+      expect(wiresOf(halfRound)).toHaveLength(1);
+      expect(ends(wiresOf(halfRound)[0])).toEqual([[0, -10, 20], [0, 10, 20]]);
+      expect(lengthOf(wiresOf(halfRound)[0])).toBeCloseTo(10 * Math.PI, 6);
+    });
+
     it("keeps every stretch of the near side: the top either side of a pocket, and the pocket's floor", () => {
       sketch("xy", () => {
         testRect(30, 10);

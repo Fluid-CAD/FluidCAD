@@ -147,10 +147,14 @@ const BEHIND_SHARE = 0.9;
 /**
  * Of the images along the direction, the edges that lie in front: an edge is
  * left out when nearly all its samples have, on the same line, a point of
- * another image edge nearer the source. What is left is chained again. The
- * images given are freed when they are replaced.
+ * another image edge nearer the source. Edges are first split where they
+ * fold round a silhouette, and what is left is chained again. The images
+ * given are freed when they are replaced.
  */
-function frontOf(images: Wire[], from: Sample[], direction: Vector3d): Wire[] {
+function frontOf(given: Wire[], from: Sample[], direction: Vector3d): Wire[] {
+  // Where an image folds round a face's silhouette its near and far sides
+  // meet inside one edge: split there, so each side is an edge of its own.
+  const images = ProjectionOps.splitAtFolds(given, direction);
   const across = (point: Point) => {
     const vector = point.toVector3d();
     return vector.subtract(direction.multiply(vector.dot(direction)));

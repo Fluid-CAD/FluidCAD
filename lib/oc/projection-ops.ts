@@ -211,6 +211,132 @@ export class ProjectionOps {
   }
 
   /**
+   * The wires with each edge split where it folds back across `direction`:
+   * where, seen along the direction, the curve turns round — the silhouette
+   * of the face it lies on, where the image of a stretch of the source
+   * passes from the near side of the face to its far side (a line across a
+   * ball lands on it as one circle, folding at either side). What a choice
+   * between the near side and the far side needs, since the two meet there.
+   * The pieces keep their curves on the faces they lie on, and are chained
+   * again; the wires given are freed when replaced, and returned as they are
+   * when nothing folds (or the kernel cannot split them).
+   */
+  static splitAtFolds(wires: Wire[], direction: Vector3d): Wire[] {
+    const unit = direction.normalize();
+    const edges = wires.flatMap(wire => wire.getEdges());
+    const folds = edges.flatMap(edge => ProjectionOps.foldsOf(edge, unit));
+    if (folds.length === 0) {
+      return wires;
+    }
+    const oc = getOC();
+    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+    const args = new oc.TopTools_ListOfShape();
+    const tools = new oc.TopTools_ListOfShape();
+    const splitter = new oc.BRepAlgoAPI_Splitter();
+    const progress = new oc.Message_ProgressRange();
+    let pieces: Edge[] = [];
+    try {
+      for (const edge of edges) {
+        args.Append(edge.getShape()).delete();
+      }
+      for (const fold of folds) {
+        const at = new oc.gp_Pnt(fold.x, fold.y, fold.z);
+        const maker = new oc.BRepBuilderAPI_MakeVertex(at);
+        const vertex = maker.Vertex();
+        tools.Append(vertex).delete();
+        vertex.delete();
+        maker.delete();
+        at.delete();
+      }
+      splitter.SetArguments(args);
+      splitter.SetTools(tools);
+      splitter.Build(progress);
+      if (!splitter.IsDone() || splitter.HasErrors()) {
+        return wires;
+      }
+      const result = splitter.Shape();
+      try {
+        pieces = Explorer.findShapes(result, EDGE).map(raw => {
+          const piece = Edge.fromTopoDSEdge(oc.TopoDS.Edge(raw));
+          raw.delete();
+          return piece;
+        });
+      } finally {
+        result.delete();
+      }
+    } catch {
+      pieces.forEach(piece => piece.dispose());
+      return wires;
+    } finally {
+      progress.delete();
+      splitter.delete();
+      tools.delete();
+      args.delete();
+    }
+    try {
+      const chained = WireOps.chainEdges(pieces);
+      wires.forEach(wire => wire.dispose());
+      return chained;
+    } finally {
+      pieces.forEach(piece => piece.dispose());
+    }
+  }
+
+  /**
+   * Where `edge` folds back across `direction` (a unit vector): the points
+   * inside it where its tangent, the part along the direction taken out,
+   * turns round. Found between samples whose tangents across the direction
+   * point apart, then pinned down by halving.
+   */
+  private static foldsOf(edge: Edge, direction: Vector3d): Point[] {
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_Curve(edge.getShape() as TopoDS_Edge);
+    const point = new oc.gp_Pnt();
+    const vector = new oc.gp_Vec();
+    try {
+      const first = adaptor.FirstParameter();
+      const last = adaptor.LastParameter();
+      const across = (t: number) => {
+        adaptor.D1(t, point, vector);
+        const tangent = new Vector3d(vector.X(), vector.Y(), vector.Z());
+        return tangent.subtract(direction.multiply(tangent.dot(direction)));
+      };
+      const margin = (last - first) * 1e-6;
+      const samples = 32;
+      const folds: Point[] = [];
+      let previous = across(first);
+      for (let i = 1; i <= samples; i++) {
+        const t = first + (last - first) * i / samples;
+        const current = across(t);
+        if (previous.dot(current) < 0) {
+          let lo = first + (last - first) * (i - 1) / samples;
+          let hi = t;
+          for (let k = 0; k < 48; k++) {
+            const middle = (lo + hi) / 2;
+            if (across(middle).dot(previous) > 0) {
+              lo = middle;
+            } else {
+              hi = middle;
+            }
+          }
+          const fold = (lo + hi) / 2;
+          if (fold - first > margin && last - fold > margin) {
+            const value = adaptor.Value(fold);
+            folds.push(new Point(value.X(), value.Y(), value.Z()));
+            value.delete();
+          }
+        }
+        previous = current;
+      }
+      return folds;
+    } finally {
+      vector.delete();
+      point.delete();
+      adaptor.delete();
+    }
+  }
+
+  /**
    * The image of `wire` on `target` by closest point: every point of the
    * wire goes to the nearest point of a target face, the image cut to each
    * face's boundary. One wire per connected chain, in no promised order: a

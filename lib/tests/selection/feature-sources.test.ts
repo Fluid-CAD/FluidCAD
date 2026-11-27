@@ -21,7 +21,7 @@ import hole from "../../core/hole.js";
 import part from "../../core/part.js";
 import connector from "../../core/connector.js";
 import select from "../../core/select.js";
-import { face } from "../../filters/index.js";
+import { edge, face } from "../../filters/index.js";
 import { circle, offset, project, intersect, line } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
@@ -1178,6 +1178,92 @@ describe("feature sources (edit-dialog seeding)", () => {
         { kind: "entities", entities: [{ shapeId: surface.id, sub: { type: "face", index: 0 } }] },
       ]);
     }
+  });
+
+  it("resolves a projected curve's source, target and direction: statements by call site, a face selection as entities", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 4);
+    const sheet = loadShapes([TestSheets.plate(10, 10)]);
+    setLocation(sheet, 5);
+    const sk = sketch(plane("xy", 50), () => {
+      line([5, 5], [35, 5]);
+    });
+    setLocation(sk, 6);
+    const a = axis("z");
+    setLocation(a, 7);
+    const pc = project(sk, [e.endFaces(), sheet as never]).direction(a);
+    setLocation(pc, 9);
+
+    const scene = render();
+    expect((pc as unknown as SceneObject).getError()).toBeNull();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "projected-curve", 9));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "projected-curve") {
+      expect(result.source).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 }]);
+      expect(result.target).toEqual([
+        { kind: "entities", entities: faceRefsWhere(box, m => Math.abs(m.z - 25) < 1e-6) },
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 },
+      ]);
+      expect(result.direction).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 7, column: 0 });
+    }
+  });
+
+  it("resolves a projected curve's edge selection as entities, a world axis direction as opaque, and no direction as null", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 4);
+    const sheet = loadShapes([TestSheets.plate(60, 60)]);
+    setLocation(sheet, 5);
+    const rim = select(edge().onPlane("xy", 25).nearest("y"));
+    setLocation(rim, 6);
+    const along = project(rim, sheet as never).direction("z");
+    setLocation(along, 8);
+
+    const scene = render();
+    expect((along as unknown as SceneObject).getError()).toBeNull();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "projected-curve", 8));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "projected-curve") {
+      expect(result.source).toEqual([
+        { kind: "entities", entities: edgeRefsWhere(box, m => Math.abs(m.z - 25) < 1e-6 && Math.abs(m.y) < 1e-6) },
+      ]);
+      expect(result.target).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 }]);
+      expect(result.direction).toEqual({ kind: "opaque" });
+    }
+  });
+
+  it("resolves a projected curve with no direction to a null direction slot", () => {
+    sketch("xy", () => {
+        testRect(40, 40);
+      });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 4);
+    const sk = sketch(plane("xy", 50), () => {
+      line([5, 5], [35, 5]);
+    });
+    setLocation(sk, 5);
+    const pc = project(sk, e);
+    setLocation(pc, 7);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "projected-curve", 7));
+
+    expect(result).toMatchObject({
+      ok: true,
+      feature: "projected-curve",
+      source: [{ kind: "sketch", line: 5 }],
+      target: [{ kind: "sketch", line: 4 }],
+      direction: null,
+    });
   });
 
   it("refuses a stale boundary", () => {

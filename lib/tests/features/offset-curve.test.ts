@@ -427,6 +427,17 @@ describe("offset(distance, edges, { on }) outside a sketch", () => {
       expect(oc.getShapes()).toEqual([]);
     });
 
+    it("refuses edges inside the solid given in { on }, which lie on none of its faces", () => {
+      const box = block(40, 20);
+      const inside = above(2.5, () => {
+        line([5, 10], [35, 10]);
+      });
+      const oc = offset(2, inside, { on: asObject(box) }) as unknown as OffsetCurve;
+      render();
+
+      expect(oc.getError()).toMatch(/^offset: the edges do not lie on the faces given in \{ on \}\./);
+    });
+
     it("refuses a zero distance", () => {
       const box = block(40, 20);
       const sk = above(5, () => {

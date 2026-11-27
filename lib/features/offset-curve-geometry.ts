@@ -13,6 +13,7 @@ import { FaceOps } from "../oc/face-ops.js";
 import { SectionOps } from "../oc/section-ops.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
 import { ShapeMeasure } from "../oc/shape-measure.js";
+import { ShapeOps } from "../oc/shape-ops.js";
 import { TubeOps } from "../oc/tube-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { mmTol } from "../units/tolerance.js";
@@ -58,13 +59,11 @@ export function buildOffsetCurveWires(sources: readonly Wire[], support: Interse
   if (distance === 0 || !Number.isFinite(distance)) {
     throw zeroDistance();
   }
+  requireOnFaces(sources, support.faces);
   const shape = facesShape(support);
   const rims = new RimSense(support.faces);
   const made: Wire[] = [];
   try {
-    for (const source of sources) {
-      requireOnFaces(source, shape.shape);
-    }
     for (const source of sources) {
       made.push(offsetChain(source, support, shape.shape, distance, rims));
     }
@@ -103,11 +102,24 @@ function tightestBend(): BuildError {
 }
 
 /**
- * Every edge of the source lies on the faces: points from end to end of it
+ * Every edge of the sources lies on the faces: points from end to end of it
  * are each within the edge's own tolerance and `mmTol(1e-4)` of them, so an
- * image a projection approximated still counts.
+ * image a projection approximated still counts. Measured to the faces
+ * themselves, not to the solid they bound, inside which every point is at
+ * no distance.
  */
-function requireOnFaces(source: Wire, support: TopoDS_Shape): void {
+function requireOnFaces(sources: readonly Wire[], faces: readonly Face[]): void {
+  const support = ShapeOps.makeCompoundRaw(faces.map(face => face.getShape()));
+  try {
+    for (const source of sources) {
+      requireWireOnFaces(source, support);
+    }
+  } finally {
+    support.delete();
+  }
+}
+
+function requireWireOnFaces(source: Wire, support: TopoDS_Shape): void {
   const oc = getOC();
   for (const edge of source.getEdges()) {
     const raw = edge.getShape() as TopoDS_Edge;
@@ -185,7 +197,7 @@ function offsetChain(source: Wire, support: IntersectionFaces, supportShape: Top
     const [result] = kept.splice(0);
     return runLike(result, from);
   } catch (error) {
-    [...chains, ...kept].forEach(chain => chain.dispose());
+    new Set([...chains, ...kept]).forEach(chain => chain.dispose());
     throw error;
   } finally {
     lookup.dispose();

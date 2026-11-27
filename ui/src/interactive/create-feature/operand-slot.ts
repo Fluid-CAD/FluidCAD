@@ -101,8 +101,9 @@ export class OperandSlotControl {
   /** A gesture in the slot changed what it holds (a chip's ✕). */
   onChange?: () => void;
 
+  /** What the row collects: curves, or surfaces. */
+  readonly kind: OperandKind;
   private readonly slot: PickSlot;
-  private readonly kind: OperandKind;
   private readonly label: string;
   private readonly prompt: string;
   private readonly multiple: boolean;

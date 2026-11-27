@@ -29,6 +29,7 @@ import { allocateProducerVars, makeProducerMerger } from '../synthesis.ts';
 import { AxisInputs } from '../axis-inputs.ts';
 import { DirectionInputs } from '../direction-inputs.ts';
 import { OperandInputs } from '../operand-inputs.ts';
+import type { OperandRowFeature } from '../operand-row-create.ts';
 import type { CopyEditAxisInput } from '../validate/copy.ts';
 import { loftProfileOwners, synthesizeLoftConnections } from '../validate/loft.ts';
 import { projectSketchRefusal } from '../validate/project.ts';
@@ -193,7 +194,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
      * the parts it added. A pick in another file than the edited statement
      * is refused with `crossFile`.
      */
-    const synthesizeRepickedRow = (kind: 'intersection-curve' | 'projected-curve', crossFile: string) =>
+    const synthesizeRepickedRow = (kind: OperandRowFeature, crossFile: string) =>
       (entities: Pick[]): number[] | null => {
         const synthesis = synthesizeSlot(entities, kind, undefined, []);
         if (!synthesis) {

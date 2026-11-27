@@ -53,6 +53,7 @@ import { WrapFeatureService } from './interactive/create-feature/wrap-service';
 import { HelixFeatureService } from './interactive/create-feature/helix-service';
 import { IntersectionCurveFeatureService } from './interactive/create-feature/intersection-curve-service';
 import { ProjectedCurveFeatureService } from './interactive/create-feature/projected-curve-service';
+import { OffsetCurveFeatureService } from './interactive/create-feature/offset-curve-service';
 import { RepeatFeatureService } from './interactive/create-feature/repeat-service';
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
@@ -2854,6 +2855,24 @@ const projectedCurveService = new ProjectedCurveFeatureService(container, viewer
     onSuspendSketchUI: suspendSketchForFeature,
     onResumeSketchUI: resumeSketchForFeature,
   });
+const offsetCurveService = new OffsetCurveFeatureService(container, viewer, navbar,
+  curvesMenu.add({
+    id: 'offset-curve',
+    label: 'Offset',
+    iconSrc: iconUrl('offset-curve'),
+    // The sketch's Offset and the face Offset keep their own tips: this one
+    // runs a curve beside edges, along the faces they lie on.
+    tip: 'Offset a curve along faces',
+    order: 30,
+  }),
+  {
+    onEnter: () => {
+      enterPartDialog('offset-curve');
+    },
+    onActiveChange: syncSketchButtonBlocked,
+    onSuspendSketchUI: suspendSketchForFeature,
+    onResumeSketchUI: resumeSketchForFeature,
+  });
 // Constructed after the transform services so its own navbar group registers
 // after theirs (…, | Mirror, Translate, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
@@ -2913,6 +2932,7 @@ PartFeatureDialogs.register(featureDialogs, {
   helix: helixService,
   intersectionCurve: intersectionCurveService,
   projectedCurve: projectedCurveService,
+  offsetCurve: offsetCurveService,
   repeat: repeatService,
   copy: copyService,
   mirror: mirrorService,

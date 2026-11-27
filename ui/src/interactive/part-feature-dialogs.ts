@@ -10,6 +10,7 @@ import type { HoleFeatureService } from './create-feature/hole/hole-service';
 import type { IntersectionCurveFeatureService } from './create-feature/intersection-curve-service';
 import type { LoftFeatureService } from './create-feature/loft-service';
 import type { MirrorFeatureService } from './create-feature/mirror-service';
+import type { OffsetCurveFeatureService } from './create-feature/offset-curve-service';
 import type { PlaneFeatureService } from './create-feature/plane-service';
 import type { ProjectedCurveFeatureService } from './create-feature/projected-curve-service';
 import type { RepeatFeatureService } from './create-feature/repeat-service';
@@ -38,6 +39,7 @@ export type PartDialogServices = {
   helix: HelixFeatureService;
   intersectionCurve: IntersectionCurveFeatureService;
   projectedCurve: ProjectedCurveFeatureService;
+  offsetCurve: OffsetCurveFeatureService;
   repeat: RepeatFeatureService;
   copy: CopyFeatureService;
   mirror: MirrorFeatureService;
@@ -232,6 +234,28 @@ export class PartFeatureDialogs {
         axis: (d) => d.isDirectionPicking,
         plane: (d) => d.isDirectionPicking,
         connector: (d) => d.isDirectionPicking,
+      },
+      timelinePicks: true,
+      sketchPicks: true,
+    }));
+    registry.register(new ServiceDialog('offset-curve', s.offsetCurve, {
+      // Only the curve form of `offset(…)` (outside a sketch, with `{ on }`)
+      // makes an offset-curve row; the sketch tool's and the face Offset's
+      // `offset` rows keep their own dialogs.
+      edit: {
+        rowTypes: ['offset-curve'],
+        kind: 'offset-curve',
+        open: (t, p, i) => s.offsetCurve.enterEdit(t, p, i),
+      },
+      picking: (d) => d.isPicking,
+      // A curve row and a surface row. A click lands in the armed row; an
+      // edge or a face of a body grows it by the right-click menu's groups
+      // or a double-click's chain, rim loop or bucket. Edges takes a
+      // sketch's wire too, and a row of the timeline lands in the armed row.
+      claims: {
+        click: (d) => d.isPicking,
+        contextMenu: (d) => d.isPicking,
+        doubleClick: (d) => d.isPicking,
       },
       timelinePicks: true,
       sketchPicks: true,

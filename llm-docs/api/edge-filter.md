@@ -1,7 +1,7 @@
 ---
 id: api/edge-filter
 title: edge() — edge filter builder
-summary: Chainable predicate builder for selecting edges by shape (line, arc, circle, ellipse, spline, closed, planar), orientation, position, parent face/object, or the kind of body they belong to. Like `face()`, chained calls AND together and `.notX()` negates.
+summary: Chainable predicate builder for selecting edges by shape (line, arc, circle, ellipse, spline, closed, planar), orientation, position, parent face/object, topology (open rim, between two face groups, a face group's perimeter), or the kind of body they belong to. Like `face()`, chained calls AND together and `.notX()` negates.
 tags: [api, selection, filter]
 symbols: [edge]
 seeAlso: [api/face-filter, api/select]
@@ -149,6 +149,76 @@ chamfer(1, select(edge().outerOf(plate.endFaces())));   // the 8 outline edges, 
 chamfer(0.5, select(edge().holeOf(plate.endFaces())));  // the bore rim only
 ```
 
+## By topology
+
+What stays true when a free-form model is edited is which things touch.
+These predicates name edges by the faces around them — no size, no
+position — so they hold through dimension edits, and they work the same on
+solids and surfaces:
+
+- `.boundary()` / `.notBoundary()` — the open rim of a surface: edges that
+  bound exactly one face of their body. A solid has none, and a seam is
+  never one. The same rule as a surface's `boundaryEdges()` bucket and the
+  rim the viewport draws, so `select(edge().boundary())` is every open rim
+  in the model
+- `.between(a, b)` / `.notBetween(a, b)` — edges shared by a face of `a`
+  and a different face of `b`, in either order. `between(face(), face())`
+  is every interior edge and never a seam; an open rim is between nothing
+- `.boundaryOf(...faces)` / `.notBoundaryOf(...)` — the perimeter of a
+  group of faces: edges that bound exactly one face of the group. For one
+  face, all its loops (`outerOf` / `holeOf` split them); for connected
+  faces, their outline — what a fill or a ruled surface is built from; for
+  groups apart from each other, each one's outline. Several arguments make
+  one group
+
+```js
+edge().between(face().planar(), face().freeform())   // where flats meet free-form faces
+edge().between(wall.sideFaces(), cap.faces())         // where two features' faces meet
+edge().between(fl.faces(), face())                    // every edge where the fill meets anything
+edge().boundaryOf(pocket.internalFaces())             // the mouth of a pocket
+edge().boundaryOf(face().cylinder())                  // the rims of every cylindrical face group
+```
+
+The faces are given as for `outerOf()`: face filter builders, or a face
+reference (a bucket accessor or a select()); `between()` also takes an
+array for either side. A filter builder names the faces `select(builder)`
+would name among the bodies in scope, its own `at()`, `withChain()` and
+ranks included. A reference is read from the faces as they are *now*: a
+face counts when it is the referenced face or lies on the same plane,
+cylinder, cone, sphere or torus, so a fillet that rebuilt the face after the
+referenced feature made it does not break the selection. A free-form face
+has no surface to compare and is matched by identity only.
+
+```fluid.js
+import { chamfer, cut, extrude, line, select, sketch, xAxis, yAxis } from "fluidcad/core";
+import { coincident, distance, horizontal, symmetric, vertical } from "fluidcad/constraints";
+import { edge, face } from "fluidcad/filters";
+
+// A 60 × 40 block with a 20 × 10 pocket sunk 8 into its top.
+const rect = (w, h) => {
+  const b = line([-w / 2, -h / 2], [w / 2, -h / 2]);
+  const r = line([w / 2, -h / 2], [w / 2, h / 2]);
+  const t = line([w / 2, h / 2], [-w / 2, h / 2]);
+  const l = line([-w / 2, h / 2], [-w / 2, -h / 2]);
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(t);
+  vertical(l);
+  symmetric(b.start(), b.end(), yAxis());
+  symmetric(r.start(), r.end(), xAxis());
+  distance(b.start(), b.end(), w);
+  distance(r.start(), r.end(), h);
+};
+sketch("xy", () => rect(60, 40));
+const block = extrude(20);
+sketch(block.endFaces(), () => rect(20, 10));
+const pocket = cut(8);
+chamfer(1, select(edge().boundaryOf(pocket.internalFaces())));       // the pocket's mouth, 4 edges
+chamfer(0.5, select(edge().between(block.sideFaces(), face().onPlane("xy"))));  // the bottom outline
+```
+
 ## Example
 
 ```fluid.js
@@ -178,4 +248,5 @@ fillet(2);
 ```
 
 See [[api/face-filter]] for the face counterpart and [[api/select]] for
-how filters land in the implicit selection.
+how filters land in the implicit selection and how `at()`,
+`withTangents()` and `withChain()` pick and grow it.

@@ -1,7 +1,7 @@
 ---
 id: api/face-filter
 title: face() — face filter builder
-summary: Chainable predicate builder for selecting faces by shape, orientation, position, topology, source, or the kind of body they belong to. Each chained call narrows the set (AND). Shape, position and topology predicates have a `.notX()` counterpart.
+summary: Chainable predicate builder for selecting faces by shape, orientation, position, topology (edge count, the faces or edges next to them), source, or the kind of body they belong to. Each chained call narrows the set (AND). Shape, position and topology predicates have a `.notX()` counterpart.
 tags: [api, selection, filter]
 symbols: [face]
 seeAlso: [api/edge-filter, api/select, concepts/last-selection]
@@ -94,7 +94,28 @@ the plane is on neither side.
 ## By topology
 
 - `.edgeCount(n)`
-- `.hasEdge(...filtersOrObjects)`
+- `.adjacentTo(...refs)` / `.notAdjacentTo(...)` — faces next to the given
+  faces or edges: a face that shares an edge with a referenced face, or
+  that a referenced edge bounds. The referenced faces themselves do not
+  match
+- `.hasEdge(...filtersOrObjects)` — slated for removal; `adjacentTo()` with
+  an edge reference covers it
+
+```js
+face().adjacentTo(fl.faces())                 // the neighbours of a fill
+face().adjacentTo(select(edge().boundary()))  // the faces along a surface's open rim
+face().adjacentTo(face().freeform())          // the faces next to any free-form face
+face().adjacentTo(edge().boundary())          // the same as the second, by description
+```
+
+`adjacentTo()` takes face filter builders, edge filter builders, or
+references to faces or edges (a bucket accessor or a select()); a face next
+to any of them counts. A filter builder names what `select(builder)` would
+name among the bodies in scope. A face reference is read from the faces as
+they are now, by identity or by the plane, cylinder, cone, sphere or torus
+it lies on, so a later fillet that rebuilt the face does not break the
+selection; an edge reference names the edge itself. It is pure topology, so
+it survives dimension edits, and works the same on solids and surfaces.
 
 ## By source
 

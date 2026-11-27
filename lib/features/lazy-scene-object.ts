@@ -1,6 +1,6 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
-import { FilterBuilderBase } from "../filters/filter-builder-base.js";
+import { FilterBuilderBase, checkChainSeeds } from "../filters/filter-builder-base.js";
 import { AnchorableSelection } from "./anchored-vertex.js";
 import { withUnit } from "../units/registry.js";
 
@@ -17,6 +17,8 @@ export class LazySelectionSceneObject extends AnchorableSelection {
     private selectionArgs: LazySelectionArg[] = []
   ) {
     super();
+    // A withChain() builder with no seed is refused where the accessor is written.
+    checkChainSeeds(selectionArgs);
   }
 
   // Resolvable ahead of the render loop's own build slot (the P6 reference

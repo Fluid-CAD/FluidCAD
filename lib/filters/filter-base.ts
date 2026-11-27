@@ -48,6 +48,17 @@ export abstract class FilterBase<TShape extends Shape> implements Comparable<Fil
   }
 
   /**
+   * Whether this stage, written last, plants the seeds of a `withChain()`
+   * builder: a positive rank (`nearest`, `farthest`, `nth`, `largest`,
+   * `smallest`) keeps a few of the candidates and so can name where a
+   * chain starts. Every other stage — a per-shape predicate, or a negated
+   * rank that keeps all but a layer — cannot.
+   */
+  seedsAChain(): boolean {
+    return false;
+  }
+
+  /**
    * SceneObjects this filter references and resolves lazily (a plane-ref
    * selection, for instance) — surfaced so a consuming select() can list
    * them as dependencies. Filters without references keep the default.

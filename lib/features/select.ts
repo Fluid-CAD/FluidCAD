@@ -1,6 +1,6 @@
 import { Matrix4 } from "../math/matrix4.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
-import { FilterBuilderBase } from "../filters/filter-builder-base.js";
+import { FilterBuilderBase, checkChainSeeds } from "../filters/filter-builder-base.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { BuildSceneObjectContext, SceneObject, SourceLocation } from "../common/scene-object.js";
 import { ISelect } from "../core/interfaces.js";
@@ -24,6 +24,8 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   constructor(private filters: FilterBuilderBase<Shape>[]) {
     super();
+    // A withChain() builder with no seed is refused where select() is written.
+    checkChainSeeds(filters);
     this.type = SelectSceneObject.shapeTypeOf(filters);
   }
 

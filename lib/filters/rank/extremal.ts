@@ -43,6 +43,11 @@ export class ExtremalFilter<TShape extends Shape> extends FilterBase<TShape> {
     throw new Error('ExtremalFilter is a set-level stage; use apply()');
   }
 
+  /** A rank keeps a layer of the candidates, so written last it seeds a chain; negated, it keeps all but one and seeds none. */
+  override seedsAChain(): boolean {
+    return !this.negate;
+  }
+
   override apply(shapes: TShape[]): TShape[] {
     if (shapes.length === 0) {
       return shapes;

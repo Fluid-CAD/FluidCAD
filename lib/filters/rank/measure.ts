@@ -32,6 +32,11 @@ export class MeasureExtremeFilter<TShape extends Shape> extends FilterBase<TShap
     throw new Error('MeasureExtremeFilter is a set-level stage; use apply()');
   }
 
+  /** A rank keeps a layer of the candidates, so written last it seeds a chain; negated, it keeps all but one and seeds none. */
+  override seedsAChain(): boolean {
+    return !this.negate;
+  }
+
   override apply(shapes: TShape[]): TShape[] {
     const values = shapes.map(shape => this.measureOf(shape));
     const measured = values.map((v, i) => v === null ? null : i).filter((i): i is number => i !== null);

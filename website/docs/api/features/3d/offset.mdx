@@ -1,0 +1,89 @@
+---
+sidebar_position: 18.7
+title: "offset"
+description: "[3D] Offsets curves along faces, written outside a sketch: a curve beside `edges` at `distance`, measured straight through space, lying on the faces given in `{ on }` — a line set back from an edge of a body, the inner boundary of a band along a rim, a curve beside a projected curve."
+---
+
+import offset_curveExample from '!!raw-loader!../../_examples/offset-curve.js';
+import CodeBlock from '@theme/CodeBlock';
+
+# offset()
+
+[3D] Offsets curves along faces, written outside a sketch: a curve
+beside `edges` at `distance`, measured straight through space, lying on
+the faces given in `{ on }` — a line set back from an edge of a body, the
+inner boundary of a band along a rim, a curve beside a projected curve.
+
+The sign picks the side. Walking along the edges standing on the
+outside of the faces, a positive distance goes to the left, a negative
+one to the right. Edges along the rim of the faces — one face beside
+each — are walked the way that face's boundary runs, so a positive
+distance goes onto the faces.
+
+The result holds one wire per chain of the edges, each running the same
+way as its source, in source order: `edges()`, `start()` and `end()`
+read it. A sketch or a curve given as the edges is hidden and stays
+readable; the faces are read, not used up.
+
+**Returns**: [**`OffsetCurve`**](/docs/api/types/offset-curve) \| [**`Offset`**](/docs/api/types/offset)
+
+:::tip
+See the [guide](/docs/curves/offset) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+offset(distance: NumberParam, edges: SceneObject | SceneObject[], options: { on: ISceneObject | ISceneObject[]; }): OffsetCurve
+```
+
+[3D] Offsets curves along faces, written outside a sketch: a curve
+beside `edges` at `distance`, measured straight through space, lying on
+the faces given in `{ on }` — a line set back from an edge of a body, the
+inner boundary of a band along a rim, a curve beside a projected curve.
+
+The sign picks the side. Walking along the edges standing on the
+outside of the faces, a positive distance goes to the left, a negative
+one to the right. Edges along the rim of the faces — one face beside
+each — are walked the way that face's boundary runs, so a positive
+distance goes onto the faces.
+
+The result holds one wire per chain of the edges, each running the same
+way as its source, in source order: `edges()`, `start()` and `end()`
+read it. A sketch or a curve given as the edges is hidden and stays
+readable; the faces are read, not used up.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | NumberParam | The distance, not zero: positive for the left side, negative for the right. |
+| `edges` | [SceneObject](/docs/api/types/scene-object) \| SceneObject[] | Curves: a selection of edges, a curve object, a sketch, or a list of those. They must lie on the faces. |
+| `options` | `{ on: ISceneObject \| ISceneObject[]; }` | `{ on }`: the faces the curve lies on — a face selection, a surface, a solid, or a list of those. |
+
+---
+
+```ts
+offset(distance?: NumberParam, ...targets: (SceneObject | EdgeFilter)[]): Offset
+```
+
+Offsets sketch geometry by the given distance. With no targets, offsets
+the whole sketch (or the last `select(...)` result if one precedes it).
+
+Outside a sketch, targets may be one or more coplanar faces (a
+`select(face()...)` result or a solid op's face accessor like
+`body.endFaces()`); with no targets the preceding `select(...)` is used.
+The offset outlines are created on the face plane — a positive distance
+offsets outward and shrinks holes — and the result is extrudable like
+any sketch. Outside a sketch with a trailing `{ on: faces }`,
+`offset(distance, edges, { on: faces })` is the offset curve instead: a
+curve beside the edges, lying on the faces.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `distance` | NumberParam | The offset distance (defaults to 1) *(optional)* |
+| `...targets` | ([SceneObject](/docs/api/types/scene-object) \| EdgeFilter)[] | Optional geometries, edge accessors (`r.edge('top')`), edge filters (`edge().arc()`), or (outside a sketch) coplanar face selections to offset instead of the whole sketch *(optional)* |
+
+## Examples
+
+<CodeBlock language="js">{offset_curveExample}</CodeBlock>
+
+![offset example](/img/docs/api/offset-curve.png)

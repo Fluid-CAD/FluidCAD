@@ -15,6 +15,8 @@ export interface FeatureEntry {
   functionName?: string;
   returnType: string;
   relatedGuide?: string;
+  /** Override relatedGuide per category (for multi-category features whose forms have guides of their own) */
+  relatedGuides?: Partial<Record<FeatureCategory, string>>;
   sidebarPosition: number;
   /** Override sidebarPosition per category (for multi-category features) */
   sidebarPositions?: Partial<Record<FeatureCategory, number>>;
@@ -94,7 +96,7 @@ export const features: FeatureEntry[] = [
   // 2D Sketching — Reference pictures (editor-only, no geometry)
   { name: 'image', displayName: 'image', category: '2d', sourceFile: 'core/2d/image.ts', interfaceName: 'ImageFunction', returnType: 'ISceneObject', relatedGuide: '/docs/sketching/tools/reference-image', sidebarPosition: 15 },
   // 2D Sketching — Advanced Operations
-  { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/sketching/tools/offset', sidebarPosition: 23 },
+  { name: 'offset', displayName: 'offset', category: ['2d', '3d'], sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffsetCurve | IOffset', relatedGuide: '/docs/sketching/tools/offset', relatedGuides: { '3d': '/docs/curves/offset' }, sidebarPosition: 18.7, sidebarPositions: { '2d': 23 } },
 
   // 3D Operations
   { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISketch', relatedGuide: '/docs/sketching/introduction', sidebarPosition: 1 },
@@ -188,6 +190,7 @@ export const types: TypeEntry[] = [
   { name: 'IHelix', displayName: 'Helix', sourceFile: 'core/interfaces.ts', extendsType: 'ICurveResult', sidebarPosition: 12.7 },
   { name: 'IIntersectionCurve', displayName: 'IntersectionCurve', sourceFile: 'core/interfaces.ts', extendsType: 'ICurveResult', sidebarPosition: 12.75 },
   { name: 'IProjectedCurve', displayName: 'ProjectedCurve', sourceFile: 'core/interfaces.ts', extendsType: 'ICurveResult', sidebarPosition: 12.76 },
+  { name: 'IOffsetCurve', displayName: 'OffsetCurve', sourceFile: 'core/interfaces.ts', extendsType: 'ICurveResult', sidebarPosition: 12.77 },
   { name: 'IHole', displayName: 'Hole', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.8 },
   { name: 'IText', displayName: 'Text', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17.5 },
   { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
@@ -367,6 +370,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IHelix': 'Helix',
   'IIntersectionCurve': 'IntersectionCurve',
   'IProjectedCurve': 'ProjectedCurve',
+  'IOffsetCurve': 'OffsetCurve',
   'IHole': 'Hole',
   'IText': 'Text',
   'IOffset': 'Offset',

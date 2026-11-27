@@ -561,7 +561,8 @@ function generate() {
     const categories = Array.isArray(feature.category) ? feature.category : [feature.category];
     for (const cat of categories) {
       const posOverride = feature.sidebarPositions?.[cat];
-      const mdx = renderFeaturePage(feature, sigs, examples, posOverride);
+      const relatedGuide = feature.relatedGuides?.[cat] ?? feature.relatedGuide;
+      const mdx = renderFeaturePage({ ...feature, relatedGuide }, sigs, examples, posOverride);
       const outputFile = path.join(categoryDirs[cat], `${feature.name}.mdx`);
       fs.writeFileSync(outputFile, mdx);
     }

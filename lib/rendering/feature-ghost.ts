@@ -988,6 +988,33 @@ export function ghostOfCurves(curves: Shape[], meshConfig: MeshSettings, scratch
 }
 
 /**
+ * The preview of a curve tool built from its dialog's rows of picks:
+ * `build` resolves the rows as the feature's build reads its arguments and
+ * builds the curves, keeping whatever it makes on the way in `scratch`, or
+ * answers null when a pick names what the scene no longer holds. A refusal
+ * of the build (a `BuildError`) is said, since changing a pick or an option
+ * is what the user can do about it. Every shape is freed, whatever the
+ * outcome.
+ */
+export function ghostOfPickedCurves(meshConfig: MeshSettings, build: (scratch: Shape[]) => Shape[] | null): FeatureGhostResult {
+  const scratch: Shape[] = [];
+  let curves: Shape[] | null;
+  try {
+    curves = build(scratch);
+  } catch (error) {
+    scratch.forEach(shape => shape.dispose());
+    return error instanceof BuildError
+      ? { ok: false, reason: error.diagnostic, surface: true }
+      : { ok: false, reason: describeError(error) };
+  }
+  if (!curves) {
+    scratch.forEach(shape => shape.dispose());
+    return { ok: false, reason: 'Those picks are not in the rendered scene.' };
+  }
+  return ghostOfCurves(curves, meshConfig, scratch);
+}
+
+/**
  * The preview of a surface tool: each surface as one ghost body of kind
  * `surface`. Every shape handed in is freed here once meshed — the sheets,
  * and `scratch`, whatever was built on the way to them.
@@ -3578,23 +3605,11 @@ function buildIntersectionCurveGhost(
   request: IntersectionCurveGhostRequest,
   meshConfig: MeshSettings,
 ): FeatureGhostResult {
-  const scratch: Shape[] = [];
-  let wires: Wire[];
-  try {
+  return ghostOfPickedCurves(meshConfig, scratch => {
     const first = resolveIntersectionSide(scene, request.first, 'first', scratch);
     const second = resolveIntersectionSide(scene, request.second, 'second', scratch);
-    if (!first || !second) {
-      scratch.forEach(shape => shape.dispose());
-      return { ok: false, reason: 'Those picks are not in the rendered scene.' };
-    }
-    wires = buildIntersectionWires(first as IntersectionFaces, second);
-  } catch (error) {
-    scratch.forEach(shape => shape.dispose());
-    return error instanceof BuildError
-      ? { ok: false, reason: error.diagnostic, surface: true }
-      : { ok: false, reason: describeError(error) };
-  }
-  return ghostOfCurves(wires, meshConfig, scratch);
+    return first && second ? buildIntersectionWires(first as IntersectionFaces, second) : null;
+  });
 }
 
 /**
@@ -3675,9 +3690,7 @@ function buildProjectedCurveGhost(
   request: ProjectedCurveGhostRequest,
   meshConfig: MeshSettings,
 ): FeatureGhostResult {
-  const scratch: Shape[] = [];
-  let wires: Wire[];
-  try {
+  return ghostOfPickedCurves(meshConfig, scratch => {
     if (request.mode === 'normal' && request.direction) {
       throw new BuildError(`project: .direction() is for mode 'direction'.`);
     }
@@ -3687,20 +3700,13 @@ function buildProjectedCurveGhost(
       ? resolveGhostDirection(scene, request.direction, scratch)
       : null;
     if (!source || !target || (request.mode === 'direction' && request.direction && !direction)) {
-      scratch.forEach(shape => shape.dispose());
-      return { ok: false, reason: 'Those picks are not in the rendered scene.' };
+      return null;
     }
     const along = request.mode === 'normal' ? null : direction ?? naturalDirection(source.planes, source.edges);
     const sources = CurveOperand.chain(source.edges);
     scratch.push(...sources);
-    wires = buildProjectedWires(sources, target, { mode: request.mode, direction: along, keep: request.keep });
-  } catch (error) {
-    scratch.forEach(shape => shape.dispose());
-    return error instanceof BuildError
-      ? { ok: false, reason: error.diagnostic, surface: true }
-      : { ok: false, reason: describeError(error) };
-  }
-  return ghostOfCurves(wires, meshConfig, scratch);
+    return buildProjectedWires(sources, target, { mode: request.mode, direction: along, keep: request.keep });
+  });
 }
 
 /**

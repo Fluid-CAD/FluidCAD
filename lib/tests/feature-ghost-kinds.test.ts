@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { setupOC } from "./setup.js";
-import { ghostOfCurves, ghostOfSheets, type FeatureGhostResult, type GhostSolid } from "../rendering/feature-ghost.js";
+import { ghostOfCurves, ghostOfPickedCurves, ghostOfSheets, type FeatureGhostResult, type GhostSolid } from "../rendering/feature-ghost.js";
+import { BuildError } from "../common/build-error.js";
+import type { Shape } from "../common/shape.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Point } from "../math/point.js";
@@ -57,5 +59,57 @@ describe("the ghost of a curve or a surface tool", () => {
   it("answers no body for nothing to draw", () => {
     expect(solidsOf(ghostOfCurves([], DEFAULT_MESH_CONFIG))).toEqual([]);
     expect(solidsOf(ghostOfSheets([], DEFAULT_MESH_CONFIG))).toEqual([]);
+  });
+});
+
+describe("the ghost of a curve tool built from rows of picks", () => {
+  setupOC();
+
+  /** A scratch shape the build keeps on its way to the curves. */
+  const scratchEdge = () => EdgeOps.makeLineEdge(new Point(0, 0, 0), new Point(1, 0, 0));
+
+  it("draws the curves the build answers as wires, freeing them and the scratch", () => {
+    const wire = TestCurves.threeEdges();
+    const kept = scratchEdge();
+
+    const result = ghostOfPickedCurves(DEFAULT_MESH_CONFIG, scratch => {
+      scratch.push(kept);
+      return [wire];
+    });
+
+    expect(solidsOf(result).map(solid => solid.kind)).toEqual(["wire"]);
+    expect([wire.isReleased(), kept.isReleased()]).toEqual([true, true]);
+  });
+
+  it("says the picks are not in the scene when the build finds none, freeing the scratch", () => {
+    const kept = scratchEdge();
+
+    const result = ghostOfPickedCurves(DEFAULT_MESH_CONFIG, scratch => {
+      scratch.push(kept);
+      return null;
+    });
+
+    expect(result).toEqual({ ok: false, reason: "Those picks are not in the rendered scene." });
+    expect(kept.isReleased()).toBe(true);
+  });
+
+  it("says a refusal of the build in its own words, to be shown, freeing the scratch", () => {
+    const kept = scratchEdge();
+
+    const result = ghostOfPickedCurves(DEFAULT_MESH_CONFIG, (scratch: Shape[]) => {
+      scratch.push(kept);
+      throw new BuildError("tool: the picks do not meet.", "Pick faces that cross.");
+    });
+
+    expect(result).toEqual({ ok: false, reason: "tool: the picks do not meet.", surface: true });
+    expect(kept.isReleased()).toBe(true);
+  });
+
+  it("reads anything else thrown as an error, not to be shown", () => {
+    const result = ghostOfPickedCurves(DEFAULT_MESH_CONFIG, () => {
+      throw new Error("kernel trouble");
+    });
+
+    expect(result).toEqual({ ok: false, reason: "kernel trouble" });
   });
 });

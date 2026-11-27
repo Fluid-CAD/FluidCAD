@@ -235,6 +235,13 @@ export type EdgeMeshOptions = {
    * only — a sketch's lines are rewritten in place while they are dragged.
    */
   sharedGeometry?: boolean;
+  /**
+   * The line is a curve's (a scene object of only wires or edges): when
+   * depth-tested it is visible where its centerline is, against the faces'
+   * depth (see meshes/shape-meshes/curve-line.ts), so the faces it lies on
+   * do not swallow its band.
+   */
+  curve?: boolean;
 };
 
 export type MeshRenderOptions = {

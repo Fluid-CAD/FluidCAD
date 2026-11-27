@@ -7,6 +7,7 @@ import { themeColors } from '../../scene/theme-colors';
 import { viewerSettings } from '../../scene/viewer-settings';
 import { LineResolutionRegistry } from './line-resolution';
 import { createEdgeLineMaterial, faceSidesOf, FaceEdgeGeometry } from './face-edge-line';
+import { CurveLineMaterial } from './curve-line';
 
 /**
  * How far a tangent-junction edge's color is pulled from the edge color
@@ -24,6 +25,7 @@ const DEFAULTS: Required<EdgeMeshOptions> = {
   depthWrite: true,
   transparent: false,
   sharedGeometry: false,
+  curve: false,
 };
 
 export class EdgeMesh extends Group {
@@ -41,7 +43,7 @@ export class EdgeMesh extends Group {
       // selection. An explicit colour (a highlight, a ghost) restyles every
       // line alike.
       const rim = meshData.boundary === true && !opts.color;
-      const material = createEdgeLineMaterial(geometry, {
+      const parameters = {
         color: rim ? EdgeMesh.lineColor(false, opts.color) : EdgeMesh.lineColor(meshData.smooth === true, opts.color),
         linewidth: rim ? opts.lineWidth + BOUNDARY_EXTRA_WIDTH : opts.lineWidth,
         transparent: opts.transparent || opts.opacity < 1,
@@ -49,7 +51,12 @@ export class EdgeMesh extends Group {
         side: DoubleSide,
         depthWrite: opts.depthWrite,
         depthTest: opts.depthWrite,
-      });
+      };
+      // A curve's line tests its centerline against the faces' depth; one
+      // drawn over everything (a ghost) has nothing to test.
+      const material = opts.curve && opts.depthWrite
+        ? new CurveLineMaterial(parameters)
+        : createEdgeLineMaterial(geometry, parameters);
       LineResolutionRegistry.register(material);
 
       const ls = new LineSegments2(geometry, material);

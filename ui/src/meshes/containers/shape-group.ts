@@ -7,7 +7,8 @@ import { MetaEdgeMesh, MetaEdgeOptions } from '../shape-meshes/meta-edge-mesh';
 import { RegionMetaFaceMesh } from '../shape-meshes/region-meta-face-mesh';
 import { PickEdgeMesh } from '../shape-meshes/pick-edge-mesh';
 
-const STANDALONE_EDGE_STYLE: EdgeMeshOptions = { color: '#2297ff', lineWidth: 2 };
+/** A curve's line: blue, and visible where its centerline is (curve-line.ts). */
+const STANDALONE_EDGE_STYLE: EdgeMeshOptions = { color: '#2297ff', lineWidth: 2, curve: true };
 
 /** Map of metaType → factory function. Falls back to MetaEdgeMesh. */
 const metaEdgeFactories: Record<string, (shape: SceneObjectPart) => Group> = {

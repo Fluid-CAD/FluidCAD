@@ -18,7 +18,7 @@ import type { RegionName, ValueExpr } from '../value-expr.ts';
 import type { BooleanSlot, ChoiceSlot, TextSlot } from '../value-slots.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color' | 'intersection-curve';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -135,6 +135,21 @@ export type ParsedFeatureStatement =
     height: ValueExpr | null;
     startOffset: ValueExpr | null;
     endOffset: ValueExpr | null;
+  }
+  | {
+    feature: 'intersection-curve';
+    /** The first argument's operands, verbatim: a list's elements, or the bare expression. */
+    firstTexts: string[];
+    /** The statement each first operand names, by call site, or null (same length as `firstTexts`). */
+    firstRefs: ({ line: number; column: number } | null)[];
+    /** The second argument's operands, verbatim. */
+    secondTexts: string[];
+    /** The statement each second operand names, or null (same length as `secondTexts`). */
+    secondRefs: ({ line: number; column: number } | null)[];
+    /** The first argument as written — what a kept slot writes back. */
+    firstArg: string;
+    /** The second argument as written. */
+    secondArg: string;
   }
   | (ParsedScopeChain & {
     feature: 'loft';
@@ -520,8 +535,24 @@ const PLACED_CALLEES: Record<string, {
 }> = {
   offset: { sketch: 'offset' },
   project: { sketch: 'project' },
-  intersect: { sketch: 'project' },
+  intersect: { sketch: 'project', part: () => 'intersection-curve' },
 };
+
+/**
+ * Where a call sits, for a callee whose form outside a sketch has a dialog
+ * (see {@link PLACED_CALLEES}): `sketch` inside a `sketch(…)` callback,
+ * `part` outside one. Null for every other call — one callee, one meaning.
+ * A producer binds by it: the two forms build different objects, with
+ * different accessors.
+ */
+export function placementOf(chain: KindChain, call: TSNode): 'sketch' | 'part' | null {
+  const callee = chain.root.name;
+  const placed = Object.hasOwn(PLACED_CALLEES, callee) ? PLACED_CALLEES[callee] : undefined;
+  if (!placed?.part) {
+    return null;
+  }
+  return insideSketchCallback(call) ? 'sketch' : 'part';
+}
 
 /**
  * The dialog kind of a call: by its callee, by whether it sits inside a
@@ -549,7 +580,7 @@ export function editableKindOf(chain: KindChain, call: TSNode): EditableFeatureK
  * alone. Everything else that leaves a curve — an imported one, a repeat of
  * one, a custom feature's — is the scene's to answer (`FeatureCallees`).
  */
-const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix']);
+const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix', 'intersection-curve']);
 
 /** Whether the statement `call` is read, with no scene to ask, as leaving a curve of its own. */
 export function readsAsCurve(call: TSNode): boolean {
@@ -558,7 +589,11 @@ export function readsAsCurve(call: TSNode): boolean {
   return kind !== null && CURVE_KINDS.has(kind);
 }
 
-/** The callees a statement is read as leaving a curve by, as a refusal names them. */
+/**
+ * The callees a statement is read as leaving a curve by, as a refusal names
+ * them: those whose callee alone says so. `intersect` leaves one only
+ * outside a sketch, so a refusal does not offer it.
+ */
 export function curveCallees(): string[] {
   return Object.keys(EDITABLE_CALLEES).filter(callee => CURVE_KINDS.has(EDITABLE_CALLEES[callee]));
 }
@@ -577,8 +612,10 @@ export function curveCallees(): string[] {
  * Callees missing here are never auto-named: a part, a connector, an
  * exposure and a section name themselves by their first argument; a
  * `select()`, a region, a constraint, a sketch entity and the in-sketch
- * derived ops (`offset`, `project`, `intersect`) keep their bare type in
- * the timeline.
+ * derived ops (`offset`, `project`) keep their bare type in the timeline.
+ * `intersect` is named outside a sketch, where it draws an intersection
+ * curve; inside one it is the sketch tool, and nothing in a sketch body is
+ * named (`FeatureNames.chainFor`).
  */
 export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   extrude: 'Extrude',
@@ -605,6 +642,7 @@ export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   subtract: 'Subtract',
   common: 'Common',
   helix: 'Helix',
+  intersect: 'Intersect',
   plane: 'Plane',
   axis: 'Axis',
 };
@@ -662,6 +700,10 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The single source is the root argument; every geometry option is a chained
   // configurator. A helix is a wire, so there is no boolean-operation chain.
   helix: new Set(['radius', 'endRadius', 'pitch', 'turns', 'height', 'startOffset', 'endOffset']),
+  // Both sets of faces are the root call's arguments and the tool has no
+  // options; `.name()` and friends are unrecognized members and survive
+  // verbatim.
+  'intersection-curve': new Set(),
   // The bases and the transform options are all root-call arguments; `.name()`
   // and friends are unrecognized members and survive verbatim.
   plane: new Set(),

@@ -7,9 +7,11 @@ import { renderConnectorAnchorSuffix, renderConnectorChain } from '../features/c
 import { renderCopyAxisExpr, renderCopyCenterExpr, renderCopyStatement } from '../features/copy.ts';
 import { renderExtrudeStatement, renderFaceTargetExpr } from '../features/extrude.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
+import { INTERSECTION_CURVE_CALLEE, renderIntersectionCurveStatement } from '../features/intersection-curve.ts';
 import { renderLoftConnections, renderLoftStatement } from '../features/loft.ts';
 import { renderMirrorAxisExpr, renderMirrorStatement } from '../features/mirror.ts';
 import { renderOffsetStatement } from '../features/offset.ts';
+import { OperandPicks } from '../features/operand-picks.ts';
 import { renderPlaneBaseExprs, renderPlaneStatement } from '../features/plane.ts';
 import { projectionCallee } from '../features/projection.ts';
 import { renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement } from '../features/repeat.ts';
@@ -39,6 +41,9 @@ export function statementCallee(spec: ApplyFeatureEditSpec): string {
   }
   if (spec.feature === 'project') {
     return projectionCallee(spec);
+  }
+  if (spec.feature === 'intersection-curve') {
+    return INTERSECTION_CURVE_CALLEE;
   }
   return spec.feature;
 }
@@ -116,6 +121,12 @@ export function buildStatement(
     const hx = spec.helix!;
     const sourceExpr = renderHelixSourceExpr(hx.source, spec.parts, i => bindings[i].varName);
     return renderHelixStatement(hx, sourceExpr);
+  }
+  if (spec.feature === 'intersection-curve') {
+    const ic = spec.intersectionCurve!;
+    const argument = (picks: typeof ic.first): string =>
+      OperandPicks.argument(OperandPicks.render(picks, spec.parts, i => bindings[i].varName));
+    return renderIntersectionCurveStatement(argument(ic.first), argument(ic.second));
   }
   if (spec.feature === 'repeat') {
     const rp = spec.repeat!;

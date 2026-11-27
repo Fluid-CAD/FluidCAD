@@ -15,6 +15,7 @@ import { parseConnectorChain } from '../features/connector.ts';
 import { parseCopyChain } from '../features/copy.ts';
 import type { ExtrudeTargetKind } from '../features/extrude.ts';
 import { classifyHelixSource } from '../features/helix.ts';
+import { parseIntersectionCurveChain } from '../features/intersection-curve.ts';
 import { parseConditionSegment } from '../features/loft.ts';
 import { parseMirrorChain } from '../features/mirror.ts';
 import { parsePlaneChain } from '../features/plane.ts';
@@ -300,6 +301,10 @@ export function parseFeatureChain(
 
   if (feature === 'plane') {
     return parsePlaneChain(args, start, end, bindings, callees);
+  }
+
+  if (feature === 'intersection-curve') {
+    return parseIntersectionCurveChain(args, start, end);
   }
 
   const isCut = chain.root.name === 'cut';

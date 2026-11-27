@@ -37,6 +37,7 @@ import type { CopyEditAxis, CopyEditOptions, CopyEditPattern } from './features/
 import type { ExposeEditOptions, ForeignExposureRef } from './features/expose.ts';
 import type { ExtrudeEditOptions, ExtrudeTargetKind } from './features/extrude.ts';
 import type { HelixEditOptions, HelixSourceSpec } from './features/helix.ts';
+import type { IntersectionCurveEdit, IntersectionCurveEditOptions } from './features/intersection-curve.ts';
 import type {
   EditLoftGuide,
   EditLoftProfile,
@@ -76,7 +77,7 @@ import type { BooleanSlot, TextSlot } from './value-slots.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'color' | 'custom';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'color' | 'custom' | 'intersection-curve';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -136,6 +137,11 @@ export type ApplyFeatureEditSpec = {
   revolve?: RevolveEditOptions;
   /** Helix-only payload; `parts` (if any) render the source (axis-edge or face) selector. */
   helix?: HelixEditOptions;
+  /**
+   * Intersection-curve-only payload: the picks of its two arguments, each a
+   * bound surface producer or a face selector rendered from `parts`.
+   */
+  intersectionCurve?: IntersectionCurveEditOptions;
   /** Repeat-only payload; `parts` (if any) render the axis/plane selector. */
   repeat?: RepeatEditOptions;
   /** Copy-only payload; `parts` (if any) render the axis selector. */
@@ -745,6 +751,12 @@ export type FeatureStatementEditTarget = {
     /** Re-sourced source; absent keeps the statement's own source text. */
     source?: HelixSourceSpec;
   };
+  /**
+   * Intersection curve slots: each `keep` (or absent) re-emits the
+   * statement's own argument verbatim; `picks` writes the re-picked surfaces
+   * and faces from `producers`/`parts`.
+   */
+  intersectionCurve?: IntersectionCurveEdit;
   /**
    * Sketch retarget (the sketch dialog's re-pick): rewrite the statement's
    * target argument — an origin-plane literal, a bound `plane(…)` producer,

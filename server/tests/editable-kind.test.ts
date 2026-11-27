@@ -61,7 +61,10 @@ describe('editableKindOf', () => {
   it('keeps the kind each callee names outside a sketch, until the form outside has a dialog', async () => {
     expect(await kindAt(MODEL, 10)).toBe('offset');
     expect(await kindAt(MODEL, 11)).toBe('project');
-    expect(await kindAt(MODEL, 12)).toBe('project');
+  });
+
+  it('reads intersect outside a sketch as the intersection curve', async () => {
+    expect(await kindAt(MODEL, 12)).toBe('intersection-curve');
   });
 
   it('answers every other callee by its name, and null for a call no dialog edits', async () => {

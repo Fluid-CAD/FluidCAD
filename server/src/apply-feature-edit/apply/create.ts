@@ -21,6 +21,7 @@ import { CONNECTOR_NAME, validConnectorAnchor, validConnectorOffset, validConnec
 import type { CopyAxisSpec } from '../features/copy.ts';
 import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
+import { intersectionCurveCreateError } from '../features/intersection-curve.ts';
 import { renderLoftConnections, validEditCondition } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
 import { isLocalAxes, renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
@@ -216,6 +217,13 @@ export async function applyCreateEdit(
         spec.newVariables,
         spec.activePart,
       );
+    }
+  } else if (spec.feature === 'intersection-curve') {
+    // Both arguments hold picks: bound surface producers, or face selector
+    // parts whose own producers ride the list — each part one pick's.
+    const refusal = intersectionCurveCreateError(spec);
+    if (refusal) {
+      return { newCode: code, error: refusal };
     }
   } else if (spec.feature === 'chamfer') {
     if (!validChamferOptions(spec.chamfer)) {

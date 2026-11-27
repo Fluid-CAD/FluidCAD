@@ -16,6 +16,7 @@ import { ConnectorAxisSpecs } from '../features/connector-axis.ts';
 import { faceProfileRefusal, renderExtrudeStatement, renderFaceTargetExpr, type ExtrudeTargetKind } from '../features/extrude.ts';
 import { Directions } from '../features/direction.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
+import { renderEditedIntersectionCurve } from '../features/intersection-curve.ts';
 import { renderLoftConnections, renderLoftStatement, resolveLoftSources, validEditCondition } from '../features/loft.ts';
 import { renderEditedMirror } from '../features/mirror.ts';
 import { renderOffsetStatement } from '../features/offset.ts';
@@ -548,6 +549,9 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'plane') {
     return renderEditedPlane(parsed, spec, varFor);
+  }
+  if (parsed.feature === 'intersection-curve') {
+    return renderEditedIntersectionCurve(parsed, spec, varFor);
   }
   if (parsed.feature === 'text') {
     const opts = spec.edit?.text;

@@ -103,6 +103,12 @@ export {
   type HelixSourceSpec,
 } from './features/helix.ts';
 export {
+  INTERSECTION_CURVE_CALLEE,
+  renderIntersectionCurveStatement,
+  type IntersectionCurveEdit,
+  type IntersectionCurveEditOptions,
+} from './features/intersection-curve.ts';
+export {
   renderRepeatAxisExpr,
   renderRepeatPlaneExpr,
   renderRepeatStatement,
@@ -224,7 +230,7 @@ export type {
   ParsedRegionChain,
   ParsedScopeChain,
 } from './parse/parsed-statement.ts';
-export { editableKindOf } from './parse/parsed-statement.ts';
+export { editableKindOf, placementOf } from './parse/parsed-statement.ts';
 export { parseFeatureStatement, resolveEditedStatementLine } from './parse/feature-statement.ts';
 export { resolvePartBodyInsertion, type Insertion } from './insertion.ts';
 export { applyFeatureEdit, type ApplyFeatureEditOptions } from './apply/feature-edit.ts';

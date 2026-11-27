@@ -7,11 +7,11 @@ import type { SelectedEntity, Viewer } from '../src/viewer';
 import { FakeSelectionServer } from './fixtures/fake-selection-server';
 
 // Loops in the fillet / chamfer / shell dialog (surface step 09): a
-// double-click on a surface's rim edge merges the rim loop into the picks,
-// a loaded surface's included, while any other edge still expands to its
-// bucket; the right-click menu offers the loop groups, previews one on
-// hover, and keeps the one chosen as a chain the synthesis is asked to
-// write as a loop.
+// double-click on a surface's rim edge takes the rim loop, a loaded
+// surface's included, kept whole as the menu's Boundary Loop is, while any
+// other edge still expands to its bucket as plain picks; the right-click
+// menu offers the loop groups, previews one on hover, and keeps the one
+// chosen as a chain the synthesis is asked to write as a loop.
 
 beforeAll(() => {
   // jsdom has no ResizeObserver/rAF; the toolbar only measures with them.
@@ -93,15 +93,16 @@ function mount() {
 }
 
 describe('the fillet dialog\'s double-click', () => {
-  it('merges the rim loop of a surface edge into the picks', async () => {
+  it('takes the rim loop of a surface edge whole, a chain the synthesis writes as a loop', async () => {
     const { service, chips, doubleClick, lastPreview } = mount();
-    server.loop = () => ({ rim: true, members: [edge(1), edge(2), edge(5)] });
+    const loop = [edge(1), edge(2), edge(5)];
+    server.loop = () => ({ rim: true, members: loop });
     await doubleClick(edge(2));
-    expect(chips()).toEqual(['Edge', 'Edge', 'Edge']);
+    expect(chips()).toEqual(['Loop (3 edges)']);
     expect(server.count('api/selection/expand-bucket')).toBe(0);
     const preview = await lastPreview();
-    expect(preview.entities).toEqual([edge(1), edge(2), edge(5)]);
-    expect(preview.chains).toEqual([]);
+    expect(preview.entities).toEqual(loop);
+    expect(preview.chains).toEqual([{ seed: edge(2), members: loop, kind: 'loop' }]);
     service.exit();
   });
 
@@ -109,17 +110,18 @@ describe('the fillet dialog\'s double-click', () => {
     const { service, chips, doubleClick, container } = mount();
     server.loop = () => ({ rim: true, members: [edge(0), edge(3)] });
     await doubleClick(edge(3));
-    expect(chips()).toEqual(['Edge', 'Edge']);
+    expect(chips()).toEqual(['Loop (2 edges)']);
     expect(container.textContent).not.toContain('no classified bucket');
     service.exit();
   });
 
-  it('expands any other edge to its bucket, as before', async () => {
-    const { service, chips, doubleClick } = mount();
+  it('expands any other edge to its bucket, as plain picks, as before', async () => {
+    const { service, chips, doubleClick, lastPreview } = mount();
     server.bucket = () => ({ members: [edge(4, 'block'), edge(6, 'block'), edge(9, 'block')] });
     await doubleClick(edge(4, 'block'));
     expect(server.count('api/selection/expand-loop')).toBe(1);
     expect(chips()).toEqual(['Edge', 'Edge', 'Edge']);
+    expect((await lastPreview()).chains).toEqual([]);
     service.exit();
   });
 

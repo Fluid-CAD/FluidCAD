@@ -13,11 +13,11 @@ import { FakeSelectionServer } from './fixtures/fake-selection-server';
 // Loops in the pickers no other test file covers (surface step 09): the
 // Project tool's right-click menu offers the loop groups and keeps the one
 // chosen as a chain sent with `kind: 'loop'`, as it keeps a tangent chain,
-// and its double-click takes a surface's rim loop; neutral mode's measure
-// selection takes a loop group's members as plain picks; and an operand row
-// (the curve and surface tools' pick list) grows by a double-click or a
-// group's members as plain picks. The fillet dialog's are in
-// modify-pick-loops.test.ts; the colour dialog's, the sweep path's and a
+// and its double-click keeps a surface's rim loop the same way; neutral
+// mode's measure selection takes a loop group's members as plain picks; and
+// an operand row (the curve and surface tools' pick list) grows by a
+// double-click or a group's members as plain picks. The fillet dialog's are
+// in modify-pick-loops.test.ts; the colour dialog's, the sweep path's and a
 // custom feature's in their own dialogs' test files, since the shared
 // worker binds a dialog service to the first test file's api mock. The
 // services here talk to a stubbed network (FakeSelectionServer).
@@ -169,13 +169,16 @@ describe('the Project tool', () => {
     server.loop = (entity) => entity.shapeId === 'sheet' ? { rim: true, members: RIM } : { rim: false, members: [] };
     server.bucket = () => ({ members: [edge(7), edge(8)] });
     await doubleClick(service, edge(2, 'sheet'));
-    expect((await lastProject()).entities).toEqual(RIM);
+    const loop = await lastProject();
+    expect(loop.entities).toEqual(RIM);
+    // Kept whole, as the menu's Boundary Loop is: written as the loop.
+    expect(loop.chains).toEqual([{ seed: edge(2, 'sheet'), members: RIM, kind: 'loop' }]);
     expect(server.count('api/selection/expand-bucket')).toBe(0);
 
     await doubleClick(service, edge(7));
     const body = await lastProject();
     expect(body.entities).toEqual([...RIM, edge(7), edge(8)]);
-    expect(body.chains).toEqual([]);
+    expect(body.chains).toEqual(loop.chains);
     service.exit();
   });
 });

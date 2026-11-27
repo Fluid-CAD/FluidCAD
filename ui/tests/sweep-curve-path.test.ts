@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // asks what the row holds, not what made it. A loop is a path too: the
 // right-click menu offers the loops of the faces an edge bounds and keeps
 // the one chosen as a chain sent as a loop, and a double-click on a
-// surface's rim edge takes the rim loop.
+// surface's rim edge takes the rim loop the same way.
 
 vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/api')>()),
@@ -176,7 +176,7 @@ describe('Sweep — a loop as the path', () => {
     service.exit();
   });
 
-  it('a double-click on a surface\'s rim edge takes the rim loop, as plain picks', async () => {
+  it('a double-click on a surface\'s rim edge takes the rim loop whole, sent as a loop', async () => {
     const rim = [1, 2, 5].map(i => edgeOf('sheet', i));
     const server = new FakeSelectionServer().install();
     server.loop = () => ({ rim: true, members: rim });
@@ -185,8 +185,10 @@ describe('Sweep — a loop as the path', () => {
     edge('sheet', 2);
     await service.handleDoubleClick('sheet', { type: 'edge', index: 2 });
     expect(server.count('api/selection/expand-bucket')).toBe(0);
-    expect(pathChips()).toEqual(['Edge', 'Edge', 'Edge']);
-    expect(await sentPath()).toEqual({ kind: 'edges', entities: rim, chains: [] });
+    expect(pathChips()).toEqual(['Loop (3 edges)']);
+    expect(await sentPath()).toEqual({
+      kind: 'edges', entities: rim, chains: [{ seed: edgeOf('sheet', 2), members: rim, kind: 'loop' }],
+    });
     service.exit();
   });
 });

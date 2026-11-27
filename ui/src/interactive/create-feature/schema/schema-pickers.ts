@@ -6,7 +6,7 @@ import { findEnclosingPartRow, modelShapeIdsOf } from '../../../helpers/scene-ut
 import type { StandardAxisId } from '../../../scene/standard-axes';
 import type { StandardPlaneId } from '../../../scene/standard-planes';
 import type { SceneObjectRender, SourceLocation, SubSelection } from '../../../types';
-import type { SelectedEntity } from '../../../viewer';
+import type { SelectedEntity, Viewer } from '../../../viewer';
 import { PickSlot, type PickSlotChip } from '../../pick-slot';
 import {
   AXIS_UNAVAILABLE_MESSAGE, axisLineShapeIds, axisOptionForLocation, axisOptionForShape, collectAxisOptions,
@@ -100,6 +100,22 @@ export const SCOPE_CHANNELS: PickChannels = {
   connectors: false, vertices: false, anchors: false,
 };
 export const NO_CHANNELS: PickChannels = { ...SCOPE_CHANNELS, pickFilter: 'none' };
+
+/**
+ * Point the viewer's own pick channels at what an armed slot takes: the
+ * face / edge / vertex filter, sketch wires, axis lines, plane quads and
+ * connector gizmos. The standard axes and planes, and the anchor
+ * suggestions, need a dialog's own callbacks, so the dialog shows those.
+ */
+export function applyPickChannels(viewer: Viewer, channels: PickChannels): void {
+  viewer.pickFilter = channels.pickFilter;
+  viewer.pickSketchWires = channels.sketchWires;
+  viewer.pickAxes = channels.axes;
+  viewer.pickPlanes = channels.planes;
+  viewer.setConnectorPicking(channels.connectors);
+  viewer.setVertexPickScope(null);
+  viewer.pickVertices = channels.vertices;
+}
 
 /** The kinds a value picks as statements, by call site. */
 const STATEMENT_KINDS: ReadonlySet<FeaturePickerKind> = new Set(['sketch', 'axis', 'plane', 'solid', 'feature', 'connector']);

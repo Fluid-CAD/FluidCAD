@@ -32,7 +32,7 @@ import { FeatureSchema } from './feature-schema';
 import { PreviewPreference } from './preview-preference';
 import { SchemaFeaturePanel } from './schema-feature-panel';
 import {
-  NO_CHANNELS, PickHighlight, SCOPE_CHANNELS, type PickOutcome, type PickerScene, type SchemaPicker,
+  applyPickChannels, NO_CHANNELS, PickHighlight, SCOPE_CHANNELS, type PickOutcome, type PickerScene, type SchemaPicker,
 } from './schema-pickers';
 
 type ParsedCustomFeature = Extract<ParsedFeatureStatement, { feature: 'custom' }>;
@@ -1229,13 +1229,7 @@ export class SchemaFeatureService implements FeatureDialogService {
     }
     const armed = this.panel.armedSlot;
     const channels = armed === 'scope' ? SCOPE_CHANNELS : this.panel.armedPicker?.channels() ?? NO_CHANNELS;
-    this.viewer.pickFilter = channels.pickFilter;
-    this.viewer.pickSketchWires = channels.sketchWires;
-    this.viewer.pickAxes = channels.axes;
-    this.viewer.pickPlanes = channels.planes;
-    this.viewer.setConnectorPicking(channels.connectors);
-    this.viewer.setVertexPickScope(null);
-    this.viewer.pickVertices = channels.vertices;
+    applyPickChannels(this.viewer, channels);
     // Another value may take other anchors: what was asked for the last one doesn't hold.
     this.suggestions?.setEnabled(false);
     this.suggestions?.setEnabled(channels.anchors);

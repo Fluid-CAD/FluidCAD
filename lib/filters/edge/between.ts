@@ -48,8 +48,9 @@ export class BetweenFilter extends BelongsToFaceFilterBase {
   }
 
   private isBetween(edge: Edge): boolean {
+    // A seam bounds its one face once, so it never has two to lie between.
     const faces = this.findContainingFaces(edge);
-    if (faces.length < 2 || this.isHiddenInScope(edge)) {
+    if (faces.length < 2) {
       return false;
     }
     const inA = faces.map(face => this.a.has(face));

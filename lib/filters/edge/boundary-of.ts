@@ -43,13 +43,15 @@ export class BoundaryOfFilter extends BelongsToFaceFilterBase {
   }
 
   private isOnPerimeter(edge: Edge): boolean {
+    const faces = this.findContainingFaces(edge);
     let bounded = 0;
-    for (const face of this.findContainingFaces(edge)) {
+    for (const face of faces) {
       if (this.group.has(face) && ++bounded > 1) {
         return false;
       }
     }
-    return bounded === 1 && !this.isHiddenInScope(edge);
+    // Only an edge with one face can be a seam (its face bounds it once).
+    return bounded === 1 && (faces.length > 1 || !this.isHiddenInScope(edge));
   }
 
   override getSceneObjectRefs(): SceneObject[] {

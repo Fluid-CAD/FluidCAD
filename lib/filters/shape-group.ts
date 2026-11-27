@@ -40,14 +40,16 @@ export type GroupArg<T extends Shape> = FilterBuilderBase<T> | SceneObject;
 export class ShapeGroup<T extends Face | Edge> {
   private bodies: BodyShape[] = [];
   private extraFaces: Face[] = [];
-  /** The shapes the builders name, by topology; built on first use. */
-  private named: TopTools_MapOfShape | null = null;
+  /** What the builders name: the scope's own wrappers they matched, and every wrapper they were asked about; built on first use. */
+  private named: { matched: Set<Shape>; candidates: Set<Shape> } | null = null;
+  /** {@link named}'s matches by topology, for a wrapper that is not the scope's own (a bucket's member); built on first such ask. */
+  private namedRaw: TopTools_MapOfShape | null = null;
   /** The referenced shapes; read on first use. */
   private referenced: T[] | null = null;
   /** The referenced shapes by topology; built with {@link referenced}. */
   private referencedSet: TopTools_MapOfShape | null = null;
-  /** A face's same-surface answer against the references, per wrapper. */
-  private sameSurface = new WeakMap<Shape, boolean>();
+  /** {@link has}'s answers in this evaluation, per wrapper. */
+  private answers = new WeakMap<Shape, boolean>();
 
   private constructor(
     private readonly kind: 'face' | 'edge',
@@ -92,48 +94,59 @@ export class ShapeGroup<T extends Face | Edge> {
 
   /** Forget what the builders and references resolved to, and free the lookup maps. */
   reset(): void {
-    this.named?.delete();
     this.named = null;
+    this.namedRaw?.delete();
+    this.namedRaw = null;
     this.referencedSet?.delete();
     this.referencedSet = null;
     this.referenced = null;
-    this.sameSurface = new WeakMap();
+    this.answers = new WeakMap();
   }
 
-  /** Whether the group names `shape`. */
+  /** Whether the group names `shape`; each wrapper's answer is worked out once per evaluation. */
   has(shape: T): boolean {
-    const raw = shape.getShape();
-    if (this.builders.length > 0 && this.namedSet().Contains(raw)) {
-      return true;
-    }
-    if (this.refs.length === 0) {
-      return false;
-    }
-    const references = this.references();
-    if (this.referencedSet!.Contains(raw)) {
-      return true;
-    }
-    if (this.kind !== 'face') {
-      return false;
-    }
-    const known = this.sameSurface.get(shape);
+    const known = this.answers.get(shape);
     if (known !== undefined) {
       return known;
     }
-    const same = references.some(ref => FaceQuery.isSameSurface(shape, ref));
-    this.sameSurface.set(shape, same);
-    return same;
+    const answer = this.namedByBuilders(shape) || this.namedByRefs(shape);
+    this.answers.set(shape, answer);
+    return answer;
   }
 
-  private namedSet(): TopTools_MapOfShape {
+  private namedByBuilders(shape: T): boolean {
+    if (this.builders.length === 0) {
+      return false;
+    }
     if (!this.named) {
       const candidates: Shape[] = this.kind === 'face'
         ? [...this.bodies.flatMap(body => body.getFaces()), ...this.extraFaces]
         : this.bodies.flatMap(body => body.getEdges());
       const matched = new ShapeFilter(candidates, ...(this.builders as unknown as FilterBuilderBase<Shape>[])).apply();
-      this.named = TopologyIndex.buildShapeSet(matched.map(shape => shape.getShape()));
+      this.named = { matched: new Set(matched), candidates: new Set(candidates) };
     }
-    return this.named;
+    if (this.named.matched.has(shape)) {
+      return true;
+    }
+    if (this.named.candidates.has(shape)) {
+      return false;
+    }
+    // Not one of the scope's own wrappers: look its topology up.
+    if (!this.namedRaw) {
+      this.namedRaw = TopologyIndex.buildShapeSet([...this.named.matched].map(s => s.getShape()));
+    }
+    return this.namedRaw.Contains(shape.getShape());
+  }
+
+  private namedByRefs(shape: T): boolean {
+    if (this.refs.length === 0) {
+      return false;
+    }
+    const references = this.references();
+    if (this.referencedSet!.Contains(shape.getShape())) {
+      return true;
+    }
+    return this.kind === 'face' && references.some(ref => FaceQuery.isSameSurface(shape, ref));
   }
 
   private references(): T[] {

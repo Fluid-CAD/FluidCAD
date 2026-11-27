@@ -692,6 +692,7 @@ export type FeatureGhostRequest =
   | FilletGhostRequest
   | ShellGhostRequest
   | HelixGhostRequest
+  | IntersectionCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -955,6 +956,28 @@ export type HelixGhostRequest = {
   startOffset: ValueExpr | null;
   endOffset: ValueExpr | null;
 };
+
+/**
+ * The intersection curve dialog on the ghost wire — `intersect(first,
+ * second)` outside a sketch. A curve, like the helix: no op, just the picks
+ * of its two rows in pick order. The server refuses a row with no pick.
+ */
+export type IntersectionCurveGhostRequest = {
+  feature: 'intersection-curve';
+  first: GhostOperandRef[];
+  second: GhostOperandRef[];
+};
+
+/**
+ * One pick of a curve or surface operand row on the ghost wire: a whole
+ * object by its statement's call site — a surface for a surface row, a
+ * sketch or a curve for a curve row (and, on the intersection's second row,
+ * a `plane()`) — or an edge (curve row) or a face (surface row) of a body by
+ * its viewport address. A keep chip resolves to one of these client-side.
+ */
+export type GhostOperandRef =
+  | { kind: 'statement'; filePath: string; line: number }
+  | { kind: 'edge' | 'face'; shapeId: string; index: number };
 
 /**
  * The helix source slot, flattened to what the kernel can resolve without
@@ -3278,6 +3301,39 @@ export async function applyHelix(options: HelixApplyOptions): Promise<ApplyFeatu
   }, options.signal);
 }
 
+/**
+ * One pick of a curve or surface operand row as the apply route takes it:
+ * the ghost's {@link GhostOperandRef} with a statement's column, so a row
+ * sends one list to both.
+ */
+export type OperandInputRef =
+  | { kind: 'statement'; filePath: string; line: number; column: number }
+  | { kind: 'edge' | 'face'; shapeId: string; index: number };
+
+export type IntersectionCurveApplyOptions = {
+  /** The first row's picks, in pick order: surfaces by statement, faces by viewport address. */
+  first: OperandInputRef[];
+  /** The second row's picks. */
+  second: OperandInputRef[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) an intersection
+ * curve — `intersect(first, second)` outside a sketch. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applyIntersectionCurve(options: IntersectionCurveApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'intersection-curve',
+    first: options.first,
+    second: options.second,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type SweepApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain sweep. */
@@ -3884,6 +3940,12 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[]; connections: [number, number, number][][] }
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
+  /**
+   * An intersection curve: one slot per operand of each argument, in its
+   * order — a face selection as entities on the pre-statement solids and
+   * surfaces, a solid, a surface or a `plane()` by its statement's call site.
+   */
+  | { ok: true; feature: 'intersection-curve'; first: SourceSlotRef[]; second: SourceSlotRef[] }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
   /**
    * A colour: the faces it paints, as entities on the pre-statement solids
@@ -4128,6 +4190,21 @@ export type ParsedFeatureStatement =
       height: ValueExpr | null;
       startOffset: ValueExpr | null;
       endOffset: ValueExpr | null;
+    }
+  | {
+      feature: 'intersection-curve';
+      /** The first argument's operands, verbatim: a list's elements, or the bare expression. */
+      firstTexts: string[];
+      /** The statement each first operand names, by call site, or null (same length). */
+      firstRefs: ({ line: number; column: number } | null)[];
+      /** The second argument's operands, verbatim. */
+      secondTexts: string[];
+      /** The statement each second operand names, or null (same length). */
+      secondRefs: ({ line: number; column: number } | null)[];
+      /** The first argument as written — what a kept row writes back. */
+      firstArg: string;
+      /** The second argument as written. */
+      secondArg: string;
     }
   | (ParsedScopeChain & {
       feature: 'loft';
@@ -4751,6 +4828,31 @@ export async function applyHelixEdit(
     startOffset: options.startOffset,
     endOffset: options.endOffset,
     newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type IntersectionCurveEditOptions = EditSessionFields & {
+  /** The first row's new picks; omitted keeps the statement's own argument. A face needs `before`. */
+  first?: OperandInputRef[];
+  /** The second row's new picks; omitted keeps the statement's own argument. */
+  second?: OperandInputRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the intersection curve statement at `edit` in place. */
+export async function applyIntersectionCurveEdit(
+  edit: FeatureEditTarget,
+  options: IntersectionCurveEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'intersection-curve',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    first: options.first,
+    second: options.second,
     preview: options.preview,
   }, options.signal);
 }

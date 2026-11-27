@@ -1,5 +1,5 @@
 import {
-  featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources,
+  featureGhostScope, fetchFeatureGhostResult, fetchFeatureSources, getScopeVariables,
   type ApplyFeatureResponse, type EditSessionFields, type FeatureEditTarget, type FeatureGhostRequest,
   type FeatureSourcesResult, type GhostOperandRef, type GhostSolid, type OperandInputRef, type ParsedFeatureStatement,
   type SourceSlotRef,
@@ -16,7 +16,6 @@ import type { FeatureLauncher } from './feature-button';
 import { FeatureGhostOverlay } from './feature-ghost';
 import type { OperandRowPanel } from './operand-row-panel';
 import type { OperandKind } from './operand-slot';
-import { refreshScopeVariables } from './option-relabeler';
 import { RecentClicks, type ClickedPick } from './recent-clicks';
 import { applyPickChannels, type PickOutcome } from './schema/schema-pickers';
 import { collectSketchProfiles } from './sketch-profiles';
@@ -400,7 +399,7 @@ export abstract class OperandRowService<
     this.syncLauncher();
     this.panel.show();
     this.panel.setMessage(null);
-    this.loadScopeVariables();
+    void this.loadScopeVariables();
     this.setRowScenes({ dropEntities: true });
     this.syncChannels();
     this.refreshHighlight();
@@ -436,7 +435,7 @@ export abstract class OperandRowService<
       this.panel.slot(row).seedKeep(this.rowTexts(parsed, row));
     }
     this.seedEdit(parsed);
-    this.loadScopeVariables();
+    void this.loadScopeVariables();
     this.setRowScenes({ dropEntities: true });
     void this.loadEditSources();
     this.syncChannels();
@@ -487,14 +486,21 @@ export abstract class OperandRowService<
    * The variables in scope where the statement sits — the edited one, or
    * the end of the active part a new one lands at — for the panel's value
    * fields, when it has any. An answer landing after the dialog closed or
-   * moved to another statement is dropped.
+   * moved to another statement is dropped. Fetched through this module's
+   * own api import, as every other request of the dialog is, not through
+   * `option-relabeler`'s helper: the ui suite runs without isolation, and
+   * that module keeps the `getScopeVariables` of whichever test file
+   * loaded it first.
    */
-  private loadScopeVariables(): void {
+  private async loadScopeVariables(): Promise<void> {
     if (!this.panel.hasValueFields) {
       return;
     }
     const line = this.editTarget?.line ?? null;
-    void refreshScopeVariables(line, this.panel, () => this.armed && (this.editTarget?.line ?? null) === line);
+    const variables = await getScopeVariables(line);
+    if (this.armed && (this.editTarget?.line ?? null) === line) {
+      this.panel.setScopeVariables(variables);
+    }
   }
 
   // -------------------------------------------------------------------------

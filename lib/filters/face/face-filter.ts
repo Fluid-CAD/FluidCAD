@@ -1,6 +1,6 @@
 import { PlaneLike } from "../../math/plane.js";
 import { normalizePlane } from "../../helpers/normalize.js";
-import { Face } from "../../common/shapes.js";
+import { Edge, Face } from "../../common/shapes.js";
 import { materializePartArgs } from "../../features/part-args.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 import { CircleFilter, NotCircleFilter } from "./circle-filter.js";
@@ -33,6 +33,14 @@ import { DirectionLike, checkDirection } from "../direction.js";
 import { ExtremalFilter } from "../rank/extremal.js";
 import { MeasureExtremeFilter, SizeMeasure } from "../rank/measure.js";
 import { BodyKindFilter } from "../body-kind.js";
+import { AdjacentToFilter } from "./adjacent-to.js";
+import { ShapeGroup } from "../shape-group.js";
+
+/**
+ * What `adjacentTo()` takes: face or edge filter builders, or a reference to
+ * faces or edges — a bucket accessor like `fl.faces()`, or a select().
+ */
+export type AdjacentArg = FilterBuilderBase<Face> | EdgeFilterBuilder | ISceneObject;
 
 export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   constructor() {
@@ -460,7 +468,78 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
+   * Selects faces next to the given faces or edges: a face that shares an
+   * edge with a referenced face, or that a referenced edge bounds. The
+   * referenced faces themselves do not match.
+   *
+   * ```js
+   * face().adjacentTo(fl.faces())                 // the neighbours of a fill
+   * face().adjacentTo(select(edge().boundary()))  // the faces along the rim
+   * face().adjacentTo(face().freeform())          // by description
+   * ```
+   *
+   * Takes face filter builders, edge filter builders, or references to faces
+   * or edges — a bucket accessor or a select(); a face of any one counts.
+   * A filter builder names what `select(builder)` would name among the
+   * bodies in scope. A face reference is read from the faces as they are
+   * now, by identity or by the surface it lies on, so a later fillet that
+   * rebuilt the face does not break the selection; an edge reference names
+   * the edge itself. Pure topology — no size, no position.
+   * @param refs - Face or edge filter builders, or scene objects whose faces or edges are the reference.
+   */
+  adjacentTo(...refs: AdjacentArg[]): this {
+    this.filters.push(new AdjacentToFilter(...FaceFilterBuilder.adjacentGroups('adjacentTo(...refs)', refs)));
+    return this;
+  }
+
+  /**
+   * Excludes faces next to the given faces or edges, taken as for
+   * `adjacentTo()`. The referenced faces themselves survive.
+   * @param refs - Face or edge filter builders, or scene objects whose faces or edges are the reference.
+   */
+  notAdjacentTo(...refs: AdjacentArg[]): this {
+    this.filters.push(new AdjacentToFilter(...FaceFilterBuilder.adjacentGroups('notAdjacentTo(...refs)', refs), true));
+    return this;
+  }
+
+  /**
+   * The face and edge groups `adjacentTo()` reads: face builders to the
+   * one, edge builders to the other, and a reference to both — it counts
+   * where its shapes do, faces or edges, which only resolving it tells.
+   */
+  private static adjacentGroups(call: string, refs: AdjacentArg[]): [ShapeGroup<Face>, ShapeGroup<Edge>] {
+    if (refs.length === 0) {
+      throw new Error(`${call}: name the faces or edges — filters or a reference`);
+    }
+    const faceArgs: (FilterBuilderBase<Face> | SceneObject)[] = [];
+    const edgeArgs: (FilterBuilderBase<Edge> | SceneObject)[] = [];
+    for (const ref of refs) {
+      if (ref instanceof EdgeFilterBuilder) {
+        edgeArgs.push(ref);
+      }
+      else if (ref instanceof SceneObject) {
+        faceArgs.push(ref);
+        edgeArgs.push(ref);
+      }
+      else if (ref instanceof FilterBuilderBase) {
+        faceArgs.push(ref as FilterBuilderBase<Face>);
+      }
+      else {
+        throw new Error(`${call}: expected a face or edge filter, or a reference to faces or edges (a bucket accessor or a select()), got ${String(ref)}`);
+      }
+    }
+    try {
+      return [ShapeGroup.of<Face>('face', faceArgs), ShapeGroup.of<Edge>('edge', edgeArgs)];
+    } catch (e) {
+      throw new Error(`${call}: ${(e as Error).message}`);
+    }
+  }
+
+  /**
    * Selects faces that share an edge with the given scene object.
+   *
+   * `adjacentTo()` with an edge reference covers this use and is the
+   * predicate to reach for: `hasEdge()` is slated for removal.
    * @param sceneObject - A scene object whose edges are matched against.
    */
   hasEdge(sceneObject: ISceneObject): this;

@@ -52,6 +52,7 @@ import { LoftFeatureService } from './interactive/create-feature/loft-service';
 import { WrapFeatureService } from './interactive/create-feature/wrap-service';
 import { HelixFeatureService } from './interactive/create-feature/helix-service';
 import { IntersectionCurveFeatureService } from './interactive/create-feature/intersection-curve-service';
+import { ProjectedCurveFeatureService } from './interactive/create-feature/projected-curve-service';
 import { RepeatFeatureService } from './interactive/create-feature/repeat-service';
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
@@ -2835,6 +2836,24 @@ const intersectionCurveService = new IntersectionCurveFeatureService(container, 
     onSuspendSketchUI: suspendSketchForFeature,
     onResumeSketchUI: resumeSketchForFeature,
   });
+const projectedCurveService = new ProjectedCurveFeatureService(container, viewer, navbar,
+  curvesMenu.add({
+    id: 'projected-curve',
+    label: 'Project',
+    iconSrc: iconUrl('projected-curve'),
+    // The sketch's own Project tool keeps its tip: this one throws curves
+    // onto faces, that one lays geometry onto the sketch plane.
+    tip: 'Project a curve onto faces',
+    order: 20,
+  }),
+  {
+    onEnter: () => {
+      enterPartDialog('projected-curve');
+    },
+    onActiveChange: syncSketchButtonBlocked,
+    onSuspendSketchUI: suspendSketchForFeature,
+    onResumeSketchUI: resumeSketchForFeature,
+  });
 // Constructed after the transform services so its own navbar group registers
 // after theirs (…, | Mirror, Translate, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
@@ -2893,6 +2912,7 @@ PartFeatureDialogs.register(featureDialogs, {
   loft: loftService,
   helix: helixService,
   intersectionCurve: intersectionCurveService,
+  projectedCurve: projectedCurveService,
   repeat: repeatService,
   copy: copyService,
   mirror: mirrorService,

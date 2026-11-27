@@ -11,6 +11,7 @@ import type { IntersectionCurveFeatureService } from './create-feature/intersect
 import type { LoftFeatureService } from './create-feature/loft-service';
 import type { MirrorFeatureService } from './create-feature/mirror-service';
 import type { PlaneFeatureService } from './create-feature/plane-service';
+import type { ProjectedCurveFeatureService } from './create-feature/projected-curve-service';
 import type { RepeatFeatureService } from './create-feature/repeat-service';
 import type { RevolveFeatureService } from './create-feature/revolve-service';
 import type { RibFeatureService } from './create-feature/rib-service';
@@ -36,6 +37,7 @@ export type PartDialogServices = {
   loft: LoftFeatureService;
   helix: HelixFeatureService;
   intersectionCurve: IntersectionCurveFeatureService;
+  projectedCurve: ProjectedCurveFeatureService;
   repeat: RepeatFeatureService;
   copy: CopyFeatureService;
   mirror: MirrorFeatureService;
@@ -209,6 +211,30 @@ export class PartFeatureDialogs {
         doubleClick: (d) => d.isPicking,
       },
       timelinePicks: true,
+    }));
+    registry.register(new ServiceDialog('projected-curve', s.projectedCurve, {
+      edit: {
+        rowTypes: ['projected-curve'],
+        kind: 'projected-curve',
+        open: (t, p, i) => s.projectedCurve.enterEdit(t, p, i),
+      },
+      picking: (d) => d.isPicking,
+      // A curve row, a surface row and a direction. A click lands in the
+      // armed row; an edge or a face of a body grows its operand row by the
+      // right-click menu's groups or a double-click's chain or bucket. The
+      // Direction row takes axis lines, plane quads and connector gizmos
+      // too, and Curves a sketch's wire; a row of the timeline lands in the
+      // armed row as well.
+      claims: {
+        click: (d) => d.isPicking,
+        contextMenu: (d) => d.isPicking,
+        doubleClick: (d) => d.isPicking,
+        axis: (d) => d.isDirectionPicking,
+        plane: (d) => d.isDirectionPicking,
+        connector: (d) => d.isDirectionPicking,
+      },
+      timelinePicks: true,
+      sketchPicks: true,
     }));
     registry.register(new ServiceDialog('repeat', s.repeat, {
       // `repeat('mirror'|'rotate', …)` rows carry the mirror and rotate

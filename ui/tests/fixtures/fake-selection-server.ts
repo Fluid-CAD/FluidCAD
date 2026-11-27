@@ -23,6 +23,12 @@ export class FakeSelectionServer {
   groups: SelectionGroup[] = [];
   /** Every request, in order: the route and its JSON body. */
   readonly requests: { route: string; body: any }[] = [];
+  /**
+   * The answers of any other route a dialog asks (`api/feature-ghost`,
+   * `api/feature/sources`, …), by route; one set here answers ahead of the
+   * defaults below.
+   */
+  readonly routes = new Map<string, (body: any) => Answer>();
 
   /** Stub `fetch` with this server; `vi.unstubAllGlobals()` takes it down. */
   install(): this {
@@ -46,6 +52,10 @@ export class FakeSelectionServer {
   }
 
   private answer(route: string, body: any): Answer | undefined {
+    const custom = this.routes.get(route);
+    if (custom) {
+      return custom(body);
+    }
     switch (route) {
       case 'api/selection/expand-loop':
         return this.loop(body.entity);

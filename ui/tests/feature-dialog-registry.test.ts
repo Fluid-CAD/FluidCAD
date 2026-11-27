@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   FeatureDialogRegistry, ServiceDialog, type FeatureDialogExit,
@@ -138,7 +140,7 @@ class FakeService {
 }
 
 const PART_ORDER = [
-  'extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix',
+  'extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'intersection-curve',
   'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'color', 'plane', 'text',
 ] as const;
 type PartId = typeof PART_ORDER[number];
@@ -272,7 +274,9 @@ describe('PartFeatureDialogs', () => {
     fakes = Object.fromEntries(PART_ORDER.map((id) => [
       id, new FakeService(id, () => registry.exitAll({ except: id })),
     ])) as Record<PartId, FakeService>;
-    PartFeatureDialogs.register(registry, fakes as unknown as PartDialogServices);
+    // The services are keyed as main.ts names them; the dialogs by their ids.
+    const services = { ...fakes, intersectionCurve: fakes['intersection-curve'] };
+    PartFeatureDialogs.register(registry, services as unknown as PartDialogServices);
   });
 
   /** Arm one dialog, with whatever pick state the case needs. */
@@ -504,7 +508,7 @@ describe('PartFeatureDialogs', () => {
 
   it('edits the rows each dialog owns, and opens the dialog for its parsed kind', () => {
     const rowTypes = [
-      'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix',
+      'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'intersection-curve',
       'repeat-linear', 'repeat-circular', 'repeat-matrix', 'copy-linear', 'copy-circular', 'copy-pattern',
       'mirror', 'translate', 'rotate', 'split', 'connector', 'fuse', 'subtract', 'common', 'color', 'plane', 'text',
     ];
@@ -516,7 +520,8 @@ describe('PartFeatureDialogs', () => {
     }
     const kinds: [ParsedFeatureStatement['feature'], PartId][] = [
       ['extrude', 'extrude'], ['rib', 'rib'], ['hole', 'hole'], ['revolve', 'revolve'], ['sweep', 'sweep'],
-      ['wrap', 'wrap'], ['loft', 'loft'], ['helix', 'helix'], ['repeat', 'repeat'], ['copy', 'copy'],
+      ['wrap', 'wrap'], ['loft', 'loft'], ['helix', 'helix'], ['intersection-curve', 'intersection-curve'],
+      ['repeat', 'repeat'], ['copy', 'copy'],
       ['mirror', 'mirror'], ['translate', 'translate'], ['rotate', 'rotate'], ['split', 'split'], ['connector', 'connector'], ['boolean', 'boolean'],
       ['color', 'color'], ['plane', 'plane'], ['text', 'text'],
     ];
@@ -530,6 +535,40 @@ describe('PartFeatureDialogs', () => {
     for (const kind of ['shell', 'fillet', 'chamfer', 'offset', 'project', 'slot', 'sketch'] as const) {
       expect(registry.forParsedFeature(kind), kind).toBeNull();
     }
+  });
+
+  it('registers Intersect for intersection-curve rows, opened from the Curves menu with its icon, with the claims of two surface rows', () => {
+    const dialog = registry.get('intersection-curve')!;
+    expect(dialog.editRowTypes).toEqual(['intersection-curve']);
+    expect(registry.forParsedFeature('intersection-curve')).toBe(dialog);
+    // A curve tool has no create-group button: its cell in the Curves menu opens it.
+    expect(dialog.toolbarButton).toBeNull();
+    const main = readFileSync(fileURLToPath(new URL('../src/main.ts', import.meta.url)), 'utf8');
+    expect(main).toMatch(/new IntersectionCurveFeatureService\(container, viewer, navbar,\s*curvesMenu\.add\(\{\s*id: 'intersection-curve',\s*label: 'Intersect',\s*iconSrc: iconUrl\('intersection-curve'\),[^}]*order: 10,/);
+    expect(existsSync(fileURLToPath(new URL('../public/icons/intersection-curve.png', import.meta.url)))).toBe(true);
+
+    // Armed, both rows pick faces: a click, the right-click menu, a
+    // double-click and a surface's timeline row are its own.
+    expect(dialog.isPicking).toBe(false);
+    expect(registry.routeClick('s1', FACE)).toBe(false);
+    const service = arm('intersection-curve');
+    expect(dialog.isPicking).toBe(true);
+    expect(registry.routeClick('s1', FACE)).toBe(true);
+    expect(registry.routeContextMenu('s1', FACE, 1, 2)).toBe(true);
+    expect(registry.routeDoubleClick('s1', FACE)).toBe(true);
+    expect(registry.routeTimelinePick(ROW)).toBe(true);
+    expect(service.calls).toEqual(['click', 'context', 'dblclick', 'timeline']);
+    // No axis, plane, connector, sketch wire or hover: a surface row takes none of them.
+    Object.assign(service, { axisPicking: true, planePicking: true, connectorPicking: true });
+    expect(registry.routeAxisPick('a1', AXIS)).toBe(false);
+    expect(registry.routePlanePick('q1')).toBe(false);
+    expect(registry.routeConnectorPick('c1', {})).toBe(false);
+    expect(registry.routeSketchPick('w1')).toBe(false);
+    expect(registry.routeHover('s1', FACE, 1, 2)).toBe(false);
+    expect(takers('click')).toEqual(['intersection-curve']);
+    // Nor does it pin the sketch toolbar: it finishes no sketch.
+    service.suspended = true;
+    expect(registry.pinsSketchToolbar).toBe(false);
   });
 
   it("opens a connector edit with the frame its row carries, or none for a failed build", () => {

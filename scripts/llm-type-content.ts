@@ -178,6 +178,67 @@ revolve(axis("z"), 180);       // Axis form
     ],
   },
 
+  DirectionInputLike: {
+    summary:
+      "A direction, given as an axis or as a plane's normal — what a projected curve's .direction() takes.",
+    intro:
+      "A direction, as `.direction()` of a projected curve takes it: an axis gives its own direction, a plane its normal. It is a line, not an arrow — what uses it decides which way along it matters. Any of the following formats are accepted:",
+    acceptedForms: [
+      {
+        format: 'Standard axis string',
+        example: '`"x"`, `"y"`, `"z"`',
+        description: 'The three principal axes.',
+      },
+      {
+        format: '`Axis`',
+        example: '`axis("z", { offsetX: 50 })`',
+        description: 'An axis object created with `axis()`.',
+        link: 'api/types/axis',
+      },
+      {
+        format: 'Straight edge',
+        example: '`select(edge().line().first())`',
+        description: 'Along the line of a straight edge; a curved edge is refused when the feature builds.',
+      },
+      {
+        format: '`Connector`',
+        example: '`connector("pin", …)`',
+        description: "The connector's Z axis.",
+        link: 'api/types/connector',
+      },
+      {
+        format: 'Standard plane string',
+        example: '`"xy"`, `"xz"`, `"yz"`',
+        description: 'The normal of a principal plane.',
+      },
+      {
+        format: '`Plane`',
+        example: '`plane("xy", { rotateX: 30 })`',
+        description: 'The normal of a plane object created with `plane()`.',
+        link: 'api/types/plane',
+      },
+      {
+        format: 'Planar face',
+        example: '`select(face().planar().first())`',
+        description: 'The normal of a planar face; a curved face is refused when the feature builds.',
+      },
+    ],
+    example: `import { sketch, circle, extrude, plane, project } from "fluidcad/core";
+
+sketch("xy", () => {
+  circle([0, 0], 80);
+});
+const disc = extrude(10);
+
+const tilted = sketch(plane("xy", { offset: 40, rotateX: 30 }), () => {
+  circle([0, 0], 30);
+});
+
+// Along the world Z axis, not the tilted plane's normal.
+project(tilted, disc.endFaces()).direction("z");
+`,
+  },
+
   Vertex: {
     summary: 'A lazy-evaluated vertex representing a point on existing geometry.',
     intro:

@@ -87,6 +87,7 @@ const seeAlsoByDisplay: Record<string, string[]> = {
   // Union / literal aliases
   PlaneLike: ['api/sketch', 'api/plane', 'api/types/plane', 'api/types/scene-object'],
   AxisLike: ['api/revolve', 'api/axis', 'api/types/axis'],
+  DirectionInputLike: ['api/projected-curve', 'api/types/projected-curve', 'api/types/axis-like', 'api/types/plane-like'],
   PointLike: ['api/translate'],
   Point2DLike: ['api/line', 'api/circle', 'api/types/vertex'],
   Vertex: ['api/types/point2dlike'],

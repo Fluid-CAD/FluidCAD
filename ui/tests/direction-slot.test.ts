@@ -324,3 +324,42 @@ describe('DirectionSlotControl — an edit', () => {
     expect(control.ghost()).toBeNull();
   });
 });
+
+describe('DirectionSlotControl — an optional direction', () => {
+  it('empties the row from the statement\'s own direction, a re-pick\'s ✕ going back to it first', async () => {
+    const { control, text, remove } = mount({ optional: true, prompt: 'Empty: the plane normal' });
+    control.seedKeep('datum', { kind: 'sketch', ...at(7) });
+    await control.takeClick('block-solid', edge(0));
+    remove();
+    expect(control.value()).toEqual({ keep: true });
+    remove();
+    expect(control.value()).toBeNull();
+    expect(control.ghost()).toBeNull();
+    expect(text()).toContain('Empty: the plane normal');
+
+    // A literal the row reads back as an axis or a plane empties the same way.
+    control.seedKeep("'z'");
+    remove();
+    expect(control.value()).toBeNull();
+    control.seedKeep("'xy'");
+    await control.takeClick('block-solid', face(0));
+    remove();
+    expect(control.value()).toEqual({ kind: 'standard-plane', plane: 'xy' });
+    remove();
+    expect(control.value()).toBeNull();
+
+    // A kept connector too.
+    control.seedKeep('bolt', { kind: 'connector', ...at(8) });
+    remove();
+    expect(control.value()).toBeNull();
+  });
+
+  it('keeps the statement\'s own direction when it is not optional', () => {
+    const { control, host } = mount();
+    control.seedKeep('datum', { kind: 'sketch', ...at(7) });
+    expect([...host.querySelectorAll('button')].some(b => b.textContent === '✕')).toBe(false);
+    control.seedKeep("'z'");
+    [...host.querySelectorAll('button')].find(b => b.textContent === '✕')!.click();
+    expect(control.value()).toEqual({ kind: 'standard', axis: 'z' });
+  });
+});

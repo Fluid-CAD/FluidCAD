@@ -107,14 +107,21 @@ export class AxisSlotControl {
        * plane gives as its normal. Default off: an axis only.
        */
       planes?: boolean;
+      /**
+       * The value may be left out: the edited statement's own axis has a ✕
+       * too, which empties the slot (a re-pick's ✕ still goes back to the
+       * statement's own first). Default off: an edit always keeps one.
+       */
+      clearable?: boolean;
     } = {},
   ) {
     this.slot = new PickSlot(slotHost, { label: opts.label ?? 'Axis', multiple: false });
     this.slot.onArm = () => this.onArm?.();
     this.slot.onRemove = () => {
       // Create mode: back to the prompt; edit mode: back to the statement's
-      // own axis (a re-pick is undone, never the axis itself).
-      this.state = this.fallbackState();
+      // own axis (a re-pick is undone, never the axis itself) — unless the
+      // value may be left out and the statement's own is what the ✕ was on.
+      this.state = this.opts.clearable && this.atFallback() ? null : this.fallbackState();
       this.render();
       this.onModeChange?.();
       this.onChange?.();
@@ -331,6 +338,22 @@ export class AxisSlotControl {
     this.slot.setArmed(armed);
   }
 
+  /** The slot holds the statement's own axis: kept as written, or the literal it reads back as. */
+  private atFallback(): boolean {
+    const state = this.state;
+    const fallback = this.fallbackState();
+    if (!state || !fallback) {
+      return false;
+    }
+    if (fallback.kind === 'standard') {
+      return state.kind === 'standard' && state.axis === fallback.axis;
+    }
+    if (fallback.kind === 'standard-plane') {
+      return state.kind === 'standard-plane' && state.plane === fallback.plane;
+    }
+    return state.kind === 'keep';
+  }
+
   /** The statement-axis state a cleared slot reverts to; null in create mode. */
   private fallbackState(): DirectionSelection | null {
     if (this.keepLabel === null) {
@@ -356,9 +379,10 @@ export class AxisSlotControl {
     consumedReveal.set(this, this.slotHost,
       (state?.kind === 'axis' || state?.kind === 'plane') && state.option.consumer ? state.option : null);
     if (state?.kind === 'keep') {
+      const removable = this.opts.clearable === true;
       this.slot.setChips([this.keptConnector
-        ? ConnectorOptions.chip(this.keptConnector, { badge: '●', removable: false })
-        : keepChip(this.keepLabel ?? '')]);
+        ? ConnectorOptions.chip(this.keptConnector, { badge: '●', removable })
+        : { ...keepChip(this.keepLabel ?? ''), removable }]);
       this.slot.setPrompt(null);
     } else if (state?.kind === 'standard') {
       this.slot.setChips([{

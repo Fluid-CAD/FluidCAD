@@ -101,6 +101,12 @@ export class DirectionSlotControl {
       refusal?: string;
       /** What a picked edge or face is; default asks the engine. */
       classify?: (entity: SelectedEntity) => Promise<DirectionGeometry | null>;
+      /**
+       * The direction may be left out: an edit's own direction has a ✕ that
+       * empties the row ({@link value} null), where it is otherwise always
+       * kept. Default off.
+       */
+      optional?: boolean;
     } = {},
   ) {
     this.classify = opts.classify ?? askEngine;
@@ -109,6 +115,7 @@ export class DirectionSlotControl {
       label: opts.label ?? 'Direction',
       prompt: opts.prompt,
       planes: true,
+      clearable: opts.optional,
     });
     this.slot.onArm = () => this.onArm?.();
     this.slot.onModeChange = () => {

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OperandSlotControl, type OperandKind } from '../src/interactive/create-feature/operand-slot';
 import type { SceneObjectPart, SceneObjectRender, ShapeType, SubSelection } from '../src/types';
 
@@ -10,6 +10,7 @@ import type { SceneObjectPart, SceneObjectRender, ShapeType, SubSelection } from
 // are curve objects and which hold a surface is read off what they hold.
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   document.body.innerHTML = '';
 });
 
@@ -187,6 +188,23 @@ describe('OperandSlotControl — a surface row', () => {
     expect(sent()).toEqual([]);
   });
 
+  it('names a surface after the variable its statement is bound to, asked of any callee', async () => {
+    const asked: { route: string; body: { lines: number[]; callee: string } }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      asked.push({ route: String(url), body });
+      return { ok: true, json: async () => ({ names: body.lines.map((line: number) => line === 8 ? 'wing' : null) }) };
+    }));
+    const { control, chips } = mount('surface');
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(asked).toEqual([{ route: 'api/sketch-names', body: { lines: [8, 9], callee: 'any' } }]);
+    control.takeClick('skin-surface', face(2));
+    control.takeClick('twin-surface', face(0));
+    // An unbound statement keeps its timeline name.
+    expect(chips()).toEqual(['wing', 'Mirror 1']);
+  });
+
   it('lights every body and curve a whole object holds', () => {
     const { control } = mount('surface');
     control.takeRow(rowOf('twin'));
@@ -305,6 +323,25 @@ describe('OperandSlotControl — an edit', () => {
     // A click on one the statement has takes it off.
     control.takeClick('coil-edge', edge());
     expect(sent()).toEqual([{ shapeId: 'block-solid', sub: { type: 'edge', index: 4 } }, 'rail']);
+  });
+
+  it('takes what the engine resolved the kept argument to, once it answers, without dropping the row\'s picks', () => {
+    const { control, sent } = mount('surface');
+    const blockFace = { shapeId: 'block-solid', sub: { type: 'face' as const, index: 5 } };
+    control.seedKeep(['skin', 'e.sideFaces()']);
+    expect(control.highlight()).toEqual({ entities: [], wireIds: [], shapeIds: [] });
+
+    control.setKeepRefs([statement(8), { kind: 'entities', entities: [blockFace] }]);
+    expect(sent()).toBe('keep');
+    expect(control.highlight()).toEqual({ entities: [blockFace], wireIds: [], shapeIds: ['skin-surface'] });
+
+    // Every element resolved now: a pick adds to them.
+    control.takeClick('twin-surface', face(0));
+    expect(sent()).toEqual(['skin', blockFace, 'twin']);
+
+    // A later answer leaves what the row holds alone.
+    control.setKeepRefs([{ kind: 'opaque' }, { kind: 'opaque' }]);
+    expect(sent()).toEqual(['skin', blockFace, 'twin']);
   });
 
   it('a fresh create forgets the kept argument', () => {

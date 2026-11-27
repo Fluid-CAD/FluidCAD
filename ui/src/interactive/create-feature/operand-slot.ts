@@ -1,4 +1,4 @@
-import type { SelectionBoundaryRef, SourceSlotRef } from '../../api';
+import { fetchSketchNames, type SelectionBoundaryRef, type SourceSlotRef } from '../../api';
 import { sameEntity } from '../../helpers/entities';
 import { holdsSurface, modelShapeIdsOf } from '../../helpers/scene-utils';
 import type { SceneObjectRender, SubSelection } from '../../types';
@@ -165,6 +165,20 @@ export class OperandSlotControl {
     this.keeps = texts.map((text, index) => ({ text, ref: refs[index] ?? null }));
     this.keeping = true;
     this.picked = [];
+    this.render();
+  }
+
+  /**
+   * Edit mode: what the engine resolved the statement's own argument to,
+   * once it answers or in a scene that re-minted the ids — what the kept
+   * chips light up and a list's first pick starts from. The row keeps
+   * whatever it holds; with no edit seeded there is nothing to resolve.
+   */
+  setKeepRefs(refs: (SourceSlotRef | null | undefined)[]): void {
+    if (this.keeps === null) {
+      return;
+    }
+    this.keeps = this.keeps.map((keep, index) => ({ text: keep.text, ref: refs[index] ?? null }));
     this.render();
   }
 
@@ -480,12 +494,16 @@ export class OperandSlotControl {
   }
 
   /**
-   * Name a curve row's options after the variables their statements are
-   * bound to. The lookup is async: its answer is dropped when the scene
-   * moved on meanwhile.
+   * Name the row's options after the variables their statements are bound
+   * to; an unbound statement keeps its timeline name. The lookup is async:
+   * its answer is dropped when the scene moved on meanwhile.
    */
   private async relabel(): Promise<void> {
-    if (this.kind !== 'curve' || this.wireSources.length === 0) {
+    if (this.kind === 'surface') {
+      await this.relabelSurfaces();
+      return;
+    }
+    if (this.wireSources.length === 0) {
       return;
     }
     const sources = this.wireSources;
@@ -494,6 +512,31 @@ export class OperandSlotControl {
       return;
     }
     this.options = this.wireOptions(labeled);
+    this.picked = this.picked.map((pick): OperandPick => {
+      const match = pick.kind === 'object' ? this.optionAt(pick.option) : undefined;
+      return match ? { kind: 'object', option: match } : pick;
+    });
+    this.render();
+  }
+
+  /**
+   * A surface row's options under their variables' names: the statements
+   * that hold a surface are of any callee (a load, a copy, a surface tool),
+   * so each is asked for as `'any'`.
+   */
+  private async relabelSurfaces(): Promise<void> {
+    const options = this.options;
+    if (options.length === 0) {
+      return;
+    }
+    const names = await fetchSketchNames(options.map(option => option.line), 'any');
+    if (this.options !== options) {
+      return;
+    }
+    this.options = options.map((option, index) => {
+      const name = names[index];
+      return name ? { ...option, label: consumedLabel(name, option.consumer) } : option;
+    });
     this.picked = this.picked.map((pick): OperandPick => {
       const match = pick.kind === 'object' ? this.optionAt(pick.option) : undefined;
       return match ? { kind: 'object', option: match } : pick;

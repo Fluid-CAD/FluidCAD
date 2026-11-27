@@ -151,7 +151,7 @@ class FakeService {
 
 const PART_ORDER = [
   'extrude', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'intersection-curve', 'projected-curve',
-  'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'color', 'plane', 'text',
+  'offset-curve', 'repeat', 'copy', 'mirror', 'translate', 'rotate', 'split', 'connector', 'boolean', 'color', 'plane', 'text',
 ] as const;
 type PartId = typeof PART_ORDER[number];
 
@@ -285,7 +285,12 @@ describe('PartFeatureDialogs', () => {
       id, new FakeService(id, () => registry.exitAll({ except: id })),
     ])) as Record<PartId, FakeService>;
     // The services are keyed as main.ts names them; the dialogs by their ids.
-    const services = { ...fakes, intersectionCurve: fakes['intersection-curve'], projectedCurve: fakes['projected-curve'] };
+    const services = {
+      ...fakes,
+      intersectionCurve: fakes['intersection-curve'],
+      projectedCurve: fakes['projected-curve'],
+      offsetCurve: fakes['offset-curve'],
+    };
     PartFeatureDialogs.register(registry, services as unknown as PartDialogServices);
   });
 
@@ -402,7 +407,7 @@ describe('PartFeatureDialogs', () => {
       fakes[id].calls = [];
     }
 
-    const sketchTakers: PartId[] = ['extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'projected-curve', 'split', 'plane'];
+    const sketchTakers: PartId[] = ['extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'projected-curve', 'offset-curve', 'split', 'plane'];
     for (const id of PART_ORDER) {
       arm(id);
       expect(registry.routeSketchPick('w1'), id).toBe(sketchTakers.includes(id));
@@ -519,7 +524,7 @@ describe('PartFeatureDialogs', () => {
   it('edits the rows each dialog owns, and opens the dialog for its parsed kind', () => {
     const rowTypes = [
       'extrude', 'cut', 'rib', 'hole', 'revolve', 'sweep', 'wrap', 'loft', 'helix', 'intersection-curve', 'projected-curve',
-      'repeat-linear', 'repeat-circular', 'repeat-matrix', 'copy-linear', 'copy-circular', 'copy-pattern',
+      'offset-curve', 'repeat-linear', 'repeat-circular', 'repeat-matrix', 'copy-linear', 'copy-circular', 'copy-pattern',
       'mirror', 'translate', 'rotate', 'split', 'connector', 'fuse', 'subtract', 'common', 'color', 'plane', 'text',
     ];
     for (const type of rowTypes) {
@@ -531,7 +536,7 @@ describe('PartFeatureDialogs', () => {
     const kinds: [ParsedFeatureStatement['feature'], PartId][] = [
       ['extrude', 'extrude'], ['rib', 'rib'], ['hole', 'hole'], ['revolve', 'revolve'], ['sweep', 'sweep'],
       ['wrap', 'wrap'], ['loft', 'loft'], ['helix', 'helix'], ['intersection-curve', 'intersection-curve'],
-      ['projected-curve', 'projected-curve'], ['repeat', 'repeat'], ['copy', 'copy'],
+      ['projected-curve', 'projected-curve'], ['offset-curve', 'offset-curve'], ['repeat', 'repeat'], ['copy', 'copy'],
       ['mirror', 'mirror'], ['translate', 'translate'], ['rotate', 'rotate'], ['split', 'split'], ['connector', 'connector'], ['boolean', 'boolean'],
       ['color', 'color'], ['plane', 'plane'], ['text', 'text'],
     ];
@@ -619,6 +624,44 @@ describe('PartFeatureDialogs', () => {
     expect(service.calls).toEqual(['click', 'plane', 'connector']);
     expect(registry.routeHover('s1', FACE, 1, 2)).toBe(false);
     expect(takers('click')).toEqual(['projected-curve']);
+    // Nor does it pin the sketch toolbar: it finishes no sketch.
+    service.suspended = true;
+    expect(registry.pinsSketchToolbar).toBe(false);
+  });
+
+  it('registers Offset for offset-curve rows only, opened from the Curves menu with its icon, with the claims of a curve row and a surface row', () => {
+    const dialog = registry.get('offset-curve')!;
+    expect(dialog.editRowTypes).toEqual(['offset-curve']);
+    expect(registry.forParsedFeature('offset-curve')).toBe(dialog);
+    // The sketch tool's and the face Offset's `offset` rows are no row of its own.
+    expect(registry.editsRowType('offset')).toBe(false);
+    expect(registry.forParsedFeature('offset')).toBeNull();
+    // A curve tool has no create-group button: its cell in the Curves menu opens it.
+    expect(dialog.toolbarButton).toBeNull();
+    const main = readFileSync(fileURLToPath(new URL('../src/main.ts', import.meta.url)), 'utf8');
+    expect(main).toMatch(/new OffsetCurveFeatureService\(container, viewer, navbar,\s*curvesMenu\.add\(\{\s*id: 'offset-curve',\s*label: 'Offset',\s*iconSrc: iconUrl\('offset-curve'\),[^}]*tip: 'Offset a curve along faces',\s*order: 30,/);
+    expect(existsSync(fileURLToPath(new URL('../public/icons/offset-curve.png', import.meta.url)))).toBe(true);
+
+    // Armed, a click lands in the armed row, an edge or a face of a body
+    // grows it by the right-click menu or a double-click, a timeline row
+    // lands there too, and the curve row takes a sketch's wire.
+    expect(dialog.isPicking).toBe(false);
+    expect(registry.routeClick('s1', FACE)).toBe(false);
+    const service = arm('offset-curve');
+    expect(dialog.isPicking).toBe(true);
+    expect(registry.routeClick('s1', FACE)).toBe(true);
+    expect(registry.routeContextMenu('s1', FACE, 1, 2)).toBe(true);
+    expect(registry.routeDoubleClick('s1', FACE)).toBe(true);
+    expect(registry.routeTimelinePick(ROW)).toBe(true);
+    expect(registry.routeSketchPick('w1')).toBe(true);
+    expect(service.calls).toEqual(['click', 'context', 'dblclick', 'timeline', 'sketch']);
+    // No axis, plane, connector or hover: neither row takes them.
+    Object.assign(service, { axisPicking: true, planePicking: true, connectorPicking: true, directionPicking: true });
+    expect(registry.routeAxisPick('a1', AXIS)).toBe(false);
+    expect(registry.routePlanePick('q1')).toBe(false);
+    expect(registry.routeConnectorPick('c1', {})).toBe(false);
+    expect(registry.routeHover('s1', FACE, 1, 2)).toBe(false);
+    expect(takers('click')).toEqual(['offset-curve']);
     // Nor does it pin the sketch toolbar: it finishes no sketch.
     service.suspended = true;
     expect(registry.pinsSketchToolbar).toBe(false);

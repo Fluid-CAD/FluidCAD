@@ -15,12 +15,13 @@ import { allocateProducerVars, makeProducerMerger } from './synthesis.ts';
 import type { ApplyFeatureRequestContext } from './context.ts';
 
 /** The tools written from rows of operand picks: each the spec's feature and its synthesis kind. */
-export type OperandRowFeature = 'intersection-curve' | 'projected-curve';
+export type OperandRowFeature = 'intersection-curve' | 'projected-curve' | 'offset-curve';
 
 /** A tool's payload under its own key on the spec. */
 export type OperandRowSpecPayload =
   | Pick<ApplyFeatureEditSpec, 'intersectionCurve'>
-  | Pick<ApplyFeatureEditSpec, 'projectedCurve'>;
+  | Pick<ApplyFeatureEditSpec, 'projectedCurve'>
+  | Pick<ApplyFeatureEditSpec, 'offsetCurve'>;
 
 /**
  * What a request picks besides its rows (a direction) is resolved through:

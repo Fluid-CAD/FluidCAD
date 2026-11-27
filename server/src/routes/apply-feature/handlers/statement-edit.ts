@@ -8,6 +8,7 @@ import {
   INTERSECTION_CURVE_ROWS,
   LoftConnections,
   makeProducerNamer,
+  OFFSET_CURVE_ROWS,
   parseFeatureStatement,
   PROJECTED_CURVE_ROWS,
   renderEditedStatement,
@@ -109,6 +110,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
       ...OperandInputs.rowStatements(request.intersectionCurve?.rows),
       ...OperandInputs.rowStatements(request.projectedCurve?.rows),
+      ...OperandInputs.rowStatements(request.offsetCurve?.rows),
       ...(request.projectedCurve?.direction && request.projectedCurve.direction.kind !== 'cleared'
         ? [DirectionInputs.statement(request.projectedCurve.direction)].filter((loc): loc is SketchLoc => loc !== null)
         : []),
@@ -155,7 +157,7 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
     /** Synthesize one re-picked slot against the pre-statement scene. */
     const synthesizeSlot = (
       picks: Pick[],
-      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color' | 'intersection-curve' | 'projected-curve',
+      kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector' | 'color' | OperandRowFeature,
       value: ValueExpr | undefined,
       chains: PickChain[],
       extra?: { connector?: { anchor?: ConnectorAnchorSpec } },
@@ -1080,6 +1082,19 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         }
         target.direction = spec;
       }
+    }
+    if (request.feature === 'offset-curve' && request.offsetCurve) {
+      // Each re-picked row: whole sketches, curves and surfaces bound by
+      // call site, a row's edges or faces synthesized together against the
+      // pre-statement scene.
+      const rows = await OperandInputs.resolveRowEdits(
+        request.offsetCurve.rows, OFFSET_CURVE_ROWS.kinds, { producers, merge: mergeProducer },
+        synthesizeRepickedRow('offset-curve', 'a re-picked edge or face lives in a different file than the edited statement'),
+      );
+      if (!rows) {
+        return;
+      }
+      Object.assign(edit.offsetCurve!, rows);
     }
     if (request.feature === 'color' && request.colorTargets) {
       // The Solid tab's list, the boolean's way; an empty list makes the

@@ -3,9 +3,11 @@
 import { Router } from 'express';
 import {
   INTERSECTION_CURVE_ROWS,
+  OFFSET_CURVE_ROWS,
   PROJECTED_CURVE_ROWS,
   type ChoiceSlot,
   type IntersectionCurveRow,
+  type OffsetCurveRow,
   type PlaneRotationAxes,
 } from '../../apply-feature-edit/index.ts';
 import type {
@@ -115,6 +117,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // So is the projected curve: it throws its source row onto its target
     // row's faces.
     const isProjectedCurve = body.feature === 'projected-curve';
+    // So is the offset curve: it runs beside its edges row on its { on }
+    // row's faces.
+    const isOffsetCurve = body.feature === 'offset-curve';
     const isRepeat = body.feature === 'repeat';
     const isCopy = body.feature === 'copy';
     // The mirror is NOT exempt: its reflected bodies land the way its own op
@@ -134,7 +139,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror2D = body.feature === 'mirror2d';
     // A hole is always a removal — no op to declare.
     const isHole = body.feature === 'hole';
-    if (!isHole && !isBand && !isShell && !isHelix && !isIntersectionCurve && !isProjectedCurve && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
+    if (!isHole && !isBand && !isShell && !isHelix && !isIntersectionCurve && !isProjectedCurve && !isOffsetCurve && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
       && !isOffset && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -341,6 +346,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
       projection = { ...rows, mode, direction, keep };
+    }
+    // The edges row's curves and edges and the { on } row's surfaces and
+    // faces, each in pick order. The distance resolves with every other
+    // value below; the engine refuses a zero one, and says why (422).
+    let offsetRows: Record<OffsetCurveRow, GhostOperandRef[]> | null = null;
+    if (isOffsetCurve) {
+      offsetRows = parseOperandRows(body, OFFSET_CURVE_ROWS.kinds);
+      if (!offsetRows) {
+        res.status(400).json({ success: false, reason: 'Invalid offset selections' });
+        return;
+      }
     }
     const axis = body.feature === 'revolve' ? parseAxis(body.axis) : null;
     if (body.feature === 'revolve' && !axis) {
@@ -610,6 +626,12 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       request = { feature: 'intersection-curve', ...intersectionRows! };
     } else if (isProjectedCurve) {
       request = { feature: 'projected-curve', ...projection! };
+    } else if (isOffsetCurve) {
+      if (distance === null) {
+        res.status(400).json({ success: false, reason: 'Invalid offset distance' });
+        return;
+      }
+      request = { feature: 'offset-curve', distance, ...offsetRows! };
     } else if (isPlane) {
       const rotationAxes = slots.choice(planeAxes, ['local', 'world'] as PlaneRotationAxes[], 'Rotation axes');
       if ('reason' in rotationAxes) {

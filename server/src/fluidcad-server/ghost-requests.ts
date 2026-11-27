@@ -20,6 +20,7 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | IntersectionCurveGhostRequest
   | ProjectedCurveGhostRequest
+  | OffsetCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -315,6 +316,22 @@ export type ProjectedCurveGhostRequest = {
   mode: 'direction' | 'normal';
   direction: GhostDirectionRef | null;
   keep: 'nearest' | 'all';
+};
+
+/**
+ * The offset curve — `offset(distance, edges, { on: faces })` outside a
+ * sketch. A curve, like the projected curve: no `op`, its distance resolved
+ * to a number (signed: positive to the left of the edges), and the picks of
+ * its edges row (a sketch or a curve by its statement, an edge by its
+ * viewport address) and its `on` row (a surface by its statement, a face by
+ * its viewport address) in pick order. The engine refuses a zero distance,
+ * and says why.
+ */
+export type OffsetCurveGhostRequest = {
+  feature: 'offset-curve';
+  distance: number;
+  edges: GhostOperandRef[];
+  on: GhostOperandRef[];
 };
 
 /**

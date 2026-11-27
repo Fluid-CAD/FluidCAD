@@ -17,6 +17,7 @@ export type GhostBody = {
   translation?: unknown;
   value?: unknown;
   isAngle?: unknown;
+  /** Fillet / chamfer: the picked edges. The offset curve: its edges row's picks. */
   edges?: unknown;
   axis?: { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
   profile?: { filePath?: unknown; line?: unknown; kind?: unknown; shapeId?: unknown; index?: unknown };
@@ -53,6 +54,8 @@ export type GhostBody = {
   second?: unknown;
   /** The projected curve: the target row's picks (`source` is its source row), its mode and its direction. */
   target?: unknown;
+  /** The offset curve: the `{ on }` row's picks (`edges` is its edges row, `distance` its distance). */
+  on?: unknown;
   mode?: unknown;
   direction?: unknown;
   radius?: unknown;
@@ -93,7 +96,7 @@ export type GhostBody = {
 export const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
   'rotate', 'translate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
-  'shell', 'intersection-curve', 'projected-curve',
+  'shell', 'intersection-curve', 'projected-curve', 'offset-curve',
 ];
 
 /** The projected curve's modes — `.mode()`; the first is the default. */

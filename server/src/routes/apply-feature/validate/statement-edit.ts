@@ -29,6 +29,7 @@ import { FACE_PROFILE_SHAPE, validateExtrudeOptions, validateFaceProfilePick } f
 import { validateHelixOption, validateHelixSource, type HelixSourceInput } from './helix.ts';
 import { validateIntersectionCurveEdit, type IntersectionCurveEditRequest } from './intersection-curve.ts';
 import { validateProjectedCurveEdit, type ProjectedCurveEditRequest } from './projected-curve.ts';
+import { validateOffsetCurveEdit, type OffsetCurveEditRequest } from './offset-curve.ts';
 import { DirectionInputs } from '../direction-inputs.ts';
 import { OperandInputs } from '../operand-inputs.ts';
 import {
@@ -59,7 +60,7 @@ import { validateSplitEdit, type SplitPlaneInput } from './split.ts';
 import { validateSweepExtend } from './sweep.ts';
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color', 'intersection-curve', 'projected-curve']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color', 'intersection-curve', 'projected-curve', 'offset-curve']);
 
 export type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
@@ -118,6 +119,8 @@ export type StatementEditRequest = {
    * kept ride the edit target itself.
    */
   projectedCurve?: Omit<ProjectedCurveEditRequest, 'mode' | 'keep'>;
+  /** The offset curve's re-picked rows; an absent row keeps the statement's argument. The distance rides the edit target itself. */
+  offsetCurve?: Omit<OffsetCurveEditRequest, 'distance'>;
   /** Full replacement loft profile list; absent keeps the statement's. */
   loftProfiles?: EditLoftProfileInput[];
   /** Full replacement loft guide list; absent keeps the statement's. */
@@ -222,7 +225,7 @@ export type StatementEditRequest = {
 export function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole", "split", "intersection-curve" or "projected-curve" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole", "split", "intersection-curve", "projected-curve" or "offset-curve" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -563,6 +566,17 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     result.needsPicks = OperandInputs.rowsPickGeometry(slots.rows)
       || (slots.direction !== undefined && slots.direction.kind !== 'cleared' && DirectionInputs.picksGeometry(slots.direction));
     return result;
+  }
+
+  if (feature === 'offset-curve') {
+    // Each row kept or re-picked, the distance replaced when sent.
+    const request = validateOffsetCurveEdit(body);
+    if ('error' in request) {
+      return request;
+    }
+    const { distance, ...slots } = request;
+    edit.offsetCurve = distance !== undefined ? { distance } : {};
+    return { ...base, offsetCurve: slots, needsPicks: OperandInputs.rowsPickGeometry(slots.rows) };
   }
 
   if (feature === 'sweep' || feature === 'loft') {

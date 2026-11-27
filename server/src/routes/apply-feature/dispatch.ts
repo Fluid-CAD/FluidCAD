@@ -14,6 +14,7 @@ import { handleRevolve } from './handlers/revolve.ts';
 import { handleHelix } from './handlers/helix.ts';
 import { handleIntersectionCurve } from './handlers/intersection-curve.ts';
 import { handleProjectedCurve } from './handlers/projected-curve.ts';
+import { handleOffsetCurve } from './handlers/offset-curve.ts';
 import { handleLoft } from './handlers/loft.ts';
 import { handlePlane } from './handlers/plane.ts';
 import { handleRepeat } from './handlers/repeat.ts';
@@ -177,6 +178,15 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
     // or face synthesized on its own) and what it keeps.
     if (feature === 'projected-curve') {
       await handleProjectedCurve(ctx, req, res);
+      return;
+    }
+
+    // The offset curve — `offset(distance, edges, { on: faces })` outside a
+    // sketch — takes its distance, a row of curve picks and a row of surface
+    // picks, each a whole object by its statement or edges / faces
+    // synthesized a row at a time.
+    if (feature === 'offset-curve') {
+      await handleOffsetCurve(ctx, req, res);
       return;
     }
 

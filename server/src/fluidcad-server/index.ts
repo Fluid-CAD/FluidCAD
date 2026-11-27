@@ -58,6 +58,7 @@ export type {
   HelixGhostRequest,
   IntersectionCurveGhostRequest,
   ProjectedCurveGhostRequest,
+  OffsetCurveGhostRequest,
   LoftGhostRequest,
   Mirror2DGhostRequest,
   MirrorGhostRequest,

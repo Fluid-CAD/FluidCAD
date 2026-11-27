@@ -52,7 +52,7 @@ it, and it stays readable by later statements.
 
 | Situation | Message |
 |---|---|
-| The two sides do not cross | `intersect: the two selections do not cross.` Hint: faces that only touch along an edge, or lie on top of each other, have no intersection curve. Tangent faces count as touching. |
+| The two sides do not cross: they only touch — along an edge, tangentially, or lying on each other | `intersect: the two selections do not cross.` Hint: `Faces that only touch along an edge, or lie on top of each other, have no intersection curve.` |
 | A face is on both sides | `intersect: the <kind> face at (x, y, z) is in both selections.` |
 | An argument holds edges, a curve or a sketch | `intersect: the first selection is an edge selection; it needs faces.` (and similar) |
 | A `plane()` as the first argument, or in a list | `intersect: a plane can only be the second argument, given on its own.` |

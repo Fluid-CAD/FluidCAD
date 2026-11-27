@@ -22,6 +22,7 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Sheet } from "../../common/sheet.js";
+import { Face } from "../../common/face.js";
 import { Plane } from "../../math/plane.js";
 import { Point } from "../../math/point.js";
 import { IntersectionCurve } from "../../features/intersection-curve.js";
@@ -71,6 +72,16 @@ function planarSheet(plane: Plane, u: [number, number], v: [number, number]): Sh
     raw.delete();
     maker.delete();
     disposePln();
+  }
+}
+
+/** One planar face on `plane` over [u0, u1] × [v0, v1] of its own axes. */
+function planarFace(plane: Plane, u: [number, number], v: [number, number]): Face {
+  const sheet = planarSheet(plane, u, v);
+  try {
+    return Face.fromTopoDSFace(getOC().TopoDS.Face(sheet.getFaces()[0].getShape()));
+  } finally {
+    sheet.dispose();
   }
 }
 
@@ -361,6 +372,25 @@ describe("intersect(first, second) outside a sketch", () => {
       render();
 
       expect(ic.getError()).toMatch(/^intersect: the intersection branches at \(-?5, 0, 0\): 4 of its edges meet there\./);
+    });
+
+    it("refuses a curve that breaks off inside both selections, where a surface lies partly on a face", () => {
+      const box = block();
+      // An L of two faces: one lying on the box's top (z = 5) for x ∈ [5, 10],
+      // one going down through the box at x = 10. Where the first lies on the
+      // top the sides only touch; the second crosses, and its curve ends
+      // where the touching begins, on no rim.
+      const onTop = planarFace(new Plane(new Point(0, 0, 5), Plane.XY().xDirection, Plane.XY().normal), [5, 10], [-5, 15]);
+      const down = planarFace(new Plane(new Point(10, 0, 0), Plane.YZ().xDirection, Plane.YZ().normal), [-5, 15], [-5, 5]);
+      const sheets = SheetOps.sew([onTop, down]);
+      onTop.dispose();
+      down.dispose();
+      expect(sheets).toHaveLength(1);
+      const ell = asObject(loadShapes(sheets));
+      const ic = intersect(box, ell) as unknown as IntersectionCurve;
+      render();
+
+      expect(ic.getError()).toMatch(/^intersect: the intersection breaks off at \(10, (0|10), 5\), inside both selections\./);
     });
 
     it("refuses a face in both selections, naming it", () => {

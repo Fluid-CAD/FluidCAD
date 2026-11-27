@@ -23,6 +23,7 @@ import {
   PickDescriptors,
   PickExplanation,
   PickRef,
+  PickSubRef,
   ProducerBindable,
   ProducerNamer,
   SelectionScene,
@@ -157,7 +158,7 @@ export function synthesizeApplyFeature(
   if (feature === 'intersection-curve') {
     // The picks are the faces one side of the intersection reads: each a
     // face of a solid or a surface.
-    const edge = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'face');
+    const edge = pickOutsideRow([...refs, ...chains.flatMap(c => c.members)], ['face']);
     if (edge) {
       return { ok: false, reason: 'intersect takes faces — pick faces only', pick: edge };
     }
@@ -165,9 +166,7 @@ export function synthesizeApplyFeature(
   if (feature === 'projected-curve') {
     // The picks are one row of the projection: the edges of its source
     // curves, or the faces of its target — one kind per row.
-    const members = [...refs, ...chains.flatMap(c => c.members)];
-    const kind = members[0].sub.type;
-    const odd = members.find(r => (r.sub.type !== 'edge' && r.sub.type !== 'face') || r.sub.type !== kind);
+    const odd = pickOutsideRow([...refs, ...chains.flatMap(c => c.members)], ['edge', 'face']);
     if (odd) {
       return {
         ok: false,
@@ -498,6 +497,17 @@ export function synthesizeApplyFeature(
   } finally {
     index.dispose();
   }
+}
+
+/**
+ * The first pick of one operand row that does not belong in it: not of a
+ * kind the row's tool takes, or not of the kind the row's first pick is. A
+ * curve or surface operand's row is synthesized on its own, edges for a
+ * curve row and faces for a surface row, never both.
+ */
+function pickOutsideRow(members: PickRef[], takes: readonly PickSubRef['type'][]): PickRef | undefined {
+  const kind = members[0]?.sub.type;
+  return members.find(member => !takes.includes(member.sub.type) || member.sub.type !== kind);
 }
 
 function refKey(ref: PickRef): string {

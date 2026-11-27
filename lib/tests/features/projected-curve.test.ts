@@ -11,6 +11,8 @@ import select from "../../core/select.js";
 import fillet from "../../core/fillet.js";
 import repeat from "../../core/repeat.js";
 import plane from "../../core/plane.js";
+import part from "../../core/part.js";
+import connector from "../../core/connector.js";
 import sweep from "../../core/sweep.js";
 import translate from "../../core/translate.js";
 import { circle, line, project } from "../../core/2d/index.js";
@@ -332,6 +334,25 @@ describe("project(source, target) outside a sketch", () => {
       }
       // Along the sketch's own normal the image is another ellipse, elsewhere.
       expect(shape(natural)).not.toEqual(expected);
+    });
+
+    it("takes a connector as the line of its Z axis", () => {
+      let byConnector: ProjectedCurve = null!;
+      let byName: ProjectedCurve = null!;
+      part("plate", () => {
+        const box = block();
+        const top = connector("top", select(face().planar().onPlane("xy", 5)));
+        const sk = sketch(plane("xy", { offset: 20, rotateX: 20 }), () => {
+          line([5, 5], [35, 5]);
+        });
+        byConnector = project(sk, box.endFaces()).direction(top) as unknown as ProjectedCurve;
+        byName = project(sk, box.endFaces()).direction("z") as unknown as ProjectedCurve;
+      });
+      render();
+
+      expect(byConnector.getError()).toBeNull();
+      expect(byConnector.directionOperand!.isInternal()).toBe(true);
+      expect(wiresOf(byConnector).map(ends)).toEqual(wiresOf(byName).map(ends));
     });
 
     it("lays an image across two faces as one wire of two edges, and leaves out the far side of the body", () => {

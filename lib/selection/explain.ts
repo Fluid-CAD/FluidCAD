@@ -175,6 +175,18 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'offset-curve') {
+    // The picks are one row of the offset curve: the edges of the curves
+    // it runs beside, or the faces of { on } — one kind per row.
+    const odd = pickOutsideRow([...refs, ...chains.flatMap(c => c.members)], ['edge', 'face']);
+    if (odd) {
+      return {
+        ok: false,
+        reason: 'offset takes edges for its curves and faces for { on } — pick one kind per row',
+        pick: odd,
+      };
+    }
+  }
   if (feature === 'helix') {
     // The helix source is a single edge — its axis, via axis() — or a single
     // cylindrical/conical face, which supplies the frame directly.
@@ -433,6 +445,7 @@ export function synthesizeApplyFeature(
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
         || feature === 'project' || feature === 'connector' || feature === 'expose' || feature === 'hole'
         || feature === 'color' || feature === 'intersection-curve' || feature === 'projected-curve'
+        || feature === 'offset-curve'
         ? {} : { value }),
       ...(connectorPayload ? { connector: connectorPayload } : {}),
       ...(exposePayload ? { expose: exposePayload } : {}),
@@ -749,6 +762,11 @@ function renderPreview(
     // The args are one row's selectors (the source's edges or the target's
     // faces); the route composes the statement from both rows.
     return `project(${args})`;
+  }
+  if (feature === 'offset-curve') {
+    // The args are one row's selectors (the edges or the faces of { on });
+    // the route composes the statement from both rows and the distance.
+    return `offset(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

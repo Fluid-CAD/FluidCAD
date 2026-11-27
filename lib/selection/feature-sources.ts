@@ -47,6 +47,7 @@ import { Projection } from "../features/2d/projection.js";
 import { Intersect } from "../features/2d/intersect.js";
 import { IntersectionCurve } from "../features/intersection-curve.js";
 import { ProjectedCurve } from "../features/projected-curve.js";
+import { OffsetCurve } from "../features/offset-curve.js";
 import { Feature } from "../sdk/feature.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
@@ -136,6 +137,13 @@ export type FeatureSources =
    * The mode and what is kept are read off the statement.
    */
   | { feature: 'projected-curve'; source: SourceSlot[]; target: SourceSlot[]; direction: SourceSlot | null }
+  /**
+   * An offset curve — `offset(distance, edges, { on: faces })` outside a
+   * sketch: one slot per operand of the edges argument and of `{ on }`, in
+   * its order. The edges resolve as a projected curve's source does, the
+   * faces as its target does. The distance is read off the statement.
+   */
+  | { feature: 'offset-curve'; edges: SourceSlot[]; on: SourceSlot[] }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -268,6 +276,14 @@ export function resolveFeatureSources(
         source: feature.sourceOperands.map(operand => resolver.curveOperandSlot(operand)),
         target: feature.targetOperands.map(operand => resolver.faceOperandSlot(operand)),
         direction: direction ? resolver.directionSlot(direction) : null,
+      };
+    }
+    if (feature instanceof OffsetCurve) {
+      return {
+        ok: true,
+        feature: 'offset-curve',
+        edges: feature.edgeOperands.map(operand => resolver.curveOperandSlot(operand)),
+        on: feature.onOperands.map(operand => resolver.faceOperandSlot(operand)),
       };
     }
     // A top-level (face-target) offset: its targets are face selections, the

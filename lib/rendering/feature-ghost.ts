@@ -29,6 +29,7 @@ import {
   buildIntersectionWires, intersectionFaces, type IntersectionFaces, type IntersectionSide,
 } from "../features/intersection-curve-geometry.js";
 import { buildProjectedWires, naturalDirection } from "../features/projected-curve-geometry.js";
+import { buildOffsetCurveWires } from "../features/offset-curve-geometry.js";
 import { sketchGeometryOwner } from "../features/2d/projection.js";
 import { FaceOperand, type HeldFace } from "../helpers/face-operand.js";
 import { DirectionInput } from "../helpers/direction-input.js";
@@ -101,6 +102,7 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | IntersectionCurveGhostRequest
   | ProjectedCurveGhostRequest
+  | OffsetCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -408,6 +410,21 @@ export type ProjectedCurveGhostRequest = {
   mode: 'direction' | 'normal';
   direction: GhostDirectionRef | null;
   keep: 'nearest' | 'all';
+};
+
+/**
+ * The offset curve — `offset(distance, edges, { on })` outside a sketch: a
+ * curve beside the `edges` row's curves at `distance` (signed: positive to
+ * the left), lying on the `on` row's faces, built by the call the feature's
+ * build makes. Each row lists its picks in pick order, the order the
+ * statement writes them in. A zero distance is refused as the build
+ * refuses it.
+ */
+export type OffsetCurveGhostRequest = {
+  feature: 'offset-curve';
+  distance: number;
+  edges: GhostOperandRef[];
+  on: GhostOperandRef[];
 };
 
 /**
@@ -935,6 +952,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'projected-curve') {
     return buildProjectedCurveGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'offset-curve') {
+    return buildOffsetCurveGhost(scene, request, meshConfig);
   }
   if (request.feature === 'repeat') {
     return buildRepeatGhost(scene, request, meshConfig);
@@ -3694,7 +3714,7 @@ function buildProjectedCurveGhost(
     if (request.mode === 'normal' && request.direction) {
       throw new BuildError(`project: .direction() is for mode 'direction'.`);
     }
-    const source = resolveProjectionSource(scene, request.source, scratch);
+    const source = resolveCurveRow(scene, request.source, 'project: the source', scratch);
     const target = resolveFaceRow(scene, request.target, 'project: the target', scratch);
     const direction = request.mode === 'direction' && request.direction
       ? resolveGhostDirection(scene, request.direction, scratch)
@@ -3710,16 +3730,43 @@ function buildProjectedCurveGhost(
 }
 
 /**
- * The projected curve's source row as the build reads its argument: the
- * statements' edges as `CurveOperand` reads them (a sketch, a curve, a
- * sketch statement, an edge selection), then the picked edges in pick order,
- * with the plane of the sketch each pick belongs to (null for anything that
- * is not sketch geometry). Null when a pick names nothing the scene holds,
- * or is not a curve.
+ * The offset curve's preview: the edges row resolved to its curves, the on
+ * row to its faces, then the curve the feature would build, as lines. A row
+ * naming what the scene no longer holds shows nothing; a refusal of the
+ * build — a zero distance, edges off the faces, a curve that leaves the
+ * faces or folds — is said, since changing a pick or the distance is what
+ * the user can do about it.
  */
-function resolveProjectionSource(
+function buildOffsetCurveGhost(
+  scene: Scene,
+  request: OffsetCurveGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  return ghostOfPickedCurves(meshConfig, scratch => {
+    const source = resolveCurveRow(scene, request.edges, 'offset: the source', scratch);
+    const support = resolveFaceRow(scene, request.on, 'offset: { on }', scratch);
+    if (!source || !support) {
+      return null;
+    }
+    const sources = CurveOperand.chain(source.edges);
+    scratch.push(...sources);
+    return buildOffsetCurveWires(sources, support, request.distance);
+  });
+}
+
+/**
+ * A row of curves (the projected curve's source, the offset curve's edges)
+ * as the build reads its argument: the statements' edges as `CurveOperand`
+ * reads them (a sketch, a curve, a sketch statement, an edge selection),
+ * then the picked edges in pick order, with the plane of the sketch each
+ * pick belongs to (null for anything that is not sketch geometry). Null
+ * when a pick names nothing the scene holds, or is not a curve. `label`
+ * names the argument in the tool's refusals.
+ */
+function resolveCurveRow(
   scene: Scene,
   refs: GhostOperandRef[],
+  label: string,
   scratch: Shape[],
 ): { edges: Edge[]; planes: (Plane | null)[] } | null {
   if (refs.length === 0) {
@@ -3749,7 +3796,7 @@ function resolveProjectionSource(
       return null;
     }
   }
-  const read = objects.length > 0 ? CurveOperand.edges(objects, 'project: the source') : [];
+  const read = objects.length > 0 ? CurveOperand.edges(objects, label) : [];
   return { edges: [...read, ...picked], planes };
 }
 

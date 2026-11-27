@@ -1,0 +1,168 @@
+---
+sidebar_position: 3
+title: "Project"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import projectBasic from '!!raw-loader!./_examples/project-basic.js';
+import projectDirection from '!!raw-loader!./_examples/project-direction.js';
+import projectNearest from '!!raw-loader!./_examples/project-nearest.js';
+import projectAll from '!!raw-loader!./_examples/project-all.js';
+import projectPocket from '!!raw-loader!./_examples/project-pocket.js';
+import projectNormal from '!!raw-loader!./_examples/project-normal.js';
+
+# Project
+
+Project throws curves onto faces: a logo or a parting line drawn flat and laid onto a curved body, a path on a surface to sweep along, a guide that must lie on a face. The curves travel along a line, or each point goes to the closest point of the faces. The faces stay as they are; the result is a [curve](/docs/curves/introduction).
+
+## In the viewport
+
+1. Open the **Curves** menu on the toolbar and click **Project**. The dialog opens with the **Curves** row armed (blue border).
+2. Click the curves to throw: a sketch's wire takes the whole sketch, an edge of a curve (a helix, an intersection curve) takes the whole curve, and an edge of a solid or a surface takes that edge. A sketch's or a curve's row in the timeline works too. Once **Curves** holds a pick, **Onto** is armed.
+3. Click the faces to land on. A face of a solid is taken as that face; a face of a surface takes the whole surface. As soon as both rows hold a pick, the projected curve previews in blue.
+4. Click **Apply**. The timeline gains a **Projected Curve** row and the statement is written to the file.
+
+<UiFigure
+  src="/img/docs/ui/project-dialog.png"
+  alt="The Project dialog with a sketch, a face of a dome and the world Z axis picked"
+  markers={[
+    {n: 1, x: 5, y: 11, label: 'Curves', description: 'The curves to throw. Takes several picks: whole sketches and curves, edges of solids and surfaces. Click a chip’s ✕ to drop it.'},
+    {n: 2, x: 5, y: 34, label: 'Onto', description: 'The faces the curves land on: faces of solids, whole surfaces, or both. Click a row to arm it before picking for it.'},
+    {n: 3, x: 5, y: 54, label: 'Mode', description: 'Along direction: every point travels along one line. Normal to surface: every point goes to the closest point of the faces.'},
+    {n: 4, x: 5, y: 66, label: 'Direction', description: 'The line, for Along direction only. Empty, it is the normal of the plane the curves lie in. Click the row to arm it, then pick a world axis, an axis, a straight edge, a connector, a plane or a planar face.'},
+    {n: 5, x: 5, y: 78, label: 'Keep', description: 'Which images of the curves stay: Nearest, what faces them; All, every image.'},
+    {n: 6, x: 5, y: 94, label: 'Apply', description: 'Writes project(curves, faces) with its options. Both rows need a pick. Exit closes the dialog without writing anything.'},
+  ]}
+/>
+
+If nothing lands, the dialog says so instead of drawing a preview: the curves miss the faces along that line, or they lie in no plane and no direction is set.
+
+A rectangle and a line drawn on a plane above a dome, dropped onto it with the **Direction** row left empty:
+
+![A rectangle and a line laid onto a dome](/img/docs/curves/project-basic.png)
+
+<ExplainedCode code={projectBasic} fileName="dome.part.js">
+The dialog names a picked face with a selector of its own; any face selection, a solid or a surface works in its place.
+</ExplainedCode>
+
+### Picking several curves or faces at once
+
+- **Double-click** an edge or a face of a solid: the armed row takes the whole group it belongs to, such as an edge's loop or every side face of an extrude.
+- **Right-click** an edge or a face of a solid: a menu lists the groups it belongs to, such as its tangent edges, the loops it is on and the faces of the feature that made it. Hover an item to preview it; click it to add it to the armed row.
+
+A sketch, a curve and a face of a surface already stand for the whole object, so neither gesture applies to them.
+
+## The direction
+
+**The direction is a line, not an arrow.** The curves are projected both ways along it, so a sketch above a body and one below it both reach it, and there is no flip. Which of the images stay is what **Keep** decides.
+
+With the **Direction** row empty, the line is the normal of the plane the curves lie in: a sketch's own plane. To set another, click the row to arm it; the world axes and the origin planes show in the viewport. It takes:
+
+- a world axis, an `axis()` line, a straight edge, or a connector (its Z axis);
+- an origin plane, a `plane()` quad, or a planar face, standing for its normal.
+
+A curved edge or face gives no direction: the row says so and keeps what it had. The chip's ✕ empties the row again.
+
+A circle on a tilted plane, thrown straight down along the world Z axis, lands as an ellipse:
+
+![A circle on a tilted plane thrown along Z onto a disc](/img/docs/curves/project-direction.png)
+
+<ExplainedCode code={projectDirection} fileName="disc.part.js" />
+
+Curves that lie in no plane, such as a helix, have no plane normal: along a direction they need one set, or use **Normal to surface**.
+
+## Keep
+
+The line through a point of the curves can meet the faces more than once, on the near side of a body and on the far side. **Keep** chooses which images stay.
+
+- **Nearest** (the default) keeps, along the line, what each point of the curves meets first. A line drawn across a cylinder or a ball keeps the half facing it; the far half is behind. Every stretch of the near side stays: a line across a pocket lands on the top face on each side and on the pocket's floor, three curves, while the walls and the bottom face are behind.
+- **All** keeps every image, the far side of a closed body too.
+
+<ModeTable columns={[
+  {title: 'Nearest', code: 'project(bar, tube)', image: '/img/docs/curves/project-nearest.png', description: 'The half of the tube facing the line.'},
+  {title: 'All', code: "project(bar, tube).keep('all')", image: '/img/docs/curves/project-all.png', description: 'Underneath too: a full circle.'},
+]} />
+
+<ExplainedCode code={projectNearest} fileName="tube.part.js" title="The code behind Nearest" />
+
+<ExplainedCode code={projectAll} fileName="tube.part.js" title="The code behind All" />
+
+![A line thrown across a pocket: the top on each side and the floor](/img/docs/curves/project-pocket.png)
+
+<ExplainedCode code={projectPocket} fileName="pocket.part.js" />
+
+In **Normal to surface** mode, **Nearest** keeps the image closest to the curves, and **All** keeps every one.
+
+## Normal to surface
+
+Click **Normal to surface**: each point of the curves goes to the closest point of the faces. The **Direction** row hides, and what it holds is left out of the statement; switch back to **Along direction** and it is there again.
+
+A helix inside a shaft lands on the shaft's wall as a helix of the same pitch:
+
+![A helix laid onto the wall of a shaft](/img/docs/curves/project-normal.png)
+
+<ExplainedCode code={projectNormal} fileName="shaft.part.js" />
+
+## Editing
+
+Double-click the **Projected Curve** row in the timeline. The view rolls back to just before the statement and the dialog reopens with every choice as written: each row on its argument as **Current: …** chips, lit where it names edges, faces or a surface; the mode; the direction (a world axis or an origin plane as its chip, anything else as **Current: …**); and **Keep**.
+
+Pick in a row to change it. Where the row names edges or faces, the first pick adds to them and a chip's ✕ takes one off; anything else in the row is replaced by the pick. In the **Direction** row a pick replaces the direction; its ✕ goes back to the statement's own, and the ✕ of that one removes the direction. **Apply** rewrites only what you changed: a row, the mode, **Keep**, the direction. Switching to **Normal to surface** removes the statement's direction.
+
+## In code
+
+```js
+import { project } from 'fluidcad/core';
+
+const pc = project(source, target);
+const pc = project(source, target).direction('z');
+const pc = project(source, target).mode('normal');
+const pc = project(source, target).keep('all');
+```
+
+| Argument | Takes |
+|----------|-------|
+| `source` | Curves: a sketch, a curve (a helix, an intersection curve, another projected curve), a selection of edges, or a list of those |
+| `target` | A face selection (faces of solids or of surfaces), a surface, a solid (all its faces), or a list of those |
+
+| Chained method | Meaning |
+|----------------|---------|
+| `.mode('direction')` | The default: every point travels along one line. |
+| `.mode('normal')` | Every point goes to the closest point of the target. |
+| `.direction(d)` | The line, for mode `'direction'`: `'x'`, `'y'`, `'z'`, an `axis()`, a straight edge, a connector; or `'xy'`, `'xz'`, `'yz'`, a `plane()`, a planar face, for its normal. Left out, the normal of the plane the source lies in. |
+| `.keep('nearest')` | The default: along the line, what each point of the source meets first; in mode `'normal'`, the image nearest the source. |
+| `.keep('all')` | Every image. |
+
+The methods chain in any order; the dialog writes them in this order and leaves out each one at its default. Written outside a sketch, `project` is this tool. Inside a `sketch()` callback it is the sketch tool that lays 3D geometry onto the sketch plane: see [Project in a sketch](/docs/sketching/tools/project).
+
+The source curves hide and stay readable: a later statement can read the sketch again. The target is read, not used up.
+
+### One wire per image
+
+The result holds one wire for each connected image, each running the way its source runs. Images come in the order of their sources.
+
+```js
+pc.edges()        // every edge, wire after wire, each in the order it runs
+pc.edges(0)       // one edge
+pc.start()        // where the first wire starts
+pc.end()          // where it ends
+```
+
+## Errors
+
+| Situation | Message |
+|-----------|---------|
+| Along a direction, none set, and the source lies in no plane | `project: the source does not lie in a plane, so it has no natural direction.` |
+| `.direction(…)` with `.mode('normal')` | `project: .direction() is for mode 'direction'.` |
+| Nothing lands on the target, or the direction runs along the faces | `project: the projection misses the target.` |
+| `.mode(…)` or `.keep(…)` with another value | `project: .mode() takes 'direction' or 'normal'.` |
+| The direction is a curved edge or face | `project: the direction is a curved edge; only a straight edge gives a direction.` |
+| The source is a solid or faces | `project: the source is a solid; pick the edges to use.` |
+| Fewer than two arguments outside a sketch | `project: outside a sketch, give the curves to project and the faces to project them onto: project(source, target).` |
+
+## Limitations
+
+- Datum planes cannot be picked in the **Onto** row; write them in code.
+- In **Normal to surface** mode a whole solid projects onto its caps too; pick the faces you mean, such as `shaft.sideFaces()`.

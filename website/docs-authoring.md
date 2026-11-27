@@ -22,7 +22,7 @@ website/docs/
   sketching/         introduction; primitives/, compound/, tools/, constraints/{positional,dimensional}
   3d-operations/     introduction, selection-and-filters, extrude, revolve, sweep, loft,
                      shell, fillet, chamfer, wrap, rib, helix, split
-  curves/            introduction (what a curve is, the curve tools), intersect
+  curves/            introduction (what a curve is, the curve tools), intersect, project
   booleans/          introduction, fuse, common, subtract
   transforms/        introduction, translate, rotate, mirror
   patterns/          copy, repeat
@@ -285,7 +285,7 @@ document unit / mm / in / *Same as project*.
 create tools **Extrude**, **Revolve**, **Sweep**, **Loft**, **Wrap**,
 **Rib**, the pick tools **Fillet**, **Chamfer**, **Shell**,
 **Offset** (face outline), then **Plane**, **Repeat**, **Copy**, the
-**Curves** menu (**Helix**, **Intersect**) and the **Surfaces** menu (no tools yet), **Mirror**,
+**Curves** menu (**Helix**, **Intersect**, **Project**) and the **Surfaces** menu (no tools yet), **Mirror**,
 **Rotate**, **Boolean** (Fuse / Subtract / Common), and the structure tools
 **Part** (appends `part('Part N', () => {})`) and **Connector**. The pick
 tools show a small panel with one value (**Radius** / **Distance** /
@@ -325,6 +325,14 @@ Dialog fields:
   surface as the whole surface, a surface's timeline row. First opens
   armed; its first pick arms Second. Double-click / right-click grow the
   armed row by a face's group. No datum planes (code only).
+- **Project** (Curves menu; tip *Project a curve onto faces*): rows
+  **Curves** (sketches and curves whole, edges of bodies), **Onto** (faces,
+  surfaces whole), **Mode** (**Along direction** / **Normal to surface**),
+  **Direction** (shown along a direction only; empty = the curves' plane
+  normal; a world axis, an axis, a straight edge, a connector, a plane or a
+  planar face; armed by a click on it) and **Keep** (**Nearest** / **All**).
+  Curves opens armed; its first pick arms Onto. Not the sketch toolbar's
+  **Project**, which lays geometry onto the sketch plane.
 - **Plane**: type **Offset / Mid plane / From edge**, **Base** slot (a face,
   an origin plane quad in the viewport, or a plane row in the timeline),
   **Distance**, edge position 0–1, per-axis rotation.

@@ -7,6 +7,7 @@ import type { CopyFeatureService } from './create-feature/copy-service';
 import type { ExtrudeFeatureService } from './create-feature/extrude-service';
 import type { HelixFeatureService } from './create-feature/helix-service';
 import type { HoleFeatureService } from './create-feature/hole/hole-service';
+import type { IntersectionCurveFeatureService } from './create-feature/intersection-curve-service';
 import type { LoftFeatureService } from './create-feature/loft-service';
 import type { MirrorFeatureService } from './create-feature/mirror-service';
 import type { PlaneFeatureService } from './create-feature/plane-service';
@@ -34,6 +35,7 @@ export type PartDialogServices = {
   wrap: WrapFeatureService;
   loft: LoftFeatureService;
   helix: HelixFeatureService;
+  intersectionCurve: IntersectionCurveFeatureService;
   repeat: RepeatFeatureService;
   copy: CopyFeatureService;
   mirror: MirrorFeatureService;
@@ -188,6 +190,24 @@ export class PartFeatureDialogs {
       picking: (d) => d.isPicking,
       // An edge or a connector gizmo (axis mode) or a face (face mode) is the helix's source.
       claims: { click: (d) => d.isPicking, axis: (d) => d.isAxisPicking, connector: (d) => d.isConnectorPicking },
+      timelinePicks: true,
+    }));
+    registry.register(new ServiceDialog('intersection-curve', s.intersectionCurve, {
+      edit: {
+        rowTypes: ['intersection-curve'],
+        kind: 'intersection-curve',
+        open: (t, p, i) => s.intersectionCurve.enterEdit(t, p, i),
+      },
+      picking: (d) => d.isPicking,
+      // Two surface rows: a face is a face of a body or a whole surface for
+      // the armed row, and a face of a body grows it by the right-click
+      // menu's groups or a double-click's bucket. A surface's row in the
+      // timeline lands there too.
+      claims: {
+        click: (d) => d.isPicking,
+        contextMenu: (d) => d.isPicking,
+        doubleClick: (d) => d.isPicking,
+      },
       timelinePicks: true,
     }));
     registry.register(new ServiceDialog('repeat', s.repeat, {

@@ -57,6 +57,7 @@ export const TOOL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Object
   'part:sweep': ['path', 'along'],
   'part:loft': ['blend', 'between'],
   'part:helix': ['spiral', 'thread', 'coil', 'spring'],
+  'part:intersection-curve': ['section', 'intersect', 'crossing', 'seam'],
   'part:rib': ['web', 'stiffener'],
   'part:hole': ['drill', 'bore', 'counterbore', 'countersink', 'tap'],
   'part:shell': ['hollow', 'thickness', 'thin'],

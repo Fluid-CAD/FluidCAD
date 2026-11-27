@@ -51,6 +51,7 @@ import { SweepFeatureService } from './interactive/create-feature/sweep-service'
 import { LoftFeatureService } from './interactive/create-feature/loft-service';
 import { WrapFeatureService } from './interactive/create-feature/wrap-service';
 import { HelixFeatureService } from './interactive/create-feature/helix-service';
+import { IntersectionCurveFeatureService } from './interactive/create-feature/intersection-curve-service';
 import { RepeatFeatureService } from './interactive/create-feature/repeat-service';
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
@@ -2818,6 +2819,22 @@ const helixService = new HelixFeatureService(container, viewer, navbar,
     onSuspendSketchUI: suspendSketchForFeature,
     onResumeSketchUI: resumeSketchForFeature,
   });
+const intersectionCurveService = new IntersectionCurveFeatureService(container, viewer, navbar,
+  curvesMenu.add({
+    id: 'intersection-curve',
+    label: 'Intersect',
+    iconSrc: iconUrl('intersection-curve'),
+    tip: 'The curve where two sets of faces or surfaces meet',
+    order: 10,
+  }),
+  {
+    onEnter: () => {
+      enterPartDialog('intersection-curve');
+    },
+    onActiveChange: syncSketchButtonBlocked,
+    onSuspendSketchUI: suspendSketchForFeature,
+    onResumeSketchUI: resumeSketchForFeature,
+  });
 // Constructed after the transform services so its own navbar group registers
 // after theirs (…, | Mirror, Translate, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
@@ -2875,6 +2892,7 @@ PartFeatureDialogs.register(featureDialogs, {
   wrap: wrapService,
   loft: loftService,
   helix: helixService,
+  intersectionCurve: intersectionCurveService,
   repeat: repeatService,
   copy: copyService,
   mirror: mirrorService,

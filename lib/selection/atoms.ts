@@ -10,6 +10,7 @@ import { EdgeProbe, FaceProbe } from "./probe.js";
 import { EdgeProperties } from "../oc/edge-props.js";
 import { FaceProperties } from "../oc/face-props.js";
 import { FaceQuery } from "../oc/face-query.js";
+import { FaceProps } from "../oc/face-props.js";
 import { mmTol } from "../units/tolerance.js";
 import { Shape } from "../common/shape.js";
 import { ShapeMeasure } from "../oc/shape-measure.js";
@@ -65,6 +66,12 @@ export type Atom<B> = {
    */
   ref?: SceneObject;
   /**
+   * A second producer the rendered code references, through the `{{ref2}}`
+   * placeholder (`between({{ref}}.faces(), {{ref2}}.sideFaces())`); bound
+   * and substituted like `ref`. It may be `ref` itself.
+   */
+  ref2?: SceneObject;
+  /**
    * The code passes `ref`'s variable whole — `from({{ref}})` — rather than
    * chaining an accessor on it. Any feature-producing call binds for that
    * use, not only the ones with selector accessors.
@@ -111,6 +118,20 @@ export type FaceSource = {
   members: Face[];
   plane: Plane | null;
   /** Evaluates the accessor exactly as the emitted `<var>.<accessor>()` would. */
+  resolve: () => SceneObject;
+};
+
+/**
+ * A bindable feature's edge group, usable as a reference inside a filter:
+ * `adjacentTo(s.boundaryEdges())` — the faces along a surface's rim. The
+ * edge counterpart of {@link FaceSource}: `members` are the group's
+ * recorded edges, `resolve` evaluates `<var>.<accessor>()` as the emitted
+ * code would.
+ */
+export type EdgeSource = {
+  feature: SceneObject;
+  accessor: string;
+  members: Edge[];
   resolve: () => SceneObject;
 };
 
@@ -298,6 +319,11 @@ export function instantiateEdgeAtoms(
     atoms.push(...belongsToFaceAtoms(probes, params));
     atoms.push(...wireRefAtoms(probes, faceSources));
     atoms.push(...bodyKindAtoms<EdgeFilterBuilder>(probes, bodyKinds));
+    if (TopologyGate.edges(probes)) {
+      atoms.push(...boundaryAtoms(probes, universe));
+      atoms.push(...betweenAtoms(probes, faceSources));
+      atoms.push(...boundaryOfAtoms(probes, faceSources));
+    }
   }
 
   return atoms;
@@ -379,6 +405,7 @@ export function instantiateFaceAtoms(
   faceSources: FaceSource[] = [],
   fromSources: FromSource[] = [],
   bodyKinds: ReadonlySet<BodyKind> = new Set(),
+  edgeSources: EdgeSource[] = [],
 ): FaceAtom[] {
   const atoms: FaceAtom[] = [];
   atoms.push(...fromAtoms<FaceFilterBuilder>(fromSources));
@@ -512,6 +539,10 @@ export function instantiateFaceAtoms(
     (b, plane, offset) => offset === 0 ? b.above(plane) : b.above(plane, offset),
     (b, plane, offset) => offset === 0 ? b.below(plane) : b.below(plane, offset)));
 
+  if (TopologyGate.faces(probes)) {
+    atoms.push(...adjacentToAtoms(probes, faceSources, edgeSources));
+  }
+
   return atoms;
 }
 
@@ -635,6 +666,205 @@ function belongsToFaceAtoms(probes: EdgeProbe[], params: ParameterLink[]): EdgeA
     });
   }
 
+  return atoms;
+}
+
+/** The face kinds step 08 added: what no plane, cylinder, cone, sphere or torus class describes. */
+const TOPOLOGY_FACE_KINDS: ReadonlySet<FaceProperties['surfaceType']> = new Set(['freeform', 'revolved', 'extruded']);
+/** The curve kinds step 08 added a class for or left unnamed: no line, arc or circle. */
+const TOPOLOGY_CURVE_KINDS: ReadonlySet<EdgeProperties['curveType']> = new Set(['spline', 'ellipse', 'other']);
+
+/**
+ * When the topology atoms — `boundary()`, `between(…)`, `boundaryOf(…)`,
+ * `adjacentTo(…)` — are offered: a pick lies on a surface body, or is (or,
+ * for an edge, bounds a face) of a kind step 08 added — a free-form,
+ * revolved or extruded face, a spline, an ellipse or another curve.
+ *
+ * Gated by circumstance, not by weight. Induction takes the descriptive
+ * atom that eliminates the most candidates and weighs only ties, so a light
+ * atom that applies to a solid's pick displaces what that pick wrote
+ * whatever its weight — and these apply everywhere: every edge of an
+ * extruded prism lies between its side faces and its end faces, and bounds
+ * exactly one face of each face bucket. A pick on a solid bounded by
+ * planes, cylinders, cones, spheres and tori is offered exactly the atoms
+ * it always was, so an existing model's picks keep writing their code. The
+ * topology atoms join where the classes and planes have little to say: a
+ * surface's rim and folds, and the faces and curves no elementary class
+ * names, where which faces meet is what survives an edit.
+ */
+export const TopologyGate = {
+  edges(probes: EdgeProbe[]): boolean {
+    return probes.some(p => p.bodyKind === 'surface'
+      || TOPOLOGY_CURVE_KINDS.has(p.props.curveType)
+      || p.adjacentFaces.some(f => TOPOLOGY_FACE_KINDS.has(f.surfaceType)));
+  },
+
+  faces(probes: FaceProbe[]): boolean {
+    return probes.some(p => p.bodyKind === 'surface' || TOPOLOGY_FACE_KINDS.has(p.props.surfaceType));
+  },
+};
+
+/**
+ * `boundary()` — every pick is on the open rim of its surface, and the
+ * universe holds an edge that is not a pick. Constant-free and the plainest
+ * name a rim has; it ranks with the classes that describe a pick outright
+ * (27), below the class atoms themselves.
+ */
+function boundaryAtoms(probes: EdgeProbe[], universe: Edge[]): EdgeAtom[] {
+  if (!probes.every(p => p.rim) || universe.length <= probes.length) {
+    return [];
+  }
+  return [{ code: '.boundary()', addTo: b => b.boundary(), weight: 27, constants: 0, needsScope: true }];
+}
+
+/** The kind filters a `between(face().<kind>(), …)` atom may name, in the order it writes them. */
+const BETWEEN_KINDS = ['planar', 'cylinder', 'cylinderCurve', 'cone', 'sphere', 'torus', 'revolved', 'extruded', 'freeform'] as const;
+type BetweenKind = typeof BETWEEN_KINDS[number];
+
+/** The kind filter that admits a face, never sized: a flat face of any outline is `planar()`. */
+function kindFilterName(props: FaceProperties): BetweenKind {
+  switch (props.surfaceType) {
+    case 'plane':
+    case 'circle':
+      return 'planar';
+    case 'cylinder':
+      return cylinderFilterName(props)!;
+    default:
+      return props.surfaceType;
+  }
+}
+
+/**
+ * Whether a face group holds `face` itself. The predicates also read a
+ * referenced face by its surface, so a face a later fillet rebuilt still
+ * counts; an atom is offered only on the group's own faces, or a box's
+ * bottom would offer itself to every face that happens to share its plane —
+ * another body's floor, a sheet lying on it — and write a reference no one
+ * meant. The oracle then runs the predicate as written, surface reading
+ * included.
+ */
+function namesFace(source: { members: Face[] }, face: Face): boolean {
+  return source.members.some(member => member.getShape().IsSame(face.getShape()));
+}
+
+/**
+ * `between(…)` atoms: the two faces every pick lies between, named
+ *
+ * - by reference (22) — two face groups a variable can name, the same group
+ *   twice for the edges inside one (`between(s.faces(), s.faces())`); and
+ * - by kind (19) — `between(face().planar(), face().freeform())`, kinds only,
+ *   never a size, so no dimension edit can break it.
+ *
+ * Offered when every pick bounds two faces (a rim edge lies between
+ * nothing) and some pair of its faces is in the two groups.
+ */
+function betweenAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
+  if (probes.some(p => p.owningFaces.length < 2)) {
+    return [];
+  }
+  const atoms: EdgeAtom[] = [];
+  /** Whether some two distinct faces of each pick satisfy `inA` and `inB`. */
+  const everyPickBetween = (inA: (probe: number, face: number) => boolean, inB: (probe: number, face: number) => boolean) =>
+    probes.every((p, k) => p.owningFaces.some((_, i) =>
+      inA(k, i) && p.owningFaces.some((__, j) => i !== j && inB(k, j))));
+
+  const kinds = probes.map(p => p.owningFaces.map(face => kindFilterName(FaceProps.of(face))));
+  for (let a = 0; a < BETWEEN_KINDS.length; a++) {
+    for (let b = a; b < BETWEEN_KINDS.length; b++) {
+      const [kindA, kindB] = [BETWEEN_KINDS[a], BETWEEN_KINDS[b]];
+      if (!everyPickBetween((k, i) => kinds[k][i] === kindA, (k, j) => kinds[k][j] === kindB)) {
+        continue;
+      }
+      atoms.push({
+        code: `.between(face().${kindA}(), face().${kindB}())`,
+        addTo: builder => builder.between(new FaceFilterBuilder()[kindA](), new FaceFilterBuilder()[kindB]()),
+        weight: 19, constants: 0, needsScope: true,
+      });
+    }
+  }
+
+  // Only groups that hold a face of the first pick can be either side.
+  const candidates = sources.filter(source => probes[0].owningFaces.some(face => namesFace(source, face)));
+  const named = probes.map(p => p.owningFaces.map(face => new Set(candidates.filter(source => namesFace(source, face)))));
+  let offered = 0;
+  for (let a = 0; a < candidates.length && offered < MAX_REFERENCE_ATOMS; a++) {
+    for (let b = a; b < candidates.length && offered < MAX_REFERENCE_ATOMS; b++) {
+      const [groupA, groupB] = [candidates[a], candidates[b]];
+      if (!everyPickBetween((k, i) => named[k][i].has(groupA), (k, j) => named[k][j].has(groupB))) {
+        continue;
+      }
+      offered++;
+      atoms.push({
+        code: `.between({{ref}}.${groupA.accessor}(), {{ref2}}.${groupB.accessor}())`,
+        addTo: builder => builder.between(groupA.resolve() as unknown as ISceneObject, groupB.resolve() as unknown as ISceneObject),
+        weight: 22, constants: 0, needsScope: true,
+        ref: groupA.feature, ref2: groupB.feature,
+      });
+    }
+  }
+  return atoms;
+}
+
+/** How many reference atoms of one predicate a pick is offered: each costs an evaluation over the universe. */
+const MAX_REFERENCE_ATOMS = 4;
+
+/**
+ * `boundaryOf({{ref}})` — the perimeter of a face group a variable can name:
+ * every pick bounds exactly one face of the group. Whether the picks are the whole
+ * perimeter or a part the rest of the conjunction narrows is induction's
+ * to find and the oracle's to confirm.
+ */
+function boundaryOfAtoms(probes: EdgeProbe[], sources: FaceSource[]): EdgeAtom[] {
+  const atoms: EdgeAtom[] = [];
+  for (const source of sources) {
+    if (atoms.length >= MAX_REFERENCE_ATOMS) {
+      break;
+    }
+    if (!probes.every(p => p.owningFaces.filter(face => namesFace(source, face)).length === 1)) {
+      continue;
+    }
+    atoms.push({
+      code: `.boundaryOf({{ref}}.${source.accessor}())`,
+      addTo: b => b.boundaryOf(source.resolve() as unknown as ISceneObject),
+      weight: 21, constants: 0, needsScope: true,
+      ref: source.feature,
+    });
+  }
+  return atoms;
+}
+
+/**
+ * `adjacentTo({{ref}})` — a face or edge group a variable can name that
+ * every picked face touches: it shares an edge with a face of the group
+ * (and is not one, as the predicate leaves the group's own faces out), or
+ * one of its edges is in the edge group (`adjacentTo(s.boundaryEdges())`,
+ * the faces along a rim). Edge groups are read by identity, as the
+ * predicate reads an edge reference.
+ */
+function adjacentToAtoms(probes: FaceProbe[], faceSources: FaceSource[], edgeSources: EdgeSource[]): FaceAtom[] {
+  const atoms: FaceAtom[] = [];
+  const offer = (source: { feature: SceneObject; accessor: string; resolve: () => SceneObject }) => atoms.push({
+    code: `.adjacentTo({{ref}}.${source.accessor}())`,
+    addTo: b => b.adjacentTo(source.resolve() as unknown as ISceneObject),
+    weight: 21, constants: 0, needsScope: true,
+    ref: source.feature,
+  });
+  for (const source of faceSources) {
+    if (atoms.length >= MAX_REFERENCE_ATOMS) {
+      return atoms;
+    }
+    if (probes.every(p => !namesFace(source, p.face) && p.neighbours.some(face => namesFace(source, face)))) {
+      offer(source);
+    }
+  }
+  for (const source of edgeSources) {
+    if (atoms.length >= MAX_REFERENCE_ATOMS) {
+      return atoms;
+    }
+    if (probes.every(p => p.face.getEdges().some(edge => source.members.some(member => member.getShape().IsSame(edge.getShape()))))) {
+      offer(source);
+    }
+  }
   return atoms;
 }
 

@@ -85,6 +85,27 @@ export const TopologySheets = {
       box.dispose();
     }
   },
+
+  /**
+   * A cup: the wall of a cylinder of radius `r` around Z from z = 0 to `h`,
+   * and the disc that closes its bottom. Two faces meeting along the bottom
+   * circle — the edge between a planar face and a cylindrical one — and one
+   * rim loop, the top circle.
+   */
+  cup(r: number, h: number): Sheet {
+    const oc = getOC();
+    const maker = new oc.BRepPrimAPI_MakeCylinder(r, h);
+    const cylinder = ShapeFactory.adopt(maker.Shape()) as Solid;
+    maker.delete();
+    try {
+      const kept = cylinder.getFaces().filter(face => face.center().z < h - 1e-9);
+      const [sheet, ...rest] = SheetOps.fromFaces(kept);
+      for (const extra of rest) extra.dispose();
+      return sheet;
+    } finally {
+      cylinder.dispose();
+    }
+  },
 };
 
 /** A closed polygon on XY through `points`. */

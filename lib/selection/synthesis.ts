@@ -10,7 +10,7 @@ import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { MirrorIndex } from "../filters/mirror-index.js";
 import { SelectionIndex, BucketRecord, SubShapeKind } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { ParameterLink, FaceSource, FromSource } from "./atoms.js";
+import { ParameterLink, EdgeSource, FaceSource, FromSource } from "./atoms.js";
 import { PickRef, SelectionScene } from "./types.js";
 import {
   bucketContext,
@@ -206,7 +206,10 @@ export function synthesizeSelectors(
     return null;
   };
 
-  const faceSources = collectFaceSources(index, stmtBindable);
+  const groupSources: GroupSources = {
+    faces: collectFaceSources(index, stmtBindable),
+    edges: collectEdgeSources(index, stmtBindable),
+  };
 
   // Bucket groups synthesize first but commit last: a global pool that can't
   // resolve on its own may need to absorb same-kind bucket picks (see below),
@@ -239,7 +242,7 @@ export function synthesizeSelectors(
       // leads when it needs no baked constant.
       if (wholeFamilies.length > 0) {
         const attempt = synthesizeGlobalCandidates(
-          scene, index, kind, [...pool, ...wholeFamilies.flatMap(e => e.attrs)], params, faceSources, stmtBindable,
+          scene, index, kind, [...pool, ...wholeFamilies.flatMap(e => e.attrs)], params, groupSources, stmtBindable,
         );
         if (attempt.ok && (attempt.candidates[0].bakedConstants ?? 0) === 0) {
           result = attempt;
@@ -249,7 +252,7 @@ export function synthesizeSelectors(
 
       let alone: GroupResult | null = null;
       if (!result) {
-        alone = synthesizeGlobalCandidates(scene, index, kind, pool, params, faceSources, stmtBindable);
+        alone = synthesizeGlobalCandidates(scene, index, kind, pool, params, groupSources, stmtBindable);
         if (alone.ok) {
           result = alone;
         }
@@ -275,7 +278,7 @@ export function synthesizeSelectors(
           }
           tried.add(key);
           const mergedPool = [...pool, ...merge.flatMap(e => e.attrs)];
-          const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, faceSources, stmtBindable);
+          const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, groupSources, stmtBindable);
           if (retry.ok) {
             result = retry;
             merged = merge;
@@ -292,7 +295,7 @@ export function synthesizeSelectors(
         // geometric form because ownership moves to whichever later feature
         // rebuilds the solid, which a geometric filter survives.
         const owned = synthesizeGlobalCandidates(
-          scene, index, kind, pool, params, faceSources, stmtBindable, true,
+          scene, index, kind, pool, params, groupSources, stmtBindable, true,
         );
         if (owned.ok) {
           result = owned;
@@ -320,7 +323,7 @@ export function synthesizeSelectors(
     // partial family keeps its instance addresses.
     for (const family of collectWholeFamilies(sameKind()).values()) {
       const familyPool = family.flatMap(e => e.attrs);
-      const merged = synthesizeGlobalCandidates(scene, index, kind, familyPool, params, faceSources, stmtBindable);
+      const merged = synthesizeGlobalCandidates(scene, index, kind, familyPool, params, groupSources, stmtBindable);
       if (merged.ok && (merged.candidates[0].bakedConstants ?? 0) === 0) {
         for (const e of family) {
           absorbed.add(e.bucket);
@@ -355,7 +358,7 @@ export function synthesizeSelectors(
   }
 
   for (const chain of chains) {
-    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params, faceSources, stmtBindable));
+    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params, groupSources, stmtBindable));
     if (failure) {
       return failure;
     }
@@ -440,6 +443,41 @@ function collectFaceSources(
   // their original. A reference should name the original's group
   // (`e.endFaces()`, not `r.instance(2).endFaces()`) when both describe the
   // same plane, so originals lead; the sort is stable within each half.
+  return sources.sort((a, b) => Number(a.accessor.startsWith('instance(')) - Number(b.accessor.startsWith('instance(')));
+}
+
+/** The bindable features' face and edge groups a filter may reference (`onPlane(e.endFaces())`, `adjacentTo(s.boundaryEdges())`). */
+type GroupSources = { faces: FaceSource[]; edges: EdgeSource[] };
+
+/**
+ * Edge groups usable as filter references — `adjacentTo(s.boundaryEdges())`
+ * — every bindable feature's edge bucket with its as-built members, the
+ * edge counterpart of {@link collectFaceSources}, originals ahead of a
+ * repeat's copies.
+ */
+function collectEdgeSources(
+  index: SelectionIndex,
+  stmtBindable?: StatementBindable,
+): EdgeSource[] {
+  const sources: EdgeSource[] = [];
+  for (const bucket of index.buckets) {
+    if (bucket.def.kind !== 'edge' || bucket.members.length === 0
+      || checkBindable(index, bucket.feature) !== null
+      || !(stmtBindable?.(bucket.feature) ?? true)) {
+      continue;
+    }
+    const members = bucket.members.filter((m): m is Edge => m instanceof Edge);
+    if (members.length !== bucket.members.length) {
+      continue;
+    }
+    const binding = producerBinding(bucket.feature);
+    sources.push({
+      feature: binding.producer,
+      accessor: `${binding.accessorPrefix}${bucket.def.accessor}`,
+      members,
+      resolve: () => binding.resolveAccessor(bucket.def.accessor),
+    });
+  }
   return sources.sort((a, b) => Number(a.accessor.startsWith('instance(')) - Number(b.accessor.startsWith('instance(')));
 }
 
@@ -898,7 +936,7 @@ function synthesizeGlobalCandidates(
   kind: 'edge' | 'face',
   pool: PickAttribution[],
   params: ParameterLink[],
-  faceSources: FaceSource[],
+  sources: GroupSources,
   stmtBindable?: StatementBindable,
   scopeByOwner = false,
 ): GroupResult {
@@ -909,7 +947,7 @@ function synthesizeGlobalCandidates(
 
   const pickKeys = new Set(pool.map(a => a.pickedKey!));
   const ctx = globalContext(
-    scene, index, kind, params, scope.part, faceSources, fromSources(index, pool, scopeByOwner, stmtBindable),
+    scene, index, kind, params, scope.part, sources.faces, fromSources(index, pool, scopeByOwner, stmtBindable), sources.edges,
   );
   const induced = induceFilterCandidates(index, ctx, pool, pickKeys);
   if (induced.length === 0) {
@@ -1132,7 +1170,7 @@ function synthesizeChainCandidates(
   index: SelectionIndex,
   chain: SelectorChain,
   params: ParameterLink[],
-  faceSources: FaceSource[],
+  sources: GroupSources,
   stmtBindable?: StatementBindable,
 ): GroupResult {
   const kind = chain.seed.ref.sub.type;
@@ -1159,8 +1197,8 @@ function synthesizeChainCandidates(
     return scope;
   }
   const globalForms = (scopeByOwner: boolean): SelectorPart[] => selectChainForms(index, globalContext(
-    scene, index, kind, params, scope.part, faceSources,
-    fromSources(index, [chain.seed, ...chain.members], scopeByOwner, stmtBindable),
+    scene, index, kind, params, scope.part, sources.faces,
+    fromSources(index, [chain.seed, ...chain.members], scopeByOwner, stmtBindable), sources.edges,
   ), chain);
 
   // Owner scopes only as a last resort, exactly as for free picks (see

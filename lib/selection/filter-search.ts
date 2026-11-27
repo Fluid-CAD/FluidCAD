@@ -16,7 +16,7 @@ import { ISceneObject } from "../core/interfaces.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
 import {
-  Atom, ParameterLink, FaceSource, FromSource, instantiateEdgeAtoms, instantiateFaceAtoms,
+  Atom, ParameterLink, EdgeSource, FaceSource, FromSource, instantiateEdgeAtoms, instantiateFaceAtoms,
 } from "./atoms.js";
 import { induceConjunctions } from "./induction.js";
 import { bodyKindOf, probeEdge, probeFace } from "./probe.js";
@@ -105,6 +105,7 @@ export function globalContext(
   partScope: SceneObject | null = null,
   faceSources: FaceSource[] = [],
   fromSources: FromSource[] = [],
+  edgeSources: EdgeSource[] = [],
 ): InductionContext {
   // A face-group reference renders as `<var>.<accessor>()`, and the
   // variable only exists inside the part() callback that declared it — a
@@ -115,6 +116,9 @@ export function globalContext(
     source => scene.findEnclosingPart(source.feature) === partScope,
   );
   const scopedFromSources = fromSources.filter(
+    source => scene.findEnclosingPart(source.feature) === partScope,
+  );
+  const scopedEdgeSources = edgeSources.filter(
     source => scene.findEnclosingPart(source.feature) === partScope,
   );
   const { bodies, scope } = scopeBodies(scene, partScope);
@@ -167,6 +171,7 @@ export function globalContext(
         scopedFaceSources,
         scopedFromSources,
         bodyKinds,
+        scopedEdgeSources,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit: true,
   };
@@ -391,7 +396,10 @@ export function induceFilterCandidates(
     const filterArgs = conjunctions
       .map(conj => `${ctx.kindFn}()${[...prefix, ...conj].map(a => renderAtomCode(a, refs)).join('')}`)
       .join(', ');
-    const accessorRefs = new Set([...prefix, ...conjunctions.flat()].filter(a => a.ref && !a.wholeRef).map(a => a.ref!));
+    const accessorRefs = new Set([...prefix, ...conjunctions.flat()].flatMap(a => [
+      ...(a.ref && !a.wholeRef ? [a.ref] : []),
+      ...(a.ref2 ? [a.ref2] : []),
+    ]));
     const wholeRefs = refs.filter(ref => !accessorRefs.has(ref));
     const constants = conjunctions.reduce(
       (sum, conj) => sum + conj.reduce((s, a) => s + a.constants, 0), 0,
@@ -410,15 +418,19 @@ export function induceFilterCandidates(
  * (deduplicated — two atoms naming the same feature share one token).
  */
 function renderAtomCode(atom: Atom<FilterBuilderBase<Shape>>, refs: SceneObject[]): string {
-  if (!atom.ref) {
-    return atom.code;
+  let code = atom.code;
+  for (const [placeholder, ref] of [['{{ref}}', atom.ref], ['{{ref2}}', atom.ref2]] as const) {
+    if (!ref) {
+      continue;
+    }
+    let index = refs.indexOf(ref);
+    if (index < 0) {
+      refs.push(ref);
+      index = refs.length - 1;
+    }
+    code = code.replaceAll(placeholder, `{{r${index}}}`);
   }
-  let index = refs.indexOf(atom.ref);
-  if (index < 0) {
-    refs.push(atom.ref);
-    index = refs.length - 1;
-  }
-  return atom.code.replaceAll('{{ref}}', `{{r${index}}}`);
+  return code;
 }
 
 export function newBuilder(kind: 'edge' | 'face'): FilterBuilderBase<Shape> {

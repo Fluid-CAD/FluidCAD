@@ -43,6 +43,12 @@ export type EdgeProbe = {
   /** The same faces as wrappers, for loop lookups (`outerOf(ref)` / `holeOf(ref)`). */
   owningFaces: Face[];
   /**
+   * On the open rim of the surface it was picked on: it bounds one face of
+   * the body (`BodyShape.isBoundaryEdge`, what `edge().boundary()` asks). A
+   * solid has no rim, so a solid's edge is never asked.
+   */
+  rim: boolean;
+  /**
    * Outer corner, inner corner, or tangent transition within the owning
    * solid. Null on a surface: which side of an open sheet is "outward" is
    * its faces' own orientation, arbitrary for an import, so a corner there
@@ -67,6 +73,13 @@ export type FaceProbe = {
   center: Point;
   /** Area — what `largest()`/`smallest()` compare faces by. */
   size: number;
+  /**
+   * The faces of the owning body that share an edge with this one, as the
+   * body's own wrappers — what `adjacentTo(ref)` atoms test a face group
+   * against. Read on first use, off the body's edge→faces table; empty for
+   * a face no body owns.
+   */
+  readonly neighbours: Face[];
 };
 
 /**
@@ -105,6 +118,7 @@ export function probeEdge(edge: Edge, owner: Shape | null): EdgeProbe {
     size: ShapeMeasure.size(edge),
     adjacentFaces,
     owningFaces,
+    rim: !!body && body.isSheet() && body.isBoundaryEdge(edge.getShape()),
     convexity,
   };
 }
@@ -121,13 +135,30 @@ export function probeFace(face: Face, owner: Shape | null): FaceProbe {
     points.push(...EdgeOps.endPoints(edge));
     points.push(EdgeOps.getEdgeMidPoint(edge));
   }
+  let neighbours: Face[] | null = null;
   return {
     face, props, edgeProps, points, edgeCount: edges.length,
     bodyKind: body ? bodyKindOf(body) : null,
     meanNormal: FaceQuery.meanNormal(face),
     center: ShapeMeasure.centerOfMass(face),
     size: ShapeMeasure.size(face),
+    get neighbours() {
+      return neighbours ??= body ? neighbourFaces(face, edges, body) : [];
+    },
   };
+}
+
+/** The body's faces that share one of `edges` (the face's own) with `face`, each once, `face` itself left out. */
+function neighbourFaces(face: Face, edges: Edge[], body: BodyShape): Face[] {
+  const found = new Set<Face>();
+  for (const edge of edges) {
+    for (const other of body.getFacesOfEdge(edge)) {
+      if (!other.getShape().IsSame(face.getShape())) {
+        found.add(other);
+      }
+    }
+  }
+  return [...found];
 }
 
 /** The body a pick was made on, or null for a curve or no shape at all. */

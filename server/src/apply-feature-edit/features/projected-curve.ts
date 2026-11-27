@@ -1,11 +1,11 @@
 // project(source, target) outside a sketch: option types, statement rendering, chain parsing and the edit renderer.
 
 import type { TSNode } from '../../code-editor/index.ts';
-import { choiceArgValue } from '../ast/args.ts';
 import type { ChainSegment } from '../ast/chain.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
-import { Directions, type DirectionSpec } from './direction.ts';
-import { OperandPicks, type OperandEdit, type OperandPick } from './operand-picks.ts';
+import { Directions, type DirectionEdit, type DirectionSpec } from './direction.ts';
+import { OperandRows, type RowEdits, type RowPicks } from './operand-rows.ts';
+import { WordOption } from './word-option.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 
 /**
@@ -24,6 +24,12 @@ export const PROJECTION_KEEPS = ['nearest', 'all'] as const;
 export type ProjectionMode = typeof PROJECTION_MODES[number];
 export type ProjectionKeep = typeof PROJECTION_KEEPS[number];
 
+/** `.mode()`: how each point travels. */
+export const PROJECTION_MODE = new WordOption<ProjectionMode>('mode', PROJECTION_MODES);
+
+/** `.keep()`: which images stay. */
+export const PROJECTION_KEEP = new WordOption<ProjectionKeep>('keep', PROJECTION_KEEPS);
+
 /**
  * The engine's refusal of a `.direction(…)` with `.mode('normal')`, word for
  * word: the route, the transform and the edit refuse such a statement as the
@@ -31,16 +37,28 @@ export type ProjectionKeep = typeof PROJECTION_KEEPS[number];
  */
 export const DIRECTION_WITH_NORMAL = `project: .direction() is for mode 'direction'.`;
 
-/** The two arguments of `project(source, target)`, as the refusals name them. */
-const SLOTS = { source: 'the source', target: 'the target' } as const;
+/** The two arguments of `project(source, target)`. */
+export type ProjectedCurveRow = 'source' | 'target';
 
-/** What each argument holds: curves for the source, faces for the target. */
-const SLOT_KINDS = { source: 'curve', target: 'surface' } as const;
+/**
+ * The rows `project(source, target)` is written from: the source a row of
+ * curve picks — a sketch or a curve whole by its statement's variable, an
+ * edge of a body by its selector — and the target a row of surface picks —
+ * a surface whole, a face of a body by its selector — with the words of
+ * their refusals.
+ */
+export const PROJECTED_CURVE_ROWS = new OperandRows<ProjectedCurveRow>({
+  callee: PROJECTED_CURVE_CALLEE,
+  tool: 'projected curve',
+  rows: {
+    source: { kind: 'curve', label: 'the source', wants: 'a sketch, a curve or edges' },
+    target: { kind: 'surface', label: 'the target', wants: 'a surface or faces' },
+  },
+  shapeError: 'project() outside a sketch takes the curves and the faces to project them onto as its two arguments — edit it in the source',
+});
 
-/** What an empty argument is asked to hold, as a refusal says it. */
-const WANTS = { source: 'a sketch, a curve or edges', target: 'a surface or faces' } as const;
-
-type Slot = keyof typeof SLOTS;
+/** What else than a row's pick may render a selector part: a picked edge or face direction. */
+const PART_OWNERS = 'one pick or the direction';
 
 /**
  * How a projected curve statement is rendered and placed:
@@ -54,9 +72,7 @@ type Slot = keyof typeof SLOTS;
  * mode `'normal'` it must be null. It lands at the end of the scope its picks
  * pin, where a picked edge or face is known to resolve.
  */
-export type ProjectedCurveEditOptions = {
-  source: OperandPick[];
-  target: OperandPick[];
+export type ProjectedCurveEditOptions = RowPicks<ProjectedCurveRow> & {
   mode: ProjectionMode;
   direction: DirectionSpec | null;
   keep: ProjectionKeep;
@@ -66,7 +82,7 @@ export type ProjectedCurveEditOptions = {
  * An edit's `.direction(…)`: the statement's own argument kept as written
  * (an absent one too), the chain dropped, or a new direction.
  */
-export type ProjectedCurveDirectionEdit = { kind: 'keep' } | { kind: 'cleared' } | DirectionSpec;
+export type ProjectedCurveDirectionEdit = DirectionEdit;
 
 /**
  * An edit of a projected curve: each argument the statement's own, verbatim,
@@ -74,9 +90,7 @@ export type ProjectedCurveDirectionEdit = { kind: 'keep' } | { kind: 'cleared' }
  * replaced when given, else as the statement has them; the direction kept,
  * cleared or new.
  */
-export type ProjectedCurveEdit = {
-  source?: OperandEdit;
-  target?: OperandEdit;
+export type ProjectedCurveEdit = RowEdits<ProjectedCurveRow> & {
   mode?: ProjectionMode;
   direction?: ProjectedCurveDirectionEdit;
   keep?: ProjectionKeep;
@@ -93,25 +107,31 @@ type ProjectedCurveChains = {
   keep: ProjectionKeep;
 };
 
+/** The statement from its two argument texts and its options, each chain left out at its default, in canonical order. */
+function statementOf(args: Record<ProjectedCurveRow, string>, chains: ProjectedCurveChains): string {
+  return PROJECTED_CURVE_ROWS.call(args)
+    + PROJECTION_MODE.chain(chains.mode)
+    + Directions.chain(chains.direction)
+    + PROJECTION_KEEP.chain(chains.keep);
+}
+
 /**
- * Render a projected curve statement from its two argument texts (see
- * {@link OperandPicks.argument}) and its options: `.mode('normal')`,
- * `.direction(…)`, `.keep('all')`, each left out at its default. Shared with
- * the route's preview so the previewed text is exactly what the transform
- * writes.
+ * Render a projected curve statement from its rows' picks and its options,
+ * each producer under `varFor`'s variable: `.mode('normal')`,
+ * `.direction(…)`, `.keep('all')`, each left out at its default. Shared by
+ * the route's preview and the transform, so the previewed text is exactly
+ * what the transform writes.
  */
-export function renderProjectedCurveStatement(source: string, target: string, chains: ProjectedCurveChains): string {
-  let statement = `${PROJECTED_CURVE_CALLEE}(${source}, ${target})`;
-  if (chains.mode !== PROJECTION_MODES[0]) {
-    statement += `.mode('${chains.mode}')`;
-  }
-  if (chains.direction !== null) {
-    statement += `.direction(${chains.direction})`;
-  }
-  if (chains.keep !== PROJECTION_KEEPS[0]) {
-    statement += `.keep('${chains.keep}')`;
-  }
-  return statement;
+export function renderProjectedCurveStatement(
+  pc: ProjectedCurveEditOptions,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string {
+  return statementOf(PROJECTED_CURVE_ROWS.arguments(pc, parts, varFor), {
+    mode: pc.mode,
+    direction: pc.direction === null ? null : Directions.render(pc.direction, parts, varFor),
+    keep: pc.keep,
+  });
 }
 
 /**
@@ -129,56 +149,27 @@ export function parseProjectedCurveChain(
   start: number,
   end: number,
 ): ChainParse {
-  if (args.length !== 2 || args.some(arg => arg.type === 'spread_element')) {
-    return { error: 'project() outside a sketch takes the curves and the faces to project them onto as its two arguments — edit it in the source' };
+  const rows = PROJECTED_CURVE_ROWS.parse(args, start);
+  if ('error' in rows) {
+    return rows;
   }
-  const mode = readChoice(recognized.get('mode'), 'mode', PROJECTION_MODES);
+  const mode = PROJECTION_MODE.read(recognized.get('mode'));
   if ('error' in mode) {
     return mode;
   }
-  const keep = readChoice(recognized.get('keep'), 'keep', PROJECTION_KEEPS);
+  const keep = PROJECTION_KEEP.read(recognized.get('keep'));
   if ('error' in keep) {
     return keep;
   }
-  const directionSeg = recognized.get('direction');
-  if (directionSeg && (directionSeg.args.length !== 1 || directionSeg.args[0].type === 'spread_element')) {
-    return { error: 'the .direction() chain has an argument shape the dialog cannot edit — edit it in the source' };
+  const direction = Directions.readChain(recognized.get('direction'));
+  if ('error' in direction) {
+    return direction;
   }
-  const source = OperandPicks.parse(args[0], start);
-  const target = OperandPicks.parse(args[1], start);
   return {
-    parsed: {
-      feature: 'projected-curve',
-      sourceTexts: source.texts,
-      sourceRefs: source.refs,
-      targetTexts: target.texts,
-      targetRefs: target.refs,
-      sourceArg: args[0].text,
-      targetArg: args[1].text,
-      mode: mode.value,
-      directionText: directionSeg ? directionSeg.args[0].text : null,
-      keep: keep.value,
-    },
+    parsed: { feature: 'projected-curve', ...rows, mode: mode.value, directionText: direction.text, keep: keep.value },
     start,
     end,
   };
-}
-
-/** A `.mode()` / `.keep()` chain's word: the default when the chain is absent. */
-function readChoice<T extends string>(
-  segment: ChainSegment | undefined,
-  name: string,
-  choices: readonly T[],
-): { value: T } | { error: string } {
-  if (!segment) {
-    return { value: choices[0] };
-  }
-  const value = segment.args.length === 1 ? choiceArgValue(segment.args[0], choices) : null;
-  if (value === null) {
-    const words = choices.map(choice => `'${choice}'`).join(' or ');
-    return { error: `the .${name}() argument is not ${words} — edit it in the source` };
-  }
-  return { value };
 }
 
 /**
@@ -192,29 +183,25 @@ function readChoice<T extends string>(
  */
 export function projectedCurveCreateError(spec: ApplyFeatureEditSpec): string | null {
   const pc = spec.projectedCurve;
-  if (!pc || !(PROJECTION_MODES as readonly unknown[]).includes(pc.mode)
-    || !(PROJECTION_KEEPS as readonly unknown[]).includes(pc.keep)) {
-    return 'malformed projected curve edit spec';
+  if (!pc || !PROJECTION_MODE.has(pc.mode) || !PROJECTION_KEEP.has(pc.keep)) {
+    return PROJECTED_CURVE_ROWS.malformed();
   }
-  const parts: number[] = [];
-  for (const slot of ['source', 'target'] as const) {
-    const picks = slotPicks(slot, pc[slot], spec);
-    if ('error' in picks) {
-      return picks.error;
-    }
-    parts.push(...selectorParts(picks));
+  const rows = PROJECTED_CURVE_ROWS.check(pc, spec);
+  if ('error' in rows) {
+    return rows.error;
   }
+  const parts = [...rows.parts];
   if (pc.direction !== null) {
     if (pc.mode === 'normal') {
       return DIRECTION_WITH_NORMAL;
     }
     const direction = Directions.validate(pc.direction, spec);
     if ('error' in direction) {
-      return `malformed projected curve edit spec: ${direction.error}`;
+      return PROJECTED_CURVE_ROWS.malformed(direction.error);
     }
-    parts.push(...directionParts(direction));
+    parts.push(...Directions.parts(direction));
   }
-  return partsError(parts, spec);
+  return PROJECTED_CURVE_ROWS.partsError(parts, spec, PART_OWNERS);
 }
 
 /**
@@ -234,80 +221,20 @@ export function renderEditedProjectedCurve(
   const edit: ProjectedCurveEdit = spec.edit?.projectedCurve ?? {};
   const mode = edit.mode ?? parsed.mode;
   const keep = edit.keep ?? parsed.keep;
-  if (!(PROJECTION_MODES as readonly unknown[]).includes(mode) || !(PROJECTION_KEEPS as readonly unknown[]).includes(keep)) {
-    return { error: 'malformed projected curve edit spec: bad mode or keep' };
+  if (!PROJECTION_MODE.has(mode) || !PROJECTION_KEEP.has(keep)) {
+    return { error: PROJECTED_CURVE_ROWS.malformed('bad mode or keep') };
   }
-  const name = (producer: number): string | null => varFor(producer) ?? spec.producers[producer].nameHint ?? null;
-  const parts: number[] = [];
-  const args: string[] = [];
-  for (const slot of ['source', 'target'] as const) {
-    const slotEdit = edit[slot];
-    if (slotEdit === undefined || slotEdit.kind === 'keep') {
-      args.push(slot === 'source' ? parsed.sourceArg : parsed.targetArg);
-      continue;
-    }
-    if (slotEdit.kind !== 'picks') {
-      return { error: `malformed projected curve edit spec: ${SLOTS[slot]} is neither kept nor picked` };
-    }
-    const picks = slotPicks(slot, slotEdit.picks, spec);
-    if ('error' in picks) {
-      return picks;
-    }
-    parts.push(...selectorParts(picks));
-    args.push(OperandPicks.argument(OperandPicks.render(picks, spec.parts, name)));
+  const rows = PROJECTED_CURVE_ROWS.edited(edit, parsed, spec, varFor);
+  if ('error' in rows) {
+    return rows;
   }
-  let direction: string | null;
-  const directionEdit = edit.direction;
-  if (directionEdit === undefined || directionEdit.kind === 'keep') {
-    direction = parsed.directionText;
-  } else if (directionEdit.kind === 'cleared') {
-    direction = null;
-  } else {
-    const valid = Directions.validate(directionEdit, spec);
-    if ('error' in valid) {
-      return { error: `malformed projected curve edit spec: ${valid.error}` };
-    }
-    parts.push(...directionParts(valid));
-    direction = Directions.render(valid, spec.parts, name);
+  const direction = Directions.edited(edit.direction, parsed.directionText, spec, varFor);
+  if ('error' in direction) {
+    return { error: PROJECTED_CURVE_ROWS.malformed(direction.error) };
   }
-  if (mode === 'normal' && direction !== null) {
+  if (mode === 'normal' && direction.text !== null) {
     return { error: DIRECTION_WITH_NORMAL };
   }
-  const error = partsError(parts, spec);
-  if (error) {
-    return { error };
-  }
-  return { statement: renderProjectedCurveStatement(args[0], args[1], { mode, direction, keep }) };
-}
-
-/** One argument's picks, checked as a curve (source) or surface (target) operand's: a refusal names the slot, an empty one says so. */
-function slotPicks(
-  slot: Slot,
-  picks: unknown,
-  spec: Pick<ApplyFeatureEditSpec, 'producers' | 'parts'>,
-): OperandPick[] | { error: string } {
-  const valid = OperandPicks.validate(SLOT_KINDS[slot], picks, SLOTS[slot], spec);
-  if ('error' in valid) {
-    return { error: `malformed projected curve edit spec: ${valid.error}` };
-  }
-  if (valid.length === 0) {
-    return { error: `project: ${SLOTS[slot]} is empty — pick ${WANTS[slot]} for it` };
-  }
-  return valid;
-}
-
-function selectorParts(picks: OperandPick[]): number[] {
-  return picks.flatMap(pick => pick.kind === 'selector' ? [pick.part] : []);
-}
-
-/** The selector part a picked edge or face direction renders, if it is one. */
-function directionParts(direction: DirectionSpec): number[] {
-  return direction.kind === 'edge' || direction.kind === 'face' ? [direction.part ?? 0] : [];
-}
-
-/** Every selector part belongs to exactly one pick or the direction: a part nothing renders would be lost. */
-function partsError(parts: number[], spec: Pick<ApplyFeatureEditSpec, 'parts'>): string | null {
-  return parts.length === spec.parts.length && new Set(parts).size === parts.length
-    ? null
-    : 'malformed projected curve edit spec: every selector part belongs to exactly one pick or the direction';
+  const error = PROJECTED_CURVE_ROWS.partsError([...rows.parts, ...direction.parts], spec, PART_OWNERS);
+  return error ? { error } : { statement: statementOf(rows.args, { mode, direction: direction.text, keep }) };
 }

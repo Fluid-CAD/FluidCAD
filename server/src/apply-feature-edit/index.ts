@@ -104,19 +104,25 @@ export {
 } from './features/helix.ts';
 export {
   INTERSECTION_CURVE_CALLEE,
+  INTERSECTION_CURVE_ROWS,
   renderIntersectionCurveStatement,
   type IntersectionCurveEdit,
   type IntersectionCurveEditOptions,
+  type IntersectionCurveRow,
 } from './features/intersection-curve.ts';
 export {
   DIRECTION_WITH_NORMAL,
   PROJECTED_CURVE_CALLEE,
+  PROJECTED_CURVE_ROWS,
+  PROJECTION_KEEP,
   PROJECTION_KEEPS,
+  PROJECTION_MODE,
   PROJECTION_MODES,
   renderProjectedCurveStatement,
   type ProjectedCurveDirectionEdit,
   type ProjectedCurveEdit,
   type ProjectedCurveEditOptions,
+  type ProjectedCurveRow,
   type ProjectionKeep,
   type ProjectionMode,
 } from './features/projected-curve.ts';
@@ -216,7 +222,17 @@ export {
   type ParsedCustomFeature,
 } from './features/custom.ts';
 export { OperandPicks, type OperandEdit, type OperandPick } from './features/operand-picks.ts';
-export { Directions, type DirectionSpec } from './features/direction.ts';
+export {
+  OperandRows,
+  type OperandRow,
+  type OperandRowKind,
+  type OperandRowStatement,
+  type ParsedOperandRows,
+  type RowEdits,
+  type RowPicks,
+} from './features/operand-rows.ts';
+export { WordOption } from './features/word-option.ts';
+export { Directions, type DirectionEdit, type DirectionSpec } from './features/direction.ts';
 export { TypedInKinds, type TypedInExpr, type TypedInKind, type TypedInRef, type TypedInSource, type TypedInSpec, type TypedInValue } from './features/typed-in-kinds.ts';
 export {
   makeProducerBindable,

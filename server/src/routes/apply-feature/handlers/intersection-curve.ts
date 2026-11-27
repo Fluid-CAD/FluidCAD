@@ -92,9 +92,7 @@ export async function handleIntersectionCurve(ctx: ApplyFeatureRequestContext, r
     const intersectionCurve: IntersectionCurveEditOptions = { first, second };
     // Truthful preview names: the same allocation walk the transform runs.
     const producerVars = await allocateProducerVars(merger.producers, code, await ctx.currentCallees());
-    const argument = (picks: OperandPick[]): string =>
-      OperandPicks.argument(OperandPicks.render(picks, parts, i => producerVars[i]));
-    const statement = renderIntersectionCurveStatement(argument(first), argument(second));
+    const statement = renderIntersectionCurveStatement(intersectionCurve, parts, i => producerVars[i]);
     if (preview === true) {
       res.json({ success: true, preview: statement });
       return;

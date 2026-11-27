@@ -2,7 +2,7 @@
 
 import type { TSNode } from '../../code-editor/index.ts';
 import type { ChainParse, ParsedFeatureStatement } from '../parse/parsed-statement.ts';
-import { OperandPicks, type OperandEdit, type OperandPick } from './operand-picks.ts';
+import { OperandRows, type RowEdits, type RowPicks } from './operand-rows.ts';
 import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
 
 /**
@@ -12,10 +12,23 @@ import type { ApplyFeatureEditSpec, EditRenderSpec } from '../spec.ts';
  */
 export const INTERSECTION_CURVE_CALLEE = 'intersect';
 
-/** The two arguments of `intersect(first, second)`, as the refusals name them. */
-const SLOTS = { first: 'the first selection', second: 'the second selection' } as const;
+/** The two arguments of `intersect(first, second)`. */
+export type IntersectionCurveRow = 'first' | 'second';
 
-type Slot = keyof typeof SLOTS;
+/**
+ * The rows `intersect(first, second)` is written from: two rows of surface
+ * picks — a surface whole, by its statement's variable, a face of a body by
+ * its selector — and the words of their refusals.
+ */
+export const INTERSECTION_CURVE_ROWS = new OperandRows<IntersectionCurveRow>({
+  callee: INTERSECTION_CURVE_CALLEE,
+  tool: 'intersection curve',
+  rows: {
+    first: { kind: 'surface', label: 'the first selection', wants: 'a surface or faces' },
+    second: { kind: 'surface', label: 'the second selection', wants: 'a surface or faces' },
+  },
+  shapeError: 'intersect() outside a sketch takes the two sets of faces as its two arguments — edit it in the source',
+});
 
 /**
  * How an intersection curve statement is rendered and placed:
@@ -25,27 +38,28 @@ type Slot = keyof typeof SLOTS;
  * options, so the statement has no chains. It lands at the end of the scope
  * its picks pin, where a picked face is known to resolve.
  */
-export type IntersectionCurveEditOptions = {
-  first: OperandPick[];
-  second: OperandPick[];
-};
+export type IntersectionCurveEditOptions = RowPicks<IntersectionCurveRow>;
 
 /**
  * An edit's two slots: each the statement's own argument kept as written
  * (an absent slot too), or re-picked.
  */
-export type IntersectionCurveEdit = { first?: OperandEdit; second?: OperandEdit };
+export type IntersectionCurveEdit = RowEdits<IntersectionCurveRow>;
 
 /** The parsed reading of an intersection curve statement. */
 type ParsedIntersectionCurve = Extract<ParsedFeatureStatement, { feature: 'intersection-curve' }>;
 
 /**
- * Render an intersection curve statement from its two argument texts (see
- * {@link OperandPicks.argument}). Shared with the route's preview so the
- * previewed text is exactly what the transform writes.
+ * Render an intersection curve statement from its two rows' picks, each
+ * producer under `varFor`'s variable. Shared by the route's preview and the
+ * transform, so the previewed text is exactly what the transform writes.
  */
-export function renderIntersectionCurveStatement(first: string, second: string): string {
-  return `${INTERSECTION_CURVE_CALLEE}(${first}, ${second})`;
+export function renderIntersectionCurveStatement(
+  ic: IntersectionCurveEditOptions,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string {
+  return INTERSECTION_CURVE_ROWS.call(INTERSECTION_CURVE_ROWS.arguments(ic, parts, varFor));
 }
 
 /**
@@ -55,24 +69,8 @@ export function renderIntersectionCurveStatement(first: string, second: string):
  * again. Anything but two plain arguments is not a form the dialog shows.
  */
 export function parseIntersectionCurveChain(args: TSNode[], start: number, end: number): ChainParse {
-  if (args.length !== 2 || args.some(arg => arg.type === 'spread_element')) {
-    return { error: 'intersect() outside a sketch takes the two sets of faces as its two arguments — edit it in the source' };
-  }
-  const first = OperandPicks.parse(args[0], start);
-  const second = OperandPicks.parse(args[1], start);
-  return {
-    parsed: {
-      feature: 'intersection-curve',
-      firstTexts: first.texts,
-      firstRefs: first.refs,
-      secondTexts: second.texts,
-      secondRefs: second.refs,
-      firstArg: args[0].text,
-      secondArg: args[1].text,
-    },
-    start,
-    end,
-  };
+  const rows = INTERSECTION_CURVE_ROWS.parse(args, start);
+  return 'error' in rows ? rows : { parsed: { feature: 'intersection-curve', ...rows }, start, end };
 }
 
 /**
@@ -83,17 +81,10 @@ export function parseIntersectionCurveChain(args: TSNode[], start: number, end: 
 export function intersectionCurveCreateError(spec: ApplyFeatureEditSpec): string | null {
   const ic = spec.intersectionCurve;
   if (!ic) {
-    return 'malformed intersection curve edit spec';
+    return INTERSECTION_CURVE_ROWS.malformed();
   }
-  const parts: number[] = [];
-  for (const slot of ['first', 'second'] as const) {
-    const picks = slotPicks(slot, ic[slot], spec);
-    if ('error' in picks) {
-      return picks.error;
-    }
-    parts.push(...selectorParts(picks));
-  }
-  return partsError(parts, spec);
+  const rows = INTERSECTION_CURVE_ROWS.check(ic, spec);
+  return 'error' in rows ? rows.error : INTERSECTION_CURVE_ROWS.partsError(rows.parts, spec);
 }
 
 /**
@@ -106,57 +97,10 @@ export function renderEditedIntersectionCurve(
   spec: EditRenderSpec,
   varFor: (producer: number) => string | null,
 ): { statement: string } | { error: string } {
-  const edit: IntersectionCurveEdit = spec.edit?.intersectionCurve ?? {};
-  const parts: number[] = [];
-  const args: string[] = [];
-  for (const slot of ['first', 'second'] as const) {
-    const slotEdit = edit[slot];
-    if (slotEdit === undefined || slotEdit.kind === 'keep') {
-      args.push(slot === 'first' ? parsed.firstArg : parsed.secondArg);
-      continue;
-    }
-    if (slotEdit.kind !== 'picks') {
-      return { error: `malformed intersection curve edit spec: ${SLOTS[slot]} is neither kept nor picked` };
-    }
-    const picks = slotPicks(slot, slotEdit.picks, spec);
-    if ('error' in picks) {
-      return picks;
-    }
-    parts.push(...selectorParts(picks));
-    args.push(OperandPicks.argument(OperandPicks.render(
-      picks, spec.parts, producer => varFor(producer) ?? spec.producers[producer].nameHint ?? null,
-    )));
+  const rows = INTERSECTION_CURVE_ROWS.edited(spec.edit?.intersectionCurve ?? {}, parsed, spec, varFor);
+  if ('error' in rows) {
+    return rows;
   }
-  const error = partsError(parts, spec);
-  if (error) {
-    return { error };
-  }
-  return { statement: renderIntersectionCurveStatement(args[0], args[1]) };
-}
-
-/** One slot's picks, checked as a surface operand's: a refusal names the slot, an empty one says so. */
-function slotPicks(
-  slot: Slot,
-  picks: unknown,
-  spec: Pick<ApplyFeatureEditSpec, 'producers' | 'parts'>,
-): OperandPick[] | { error: string } {
-  const valid = OperandPicks.validate('surface', picks, SLOTS[slot], spec);
-  if ('error' in valid) {
-    return { error: `malformed intersection curve edit spec: ${valid.error}` };
-  }
-  if (valid.length === 0) {
-    return { error: `intersect: ${SLOTS[slot]} is empty — pick a surface or faces for it` };
-  }
-  return valid;
-}
-
-function selectorParts(picks: OperandPick[]): number[] {
-  return picks.flatMap(pick => pick.kind === 'selector' ? [pick.part] : []);
-}
-
-/** Every selector part belongs to exactly one pick: a part no pick renders would be lost. */
-function partsError(parts: number[], spec: Pick<ApplyFeatureEditSpec, 'parts'>): string | null {
-  return parts.length === spec.parts.length && new Set(parts).size === parts.length
-    ? null
-    : 'malformed intersection curve edit spec: every selector part belongs to exactly one pick';
+  const error = INTERSECTION_CURVE_ROWS.partsError(rows.parts, spec);
+  return error ? { error } : { statement: INTERSECTION_CURVE_ROWS.call(rows.args) };
 }

@@ -60,6 +60,18 @@ export class OperandPicks {
   }
 
   /**
+   * The variable an edit writes for a producer: the transform's binding,
+   * else the producer's own hint — what a re-picked operand's whole object
+   * is written as.
+   */
+  static editNamer(
+    spec: Pick<ApplyFeatureEditSpec, 'producers'>,
+    varFor: (producer: number) => string | null,
+  ): (producer: number) => string | null {
+    return producer => varFor(producer) ?? spec.producers[producer].nameHint ?? null;
+  }
+
+  /**
    * One argument for a slot: the bare expression for a single pick
    * (`sweep(spine)`), a list for several (`[a, b.sideEdges(0)]`).
    */

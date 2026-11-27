@@ -1,9 +1,11 @@
-// A direction: the spec every direction slot shares, its rendering and its check.
+// A direction: the spec every direction slot shares, its rendering and its check, and a `.direction(…)` chain's read-back and edit.
 
+import type { ChainSegment } from '../ast/chain.ts';
 import { isAxisProducer, isPlaneProducer } from '../producers/predicates.ts';
 import { renderSelectorPartExpr } from '../render/selectors.ts';
 import type { ApplyFeatureEditSpec } from '../spec.ts';
 import { ConnectorAxisSpecs, type ConnectorAxisSpec } from './connector-axis.ts';
+import { OperandPicks } from './operand-picks.ts';
 
 /**
  * One direction, as a tool's `.direction(…)` takes it: given the way an axis
@@ -24,6 +26,12 @@ export type DirectionSpec =
   | ConnectorAxisSpec
   | { kind: 'edge'; part?: number }
   | { kind: 'face'; part?: number };
+
+/**
+ * A `.direction(…)` in an edit: the statement's own argument kept as written
+ * (an absent one too), the chain dropped, or a new direction.
+ */
+export type DirectionEdit = { kind: 'keep' } | { kind: 'cleared' } | DirectionSpec;
 
 /** The producers and selector parts a direction indexes into. */
 type DirectionHost = Pick<ApplyFeatureEditSpec, 'producers' | 'parts'>;
@@ -59,6 +67,61 @@ export class Directions {
     }
     const part = parts[direction.part ?? 0];
     return renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
+  }
+
+  /** The selector part a picked edge or face renders (the first when unnamed); none for the other forms. */
+  static parts(direction: DirectionSpec): number[] {
+    return direction.kind === 'edge' || direction.kind === 'face' ? [direction.part ?? 0] : [];
+  }
+
+  /** The `.direction(…)` chain a statement writes for an argument's text: nothing for none. */
+  static chain(text: string | null): string {
+    return text === null ? '' : `.direction(${text})`;
+  }
+
+  /**
+   * Reads a `.direction(…)` chain back: its argument verbatim, null when the
+   * statement leaves it out. Any argument list but one plain argument is
+   * refused, since the dialog cannot edit it.
+   */
+  static readChain(segment: ChainSegment | undefined): { text: string | null } | { error: string } {
+    if (!segment) {
+      return { text: null };
+    }
+    if (segment.args.length !== 1 || segment.args[0].type === 'spread_element') {
+      return { error: 'the .direction() chain has an argument shape the dialog cannot edit — edit it in the source' };
+    }
+    return { text: segment.args[0].text };
+  }
+
+  /**
+   * An edited `.direction(…)`'s argument: the statement's own text (`kept`)
+   * while kept, null once cleared, a new direction rendered with each
+   * producer under `varFor`'s variable or else its own hint. Answers the
+   * selector part a new picked edge or face renders; a new direction the
+   * spec does not hold is refused in {@link validate}'s words, which the
+   * caller words as its own spec's.
+   */
+  static edited(
+    edit: DirectionEdit | undefined,
+    kept: string | null,
+    spec: DirectionHost,
+    varFor: (producer: number) => string | null,
+  ): { text: string | null; parts: number[] } | { error: string } {
+    if (edit === undefined || edit.kind === 'keep') {
+      return { text: kept, parts: [] };
+    }
+    if (edit.kind === 'cleared') {
+      return { text: null, parts: [] };
+    }
+    const direction = Directions.validate(edit, spec);
+    if ('error' in direction) {
+      return direction;
+    }
+    return {
+      text: Directions.render(direction, spec.parts, OperandPicks.editNamer(spec, varFor)),
+      parts: Directions.parts(direction),
+    };
   }
 
   /**

@@ -113,14 +113,7 @@ export async function handleProjectedCurve(ctx: ApplyFeatureRequestContext, req:
     };
     // Truthful preview names: the same allocation walk the transform runs.
     const producerVars = await allocateProducerVars(merger.producers, code, await ctx.currentCallees());
-    const varFor = (i: number): string | null => producerVars[i];
-    const argument = (picks: OperandPick[]): string =>
-      OperandPicks.argument(OperandPicks.render(picks, parts, varFor));
-    const statement = renderProjectedCurveStatement(argument(source), argument(target), {
-      mode: request.mode,
-      direction: direction === null ? null : Directions.render(direction, parts, varFor),
-      keep: request.keep,
-    });
+    const statement = renderProjectedCurveStatement(projectedCurve, parts, i => producerVars[i]);
     if (preview === true) {
       res.json({ success: true, preview: statement });
       return;

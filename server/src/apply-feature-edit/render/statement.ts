@@ -5,14 +5,12 @@ import { renderColorStatement } from '../features/color.ts';
 import { renderChamferValueArgs } from '../features/chamfer.ts';
 import { renderConnectorAnchorSuffix, renderConnectorChain } from '../features/connector.ts';
 import { renderCopyAxisExpr, renderCopyCenterExpr, renderCopyStatement } from '../features/copy.ts';
-import { Directions } from '../features/direction.ts';
 import { renderExtrudeStatement, renderFaceTargetExpr } from '../features/extrude.ts';
 import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.ts';
 import { INTERSECTION_CURVE_CALLEE, renderIntersectionCurveStatement } from '../features/intersection-curve.ts';
 import { renderLoftConnections, renderLoftStatement } from '../features/loft.ts';
 import { renderMirrorAxisExpr, renderMirrorStatement } from '../features/mirror.ts';
 import { renderOffsetStatement } from '../features/offset.ts';
-import { OperandPicks } from '../features/operand-picks.ts';
 import { renderPlaneBaseExprs, renderPlaneStatement } from '../features/plane.ts';
 import { PROJECTED_CURVE_CALLEE, renderProjectedCurveStatement } from '../features/projected-curve.ts';
 import { projectionCallee } from '../features/projection.ts';
@@ -128,21 +126,10 @@ export function buildStatement(
     return renderHelixStatement(hx, sourceExpr);
   }
   if (spec.feature === 'intersection-curve') {
-    const ic = spec.intersectionCurve!;
-    const argument = (picks: typeof ic.first): string =>
-      OperandPicks.argument(OperandPicks.render(picks, spec.parts, i => bindings[i].varName));
-    return renderIntersectionCurveStatement(argument(ic.first), argument(ic.second));
+    return renderIntersectionCurveStatement(spec.intersectionCurve!, spec.parts, i => bindings[i].varName);
   }
   if (spec.feature === 'projected-curve') {
-    const pc = spec.projectedCurve!;
-    const varFor = (i: number): string | null => bindings[i].varName;
-    const argument = (picks: typeof pc.source): string =>
-      OperandPicks.argument(OperandPicks.render(picks, spec.parts, varFor));
-    return renderProjectedCurveStatement(argument(pc.source), argument(pc.target), {
-      mode: pc.mode,
-      direction: pc.direction === null ? null : Directions.render(pc.direction, spec.parts, varFor),
-      keep: pc.keep,
-    });
+    return renderProjectedCurveStatement(spec.projectedCurve!, spec.parts, i => bindings[i].varName);
   }
   if (spec.feature === 'repeat') {
     const rp = spec.repeat!;

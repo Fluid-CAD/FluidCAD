@@ -1,0 +1,147 @@
+---
+sidebar_position: 4
+title: "Offset"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import offsetRim from '!!raw-loader!./_examples/offset-rim.js';
+import offsetSideTop from '!!raw-loader!./_examples/offset-side-top.js';
+import offsetSideWalls from '!!raw-loader!./_examples/offset-side-walls.js';
+import offsetProjected from '!!raw-loader!./_examples/offset-projected.js';
+
+# Offset
+
+Offset runs a curve beside edges at a constant distance, lying on the faces the edges lie on: a line set back from an edge of a body where a trim, a groove or a two-tone split runs, the inner boundary of a band along a rim, a curve beside a projected curve on the same surface. The edges and the faces stay as they are; the result is a [curve](/docs/curves/introduction).
+
+This is the **Curves** menu's Offset. The toolbar's **Offset** button offsets the outline of highlighted faces, and the sketch toolbar's [Offset](/docs/sketching/tools/offset) offsets sketch geometry. All three write `offset(…)`; how the statement is written tells them apart (see [In code](#in-code)).
+
+## In the viewport
+
+1. Open the **Curves** menu on the toolbar and click **Offset**. The **Offset curve** dialog opens with the **Edges** row armed (blue border).
+2. Click the edges to run beside. An edge of a solid or a surface takes that edge; a sketch's wire takes the whole sketch, and an edge of a curve (a projected curve, an intersection curve) the whole curve. A sketch's or a curve's row in the timeline works too. Once **Edges** holds a pick, **On faces** is armed.
+3. Click the faces the edges lie on, where the curve is to run. A face of a solid is taken as that face; a face of a surface takes the whole surface. The dialog does not fill this row from the edges: pick the faces yourself.
+4. Set the **Distance**. As soon as both rows hold a pick and the distance reads, the curve previews in blue.
+5. Click **Apply**. The timeline gains an **Offset Curve** row and the statement is written to the file.
+
+<UiFigure
+  src="/img/docs/ui/offset-curve-dialog.png"
+  alt="The Offset curve dialog with the four top edges and the four side faces of a block picked, distance 3"
+  markers={[
+    {n: 1, x: 5, y: 9, label: 'Edges', description: 'The edges the curve runs beside. Takes several picks: edges of solids and surfaces, whole sketches and curves. Click a chip’s ✕ to drop it.'},
+    {n: 2, x: 5, y: 43, label: 'On faces', description: 'The faces the edges lie on; the curve lies on them too. Faces of solids, whole surfaces, or both. Click a row to arm it before picking for it.'},
+    {n: 3, x: 5, y: 77, label: 'Distance', description: 'How far the curve is from the edges, measured straight through space. A number or an expression, never zero; a negative distance goes to the other side.'},
+    {n: 4, x: 5, y: 95, label: 'Apply', description: 'Writes offset(distance, edges, { on: faces }). Both rows need a pick. Exit closes the dialog without writing anything.'},
+  ]}
+/>
+
+If the curve cannot be made, the dialog says why instead of drawing a preview: nothing on that side of the edges lies on the faces at that distance, the distance is larger than a bend of the edges allows on that side, or the edges are not on the faces.
+
+A loop 3 below the top rim of a block, on its side faces. Double-click a top edge to take the whole rim, and a side face to take every side face; the dialog writes them as `box.endEdges()` and `box.sideFaces()`:
+
+![A loop 3 below the top rim of a block](/img/docs/curves/offset-rim.png)
+
+<ExplainedCode code={offsetRim} fileName="block.part.js">
+The dialog names picked edges and faces with selectors of its own; any edge or face selection, a curve, a sketch or a surface works in their place.
+</ExplainedCode>
+
+### Picking several edges or faces at once
+
+- **Double-click** an edge or a face of a solid: the armed row takes the whole group it belongs to, such as the rim an edge is on or every side face of an extrude; an edge on a surface's open rim takes the rim loop.
+- **Right-click** an edge or a face of a solid: a menu lists the groups it belongs to, such as its tangent edges, the loops it is on and the edges or faces of the feature that made it. Hover an item to preview it; click it to add it to the armed row.
+
+A sketch, a curve and a face of a surface already stand for the whole object, so neither gesture applies to them.
+
+## Distance and side
+
+**The distance is measured straight through space**, not along the faces: every point of the curve is that far from the nearest point of the edges. On a flat face the two are the same; on a curved face or across a bend, the gap measured along the surface is a little longer.
+
+**The side** depends on where the edges lie on the faces you picked:
+
+- **From a rim** — edges along the boundary of the picked faces, with a picked face on one side only, as a block's top edges are with its side faces — a positive distance goes onto the faces. A negative one goes off them, where there is nothing, and the dialog says the curve leaves the faces.
+- **Anywhere else** — edges inside the faces, or with a picked face on both sides — stand on the outside of the faces and walk along the edges the way they run: a positive distance is to the **left**, a negative one to the **right**.
+
+The preview shows which side you get; to flip it, change the sign.
+
+Picking the top face as well as the side faces puts a picked face on both sides of each top edge. The edges run counter-clockwise seen from above, so their left is the top face and their right the side faces:
+
+<ModeTable columns={[
+  {title: 'Distance 4', code: 'offset(4, box.endEdges(), { on: [box.endFaces(), box.sideFaces()] })', image: '/img/docs/curves/offset-side-top.png', description: 'Left of the edges: a loop 4 in from the rim, on the top face.'},
+  {title: 'Distance −4', code: 'offset(-4, box.endEdges(), { on: [box.endFaces(), box.sideFaces()] })', image: '/img/docs/curves/offset-side-walls.png', description: 'Right of the edges: a loop 4 below the rim, on the side faces.'},
+]} />
+
+<ExplainedCode code={offsetSideTop} fileName="block.part.js" title="The code behind distance 4" />
+
+<ExplainedCode code={offsetSideWalls} fileName="block.part.js" title="The code behind distance −4" />
+
+At a corner of the edges the curve is rounded on the outside, by an arc about the corner, and stays sharp on the inside, as a 2D offset is. An open curve ends square to the edges at their ends; closed edges give a closed loop.
+
+## Beside a curve on a surface
+
+Pick a projected curve (its row in the timeline, or one of its edges) in **Edges** and the surface it lies on in **On faces**: the offset runs beside it on the surface. Change the sign for the other side. A rectangle laid onto a dome, with a curve 3 to each side of it:
+
+![A curve projected onto a dome and a curve to each side of it](/img/docs/curves/offset-projected.png)
+
+<ExplainedCode code={offsetProjected} fileName="dome.part.js" />
+
+## Editing
+
+Double-click the **Offset Curve** row in the timeline. The view rolls back to just before the statement and the dialog reopens with each row on its argument as **Current: …** chips, lit where it names edges, faces, a curve or a surface, and the **Distance** as written.
+
+Pick in a row to change it. Where the row names edges or faces, the first pick adds to them and a chip's ✕ takes one off; anything else in the row is replaced by the pick. **Apply** rewrites only what you changed: a row, the distance. Changing only the distance leaves both rows as they were written.
+
+## In code
+
+```js
+import { offset } from 'fluidcad/core';
+
+const oc = offset(distance, edges, { on: faces });
+```
+
+| Argument | Takes |
+|----------|-------|
+| `distance` | A length or an expression, not zero. Its sign picks the side. |
+| `edges` | Curves: a selection of edges, a curve (a helix, an intersection, projected or offset curve), a sketch, or a list of those. They must lie on the faces. |
+| `{ on }` | The faces the curve lies on: a face selection (faces of solids or of surfaces), a surface, a solid (all its faces), or a list of those. Required, and the only option. |
+
+`offset` has three meanings; where and how the call is written decides which:
+
+| Written | Meaning |
+|---------|---------|
+| inside a `sketch()` callback | the [sketch offset](/docs/sketching/tools/offset) of sketch geometry |
+| outside a sketch, with `{ on }` | an offset curve, this page |
+| outside a sketch, without `{ on }` | the outline of coplanar faces, offset on their plane (the toolbar's **Offset** button) |
+
+A sketch or a curve given as the edges hides and stays readable: a later statement can read it again. Edges of a body and the faces are read, not used up.
+
+### One wire per chain
+
+The result holds one wire for each connected chain of the edges, each running the way its source runs, in the order of the sources.
+
+```js
+oc.edges()        // every edge, wire after wire, each in the order it runs
+oc.edges(0)       // one edge
+oc.start()        // where the first wire starts
+oc.end()          // where it ends
+```
+
+Like any curve, an offset curve can be a sweep path: set a plane square to it at its start and sweep a profile along it (see [Curves](/docs/curves/introduction#reading-a-curve-in-code)).
+
+## Errors
+
+| Situation | Message |
+|-----------|---------|
+| The edges do not lie on the faces | `offset: the edges do not lie on the faces given in { on }.` |
+| Nothing on that side of the edges lies on the faces at that distance | `offset: at this distance the curve leaves the faces.` |
+| The distance is larger than a bend of the edges allows on that side | `offset: the distance is larger than the curve's tightest bend allows on this side.` |
+| The distance is zero | `offset: the distance is zero.` |
+| `{ on }` is empty, or holds something that is not a scene object | `offset: { on } needs the faces the curve lies on.` |
+| The options object has another key, or no `on` | `offset: the only option is { on: faces }.` |
+
+## Limitations
+
+- The distance is always straight through space; there is no distance measured along the surface.
+- The curve ends square to the ends of the edges; it is not run out to the edges of the faces.
+- The **On faces** row is not filled from the picked edges.
+- A curve that leaves the faces and comes back (across a hole, say) is refused with the tightest-bend message.

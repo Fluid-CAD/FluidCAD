@@ -22,7 +22,7 @@ website/docs/
   sketching/         introduction; primitives/, compound/, tools/, constraints/{positional,dimensional}
   3d-operations/     introduction, selection-and-filters, extrude, revolve, sweep, loft,
                      shell, fillet, chamfer, wrap, rib, helix, split
-  curves/            introduction (what a curve is, the curve tools), intersect, project
+  curves/            introduction (what a curve is, the curve tools), intersect, project, offset
   booleans/          introduction, fuse, common, subtract
   transforms/        introduction, translate, rotate, mirror
   patterns/          copy, repeat
@@ -285,7 +285,7 @@ document unit / mm / in / *Same as project*.
 create tools **Extrude**, **Revolve**, **Sweep**, **Loft**, **Wrap**,
 **Rib**, the pick tools **Fillet**, **Chamfer**, **Shell**,
 **Offset** (face outline), then **Plane**, **Repeat**, **Copy**, the
-**Curves** menu (**Helix**, **Intersect**, **Project**) and the **Surfaces** menu (no tools yet), **Mirror**,
+**Curves** menu (**Helix**, **Intersect**, **Project**, **Offset**) and the **Surfaces** menu (no tools yet), **Mirror**,
 **Rotate**, **Boolean** (Fuse / Subtract / Common), and the structure tools
 **Part** (appends `part('Part N', () => {})`) and **Connector**. The pick
 tools show a small panel with one value (**Radius** / **Distance** /
@@ -333,6 +333,13 @@ Dialog fields:
   planar face; armed by a click on it) and **Keep** (**Nearest** / **All**).
   Curves opens armed; its first pick arms Onto. Not the sketch toolbar's
   **Project**, which lays geometry onto the sketch plane.
+- **Offset** (Curves menu; tip *Offset a curve along faces*; dialog title
+  **Offset curve**): rows **Edges** (edges of bodies, sketches and curves
+  whole), **On faces** (faces, surfaces whole) and **Distance** (a number
+  or an expression, never zero; negative = the other side). Edges opens
+  armed; its first pick arms On faces, which is never filled from the
+  edges. Not the toolbar's **Offset** button (face outline) nor the sketch
+  toolbar's **Offset**.
 - **Plane**: type **Offset / Mid plane / From edge**, **Base** slot (a face,
   an origin plane quad in the viewport, or a plane row in the timeline),
   **Distance**, edge position 0–1, per-axis rotation.

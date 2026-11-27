@@ -3,7 +3,7 @@ import { BuildError } from "../../common/build-error.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
-import { ProjectionOps } from "../../oc/intersection.js";
+import { ProjectionOps } from "../../oc/projection-ops.js";
 import { Wire } from "../../common/wire.js";
 import { Sheet } from "../../common/sheet.js";
 import { Shape } from "../../common/shape.js";

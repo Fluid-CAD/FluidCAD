@@ -1,0 +1,306 @@
+import type {
+  BRepProj_Projection,
+  TopAbs_ShapeEnum,
+  TopoDS_Edge,
+  TopoDS_Face,
+  TopoDS_Shape,
+  TopoDS_Wire,
+} from "ocjs-fluidcad";
+import { getOC } from "./init.js";
+import { ShapeOps } from "./shape-ops.js";
+import { Convert } from "./convert.js";
+import { FaceOps } from "./face-ops.js";
+import { Plane } from "../math/plane.js";
+import { Face } from "../common/face.js";
+import { Wire } from "../common/wire.js";
+import { FaceQuery } from "./face-query.js";
+import { Matrix4 } from "../math/matrix4.js";
+import { Point } from "../math/point.js";
+import { Vector3d } from "../math/vector3d.js";
+import { Edge } from "../common/edge.js";
+import { HiddenEdges } from "./hidden-edges.js";
+import { Explorer } from "./explorer.js";
+import { AnalyticEdgeProjection } from "./projection/analytic-projection.js";
+import { SilhouetteOps } from "./projection/silhouette.js";
+import { WireOps } from "./wire-ops.js";
+import { mmTol } from "../units/tolerance.js";
+
+/**
+ * Curve projection: the sketch projector, which lays 3D edges, faces and
+ * wires onto a sketch plane (`projectEdgeOntoPlane` and its siblings), and
+ * the projected curve's two ways of throwing a wire onto faces —
+ * {@link alongDirection} and {@link normal}. (`lib/oc/projection/` is the
+ * drawing-view projector, an unrelated thing.)
+ */
+export class ProjectionOps {
+
+  static projectEdgeOntoPlane(targetPlane: Plane, edge: Edge): Edge[] {
+    return ProjectionOps.projectEdgesOntoPlane(targetPlane, [edge]);
+  }
+
+  static projectWireOntoPlane(targetPlane: Plane, wire: Wire): Edge[] {
+    const oc = getOC();
+    const topDSWire  = wire.getShape() as TopoDS_Wire;
+    const wirePlaneFinder = new oc.BRepBuilderAPI_FindPlane(topDSWire, oc.Precision.Confusion());
+
+    let wirePlane: Plane;
+    if (wirePlaneFinder.Found()) {
+      const handle = wirePlaneFinder.Plane();
+      const geomPln = handle;
+      const pln = geomPln.Pln();
+      wirePlane = Convert.toPlane(pln);
+      // geomPln.delete();
+      // handle.delete();
+    }
+
+    if (wirePlane && wirePlane.isParallelTo(targetPlane)) {
+      // Translation along the target normal that moves a point from the wire
+      // plane onto the target plane. Use the *signed* distance — `distanceToPlane`
+      // is abs-valued and picks the wrong direction when the wire sits on the
+      // negative side of the target normal.
+      const signedDist = targetPlane.signedDistanceToPoint(wirePlane.origin);
+      const translation = targetPlane.normal.multiply(-signedDist);
+      const matrix = Matrix4.fromTranslation(translation.x, translation.y, translation.z);
+      const transformed = ShapeOps.transform(wire, matrix) as Wire;
+      return transformed.getEdges();
+    }
+
+    return ProjectionOps.projectEdgesOntoPlane(targetPlane, wire.getEdges());
+  }
+
+  /**
+   * A face projects as its boundary edges plus, for a curved face, its
+   * outline edges against the sketch normal — a side-on cylinder is a
+   * rectangle, not its two end circles. Seams and degenerate edges are not
+   * geometry the face shows (see HiddenEdges) and are left out.
+   */
+  static projectFaceOntoPlane(targetPlane: Plane, face: Face): Edge[] {
+    let facePlane: Plane | null = null;
+    try {
+      facePlane = face.getPlane();
+    } catch {
+      // Non-planar face (cylinder, cone, sphere, etc.) — fall through to normal projection
+    }
+
+    if (facePlane) {
+      const parallel = FaceQuery.isFaceParallelToPlane(face, targetPlane);
+      const coplanar = FaceQuery.isFaceOnPlane(face, targetPlane);
+
+      if (parallel || coplanar) {
+        const wires = face.getWires();
+        const signedDist = targetPlane.signedDistanceToPoint(facePlane.origin);
+        const translation = targetPlane.normal.multiply(-signedDist);
+        let matrix = Matrix4.fromTranslation(translation.x, translation.y, translation.z);
+        return wires.flatMap(wire => (ShapeOps.transform(wire, matrix) as Wire).getEdges());
+      }
+    }
+
+    const rawFace = face.getShape() as TopoDS_Face;
+    const hidden = HiddenEdges.ofFace(rawFace);
+    const boundary = face.getWires()
+      .flatMap(wire => wire.getEdges())
+      .filter(edge => !hidden.some(h => h.IsSame(edge.getShape())));
+    Explorer.deleteAll(hidden);
+    const outlines = facePlane
+      ? []
+      : SilhouetteOps.outlineEdgesRaw(rawFace, targetPlane.normal).map(e => Edge.fromTopoDSEdge(e));
+
+    return ProjectionOps.projectEdgesOntoPlane(targetPlane, [...boundary, ...outlines]);
+  }
+
+  /**
+   * Edge by edge: lines and circles project exactly (see
+   * AnalyticEdgeProjection), everything else goes through the normal
+   * projection in one batch.
+   */
+  private static projectEdgesOntoPlane(targetPlane: Plane, edges: Edge[]): Edge[] {
+    const projected: Edge[] = [];
+    const general: TopoDS_Edge[] = [];
+    for (const edge of edges) {
+      const raw = edge.getShape() as TopoDS_Edge;
+      const analytic = AnalyticEdgeProjection.projectRaw(raw, targetPlane);
+      if (analytic?.kind === 'edge') {
+        projected.push(Edge.fromTopoDSEdge(analytic.edge));
+      } else if (!analytic) {
+        general.push(raw);
+      }
+    }
+
+    if (general.length > 0) {
+      const [pln, disposePln] = Convert.toGpPln(targetPlane);
+      const planeFace = FaceOps.makeFaceFromPlane(pln);
+      for (const raw of ProjectionOps.normalProject(general, planeFace)) {
+        projected.push(Edge.fromTopoDSEdge(raw));
+      }
+      disposePln();
+    }
+    return projected;
+  }
+
+  /**
+   * The projected edges of `shapes` on the sketch plane's face, which is
+   * unbounded: the projection runs on past the face's (absent) boundary.
+   */
+  private static normalProject(shapes: TopoDS_Shape[], targetFace: TopoDS_Face): TopoDS_Edge[] {
+    return ProjectionOps.normalProjectionEdges(shapes, targetFace, false);
+  }
+
+  /**
+   * Every image of `wire` on `target` along the line of `direction`, both
+   * ways: the near side and the far side of a body alike, as wires, one per
+   * connected chain, in no promised order.
+   *
+   * `BRepProj_Projection` sweeps a prism from the wire both ways along the
+   * direction and sections it with the target's faces. An edge of that
+   * section lying on one line along the direction — where the prism meets a
+   * face the direction lies in, as a box's end wall — is the image of a
+   * single point of the wire, not of a stretch of it, and is left out. What
+   * is left is chained again (`WireOps.chainEdges`), so an image the kernel
+   * split at a closed face's seam is one wire.
+   *
+   * Empty when nothing lands on the target, or when the kernel refuses the
+   * input (a wire running along the direction sweeps no prism). Each edge
+   * carries its curve on the target face it lies on.
+   */
+  static alongDirection(wire: Wire, target: TopoDS_Shape, direction: Vector3d): Wire[] {
+    const oc = getOC();
+    const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+    const unit = direction.normalize();
+    const dir = new oc.gp_Dir(unit.x, unit.y, unit.z);
+    const edges: Edge[] = [];
+    let projection: BRepProj_Projection | null = null;
+    try {
+      projection = new oc.BRepProj_Projection(wire.getShape(), target, dir);
+      if (projection.IsDone()) {
+        for (projection.Init(); projection.More(); projection.Next()) {
+          // Every Current() is a fresh copy of the result wire.
+          const current = projection.Current();
+          try {
+            for (const raw of Explorer.findShapes(current, EDGE)) {
+              edges.push(Edge.fromTopoDSEdge(oc.TopoDS.Edge(raw)));
+              raw.delete();
+            }
+          } finally {
+            current.delete();
+          }
+        }
+      }
+    } catch {
+      // The kernel refused the input: no image.
+      edges.forEach(edge => edge.dispose());
+      return [];
+    } finally {
+      projection?.delete();
+      dir.delete();
+    }
+
+    const kept: Edge[] = [];
+    for (const edge of edges) {
+      if (ProjectionOps.liesAlong(edge, unit)) {
+        edge.dispose();
+      } else {
+        kept.push(edge);
+      }
+    }
+    try {
+      return kept.length === 0 ? [] : WireOps.chainEdges(kept);
+    } finally {
+      // The wires hold the edges they were built from.
+      kept.forEach(edge => edge.dispose());
+    }
+  }
+
+  /**
+   * The image of `wire` on `target` by closest point: every point of the
+   * wire goes to the nearest point of a target face, the image cut to each
+   * face's boundary. One wire per connected chain, in no promised order: a
+   * face region the wire reaches gives one, and an image the kernel split at
+   * a seam or across faces is chained into one (`WireOps.chainEdges`). Empty
+   * when nothing lands on the target. Each edge carries its curve on the
+   * target face it lies on.
+   */
+  static normal(wire: Wire, target: TopoDS_Shape): Wire[] {
+    const edges = ProjectionOps.normalProjectionEdges([wire.getShape()], target, true)
+      .map(raw => Edge.fromTopoDSEdge(raw));
+    try {
+      return edges.length === 0 ? [] : WireOps.chainEdges(edges);
+    } finally {
+      edges.forEach(edge => edge.dispose());
+    }
+  }
+
+  /**
+   * The edges `BRepAlgo_NormalProjection` makes of `shapes` on `target`'s
+   * faces: the one use of the class, shared by the sketch projector and
+   * {@link normal}. With `faceBounds` each image is cut to the faces'
+   * boundaries; without, it runs on over each face's whole surface.
+   *
+   * Read from the projector's result compound, not BuildWire(): that chains
+   * the results into wires and answers nothing at all for a batch of
+   * disjoint edges (two outline generatrices, say), while the compound
+   * always carries every projected edge. Empty when the kernel fails.
+   */
+  private static normalProjectionEdges(shapes: TopoDS_Shape[], target: TopoDS_Shape, faceBounds: boolean): TopoDS_Edge[] {
+    const oc = getOC();
+    const projector = new oc.BRepAlgo_NormalProjection(target);
+    try {
+      projector.SetLimit(faceBounds);
+      for (const shape of shapes) {
+        projector.Add(shape);
+      }
+      projector.Build();
+      if (!projector.IsDone()) {
+        return [];
+      }
+      const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
+      const result = projector.Projection();
+      try {
+        return Explorer.findShapes(result, EDGE).map(raw => {
+          const edge = oc.TopoDS.Edge(raw);
+          raw.delete();
+          return edge;
+        });
+      } finally {
+        result.delete();
+      }
+    } catch (e) {
+      console.error('Normal projection failed:', e);
+      return [];
+    } finally {
+      projector.delete();
+    }
+  }
+
+  /**
+   * Whether `edge` lies on one line along `direction` (a unit vector): its
+   * ends and three points between them within the edge's tolerance of the
+   * line through its start.
+   */
+  private static liesAlong(edge: Edge, direction: Vector3d): boolean {
+    const oc = getOC();
+    const raw = edge.getShape() as TopoDS_Edge;
+    const tolerance = Math.max(oc.BRep_Tool.Tolerance(raw), mmTol(1e-5));
+    const adaptor = new oc.BRepAdaptor_Curve(raw);
+    try {
+      const first = adaptor.FirstParameter();
+      const last = adaptor.LastParameter();
+      let origin: Point | null = null;
+      for (let i = 0; i <= 4; i++) {
+        const value = adaptor.Value(first + (last - first) * i / 4);
+        const point = new Point(value.X(), value.Y(), value.Z());
+        value.delete();
+        if (!origin) {
+          origin = point;
+          continue;
+        }
+        const offset = origin.vectorTo(point);
+        if (offset.subtract(direction.multiply(offset.dot(direction))).length() > tolerance) {
+          return false;
+        }
+      }
+      return true;
+    } finally {
+      adaptor.delete();
+    }
+  }
+}

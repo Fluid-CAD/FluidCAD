@@ -17,7 +17,7 @@ export { ShellOps } from "./shell-ops.js";
 export { SheetOps } from "./sheet-ops.js";
 export { EdgeQuery } from "./edge-query.js";
 export { FaceQuery } from "./face-query.js";
-export { ProjectionOps as Intersection } from "./intersection.js";
+export { ProjectionOps, ProjectionOps as Intersection } from "./projection-ops.js";
 export { Mesh } from "./mesh.js";
 export type { MeshData } from "./mesh.js";
 export { OcIO } from "./io.js";

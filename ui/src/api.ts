@@ -694,6 +694,7 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | IntersectionCurveGhostRequest
   | ProjectedCurveGhostRequest
+  | OffsetCurveGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -992,6 +993,26 @@ export type ProjectedCurveGhostRequest = {
   mode: ProjectionMode;
   direction: GhostDirectionRef | null;
   keep: ProjectionKeep;
+};
+
+/**
+ * The offset curve dialog on the ghost wire — `offset(distance, edges, {
+ * on })` outside a sketch. A curve: no op; its distance — a number or an
+ * expression the server resolves where the statement sits, its sign the
+ * side (positive to the left of the edges) — and the picks of its curve row
+ * (sketches and curves by statement, edges by viewport address) and its
+ * surface row (surfaces by statement, faces) in pick order. The server
+ * refuses a row with no pick ("Invalid offset selections") and a missing
+ * distance ("Invalid offset distance"); the engine refuses a zero distance
+ * ("offset: the distance is zero.") and a curve it cannot build — edges off
+ * the faces, a curve that leaves them, a bend too tight — as a `surface`
+ * refusal.
+ */
+export type OffsetCurveGhostRequest = {
+  feature: 'offset-curve';
+  distance: ValueExpr;
+  edges: GhostOperandRef[];
+  on: GhostOperandRef[];
 };
 
 /**
@@ -3425,6 +3446,41 @@ export async function applyProjectedCurve(options: ProjectedCurveApplyOptions): 
   }, options.signal);
 }
 
+export type OffsetCurveApplyOptions = {
+  /**
+   * The distance: a number or an expression, its sign the side (positive to
+   * the left of the edges). A literal zero is refused (400) in the engine's
+   * words, "offset: the distance is zero.".
+   */
+  distance: ValueExpr;
+  /** The curve row's picks, in pick order: sketches and curves by statement, edges by viewport address. */
+  edges: OperandInputRef[];
+  /** The surface row's picks — `{ on }`: surfaces by statement, faces by viewport address. */
+  on: OperandInputRef[];
+  /** Declarations the distance's expression field committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) an offset curve
+ * — `offset(distance, edges, { on: faces })` outside a sketch, each row one
+ * pick bare or several as a list. Same endpoint and response shape as
+ * {@link applyFeature}.
+ */
+export async function applyOffsetCurve(options: OffsetCurveApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'offset-curve',
+    distance: options.distance,
+    edges: options.edges,
+    on: options.on,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type SweepApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain sweep. */
@@ -4047,6 +4103,12 @@ export type FeatureSourcesResult =
    * plane literal `opaque` (read it off the parsed `directionText`).
    */
   | { ok: true; feature: 'projected-curve'; source: SourceSlotRef[]; target: SourceSlotRef[]; direction: SourceSlotRef | null }
+  /**
+   * An offset curve: one slot per operand of its edges argument and of its
+   * `{ on }`, in its order — the edges as a projected curve's source, the
+   * faces as its target. The distance is read off the parsed statement.
+   */
+  | { ok: true; feature: 'offset-curve'; edges: SourceSlotRef[]; on: SourceSlotRef[] }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
   /**
    * A colour: the faces it paints, as entities on the pre-statement solids
@@ -4327,6 +4389,25 @@ export type ParsedFeatureStatement =
       directionText: string | null;
       /** `.keep(…)`: 'nearest' when the chain is absent. */
       keep: ProjectionKeep;
+    }
+  | {
+      feature: 'offset-curve';
+      /** The distance — a number, or the expression computing it; its sign picks the side. */
+      distance: ValueExpr;
+      /** The distance argument as written. */
+      distanceArg: string;
+      /** The edges argument's operands, verbatim: a list's elements, or the bare expression. */
+      edgesTexts: string[];
+      /** The statement each edges operand names, by call site, or null (same length). */
+      edgesRefs: ({ line: number; column: number } | null)[];
+      /** The `on` option's operands, verbatim; a shorthand `{ on }` reads as its variable. */
+      onTexts: string[];
+      /** The statement each `on` operand names, or null (same length). */
+      onRefs: ({ line: number; column: number } | null)[];
+      /** The edges argument as written — what a kept row writes back. */
+      edgesArg: string;
+      /** The `on` option's value as written (`on` for the shorthand). */
+      onArg: string;
     }
   | (ParsedScopeChain & {
       feature: 'loft';
@@ -5015,6 +5096,37 @@ export async function applyProjectedCurveEdit(
     mode: options.mode,
     direction: options.direction,
     keep: options.keep,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type OffsetCurveEditOptions = EditSessionFields & {
+  /** The new distance; omitted keeps the statement's own as written. A literal zero is refused (400) in the engine's words. */
+  distance?: ValueExpr;
+  /** The curve row's new picks; omitted keeps the statement's own argument. An edge needs `before`. */
+  edges?: OperandInputRef[];
+  /** The surface row's new picks; omitted keeps the statement's own `{ on }` value. A face needs `before`. */
+  on?: OperandInputRef[];
+  /** Declarations the distance's expression field committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the offset curve statement at `edit` in place; what the edit leaves out stays as written. */
+export async function applyOffsetCurveEdit(
+  edit: FeatureEditTarget,
+  options: OffsetCurveEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'offset-curve',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    distance: options.distance,
+    edges: options.edges,
+    on: options.on,
+    newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
 }

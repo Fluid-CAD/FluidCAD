@@ -206,6 +206,16 @@ describe("intersect(first, second) outside a sketch", () => {
       expect(bucketOf(faces).map(mid)).toEqual(bucketOf(whole).map(mid));
     });
 
+    it("reads a face named twice, by its body and by a selection, once", () => {
+      const box = block();
+      const whole = intersect(box, slab()) as unknown as IntersectionCurve;
+      const twice = intersect([box, box.sideFaces()], slab()) as unknown as IntersectionCurve;
+      render();
+
+      expect(twice.getError()).toBeNull();
+      expect(bucketOf(twice).map(mid)).toEqual(bucketOf(whole).map(mid));
+    });
+
     it("takes a plane() as its second operand, as the face lying in it", () => {
       const wall = tube();
       const byFace = intersect(wall.sideFaces(), sheetOn(slopedPlane(), [-20, 20], [-20, 20])) as unknown as IntersectionCurve;
@@ -478,8 +488,8 @@ describe("intersect(first, second) outside a sketch", () => {
 
   describe("the preview", () => {
     it("draws the curve as a wire", () => {
-      const box = located(block(), 2);
-      const surface = located(slab(), 3);
+      located(block(), 2);
+      located(slab(), 3);
       const scene = render();
 
       const ref = (line: number): GhostOperandRef => ({ kind: "statement", filePath: FILE, line });
@@ -492,8 +502,19 @@ describe("intersect(first, second) outside a sketch", () => {
       }
       expect(result.solids).toHaveLength(1);
       expect(result.solids[0].kind).toBe("wire");
-      void box;
-      void surface;
+    });
+
+    it("takes a face selection statement on the first row and a plane() alone on the second", () => {
+      tube();
+      located(select(face().cylinder()), 2);
+      located(plane("xy", 10), 3);
+      const scene = render();
+
+      const ref = (line: number): GhostOperandRef => ({ kind: "statement", filePath: FILE, line });
+      const result = buildFeatureGhost(scene, {
+        feature: "intersection-curve", first: [ref(2)], second: [ref(3)],
+      }, DEFAULT_MESH_CONFIG);
+      expect(result).toMatchObject({ ok: true, solids: [{ kind: "wire" }] });
     });
 
     it("takes picked faces, and says when the picks do not cross", () => {

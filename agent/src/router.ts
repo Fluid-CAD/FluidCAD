@@ -227,6 +227,40 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
     }
   });
 
+  // The messages waiting for their turn (§29).
+  router.delete('/sessions/:id/queue/:queuedId', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    if (!session.removeQueued(String(req.params.queuedId))) {
+      res.status(404).json({ error: 'No such message is waiting; it may have started.' });
+      return;
+    }
+    res.status(204).end();
+  });
+
+  router.post('/sessions/:id/queue/resume', (req, res) => {
+    const session = findSession(runtime, req, res);
+    if (!session) {
+      return;
+    }
+    try {
+      const started = session.resumeQueue();
+      if (!started) {
+        res.status(409).json({ error: 'No message is waiting.' });
+        return;
+      }
+      res.status(202).json(started);
+    } catch (e) {
+      if (e instanceof SessionBusyError) {
+        res.status(409).json({ error: e.message });
+        return;
+      }
+      throw e;
+    }
+  });
+
   router.post('/sessions/:id/cancel', async (req, res) => {
     const session = findSession(runtime, req, res);
     if (!session) {
@@ -269,17 +303,25 @@ export function createRuntimeRouter(runtime: AgentRuntime, options: AgentRouterO
       return;
     }
     const decision = req.body?.decision;
-    if (decision !== 'allow' && decision !== 'allow-session' && decision !== 'deny') {
-      res.status(400).json({ error: '`decision` must be "allow", "allow-session" or "deny".' });
+    if (decision !== 'allow' && decision !== 'allow-session' && decision !== 'allow-always' && decision !== 'deny') {
+      res.status(400).json({ error: '`decision` must be "allow", "allow-session", "allow-always" or "deny".' });
       return;
     }
-    const result = session.decideApproval(String(req.params.approvalId), decision as ApprovalDecision);
+    const target = req.body?.target;
+    if (target !== undefined && target !== 'library' && target !== 'project') {
+      res.status(400).json({ error: '`target` must be "library" or "project".' });
+      return;
+    }
+    const result = session.decideApproval(String(req.params.approvalId), decision as ApprovalDecision, target);
     switch (result) {
       case 'ok':
         res.status(204).end();
         return;
+      case 'no-target':
+        res.status(400).json({ error: 'This action has no place to choose: `target` is for package installs.' });
+        return;
       case 'not-offered':
-        res.status(400).json({ error: '"Allow for this session" is not offered for this action.' });
+        res.status(400).json({ error: `${decision === 'allow-always' ? '"Always"' : '"Allow for this session"'} is not offered for this action.` });
         return;
       case 'already-decided':
         res.status(409).json({ error: 'This approval was already settled.' });

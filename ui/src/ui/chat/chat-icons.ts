@@ -45,6 +45,7 @@ import iconCubeOff from '@tabler/icons/outline/cube-off.svg?raw';
 import iconAdjustments from '@tabler/icons/outline/adjustments-horizontal.svg?raw';
 import iconPointer from '@tabler/icons/outline/pointer.svg?raw';
 import iconMapPin from '@tabler/icons/outline/map-pin.svg?raw';
+import iconPackage from '@tabler/icons/outline/package.svg?raw';
 
 export const ChatIcons = {
   SEND: iconArrowUp,
@@ -103,6 +104,8 @@ export const ChatIcons = {
   PICK: iconPointer,
   /** What the agent points at in the viewport. */
   POINT: iconMapPin,
+  /** A hub package an install card names. */
+  PACKAGE: iconPackage,
 
   /** `svg` in a span sized by `className`. */
   span(svg: string, className = '[&>svg]:size-4'): HTMLSpanElement {

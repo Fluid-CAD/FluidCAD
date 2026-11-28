@@ -17,6 +17,7 @@
 
 import type { SolvedConstraintParam, SolvedGeometryParam, SolvedEmissionTargetParam } from '../../api';
 import type { SketchOffsetPlanChain, SketchOffsetPlanEdge } from '../../api';
+import { entityKindLabel } from '../../sketch-solver-client/model';
 import type { SolvedSketchModel } from '../../sketch-solver-client/model';
 import type { SolvedPick } from '../sketch-hover-select-handler';
 import { constraintTargetFor } from '../solved-constraint-toolbar/constraint-targets';
@@ -74,7 +75,7 @@ export function offsetSourcePicks(picks: SolvedPick[]): { ok: true; picks: Solve
       return fail(`a ${pick.anchor.owner} has no edge to offset — pick lines, arcs or circles`);
     }
     if (pick.kind !== 'line' && pick.kind !== 'arc' && pick.kind !== 'circle') {
-      return fail(`a ${pick.kind} cannot be offset as constrained geometry — a selection holding one is written as an offset() statement`);
+      return fail(`${entityKindLabel(pick.kind)} cannot be offset as constrained geometry — a selection holding one is written as an offset() statement`);
     }
     if (pick.sourceLocation?.line === undefined) {
       return fail('a picked edge has no statement to follow');

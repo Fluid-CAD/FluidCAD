@@ -22,6 +22,8 @@
 //                                   direction mapped (cross(u_t, M·u_s) = 0
 //                                   — the one non-linear row here,
 //                                   π-periodic like the ellipse itself)
+//   eArc   [cx,cy,rx,ry,θ,sx,sy,ex,ey] → 9 rows: the ellipse's five, then
+//                                   start→start and end→end mapped
 // Circle/arc/ellipse ties require a similarity matrix (MᵀM = s²·I): only
 // then does a circle map to a circle and the linear radius row hold.
 // Improper maps (det < 0, mirrors) are similarities too and pass.
@@ -89,12 +91,13 @@ export function compileTransformTie(spec: Spec, ctx: CompileCtx): CompiledRow[] 
           ctx.point(end(spec.target), 'transform-tie target end'),
         ),
       ];
-    case 'ellipse': {
-      requireSimilarity(a, b, c, d, 'ellipse');
+    case 'ellipse':
+    case 'eArc': {
+      requireSimilarity(a, b, c, d, kind === 'eArc' ? 'elliptical arc' : 'ellipse');
       const rScale = Math.sqrt(Math.abs(a * d - b * c));
       const es = ctx.ellipse({ entity: spec.source }, 'transform-tie source');
       const et = ctx.ellipse({ entity: spec.target }, 'transform-tie target');
-      return [
+      const rows = [
         ...pointRows(
           ctx.point(center(spec.source), 'transform-tie source center'),
           ctx.point(center(spec.target), 'transform-tie target center'),
@@ -103,6 +106,19 @@ export function compileTransformTie(spec: Spec, ctx: CompileCtx): CompiledRow[] 
         scaledRow(et.ry, es.ry, rScale),
         ellipseAxisRow(es, et, a, b, c, d),
       ];
+      if (kind === 'eArc') {
+        rows.push(
+          ...pointRows(
+            ctx.point(start(spec.source), 'transform-tie source start'),
+            ctx.point(start(spec.target), 'transform-tie target start'),
+          ),
+          ...pointRows(
+            ctx.point(end(spec.source), 'transform-tie source end'),
+            ctx.point(end(spec.target), 'transform-tie target end'),
+          ),
+        );
+      }
+      return rows;
     }
     case 'circle':
     case 'arc': {

@@ -27,9 +27,9 @@ export type LiveEntityGeometry = {
   end?: [number, number];
   center?: [number, number];
   radius?: number;
-  /** Ellipse semi-radii (locked literals, carried for the redraw). */
+  /** Semi-radii of an ellipse, or of the ellipse an elliptical arc lies on. */
   radii?: [number, number];
-  /** Ellipse RX-axis rotation, radians. */
+  /** Their RX-axis rotation, radians. */
   theta?: number;
 };
 
@@ -91,6 +91,13 @@ export class LiveSolvedSystem {
             break;
           case 'ellipse':
             system.ellipse(p[o], p[o + 1], p[o + 2], p[o + 3], p[o + 4], opts);
+            break;
+          case 'eArc':
+            system.eArc(
+              p[o], p[o + 1], p[o + 2], p[o + 3], p[o + 4],
+              p[o + 5], p[o + 6], p[o + 7], p[o + 8],
+              opts,
+            );
             break;
         }
         kinds.set(e.id, e.kind);
@@ -155,7 +162,8 @@ export class LiveSolvedSystem {
    * Add a free entity to THIS instance — an emission's not-yet-written
    * geometry, for the redundancy trial that runs before the statement lands.
    * `params` use the solver layout (point [x,y]; line [sx,sy,ex,ey]; circle
-   * [cx,cy,r]; arc [cx,cy,r,sx,sy,ex,ey]; ellipse [cx,cy,rx,ry,θ]). Existing
+   * [cx,cy,r]; arc [cx,cy,r,sx,sy,ex,ey]; ellipse [cx,cy,rx,ry,θ]; eArc
+   * [cx,cy,rx,ry,θ,sx,sy,ex,ey]). Existing
    * solved values are kept; the new slots start at the given params.
    * Returns the entity id.
    */
@@ -179,6 +187,12 @@ export class LiveSolvedSystem {
         break;
       case 'ellipse':
         id = this.system.ellipse(params[0], params[1], params[2], params[3], params[4]);
+        break;
+      case 'eArc':
+        id = this.system.eArc(
+          params[0], params[1], params[2], params[3], params[4],
+          params[5], params[6], params[7], params[8],
+        );
         break;
     }
     this.kinds.set(id, kind);
@@ -247,6 +261,15 @@ export class LiveSolvedSystem {
         };
       case 'ellipse':
         return { kind, center: [p[0], p[1]], radii: [p[2], p[3]], theta: p[4] };
+      case 'eArc':
+        return {
+          kind,
+          center: [p[0], p[1]],
+          radii: [p[2], p[3]],
+          theta: p[4],
+          start: [p[5], p[6]],
+          end: [p[7], p[8]],
+        };
     }
   }
 

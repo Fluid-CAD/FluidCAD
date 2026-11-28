@@ -2,7 +2,7 @@ import { OpTabs, ThinControl } from './panel-controls';
 import { FlagControl } from './expression-rows';
 import { FeaturePanel } from './feature-panel';
 import { SketchProfileOption } from './sketch-profiles';
-import { SketchSlotControl, SketchSlotSelection } from './sketch-slot';
+import { ProfileSlotSelection, SketchSlotControl } from './sketch-slot';
 import { EntitySlotControl, EntitySlotSelection } from './entity-slot';
 import { ScopeSlotControl } from './scope-slot';
 import { ExtrudeFaceTarget, ExtrudeOptionValues, ValueExpr } from '../../api';
@@ -25,7 +25,9 @@ export type ExtrudeValues = ExtrudeOptionValues | { error: string };
 /**
  * The extrude dialog: an Add / Remove / New tab row (the boolean operation),
  * the profile pick slot (a single chip — filled by clicking a sketch in the
- * timeline or its wires in 3D), the direction mode (one direction, symmetric,
+ * timeline or its wires in 3D, or a planar face of a solid, which is swept
+ * as it stands and so parks the region, drill, thin and through-all
+ * controls), the direction mode (one direction, symmetric,
  * two distances, or up to a face — picked, first or last), the distance
  * fields (through-all on the Remove tab disables them; every up-to-face mode
  * replaces them, the picked one with a face pick slot), a draft angle, an end
@@ -39,19 +41,27 @@ export class ExtrudePanel extends FeaturePanel {
   /** The scope chip at `index` was removed — the service owns the choices. */
   onRemoveScope?: (index: number) => void;
   /**
-   * A solid slot took the viewport — the service ends region picking and
-   * re-aims its pick channels. Fires when a face or scope slot is clicked and
-   * when the direction enters the picked up-to-face mode, but only when that
-   * changes who owns the viewport (the other slot, or region picking).
+   * A slot took the viewport — the service re-aims its pick channels, and
+   * ends region picking unless it was the profile slot (the regions are the
+   * profile's own). Fires when a slot is clicked and when the direction
+   * enters the picked up-to-face mode, but only when that changes who owns
+   * the viewport (another slot, or region picking).
    */
   onArmedPickChange?: () => void;
 
   /**
-   * Which slot whole-solid viewport picks land in: the up-to-face target or
-   * the scope list. The face slot is the default whenever it is shown;
-   * clicking either slot moves the border.
+   * Which slot face clicks in the viewport land in: the profile (the face
+   * to extrude), the up-to-face target, or the scope list (the face's whole
+   * solid). The profile slot is the default; entering the picked up-to-face
+   * direction hands the clicks to its target, and clicking a slot moves the
+   * border.
    */
-  private armedSolidSlot: 'face' | 'scope' = 'face';
+  private armedSolidSlot: 'profile' | 'face' | 'scope' = 'profile';
+  /**
+   * Edit mode: the statement's own profile is a face (the sources query
+   * resolved it) — the kept chip parks the same controls a picked face does.
+   */
+  private keptProfileIsFace = false;
   /**
    * Region picking holds the viewport (the service mirrors its picker's
    * state here). The solid slots draw quiet until one of them claims the
@@ -73,6 +83,7 @@ export class ExtrudePanel extends FeaturePanel {
   private distance2Wrap: HTMLElement;
   private throughWrap: HTMLElement;
   private throughCheckbox: HTMLInputElement;
+  private drillWrap: HTMLElement;
   private distanceField: ExpressionField;
   private distance2Field: ExpressionField;
   private draftField: ExpressionField;
@@ -128,7 +139,7 @@ export class ExtrudePanel extends FeaturePanel {
           <input data-role="end-offset" data-unit="length" type="number" step="0.5" placeholder="0"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
-        <label class="flex items-center justify-between cursor-pointer"
+        <label data-role="drill-wrap" class="flex items-center justify-between cursor-pointer"
           title="Treat inner closed regions of the profile as holes — off extrudes them solid">
           <span class="text-base-content/70">Drill holes</span>
           <input data-role="drill" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
@@ -151,8 +162,13 @@ export class ExtrudePanel extends FeaturePanel {
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
 
-    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { regions: true });
-    this.profileSlot.onChange = () => this.onChange?.();
+    this.profileSlot = new SketchSlotControl(this.role('profile-slot'), { regions: true, faces: true });
+    this.profileSlot.onChange = () => {
+      // The ✕ can swap a picked face back for a sketch — the parked controls return.
+      this.syncControls();
+      this.onChange?.();
+    };
+    this.profileSlot.onArm = () => this.armSolidSlot('profile');
 
     this.faceSlotWrap = this.role('face-slot-wrap');
     this.faceSlot = new EntitySlotControl(this.role('face-slot'), {
@@ -173,6 +189,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.distance2Wrap = this.role('distance2-wrap');
     this.throughWrap = this.role('through-wrap');
     this.throughCheckbox = this.role('through');
+    this.drillWrap = this.role('drill-wrap');
     this.endOffsetInput = this.role('end-offset');
     // The drill-holes toggle takes an expression (`drill(flag)`) under its ƒ.
     this.drill = new FlagControl(this.role('drill'), { name: 'drill', label: 'Drill holes' });
@@ -213,7 +230,8 @@ export class ExtrudePanel extends FeaturePanel {
     // (its slot picks AND its form values) would otherwise carry over. The
     // slot opens on the first offered sketch (the active one, in sketch mode).
     this.faceSlot.reset();
-    this.armedSolidSlot = 'face';
+    this.armedSolidSlot = 'profile';
+    this.keptProfileIsFace = false;
     this.scopeSlot.setChips([]);
     this.shell.setTitle(null);
     this.tabs.reset();
@@ -226,7 +244,6 @@ export class ExtrudePanel extends FeaturePanel {
     this.drill.setValue(true);
     this.thin.reset();
     this.profileSlot.reset(options);
-    this.syncProfileArmed();
     this.syncControls();
     this.shell.show();
   }
@@ -234,8 +251,8 @@ export class ExtrudePanel extends FeaturePanel {
   /**
    * Open prefilled from an existing statement (edit mode). The profile slot
    * starts on a "Current: …" chip that keeps the statement's own profile
-   * verbatim; picking another sketch re-sources it (its ✕ reverts to the
-   * kept profile). A picked-face statement opens on the "Up to face"
+   * verbatim; picking another sketch — or a face — re-sources it (its ✕
+   * reverts to the kept profile). A picked-face statement opens on the "Up to face"
    * direction with its target on the same kind of keep chip — picking a face
    * in 3D re-sources it; a first/last-face statement opens on its own
    * direction, which carries no target to keep. The op tabs, direction,
@@ -251,12 +268,15 @@ export class ExtrudePanel extends FeaturePanel {
     // Only a picked face is a keep-able target: switching a first/last-face
     // statement to "Up to face" must ask for a pick, not re-emit the literal.
     this.faceSlot.seedKeep(state.toFaceKind === 'selector' ? state.toFaceLabel : null);
-    this.armedSolidSlot = 'face';
-    this.profileSlot.seedKeep(state.profileLabel);
-    this.syncProfileArmed();
+    // A profile argument that is not a bare variable is a face selector
+    // (`e.endFaces()`, `select(…)`) — the sources query confirms it.
+    this.keptProfileIsFace = false;
+    this.profileSlot.seedKeep(state.profileLabel, state.profileLabel !== null && !IDENTIFIER.test(state.profileLabel));
     this.shell.setTitle('Edit extrude');
     this.tabs.setOp(state.op);
     this.directionSelect.value = directionOf(state);
+    // A picked-target statement opens on its target slot, as its direction does.
+    this.armedSolidSlot = this.isToFace() ? 'face' : 'profile';
     // A distance the statement doesn't carry (up-to-face, through-all,
     // one-direction) seeds the create default — switching the direction
     // mid-edit must not reveal a previous session's value.
@@ -282,7 +302,7 @@ export class ExtrudePanel extends FeaturePanel {
    */
   setOptions(options: SketchProfileOption[]): void {
     this.profileSlot.setOptions(options);
-    this.syncProfileArmed();
+    this.syncControls();
   }
 
   selectedOption(): SketchProfileOption | null {
@@ -294,14 +314,56 @@ export class ExtrudePanel extends FeaturePanel {
     return this.profileSlot.regions!;
   }
 
-  /** The profile slot's state, `keep` included (edit mode only). */
-  profileSelection(): SketchSlotSelection | null {
-    return this.profileSlot.selection();
+  /** The profile slot's state — `keep` (edit mode only) and a picked face included. */
+  profileSelection(): ProfileSlotSelection | null {
+    return this.profileSlot.profileSelection();
   }
 
   /** Programmatic profile choice (a timeline pick); no change event fires. */
   selectProfile(index: number): void {
     this.profileSlot.selectIndex(index);
+    this.syncControls();
+  }
+
+  /**
+   * The profile slot's picked-face chip (the service owns the entity); null
+   * drops it — back to the sketch it replaced, the statement's own profile
+   * (edit mode), or the prompt. No change event fires.
+   */
+  setProfileFace(label: string | null): void {
+    if (label === null) {
+      this.profileSlot.clearFace();
+    } else {
+      this.profileSlot.selectFace(label);
+    }
+    this.syncControls();
+  }
+
+  /**
+   * Edit mode: whether the statement's own profile turned out to be a face
+   * (the sources query resolved it to face picks, not a sketch).
+   */
+  setKeptProfileIsFace(isFace: boolean): void {
+    if (this.keptProfileIsFace === isFace) {
+      return;
+    }
+    this.keptProfileIsFace = isFace;
+    this.syncControls();
+  }
+
+  /**
+   * The profile is a face — a picked one, or the edited statement's own. A
+   * face is swept as it stands: no regions, no inner loops to drill, no thin
+   * wall to offset, and no through-all form.
+   */
+  profileIsFace(): boolean {
+    const selection = this.profileSlot.profileSelection();
+    return selection?.kind === 'face' || (selection?.kind === 'keep' && this.keptProfileIsFace);
+  }
+
+  /** Face clicks in the viewport pick the profile — its slot holds the border. */
+  get profilePickArmed(): boolean {
+    return this.armedSolidSlot === 'profile';
   }
 
   /** The picked up-to-face direction mode is selected (the one that picks). */
@@ -364,8 +426,10 @@ export class ExtrudePanel extends FeaturePanel {
    * re-aim its pick channels. Nothing fires when the slot already owns the
    * viewport — the same slot, with no region pick in the way.
    */
-  private armSolidSlot(slot: 'face' | 'scope'): void {
-    if (this.armedSolidSlot === slot && !this.regionPickLive) {
+  private armSolidSlot(slot: 'profile' | 'face' | 'scope'): void {
+    // Region picking belongs to the profile slot: a click there (the region
+    // row sits inside it) takes nothing back from a live region pick.
+    if (this.armedSolidSlot === slot && (slot === 'profile' || !this.regionPickLive)) {
       return;
     }
     this.armedSolidSlot = slot;
@@ -421,7 +485,9 @@ export class ExtrudePanel extends FeaturePanel {
     if ('error' in thin) {
       return thin;
     }
-    const drill = this.drill.read();
+    // The drill toggle is parked under a face profile — its value stays out
+    // of the statement, whatever the hidden control holds.
+    const drill = this.profileIsFace() ? { value: true } : this.drill.read();
     if ('error' in drill) {
       return drill;
     }
@@ -443,15 +509,17 @@ export class ExtrudePanel extends FeaturePanel {
     return this.directionSelect.value as ExtrudeDirection;
   }
 
-  /** The slot is the live pick target whenever there is anything to pick. */
-  private syncProfileArmed(): void {
-    this.profileSlot.setArmed(this.profileSlot.editMode || this.profileSlot.options.length > 0);
+  /**
+   * Through-all is a Remove option; a two-distance form has explicit depths,
+   * and a face profile has no through-all form at all.
+   */
+  private throughAllOffered(): boolean {
+    return this.tabs.op === 'remove' && this.direction !== 'two' && !isFaceBounded(this.direction)
+      && !this.profileIsFace();
   }
 
-  /** Through-all is a Remove option; a two-distance form has explicit depths. */
   private throughAllActive(): boolean {
-    return this.tabs.op === 'remove' && this.direction !== 'two' && !isFaceBounded(this.direction)
-      && this.throughCheckbox.checked;
+    return this.throughAllOffered() && this.throughCheckbox.checked;
   }
 
   /**
@@ -476,23 +544,38 @@ export class ExtrudePanel extends FeaturePanel {
     this.distanceWrap.classList.toggle('flex', !faceBounded);
     this.distance2Wrap.classList.toggle('hidden', direction !== 'two');
     this.distance2Wrap.classList.toggle('flex', direction === 'two');
-    const throughOffered = removing && direction !== 'two' && !faceBounded;
+    const throughOffered = this.throughAllOffered();
     this.throughWrap.classList.toggle('hidden', !throughOffered);
     this.throughWrap.classList.toggle('flex', throughOffered);
     this.distanceInput.disabled = this.throughAllActive();
     this.endOffsetInput.disabled = this.throughAllActive();
-    // A separate body has no boolean to scope; a hidden scope slot hands the
-    // armed border back to the face slot.
+    // A face profile is swept as it stands: nothing to drill, nothing to
+    // offset into a thin wall.
+    const faceProfile = this.profileIsFace();
+    this.drillWrap.classList.toggle('hidden', faceProfile);
+    this.drillWrap.classList.toggle('flex', !faceProfile);
+    this.thin.setBlocked(faceProfile, 'A face cannot be extruded thin — pick a sketch as the profile.');
+    // A separate body has no boolean to scope; a slot that is not shown
+    // hands the armed border on — a hidden scope slot to the target slot
+    // when that one is up, and either to the profile slot otherwise.
     this.scopeSlot.setVisible(this.tabs.op !== 'new');
-    if (!this.scopeSlot.visible) {
-      this.armedSolidSlot = 'face';
+    if (!this.scopeSlot.visible && this.armedSolidSlot === 'scope') {
+      this.armedSolidSlot = toFace ? 'face' : 'profile';
     }
-    // A live region pick owns the viewport — neither solid slot is armed.
+    if (!toFace && this.armedSolidSlot === 'face') {
+      this.armedSolidSlot = 'profile';
+    }
+    // A live region pick owns the viewport — neither solid slot is armed,
+    // and the profile slot wears the border: the regions are its own.
     const solidArmed = !this.regionPickLive;
+    this.profileSlot.setArmed(this.regionPickLive || this.armedSolidSlot === 'profile');
     this.faceSlot.setArmed(solidArmed && toFace && this.armedSolidSlot === 'face');
     this.scopeSlot.setArmed(solidArmed && this.scopeSlot.visible && this.armedSolidSlot === 'scope');
   }
 }
+
+/** A bare variable name — what a bound sketch profile reads as. */
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
 /** The extrusion ends on a face, so it carries no distance of its own. */
 function isFaceBounded(direction: ExtrudeDirection): boolean {

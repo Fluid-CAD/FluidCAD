@@ -16,29 +16,31 @@ import { EventLog } from './event-log.ts';
 import { buildCliText, CONTINUE_TEXT, interruptedTurnNote, type InterruptedToolCall, type WorkspaceState } from './instructions.ts';
 import { addParamChanges, mergeKept, readKept, withoutTold, type ParamCardModel } from './param-cards.ts';
 import { McpEndpoint, type McpEndpoints, type SharedMcpIndexes } from './mcp-endpoint.ts';
-import { SessionStore, type Checkpoint, type SessionRecord } from './session-store.ts';
-import { relativeTo, ToolGate, type ApprovalSweep, type ToolGateOptions } from './tool-gate.ts';
+import { SessionStore, type Checkpoint, type QueuedTurn, type SessionRecord } from './session-store.ts';
+import { relativeTo, ToolGate, type ApprovalSweep, type InstallTarget, type ToolGateOptions } from './tool-gate.ts';
 import { applyChatEvent, findMessage, findPart } from './transcript.ts';
 import { cancelUnbuilt, VARIANTS_RESTART_BUILDING_REASON, VARIANTS_RESTART_REASON } from './variants.ts';
 import { cancelUnfinishedPreview } from './change-preview.ts';
 import { ASK_USER_TOOL, OFFER_PARAMS_TOOL, PROPOSE_VARIANTS_TOOL, SHOW_USER_TOOL, writeFile, type RegistryEntry } from '../../mcp/dist/server.js';
-import type {
-  AgentKind,
-  ApprovalDecision,
-  ChatEvent,
-  ChatPart,
-  ParamChange,
-  ParamsPart,
-  PermissionMode,
-  QuestionPart,
-  SendMessage,
-  SessionSnapshot,
-  SessionStatus,
-  SessionSummary,
-  ToolPart,
-  TurnRecord,
-  TurnUsage,
-  VariantsPart,
+import {
+  MAX_QUEUED_MESSAGES,
+  type AgentKind,
+  type ApprovalDecision,
+  type ChatEvent,
+  type ChatPart,
+  type ParamChange,
+  type ParamsPart,
+  type PermissionMode,
+  type QuestionPart,
+  type QueuedMessage,
+  type SendMessage,
+  type SessionSnapshot,
+  type SessionStatus,
+  type SessionSummary,
+  type ToolPart,
+  type TurnRecord,
+  type TurnUsage,
+  type VariantsPart,
 } from './types.ts';
 
 /** How long a CLI may sit idle between turns before it is closed (§6.2); the next message resumes it. */
@@ -75,6 +77,12 @@ export type SessionDeps = {
   /** The model on screen and the parameters its last render declared, for `offer_params` (§26). */
   model(): ParamCardModel;
   instructions(): string;
+  /** Whether the user chose "Always" for tool `name` (an install). Absent: never. */
+  alwaysAllowed?(name: string): Promise<boolean>;
+  /** Remembers "Always" for tool `name` in the preferences. Absent: no card offers it. */
+  allowAlways?(name: string): Promise<void>;
+  /** Where an install goes when the call names no place; absent: the setting decides and the card offers no choice. */
+  installTarget?(): Promise<InstallTarget>;
   idleMs?: number;
   /** Approval timeout and timers (tests). */
   gate?: ToolGateOptions;
@@ -150,6 +158,9 @@ export class AgentSession {
         checkpoint: (turnId, checkpoint) => this.takeCheckpoint(turnId, checkpoint),
         dropCheckpoint: (turnId, filePath) => this.dropCheckpoint(turnId, filePath),
         model: () => deps.model(),
+        ...(deps.alwaysAllowed ? { alwaysAllowed: (name: string) => deps.alwaysAllowed!(name) } : {}),
+        ...(deps.allowAlways ? { allowAlways: (name: string) => deps.allowAlways!(name) } : {}),
+        ...(deps.installTarget ? { installTarget: () => deps.installTarget!() } : {}),
       },
       deps.gate,
     );
@@ -239,6 +250,7 @@ export class AgentSession {
       status: this.statusValue,
       messages: this.record.messages,
       turns: this.record.turns,
+      queued: this.queuedMessages(),
       model: this.record.agent.model,
       effort: this.record.agent.effort ?? null,
     });
@@ -263,10 +275,60 @@ export class AgentSession {
   }
 
   /**
-   * Accepts a user message and starts its turn; the turn runs on after this
-   * returns. Throws SessionBusyError while a turn is running.
+   * Accepts a user message. With no turn running its turn starts now and
+   * runs on after this returns. While one runs the message waits for its own
+   * (§29): it starts when the running turn, and the messages waiting before
+   * it, have ended `done`. Throws SessionBusyError while a revert runs, and
+   * when {@link MAX_QUEUED_MESSAGES} already wait.
    */
-  send(input: SendMessage, extra: { interruptedTurn?: string } = {}): { turnId: string } {
+  send(input: SendMessage): { turnId: string } | { queuedId: string } {
+    if (this.disposed) {
+      throw new Error('The session was deleted.');
+    }
+    if (!this.turn) {
+      return this.start(input);
+    }
+    const waiting = this.record.queued ?? [];
+    if (waiting.length >= MAX_QUEUED_MESSAGES) {
+      throw new SessionBusyError(`${MAX_QUEUED_MESSAGES} messages are already waiting for the agent. Send this one once it has taken some.`);
+    }
+    const queued = this.accept(input);
+    this.record.queued = [...waiting, queued];
+    this.emit({ type: 'queue', queued: this.queuedMessages() });
+    this.persist();
+    return { queuedId: queued.id };
+  }
+
+  /**
+   * Takes a waiting message back (§29): it never starts, and its images go.
+   * False when no such message waits (it started, or was removed already).
+   */
+  removeQueued(queuedId: string): boolean {
+    const waiting = this.record.queued ?? [];
+    const message = waiting.find((q) => q.id === queuedId);
+    if (!message || this.disposed) {
+      return false;
+    }
+    this.setQueued(waiting.filter((q) => q !== message));
+    this.emit({ type: 'queue', queued: this.queuedMessages() });
+    this.persist();
+    for (const file of [...(message.attachments ?? []).map((a) => a.file), ...(message.capture ? [message.capture] : [])]) {
+      try {
+        this.deps.store.deleteFile(this.record.id, file);
+      } catch (e) {
+        console.error(`[agent] could not remove ${file} of a message taken back:`, e);
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Starts the message that has waited longest (§29), after a turn that was
+   * stopped or failed left the queue waiting; the others follow as each turn
+   * ends `done`. Null when none waits. Throws SessionBusyError while a turn
+   * or a revert runs.
+   */
+  resumeQueue(): { turnId: string } | null {
     if (this.disposed) {
       throw new Error('The session was deleted.');
     }
@@ -276,36 +338,112 @@ export class AgentSession {
     if (this.reverting) {
       throw new SessionBusyError('A revert is running in this session.');
     }
+    return this.startNextQueued();
+  }
+
+  /** The waiting messages as the page shows them, oldest first. */
+  private queuedMessages(): QueuedMessage[] {
+    return (this.record.queued ?? []).map((q) => ({
+      id: q.id,
+      createdAt: q.createdAt,
+      text: q.text,
+      images: q.attachments?.length ?? 0,
+      references: q.references?.length ?? 0,
+    }));
+  }
+
+  private setQueued(queued: QueuedTurn[]): void {
+    if (queued.length > 0) {
+      this.record.queued = queued;
+    } else {
+      delete this.record.queued;
+    }
+  }
+
+  /** Starts the turn of the message that has waited longest, when one waits and nothing runs. */
+  private startNextQueued(): { turnId: string } | null {
+    const [next, ...rest] = this.record.queued ?? [];
+    if (!next || this.turn || this.reverting || this.disposed) {
+      return null;
+    }
+    this.setQueued(rest);
+    return this.begin(next, { fromQueue: true });
+  }
+
+  /** Starts the turn of a message now. Throws SessionBusyError while a turn or a revert runs. */
+  private start(input: SendMessage, extra: { interruptedTurn?: string } = {}): { turnId: string } {
+    if (this.disposed) {
+      throw new Error('The session was deleted.');
+    }
+    if (this.turn) {
+      throw new SessionBusyError();
+    }
+    if (this.reverting) {
+      throw new SessionBusyError('A revert is running in this session.');
+    }
+    return this.begin(this.accept(input), extra);
+  }
+
+  /** A message as the session keeps it until its turn: its images go under `files/` now. */
+  private accept(input: SendMessage): QueuedTurn {
+    const attachments = (input.attachments ?? []).map((attachment) => {
+      const file = `${randomUUID()}.${IMAGE_EXTENSIONS[attachment.mediaType]}`;
+      this.deps.store.writeFile(this.record.id, file, Buffer.from(attachment.base64, 'base64'));
+      return { file, mediaType: attachment.mediaType, name: attachment.name ?? 'image' };
+    });
+    let capture: string | undefined;
+    if (input.image) {
+      capture = `${randomUUID()}.png`;
+      this.deps.store.writeFile(this.record.id, capture, Buffer.from(input.image.base64, 'base64'));
+    }
+    return {
+      id: randomUUID(),
+      createdAt: new Date().toISOString(),
+      text: input.text,
+      ...(attachments.length > 0 ? { attachments } : {}),
+      ...(input.references && input.references.length > 0 ? { references: input.references } : {}),
+      ...(capture ? { capture } : {}),
+      ...(input.model ? { model: input.model } : {}),
+      ...(input.effort ? { effort: input.effort } : {}),
+      ...(input.mode ? { mode: input.mode } : {}),
+    };
+  }
+
+  /**
+   * Begins the turn of `message`: the user message goes into the transcript
+   * and the CLI gets its text, written now, so it says how the workspace
+   * stands as the turn starts (a message that waited was sent earlier).
+   * `fromQueue`: the message waited, and is no longer among those that do.
+   */
+  private begin(message: QueuedTurn, extra: { interruptedTurn?: string; fromQueue?: boolean } = {}): { turnId: string } {
     this.clearIdleTimer();
     const turnId = randomUUID();
     const userMessageId = randomUUID();
     const createdAt = new Date().toISOString();
     this.log.startTurn();
     delete this.record.interrupted;
-    this.turn = { turnId, mode: input.mode ?? 'ask', assistantMessageId: null, parts: new Set(), stopping: false };
+    this.turn = { turnId, mode: message.mode ?? 'ask', assistantMessageId: null, parts: new Set(), stopping: false };
+    if (extra.fromQueue) {
+      this.emit({ type: 'queue', queued: this.queuedMessages() });
+    }
 
     this.emit({ type: 'message-start', message: { id: userMessageId, role: 'user', turnId, createdAt } });
     // The words, the images the user attached, the reference chips, then the
     // capture they are drawn in. The model gets the images in that order.
-    const parts: ChatPart[] = input.text.trim() === '' ? [] : [{ type: 'text', id: randomUUID(), text: input.text }];
+    const parts: ChatPart[] = message.text.trim() === '' ? [] : [{ type: 'text', id: randomUUID(), text: message.text }];
     const images: TurnImage[] = [];
     const attachedImages: string[] = [];
-    for (const attachment of input.attachments ?? []) {
-      const file = `${randomUUID()}.${IMAGE_EXTENSIONS[attachment.mediaType]}`;
-      const name = attachment.name ?? 'image';
-      images.push({ path: this.deps.store.writeFile(this.record.id, file, Buffer.from(attachment.base64, 'base64')), mediaType: attachment.mediaType });
-      parts.push({ type: 'image', id: randomUUID(), file, name });
-      attachedImages.push(name);
+    for (const attachment of message.attachments ?? []) {
+      images.push({ path: this.deps.store.filePath(this.record.id, attachment.file)!, mediaType: attachment.mediaType });
+      parts.push({ type: 'image', id: randomUUID(), file: attachment.file, name: attachment.name });
+      attachedImages.push(attachment.name);
     }
-    if (input.references && input.references.length > 0) {
-      parts.push({ type: 'references', id: randomUUID(), references: input.references });
+    if (message.references && message.references.length > 0) {
+      parts.push({ type: 'references', id: randomUUID(), references: message.references });
     }
-    let captureAttached = false;
-    if (input.image) {
-      const file = `${randomUUID()}.png`;
-      images.push({ path: this.deps.store.writeFile(this.record.id, file, Buffer.from(input.image.base64, 'base64')), mediaType: 'image/png' });
-      parts.push({ type: 'image', id: randomUUID(), file });
-      captureAttached = true;
+    if (message.capture) {
+      images.push({ path: this.deps.store.filePath(this.record.id, message.capture)!, mediaType: 'image/png' });
+      parts.push({ type: 'image', id: randomUUID(), file: message.capture });
     }
     for (const part of parts) {
       this.emit({ type: 'part-start', messageId: userMessageId, part });
@@ -315,7 +453,7 @@ export class AgentSession {
 
     if (!this.record.titleSetByUser && this.record.turns.length === 1) {
       // A message of images only is titled by its first image.
-      const firstLine = (input.text.trim().split('\n')[0] ?? '') || (attachedImages[0] ?? '');
+      const firstLine = (message.text.trim().split('\n')[0] ?? '') || (attachedImages[0] ?? '');
       if (firstLine !== '') {
         this.record.title = cutTitle(firstLine);
         this.emit({ type: 'title', title: this.record.title });
@@ -327,16 +465,16 @@ export class AgentSession {
     const revertedFiles = this.record.revertedFiles ?? [];
     const paramChanges = this.record.paramChanges ?? [];
     const cliText = buildCliText({
-      text: input.text,
-      references: input.references,
+      text: message.text,
+      references: message.references,
       attachedImages,
-      imageAttached: captureAttached,
+      imageAttached: message.capture !== undefined,
       workspace: this.deps.workspaceState(),
       revertedFiles,
       paramChanges,
       ...(extra.interruptedTurn ? { interruptedTurn: extra.interruptedTurn } : {}),
     });
-    void this.startTurn(turnId, { cliText, images, model: input.model, effort: input.effort, revertedFiles, paramChanges });
+    void this.startTurn(turnId, { cliText, images, model: message.model, effort: message.effort, revertedFiles, paramChanges });
     return { turnId };
   }
 
@@ -348,7 +486,7 @@ export class AgentSession {
    */
   continueAfterRestart(mode: PermissionMode = 'ask'): { turnId: string } {
     const note = this.interruptedTurnSummary();
-    return this.send({ text: CONTINUE_TEXT, mode }, note ? { interruptedTurn: note } : {});
+    return this.start({ text: CONTINUE_TEXT, mode }, note ? { interruptedTurn: note } : {});
   }
 
   /** The continue note for the last turn, when an engine restart cut it off. */
@@ -407,9 +545,10 @@ export class AgentSession {
   /**
    * The user's answer to a tool call waiting for approval (§12.1).
    * `already-decided`: the call is in the transcript but no longer waits.
+   * `target`: where the user chose to install (an install's card).
    */
-  decideApproval(approvalId: string, decision: ApprovalDecision): 'ok' | 'not-found' | 'already-decided' | 'not-offered' {
-    const result = this.gate.decide(approvalId, decision);
+  decideApproval(approvalId: string, decision: ApprovalDecision, target?: InstallTarget): 'ok' | 'not-found' | 'already-decided' | 'not-offered' | 'no-target' {
+    const result = this.gate.decide(approvalId, decision, target);
     if (result !== 'not-found') {
       return result;
     }
@@ -945,6 +1084,11 @@ export class AgentSession {
     }
     this.persist();
     this.startIdleTimer();
+    if (reason === 'done') {
+      // The next waiting message has its turn (§29). A turn that was stopped
+      // or failed starts none: the user decides what happens to the rest.
+      this.startNextQueued();
+    }
   }
 
   /** The assistant message of the running turn, started on first use. */

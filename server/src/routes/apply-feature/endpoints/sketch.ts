@@ -11,6 +11,7 @@ import {
   type SolvedConstraintEmission,
   type SolvedEmissionTarget,
   type SolvedGeometryEmission,
+  type SolvedTextEmission,
 } from '../../../sketch-solved-edit/index.ts';
 import { SOLVED_CONSTRAINT_KINDS, SOLVED_GEOMETRY_CALLEES } from '../../../sketch-symbols.ts';
 import { SketchSplit, type SketchSplitSpec } from '../../../sketch-split.ts';
@@ -457,7 +458,7 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
   // carry each geometry statement's final line — the polyline chain
   // references its previous segment by line without waiting for a render.
   router.post('/sketch/insert-solved', async (req, res) => {
-    const { sketchLine, filePath, geometry, constraints, newVariables, removals, settle } = req.body ?? {};
+    const { sketchLine, filePath, geometry, constraints, newVariables, removals, settle, texts } = req.body ?? {};
     // A removals-only body is a legal edit: the constraint bar deletes the
     // coincident(s) behind a vertex pick through this rail so a junction's
     // several statements go in one edit.
@@ -467,7 +468,8 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
     const cleanSettle = validateSketchPositionEdits(settle);
     if (typeof sketchLine !== 'number'
       || !Array.isArray(geometry) || !Array.isArray(constraints)
-      || geometry.length + constraints.length + removalCount === 0
+      || (texts !== undefined && !Array.isArray(texts))
+      || geometry.length + constraints.length + removalCount + (texts?.length ?? 0) === 0
       || (filePath !== undefined && typeof filePath !== 'string')
       || (newVariables !== undefined && !Array.isArray(newVariables))
       || (removals !== undefined && !Array.isArray(removals))
@@ -495,6 +497,21 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
       cleanGeometry.push({
         kind: g.kind, text: g.text,
         ...(g.guide !== undefined ? { guide: g.guide } : {}),
+      });
+    }
+    // Text statements riding the emission (a drawing import's text).
+    const cleanTexts: SolvedTextEmission[] = [];
+    for (const t of texts ?? []) {
+      if (typeof t !== 'object' || t === null || typeof t.string !== 'string' || typeof t.chain !== 'string'
+        || (t.path !== undefined && !Number.isInteger(t.path))
+        || (t.fix !== undefined && typeof t.fix !== 'boolean')) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      cleanTexts.push({
+        string: t.string, chain: t.chain,
+        ...(t.path !== undefined ? { path: t.path } : {}),
+        ...(t.fix !== undefined ? { fix: t.fix } : {}),
       });
     }
     const cleanConstraints: SolvedConstraintEmission[] = [];
@@ -539,6 +556,7 @@ export function registerSketchEndpoints(router: Router, services: ApplyFeatureSe
       sketchLine,
       geometry: cleanGeometry,
       constraints: cleanConstraints,
+      ...(cleanTexts.length > 0 ? { texts: cleanTexts } : {}),
       ...(cleanVariables.length > 0 ? { newVariables: cleanVariables } : {}),
       ...(cleanRemovals.length > 0 ? { removals: cleanRemovals } : {}),
       ...(cleanSettle.length > 0 ? { settle: cleanSettle } : {}),

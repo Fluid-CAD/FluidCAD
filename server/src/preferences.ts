@@ -129,6 +129,11 @@ export interface AgentPreferences {
   /** Ask before every edit (default), or apply workspace edits without asking. */
   permissionMode: (typeof AGENT_PERMISSION_MODES)[number];
   /**
+   * The agent installs hub packages without asking: set by "Always" on an
+   * install's card, cleared in Settings → Agent. Absent means it asks.
+   */
+  alwaysAllowInstalls?: boolean;
+  /**
    * The API agent's model, provider-qualified (`<providerId>/<model>`, e.g.
    * `anthropic/claude-opus-5-5`, `ollama/qwen3-vl:4b`): the last one used.
    */
@@ -363,6 +368,11 @@ export function mergeAgentPreferences(base: AgentPreferences, value: unknown): A
   if (AGENT_PERMISSION_MODES.includes(v.permissionMode as any)) {
     out.permissionMode = v.permissionMode as AgentPreferences['permissionMode'];
   }
+  if (v.alwaysAllowInstalls === true) {
+    out.alwaysAllowInstalls = true;
+  } else if (v.alwaysAllowInstalls === false || v.alwaysAllowInstalls === null) {
+    delete out.alwaysAllowInstalls;
+  }
   if (v.apiModel === null || v.apiModel === '') {
     delete out.apiModel;
   } else if (typeof v.apiModel === 'string' && isApiModelId(v.apiModel.trim())) {
@@ -531,6 +541,30 @@ function parsePreferences(data: string): Preferences {
     quickFindPins: parseQuickFindPins(parsed.quickFindPins) ?? null,
     agent: mergeAgentPreferences({ ...DEFAULTS.agent }, parsed.agent),
   };
+}
+
+/** The tail of every read-modify-write of the preferences file made through {@link serializePreferenceWrite}. */
+let preferenceWrites: Promise<unknown> = Promise.resolve();
+
+/**
+ * Runs `task` after every read-modify-write already queued, so two writers
+ * (two POSTs, or a POST and the agent) never both load the file before
+ * either saves it, and never tear it with interleaved writes.
+ */
+export function serializePreferenceWrite<T>(task: () => Promise<T>): Promise<T> {
+  const run = preferenceWrites.then(task, task);
+  preferenceWrites = run.catch((): undefined => undefined);
+  return run;
+}
+
+/** Merges `patch` over the stored agent preferences and saves them, serialized with every other write. */
+export function updateAgentPreferences(patch: Partial<AgentPreferences>): Promise<AgentPreferences> {
+  return serializePreferenceWrite(async () => {
+    const current = await loadPreferences();
+    current.agent = mergeAgentPreferences(current.agent, patch);
+    await savePreferences(current);
+    return current.agent;
+  });
 }
 
 export async function savePreferences(prefs: Preferences): Promise<void> {

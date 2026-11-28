@@ -42,6 +42,7 @@ symmetric(l1, l2, yAxis())       // two lines: both endpoints mirror (4 DOF)
 symmetric(c1, c2, yAxis())       // two circles: centers mirror, equal radii (3 DOF)
 symmetric(a1, a2, l)             // two arcs: centers and starts mirror, ends reflect (5 DOF)
 symmetric(el1, el2, l)           // two ellipses: centers mirror, equal semi-radii, RX axes reflect (5 DOF)
+symmetric(ea1, ea2, l)           // two elliptical arcs: the ellipse's five, and both ends reflect (7 DOF)
 ```
 
 `a` and `b` are points (line ends, centers, `point()`s) or two entities of the same kind; `l` is a line or an axis datum. The arc and ellipse forms remove exactly the entity's free dimensions, so a mirrored semicircle stays solvable and never reads as redundant, and a mirrored ellipse turns with its source. To mirror several entities at once, draw one half and use the sketch [Mirror](/docs/sketching/tools/mirror) tool — it writes one of these statements per entity.

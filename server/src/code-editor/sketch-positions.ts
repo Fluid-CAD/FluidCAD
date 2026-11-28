@@ -31,17 +31,32 @@ export type SketchPositionEdit = {
   /** Scalar dimension of the base call (circle diameter), same guard. */
   scalar?: { value: number; expected?: number };
   /** An ellipse's semi-radii — the 2nd / 3rd arguments of
-   * `ellipse(center, rx, ry[, rotation])`, same drift guard each. */
+   * `ellipse(center, rx, ry[, rotation])`, same drift guard each. An
+   * elliptical arc's are the same two scalars after its three points:
+   * `eArc(start, end, center, rx, ry[, rotation])`. */
   radii?: { rx?: { value: number; expected?: number }; ry?: { value: number; expected?: number } };
   /** An ellipse's rotation (degrees) — the trailing 4th argument of
    * `ellipse(center, rx, ry[, rotation])`: rewritten when present (same
-   * drift guard), appended when the statement carries only the three. */
+   * drift guard), appended when the statement carries only the three. An
+   * elliptical arc's is the trailing argument of `eArc(...)` the same way. */
   rotation?: { value: number; expected?: number };
 };
 
-/** Non-array arguments of an ellipse() base call beyond which the trailing
- * one is its rotation. */
+/** Non-array arguments of an ellipse() or eArc() base call beyond which the
+ * trailing one is its rotation. */
 const ELLIPSE_SCALAR_ARGS = 2;
+
+/**
+ * The statements whose non-point arguments are `rx, ry[, rotation]`: the
+ * ellipse and the elliptical arc. Their points differ (one center against
+ * start, end and center) but ride the generic point edits, so the radii
+ * and the rotation splice identically on both.
+ */
+const ELLIPSE_SHAPED_CALLEES = new Set(['ellipse', 'eArc']);
+
+function isEllipseShapedCallee(name: string | null): boolean {
+  return name !== null && ELLIPSE_SHAPED_CALLEES.has(name);
+}
 
 export type SketchPositionsResult = { newCode: string; error?: string };
 
@@ -136,10 +151,10 @@ export async function updateSketchPositions(
     if (edit.radii) {
       const base = chainBaseCall(call);
       const baseArgs = getArgumentsNode(base);
-      if (callFunctionName(base) !== 'ellipse' || !baseArgs) {
+      if (!isEllipseShapedCallee(callFunctionName(base)) || !baseArgs) {
         return {
           newCode: code,
-          error: `line ${edit.sourceLine} is not an ellipse() statement — the source changed since this drag started`,
+          error: `line ${edit.sourceLine} is not an ellipse() or eArc() statement — the source changed since this drag started`,
         };
       }
       const scalars = baseArgs.namedChildren.filter(n => n.type !== 'array');
@@ -172,10 +187,10 @@ export async function updateSketchPositions(
     if (edit.rotation) {
       const base = chainBaseCall(call);
       const baseArgs = getArgumentsNode(base);
-      if (callFunctionName(base) !== 'ellipse' || !baseArgs) {
+      if (!isEllipseShapedCallee(callFunctionName(base)) || !baseArgs) {
         return {
           newCode: code,
-          error: `line ${edit.sourceLine} is not an ellipse() statement — the source changed since this drag started`,
+          error: `line ${edit.sourceLine} is not an ellipse() or eArc() statement — the source changed since this drag started`,
         };
       }
       const scalars = baseArgs.namedChildren.filter(n => n.type !== 'array');

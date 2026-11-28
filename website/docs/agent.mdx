@@ -255,6 +255,16 @@ Point at a row to rename or delete it:
 - The pencil renames the chat in place: type the new title and press Enter, or Escape to keep the old one. A new chat takes its title from your first message until you rename it.
 - The bin deletes the chat after you confirm: its conversation, images and the copies kept for reverting are removed, and a turn it was running stops. Files the agent changed stay as they are. Deleting the chat that is open starts a new chat.
 
+### Sending while the agent works
+
+You do not have to wait for the agent to finish. Write your next message and press Enter, or click **Send**: the message waits above the message box and is sent by itself once the agent is done. Send several and they go one after the other, in the order you sent them; up to ten can wait. Each takes the model, the effort and the edit mode that were set when you sent it, and its images and references go with it. The **×** on a waiting message takes it back.
+
+While the agent works, the button is **Stop** as long as the message box is empty, and **Send** once you have written something. Escape in the message box stops the agent either way.
+
+If you stop the agent, or it stops on an error such as a plan limit, the waiting messages are not sent. They stay above the message box with **Send now**, which sends the first, and the others follow. A message you write and send in the meantime goes first.
+
+A reference in a waiting message describes the model as it was when you sent it. If the agent changes that geometry before the message is sent, check that the reference still points where you meant. **Revert this turn** is not offered between waiting messages; it is back once they have all been sent.
+
 A chat stays with the agent it was started with; a new chat's agent chip picks it. Its menu lists **Claude Code** and **Codex** first, each with the account it is signed in with, for example **Claude Code (you@example.com)**, then the API providers that are ready, then **Manage**. When Claude Code or Codex cannot run, its row is greyed out and says why: **Not installed**, **Update needed** or **Not signed in**; point at it for what to do, or pick **Manage**. The model and the effort can be changed between messages from their chips under the message box. The last model and effort you picked for an agent are remembered, and its new chats start with them:
 
 - **Model**: **Default** uses the program's own default, and **Other model…** takes any model name the program accepts.

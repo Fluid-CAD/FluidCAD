@@ -23,8 +23,9 @@ Run the installer and follow the prompts. The installer is not code-signed, so W
 
 - AppImage (x64): <DownloadLink asset="linux-x86_64.AppImage" />
 - Debian package (x64): <DownloadLink asset="linux-amd64.deb" />
+- RPM package (x64): <DownloadLink asset="linux-x86_64.rpm" />
 
-For the AppImage, mark it executable (`chmod +x FluidCAD-*.AppImage`) and run it. For the `.deb`, install it with `sudo apt install ./FluidCAD-*.deb`. The AppImage updates itself; the `.deb` is updated by installing the next release's package.
+For the AppImage, mark it executable (`chmod +x FluidCAD-*.AppImage`) and run it. For the `.deb` (Debian, Ubuntu), install it with `sudo apt install ./FluidCAD-*.deb`. For the `.rpm` (Fedora, RHEL, openSUSE), install it with `sudo dnf install ./FluidCAD-*.rpm` (or `sudo zypper install ./FluidCAD-*.rpm`). All three update themselves like the other builds. The `.deb` and `.rpm` install the update through your package manager (`dpkg`, or `dnf`, `zypper` or `yum`), so your system asks for your password when FluidCAD quits with an update waiting.
 
 ## macOS
 

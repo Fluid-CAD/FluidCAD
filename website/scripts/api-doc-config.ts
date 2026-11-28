@@ -79,6 +79,7 @@ export const features: FeatureEntry[] = [
   { name: 'arc', displayName: 'arc', category: '2d', sourceFile: 'core/2d/arc.ts', interfaceName: 'ArcFunction', returnType: 'ISolvedArc', sidebarPosition: 2 },
   { name: 'circle', displayName: 'circle', category: '2d', sourceFile: 'core/2d/circle.ts', interfaceName: 'CircleFunction', returnType: 'ISolvedCircle', relatedGuide: '/docs/sketching/primitives/line', sidebarPosition: 3 },
   { name: 'ellipse', displayName: 'ellipse', category: '2d', sourceFile: 'core/2d/ellipse.ts', interfaceName: 'EllipseFunction', returnType: 'IEllipse', relatedGuide: '/docs/sketching/primitives/line', sidebarPosition: 4 },
+  { name: 'eArc', displayName: 'eArc', category: '2d', sourceFile: 'core/2d/earc.ts', interfaceName: 'EArcFunction', returnType: 'IEllipticalArc', relatedGuide: '/docs/sketching/primitives/elliptical-arc', sidebarPosition: 4.5 },
   { name: 'point', displayName: 'point', category: '2d', sourceFile: 'core/2d/point.ts', interfaceName: 'PointFunction', returnType: 'IGeometry', sidebarPosition: 5 },
   { name: 'bezier', displayName: 'bezier', category: '2d', sourceFile: 'core/2d/bezier.ts', interfaceName: 'BezierFunction', returnType: 'IBezier', relatedGuide: '/docs/sketching/primitives/bezier', sidebarPosition: 8 },
   { name: 'spline', displayName: 'spline', category: '2d', sourceFile: 'core/2d/spline.ts', interfaceName: 'SplineFunction', returnType: 'ISpline', relatedGuide: '/docs/sketching/primitives/spline', sidebarPosition: 8.5 },
@@ -161,6 +162,7 @@ export const types: TypeEntry[] = [
   { name: 'ISolvedArc', displayName: 'SolvedArc', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5.2 },
   { name: 'ISolvedCircle', displayName: 'SolvedCircle', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 5.3 },
   { name: 'IEllipse', displayName: 'Ellipse', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 5.35 },
+  { name: 'IEllipticalArc', displayName: 'EllipticalArc', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5.355 },
   { name: 'IBezier', displayName: 'Bezier', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5.36 },
   { name: 'ISpline', displayName: 'Spline', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5.37 },
   { name: 'IReference', displayName: 'Reference', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 5.4 },
@@ -259,8 +261,8 @@ export const constraints: ConstraintEntry[] = [
   {
     name: 'tangent', sourceFile: 'core/constraints/tangent.ts', group: 'geometric',
     fallback: {
-      description: 'Constrains two curves to be tangent (1 dim): a line and a circle/arc/ellipse, '
-        + 'or any two of circle/arc/ellipse. The tangency side (internal vs external) is locked '
+      description: 'Constrains two curves to be tangent (1 dim): a line and a circle/arc/ellipse/elliptical arc, '
+        + 'or any two of circle/arc/ellipse/elliptical arc. The tangency side (internal vs external) is locked '
         + 'from the guess positions. Also accepts a fixed reference: `tangent(bore, l)` with a '
         + 'single-edge `project()` result.',
       params: constraintTargetPair,
@@ -279,7 +281,7 @@ export const constraints: ConstraintEntry[] = [
   {
     name: 'concentric', sourceFile: 'core/constraints/concentric.ts', group: 'geometric',
     fallback: {
-      description: 'Constrains two circles/arcs/ellipses to share a center (2 dims).',
+      description: 'Constrains two circles/arcs/ellipses/elliptical arcs to share a center (2 dims).',
       params: constraintTargetPair,
       returnType: 'ISceneObject',
     },
@@ -384,6 +386,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'ISolvedArc': 'SolvedArc',
   'ISolvedCircle': 'SolvedCircle',
   'IEllipse': 'Ellipse',
+  'IEllipticalArc': 'EllipticalArc',
   'IBezier': 'Bezier',
   'ISpline': 'Spline',
   'IReference': 'Reference',

@@ -26,7 +26,7 @@ import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createConfigurationScreenshot } from './routes/screenshot-configuration.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
-import { loadPreferences } from './preferences.ts';
+import { loadPreferences, updateAgentPreferences } from './preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
 import { createSceneRouter } from './routes/scene.ts';
 import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
@@ -56,7 +56,7 @@ import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost/index.ts';
 import { createFilesRouter } from './routes/files.ts';
 import { createEngineTypesRouter } from './routes/engine-types.ts';
-import { createWorkspaceStateRouter } from './routes/workspace-state.ts';
+import { createWorkspaceStateRouter, WorkspaceUiStateStore } from './routes/workspace-state.ts';
 import { createAgentRoutes } from './routes/agent.ts';
 import type { AgentRenderState } from './agent-host.ts';
 import { createUnitRouter } from './routes/unit.ts';
@@ -419,6 +419,12 @@ app.use('/api', createAgentRoutes({
   renderState: agentRenderState,
   unit: projectUnitNow,
   loadPreferences,
+  updateAgentPreferences,
+  // The Hub panel's choice for this project first, as its Install dropdown starts.
+  installTarget: async () => {
+    const target = WorkspaceUiStateStore.read(WORKSPACE_PATH).hubInstallTarget ?? (await loadPreferences()).packageInstallTarget;
+    return target === 'project' && WORKSPACE_PATH ? 'project' : 'library';
+  },
   modelParams: () => fluidCadServer.getParamDefinitions(),
 }));
 app.use('/api', MeshesRoute.router(core.meshes));
@@ -902,8 +908,7 @@ async function handleExtensionMessage(msg: any) {
           // assembly; otherwise `shapeIds` picks solids, as the UI's route does.
           let result: { data: string | Uint8Array; fileName: string; warnings?: string[] } | null = null;
           let posesSource: ExportPosesSource | undefined;
-          // A drawing format needs its plane, and has no whole-assembly form
-          // yet — the same refusals the HTTP route gives.
+          // A drawing format needs its plane — the refusal the HTTP route gives.
           const drawing = msg.options?.format === 'dxf' || msg.options?.format === 'svg';
           const drawingName = String(msg.options?.format ?? '').toUpperCase();
           if (drawing && !isStandardPlane(msg.options.plane)) {
@@ -911,14 +916,6 @@ async function handleExtensionMessage(msg: any) {
               type: 'export-complete',
               success: false,
               error: `${drawingName} draws the model's view on a plane: plane must be one of ${STANDARD_PLANES.join(', ')}.`,
-            });
-            break;
-          }
-          if (drawing && msg.assembly !== undefined) {
-            sendToExtension({
-              type: 'export-complete',
-              success: false,
-              error: `A ${drawingName} drawing of the whole assembly is not available yet. Export a part or its solids instead.`,
             });
             break;
           }

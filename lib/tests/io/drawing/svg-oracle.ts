@@ -30,7 +30,7 @@ export type SvgSegment =
   /** The closing side `Z` draws back to the path's start. */
   | { command: 'Z'; from: SvgPoint; to: SvgPoint };
 
-export class SvgReader {
+export class SvgOracle {
   /** Parses the document; throws when it is not well-formed XML or not an `<svg>`. */
   static parse(text: string): SvgFile {
     const dom = new JSDOM(text, { contentType: 'image/svg+xml' });
@@ -189,7 +189,7 @@ export class SvgReader {
         }
         return points;
       case 'A': {
-        const arc = SvgReader.arcCenter(segment);
+        const arc = SvgOracle.arcCenter(segment);
         const cos = Math.cos(arc.phi);
         const sin = Math.sin(arc.phi);
         for (let i = 0; i <= count; i++) {

@@ -1,6 +1,6 @@
 // Sketch-local crossings between solved entities — the cut points the
 // Trim tool bounds a segment with. Lines, arcs and circles meet
-// analytically; an ellipse, a bezier or a spline is walked as a fine polyline,
+// analytically; an ellipse, an elliptical arc, a bezier or a spline is walked as a fine polyline,
 // so a crossing with one is exact to that polyline's chord error. Contact
 // is judged at the source's own resolution: the literals hold two
 // decimals, so an end the tools wrote onto another edge can miss it by
@@ -54,7 +54,8 @@ export function curveOf(view: SolvedEntityView): Curve | null {
         ? { kind: 'circle', center: view.center, radius: view.radius, arc }
         : null;
     }
-    case 'ellipse': {
+    case 'ellipse':
+    case 'eArc': {
       const points = tessellateSolvedEntity(view, CURVE_SEGMENTS);
       return points ? { kind: 'polyline', points } : null;
     }

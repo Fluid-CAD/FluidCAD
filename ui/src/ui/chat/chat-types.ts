@@ -160,9 +160,19 @@ export type ToolPart = {
   /**
    * Set when the call needed the user's approval. `canAllowSession` says
    * whether "Allow for this session" is offered (never for actions outside
-   * the workspace). `decision` is set once the user answered.
+   * the workspace); `canAllowAlways` whether "Always" is (a package install,
+   * on an engine that can remember it). `decision` is set once the user
+   * answered. `standing`: nothing was asked, because the user chose "Always"
+   * before (`decision` is then `allow-always`). `canChooseTarget`: the card
+   * lets the user choose where the install goes (`install.target`), sent with
+   * the answer.
    */
-  approval?: { id: string; canAllowSession: boolean; decision?: ApprovalDecision };
+  approval?: { id: string; canAllowSession: boolean; canAllowAlways?: boolean; canChooseTarget?: true; decision?: ApprovalDecision; standing?: true };
+  /**
+   * The package an `install_package` call installs, for its confirmation
+   * card: what the call asked for at once, what the hub says of it once read.
+   */
+  install?: InstallSummary;
   /**
    * What the change does to the model, built without writing it: set for a
    * `write_file` or `edit_range` on a model file that waits for approval
@@ -229,7 +239,45 @@ export type ChangePreviewPictures = {
 };
 
 /** Body of `POST api/agent/sessions/:id/approvals/:approvalId`. */
-export type ApprovalDecision = 'allow' | 'allow-session' | 'deny';
+export type ApprovalDecision = 'allow' | 'allow-session' | 'allow-always' | 'deny';
+
+/**
+ * What an install's confirmation card shows. `name`, `version`, `target`
+ * and `upgrade` are the call's own; the rest is the hub's, read while the
+ * card waits: `loading` until then, `ready` once read, `unavailable` when
+ * the hub could not say (`problem`). Hub text (the description, the
+ * deprecation) is the publisher's: shown as text, never as markup.
+ */
+/** Where an install puts a package: the user's library, or a copy in the project's `packages/` folder. */
+export type InstallTarget = 'library' | 'project';
+
+export type InstallSummary = {
+  state: 'loading' | 'ready' | 'unavailable';
+  name: string;
+  /** The version asked for; else, once read, the one the install gets. Null when neither is known. */
+  version: string | null;
+  /**
+   * Where it goes: the place the call named, else where the user's installs
+   * go (the Hub panel's choice for the project, else the setting); once the
+   * user answered, the place they chose. Null: the setting decides (an engine
+   * that cannot say).
+   */
+  target: 'library' | 'project' | null;
+  upgrade: boolean;
+  publisher?: string | null;
+  description?: string | null;
+  license?: string | null;
+  installs?: number;
+  /** The publisher's deprecation message. */
+  deprecated?: string;
+  /** What the version installed exports. */
+  contents?: { features: number; parts: number; assemblies: number };
+  /** Versions already on this machine; the one the project uses. */
+  installed?: string[];
+  pinned?: string | null;
+  /** `unavailable`: why. */
+  problem?: string;
+};
 
 /**
  * One choice of a question. `svg` is a drawing of it, written by the model:
@@ -497,6 +545,21 @@ export type TurnRecord = {
   usage?: TurnUsage;
 };
 
+/**
+ * A message sent while a turn was running, waiting for its own turn (§29):
+ * what the page shows of it.
+ */
+export type QueuedMessage = {
+  id: string;
+  createdAt: string;
+  /** May be empty when images go with it. */
+  text: string;
+  /** How many images the user attached (the references capture is not one of them). */
+  images: number;
+  /** How many scene references go with it. */
+  references: number;
+};
+
 export type SessionSnapshot = {
   id: string;
   title: string;
@@ -510,6 +573,13 @@ export type SessionSnapshot = {
   status: SessionStatus;
   messages: ChatMessage[];
   turns: TurnRecord[];
+  /**
+   * The messages waiting for their turn, oldest first (§29). They start one
+   * after the other as each turn ends done; a turn that was stopped or
+   * failed leaves them waiting until the user sends them. Absent from an
+   * older engine: none waits.
+   */
+  queued?: QueuedMessage[];
   /** The model the session last ran with; null for the CLI's default. */
   model: string | null;
   /** The effort the session last ran with; null (or absent, from an older engine) for the CLI's default. */
@@ -543,6 +613,8 @@ export type ChatEvent =
   | { type: 'checkpoint'; turnId: string; files: string[] }
   /** The turn's changes were reverted (`POST …/revert`): `files` are back as they were before it. */
   | { type: 'reverted'; turnId: string; files: string[] }
+  /** The messages waiting for their turn changed: `queued` is all of them, oldest first (§29). */
+  | { type: 'queue'; queued: QueuedMessage[] }
   | { type: 'title'; title: string }
   | { type: 'resync' };
 

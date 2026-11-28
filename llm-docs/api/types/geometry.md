@@ -31,9 +31,9 @@ explicitly included.
 
 Uniform edge accessor. `edge('body')` selects this feature's edges by
 role (optionally disambiguated by role index); `edge(1)` selects by
-build-order index over the feature's real edges. Roles: solver lines and
-arcs stamp `body`; circles and ellipses `perimeter`; derived-op outputs
-carry provenance-specific roles (e.g. fillet arcs).
+build-order index over the feature's real edges. Roles: solver lines,
+arcs and elliptical arcs stamp `body`; circles and ellipses `perimeter`;
+derived-op outputs carry provenance-specific roles (e.g. fillet arcs).
 
 **Returns**: `ISelection`.
 

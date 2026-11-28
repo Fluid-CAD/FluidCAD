@@ -264,7 +264,8 @@ export type ExportInput = WorkspaceArg & {
   shapeIds?: string[];
   /**
    * Export the whole current assembly — every instance where it sits, as
-   * one STEP assembly or one STL mesh. Exactly one of `shapeIds` / `assembly`.
+   * one STEP assembly, one STL mesh or one DXF or SVG drawing. Exactly one
+   * of `shapeIds` / `assembly`.
    */
   assembly?: boolean;
   saveAsPath?: string;
@@ -323,6 +324,8 @@ export type ExportTextOutput = {
   mimeType: string;
   text: string;
   bytes: number;
+  /** A whole assembly's drawing: where its parts were put, as for STEP and STL. */
+  posesSource?: ExportPosesSource;
   warnings?: string[];
 };
 export type ExportOutput = ExportSavedOutput | ExportBase64Output | ExportTextOutput;
@@ -587,6 +590,7 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
         mimeType: raw.contentType,
         text: raw.data.toString('utf8'),
         bytes: raw.data.length,
+        ...(posesSource ? { posesSource } : {}),
         ...(warnings.length > 0 ? { warnings } : {}),
       });
     }

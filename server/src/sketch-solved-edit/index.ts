@@ -8,6 +8,7 @@ export {
   type SolvedEmissionResult,
   type SolvedEmissionSpec,
   type SolvedGeometryEmission,
+  type SolvedTextEmission,
 } from './emission-spec.ts';
 export { sanitizeEmissionTarget, solvedTargetCallee, targetError } from './emission-targets.ts';
 export { constraintTargetCountValid } from './constraint-arity.ts';

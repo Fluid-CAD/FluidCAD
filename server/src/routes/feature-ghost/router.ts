@@ -19,6 +19,7 @@ import {
   parseAxis,
   parseEntityRefs,
   parseExtrudeTarget,
+  parseFaceProfile,
   parseFaceRefs,
   parseHelixSource,
   parsePath,
@@ -186,7 +187,19 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     }
     const isLoft = body.feature === 'loft';
     let profileRef: { filePath: string; line: number } | null = null;
-    if (PROFILE_FEATURES.includes(body.feature)) {
+    // An extrude's profile can be a picked face instead of a sketch.
+    let faceProfile: { kind: 'face'; shapeId: string; index: number } | null = null;
+    if (body.feature === 'extrude' && body.profile?.kind === 'face') {
+      faceProfile = parseFaceProfile(body.profile);
+      if (!faceProfile) {
+        res.status(400).json({ success: false, reason: 'Invalid profile reference' });
+        return;
+      }
+      if ((Array.isArray(body.regions) && body.regions.length > 0) || (body.thin !== undefined && body.thin !== null)) {
+        res.status(400).json({ success: false, reason: 'A face profile takes no regions and no thin offsets' });
+        return;
+      }
+    } else if (PROFILE_FEATURES.includes(body.feature)) {
       const profile = body.profile;
       if (typeof profile?.filePath !== 'string' || typeof profile?.line !== 'number') {
         res.status(400).json({ success: false, reason: 'Invalid profile reference' });
@@ -197,7 +210,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // The dialog's region picks — absent means every region. Validated by
     // the apply path's own rule so a ghost can't build what the apply refuses.
     let regions: RegionPickSpec[] | undefined;
-    if (PROFILE_FEATURES.includes(body.feature) && body.regions !== undefined && body.regions !== null) {
+    if (PROFILE_FEATURES.includes(body.feature) && !faceProfile && body.regions !== undefined && body.regions !== null) {
       const parsed = validateRegionPicks(body);
       if ('error' in parsed) {
         res.status(400).json({ success: false, reason: parsed.error });
@@ -806,7 +819,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         endOffset,
         drill: drill.value,
         thin,
-        profile: profileRef!,
+        profile: faceProfile ?? profileRef!,
         regions,
         ...(toFace ? { toFace } : {}),
       };

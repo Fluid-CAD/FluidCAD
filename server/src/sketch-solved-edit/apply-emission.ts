@@ -34,13 +34,15 @@ import {
 import { DATUM_COMMANDS, solvedTargetCallee, targetError } from './emission-targets.ts';
 import { settleSketchPositions } from '../sketch-entity-rewrite.ts';
 import { DimensionLabel } from './dimension-label.ts';
+import { TextEmission } from './text-emission.ts';
 
 export async function applySolvedEmission(
   code: string,
   spec: SolvedEmissionSpec,
 ): Promise<SolvedEmissionResult> {
+  const texts = spec.texts ?? [];
   if (spec.geometry.length === 0 && spec.constraints.length === 0
-    && (spec.removals ?? []).length === 0) {
+    && (spec.removals ?? []).length === 0 && texts.length === 0) {
     return refuse(code, 'nothing to emit');
   }
   for (const g of spec.geometry) {
@@ -51,6 +53,10 @@ export async function applySolvedEmission(
       || !new RegExp(`^${g.kind}\\s*\\(`).test(g.text)) {
       return refuse(code, `invalid ${g.kind} statement text`);
     }
+  }
+  const textError = TextEmission.error(texts, spec.geometry);
+  if (textError !== null) {
+    return refuse(code, textError);
   }
   for (const c of spec.constraints) {
     if (!SOLVED_CONSTRAINT_KINDS.has(c.kind)) {
@@ -193,6 +199,7 @@ export async function applySolvedEmission(
   // whatever order its constraints name the sides in — and to hoisted
   // existing statements after, as the targets reference them.
   const newNames: string[] = spec.geometry.map(g => allocateSolvedName(used, g.kind));
+  const textNames: string[] = texts.map(() => allocateSolvedName(used, 'text'));
 
   const datumImports = new Set<string>();
   const constraintTexts: string[] = [];
@@ -283,28 +290,38 @@ export async function applySolvedEmission(
   const breakpointStmt = bodyChildren.find(isBreakpointStatement);
   const firstConstraintStmt = bodyChildren.find(isSolvedConstraintStatement);
   const firstDerivedStmt = bodyChildren.find(s => isDerivedOpStatement(s) || isRegionDeclarationStatement(s));
+  const firstRegionStmt = bodyChildren.find(isRegionDeclarationStatement);
 
-  let constraintRow: number;
-  let constraintIndent: string;
-  if (firstDerivedStmt
-    && (!breakpointStmt || firstDerivedStmt.startPosition.row < breakpointStmt.startPosition.row)) {
-    constraintRow = shiftRow(firstDerivedStmt.startPosition.row);
-    constraintIndent = indentOf(resultLines, constraintRow);
-  } else if (breakpointStmt) {
-    constraintRow = shiftRow(breakpointStmt.startPosition.row);
-    constraintIndent = indentOf(resultLines, constraintRow);
-  } else if (bodyChildren.length > 0) {
-    // "Body end" stops BEFORE a trailing return (hand-written sketches
-    // return their entity bag) — a statement after it never runs.
-    const lastStmt = bodyChildren[bodyChildren.length - 1];
-    constraintRow = lastStmt.type === 'return_statement'
-      ? shiftRow(lastStmt.startPosition.row)
-      : shiftRow(lastStmt.endPosition.row + 1);
-    constraintIndent = indentOf(resultLines, shiftRow(lastStmt.startPosition.row));
-  } else {
-    constraintRow = shiftRow(body.startPosition.row + 1);
-    constraintIndent = indentOf(resultLines, shiftRow(body.startPosition.row)) + '  ';
-  }
+  // Where a region of the body ends: before `next`, the first statement of
+  // what follows it, when there is one ahead of an active breakpoint; else
+  // before the breakpoint; else at the body's end.
+  const regionEnd = (next: typeof firstDerivedStmt): { row: number; indent: string } => {
+    if (next && (!breakpointStmt || next.startPosition.row < breakpointStmt.startPosition.row)) {
+      const row = shiftRow(next.startPosition.row);
+      return { row, indent: indentOf(resultLines, row) };
+    }
+    if (breakpointStmt) {
+      const row = shiftRow(breakpointStmt.startPosition.row);
+      return { row, indent: indentOf(resultLines, row) };
+    }
+    if (bodyChildren.length > 0) {
+      // "Body end" stops BEFORE a trailing return (hand-written sketches
+      // return their entity bag) — a statement after it never runs.
+      const lastStmt = bodyChildren[bodyChildren.length - 1];
+      return {
+        row: lastStmt.type === 'return_statement'
+          ? shiftRow(lastStmt.startPosition.row)
+          : shiftRow(lastStmt.endPosition.row + 1),
+        indent: indentOf(resultLines, shiftRow(lastStmt.startPosition.row)),
+      };
+    }
+    return {
+      row: shiftRow(body.startPosition.row + 1),
+      indent: indentOf(resultLines, shiftRow(body.startPosition.row)) + '  ',
+    };
+  };
+
+  let { row: constraintRow, indent: constraintIndent } = regionEnd(firstDerivedStmt);
 
   let geometryRow = constraintRow;
   let geometryIndent = constraintIndent;
@@ -332,8 +349,23 @@ export async function applySolvedEmission(
     return `${geometryIndent}const ${newNames[i]} = ${g.text}${guide};`;
   });
 
-  // Constraints splice first (the higher row), then geometry (lower or equal
-  // row) — so neither splice invalidates the other's row.
+  // Text statements go where a derived op goes — after the last one, before
+  // the first region declaration — and never above the constraints of this
+  // emission. Each fixed anchor is stated right after the texts: a
+  // constraint cannot name a text ahead of its statement.
+  const tail = regionEnd(firstRegionStmt);
+  const tailRow = Math.max(tail.row, constraintRow);
+  const tailIndent = tailRow === tail.row ? tail.indent : constraintIndent;
+  const tailTexts = [
+    ...texts.map((t, i) => TextEmission.statement(t, textNames[i], newNames)),
+    ...texts.flatMap((t, i) => (t.fix ? [TextEmission.fix(textNames[i])] : [])),
+  ].map(t => `${tailIndent}${t}`);
+
+  // The tail splices first (the highest row), then the constraints, then
+  // geometry (lower or equal rows) — so no splice invalidates another's row.
+  if (tailTexts.length > 0) {
+    resultLines.splice(tailRow, 0, ...tailTexts);
+  }
   if (constraintTexts.length > 0) {
     resultLines.splice(constraintRow, 0, ...constraintTexts.map(t => `${constraintIndent}${t}`));
   }
@@ -350,6 +382,7 @@ export async function applySolvedEmission(
     const finalRemovalRows = removalRows.map(row => {
       const rr = shiftRow(row);
       return rr
+        + (rr >= tailRow ? tailTexts.length : 0)
         + (rr >= constraintRow ? constraintTexts.length : 0)
         + (rr >= geometryRow ? geometryTexts.length : 0);
     });
@@ -375,7 +408,14 @@ export async function applySolvedEmission(
   for (const command of datumImports) {
     result = await ensureSymbolImport(result, command, 'fluidcad/core');
   }
-  for (const kind of new Set(spec.constraints.map(c => c.kind))) {
+  if (texts.length > 0) {
+    result = await ensureSymbolImport(result, 'text', 'fluidcad/core');
+  }
+  const constraintKinds = new Set(spec.constraints.map(c => c.kind));
+  if (texts.some(t => t.fix)) {
+    constraintKinds.add('fix');
+  }
+  for (const kind of constraintKinds) {
     result = await ensureSymbolImport(result, kind, 'fluidcad/constraints');
   }
   for (const symbol of declarationImports(paramVars.map(v => v.initializer))) {

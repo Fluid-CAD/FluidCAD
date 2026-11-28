@@ -149,6 +149,11 @@ export class HubPackageView {
     await this.reload();
   }
 
+  /** Where installs go was chosen elsewhere (an install card in the chat): the Install control's label follows. */
+  installTargetChanged(): void {
+    this.install.targetChanged();
+  }
+
   /** Read the package again (after an install, its marks), keeping the tab and what is open. */
   async reload(): Promise<void> {
     const name = this.name;

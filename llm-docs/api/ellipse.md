@@ -4,7 +4,7 @@ title: ellipse(center, rx, ry, rotation?)
 summary: Draws an ellipse at an explicit center using semi-radii (half-widths) along its own axes; a solver entity whose center, rotation and radii the constraints drive, like a circle.
 tags: [api, 2d, primitive]
 symbols: [ellipse]
-seeAlso: [api/circle, api/sketch, api/constraints]
+seeAlso: [api/circle, api/earc, api/sketch, api/constraints]
 ---
 
 # ellipse
@@ -49,4 +49,5 @@ sketch("xy", () => {
 extrude(8);
 ```
 
-See [[api/circle]] for the symmetric case.
+See [[api/circle]] for the symmetric case and [[api/earc]] for an open
+piece of an ellipse.

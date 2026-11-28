@@ -9,7 +9,9 @@ import { sceneUnit } from '../units/scene-unit';
 import type { SourceLocation } from '../types';
 import type { DimensionStyle } from './declutter';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from './model';
-import { specEntityIds } from './model';
+import { isEllipseLike, specEntityIds } from './model';
+import { ellipseArcContainsParam } from '../../../lib/sketch-solver/earc-geometry.js';
+import { ellipticalArcSpanOf } from './elliptical-arc';
 import { diameterChord } from './diameter-chord';
 import { labelLiesAlong, placedDimension } from './dimension-label';
 import type { ArcStretch, DimensionFrame } from './dimension-label';
@@ -414,7 +416,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         if (e && e.center) {
           // An ellipse's semi-radius runs along its own RX / RY axis; a
           // circle's radius takes the 45° anchor.
-          const rim = e.kind === 'ellipse' ? ellipseAxisEnd(e, spec.axis ?? 'x') : entityAnchor(e);
+          const rim = isEllipseLike(e.kind) ? ellipseAxisEnd(e, spec.axis ?? 'x') : entityAnchor(e);
           if (rim) {
             // Rim end only: the leader runs OUT of the center, which is
             // not one of the two ends of a measured span.
@@ -570,7 +572,8 @@ export function dimensionLabelText(model: SolvedSketchModel, c: SolvedConstraint
     case 'offset-from':
       return formatLengthLabel(c.value ?? spec.value);
     case 'radius': {
-      const ellipse = entityFor(model, spec.a)?.kind === 'ellipse';
+      const target = entityFor(model, spec.a);
+      const ellipse = target !== undefined && isEllipseLike(target.kind);
       return `${ellipse ? (spec.axis === 'y' ? 'RY' : 'RX') : 'R'}${formatLengthLabel(c.value ?? spec.value)}`;
     }
     case 'diameter':
@@ -621,7 +624,7 @@ export function dimensionFrame(model: SolvedSketchModel, c: SolvedConstraintView
       if (!e?.center) {
         return null;
       }
-      if (e.kind === 'ellipse') {
+      if (isEllipseLike(e.kind)) {
         // A semi-radius runs along its own axis — a span from the center,
         // capped at the rim like the automatic layout draws it.
         const rim = ellipseAxisEnd(e, spec.axis ?? 'x');
@@ -963,14 +966,26 @@ export function distanceSpecEndpoints(
 }
 
 /** The end of an ellipse's RX ('x') or RY ('y') semi-axis — where its
- * radius dimension's leader lands. */
+ * radius dimension's leader lands. An elliptical arc draws only a piece of
+ * its ellipse, so when the positive end is off that piece and the opposite
+ * one is on it, the leader takes the end the arc actually reaches. */
 function ellipseAxisEnd(e: SolvedEntityView, axis: 'x' | 'y'): Vec2 | null {
   if (!e.center || !e.radii) {
     return null;
   }
   const c = Math.cos(e.theta ?? 0);
   const s = Math.sin(e.theta ?? 0);
-  return axis === 'x'
-    ? [e.center[0] + e.radii[0] * c, e.center[1] + e.radii[0] * s]
-    : [e.center[0] - e.radii[1] * s, e.center[1] + e.radii[1] * c];
+  const reach: Vec2 = axis === 'x'
+    ? [e.radii[0] * c, e.radii[0] * s]
+    : [-e.radii[1] * s, e.radii[1] * c];
+  let side = 1;
+  if (e.kind === 'eArc') {
+    const span = ellipticalArcSpanOf(e);
+    // The axis ends sit at parameters 0 / π (RX) and π/2 / 3π/2 (RY).
+    const positive = axis === 'x' ? 0 : Math.PI / 2;
+    if (span && !ellipseArcContainsParam(span, positive) && ellipseArcContainsParam(span, positive + Math.PI)) {
+      side = -1;
+    }
+  }
+  return [e.center[0] + side * reach[0], e.center[1] + side * reach[1]];
 }

@@ -105,11 +105,11 @@ export class PartFeatureDialogs {
       edit: { rowTypes: ['extrude', 'cut'], kind: 'extrude', open: (t, p, i) => s.extrude.enterEdit(t, p, i) },
       toolbarButton: s.extrude.toolbarButton,
       pinsSketchToolbar: true,
-      // The profile comes from dropdown, timeline or wire clicks only, so an
-      // edit session owns the viewport only while it picks a face: "Up to
-      // face" takes the target face, an armed scope slot a whole solid.
-      picking: (d) => (d.isActive && !d.isEditing) || d.isFacePicking || d.isScopePicking,
-      claims: { click: (d) => d.isFacePicking || d.isScopePicking },
+      // A face click always has a slot to land in while the dialog is up:
+      // the profile slot takes it as the face to extrude, "Up to face" as
+      // the target face, an armed scope slot as a whole solid.
+      picking: (d) => (d.isActive && !d.isEditing) || d.isProfileFacePicking || d.isFacePicking || d.isScopePicking,
+      claims: { click: (d) => d.isProfileFacePicking || d.isFacePicking || d.isScopePicking },
       timelinePicks: true,
       sketchPicks: true,
     }));

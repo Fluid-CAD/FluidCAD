@@ -25,8 +25,8 @@ import {
   pointOnCircle,
 } from './tool-preview-utils';
 import { coincident, inferred, newTarget, refTarget, sameVertexRef, type SolvedConstraintParam } from './solved-emission';
+import { carrySweep } from './sweep-carry';
 
-const TWO_PI = Math.PI * 2;
 /** A full turn would put the arc's end back on its start, which the
  * three-point fit has no circle for — hold the sweep just shy of one. */
 const MAX_SWEEP_DEG = 359.5;
@@ -292,13 +292,7 @@ export class CenterArcTool extends SketchTool {
     }
     const target = angleFromCenter(this.centerPoint, this.mousePoint)
       - angleFromCenter(this.centerPoint, this.startPoint);
-    let step = (target - this.sweepRad) % TWO_PI;
-    if (step > Math.PI) {
-      step -= TWO_PI;
-    } else if (step <= -Math.PI) {
-      step += TWO_PI;
-    }
-    this.sweepRad = Math.max(-MAX_SWEEP_RAD, Math.min(MAX_SWEEP_RAD, this.sweepRad + step));
+    this.sweepRad = carrySweep(this.sweepRad, target, MAX_SWEEP_RAD);
   }
 
   private getSweepDeg(): number | null {

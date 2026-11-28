@@ -277,6 +277,16 @@ export class HubPanel {
     }
   }
 
+  /**
+   * The user chose where an install goes on the agent's install card: the
+   * panel's installs go there too, and the project remembers it, as a
+   * choice in the Install dropdown would.
+   */
+  setInstallTarget(target: PackageTarget): void {
+    this.target.set(target);
+    this.detail.installTargetChanged();
+  }
+
   /** The library or the project changed elsewhere (an install from the banner, a removal): the marks are read again. */
   packagesChanged(): void {
     if (this.view === 'search') {

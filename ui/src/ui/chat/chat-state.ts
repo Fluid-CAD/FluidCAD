@@ -8,12 +8,14 @@ import {
   type AgentModel,
   type ApiProviderStatus,
   type ApprovalDecision,
+  type InstallTarget,
   type ChatEvent,
   type ChatEventEnvelope,
   type ChatMessage,
   type ParamKeptValue,
   type PermissionMode,
   type QuestionReply,
+  type QueuedMessage,
   type RevertResult,
   type SendMessage,
   type SessionSnapshot,
@@ -146,6 +148,11 @@ export class ChatState {
 
   get busy(): boolean {
     return this.sending || isBusy(this.status);
+  }
+
+  /** The messages of the session on screen that wait for their turn, oldest first (§29). */
+  get queued(): readonly QueuedMessage[] {
+    return this.session?.queued ?? [];
   }
 
   /** The agent of the session on screen, or the one a new chat starts with. */
@@ -375,10 +382,11 @@ export class ChatState {
   /**
    * Send `text` in the session on screen (creating it for a new chat); it
    * may be empty when images go with it. Resolves true once the engine took
-   * it; its turn then arrives as events.
+   * it; its turn then arrives as events. While a turn runs the engine keeps
+   * the message until that turn is done (§29): it shows in {@link queued}.
    */
   async send(text: string, options: SendOptions = {}): Promise<boolean> {
-    if (this.busy || this.reverting || (text.trim() === '' && !(options.attachments && options.attachments.length > 0))) {
+    if (this.sending || this.reverting || (text.trim() === '' && !(options.attachments && options.attachments.length > 0))) {
       return false;
     }
     this.sending = true;
@@ -468,6 +476,37 @@ export class ChatState {
     return null;
   }
 
+  /**
+   * Take a waiting message back (§29); the list follows from the `queue`
+   * event. One that no longer waits (it started, another tab removed it) is
+   * not an error.
+   */
+  async removeQueued(queuedId: string): Promise<void> {
+    const id = this.session?.id;
+    if (!id) {
+      return;
+    }
+    const answer = await this.client.removeQueued(id, queuedId);
+    if (answer.ok === false && answer.status !== 404) {
+      this.error = answer.error;
+      this.emit({ kind: 'activity' });
+    }
+  }
+
+  /** Send the waiting messages now, the oldest first, after a turn that did not finish left them waiting (§29). */
+  async resumeQueue(): Promise<void> {
+    const id = this.session?.id;
+    if (!id || this.busy || this.queued.length === 0) {
+      return;
+    }
+    this.error = null;
+    const answer = await this.client.resumeQueue(id);
+    if (answer.ok === false) {
+      this.error = answer.error;
+      this.emit({ kind: 'activity' });
+    }
+  }
+
   /** Stop the running turn; the partial answer stays. */
   async stop(): Promise<void> {
     const id = this.session?.id;
@@ -501,12 +540,12 @@ export class ChatState {
    * already settled elsewhere (another tab, a stop) is not an error: its
    * event says how it ended.
    */
-  async decideApproval(approvalId: string, decision: ApprovalDecision): Promise<boolean> {
+  async decideApproval(approvalId: string, decision: ApprovalDecision, target?: InstallTarget): Promise<boolean> {
     const id = this.session?.id;
     if (!id) {
       return false;
     }
-    const answer = await this.client.decideApproval(id, approvalId, decision);
+    const answer = await (target ? this.client.decideApproval(id, approvalId, decision, target) : this.client.decideApproval(id, approvalId, decision));
     if (answer.ok === false) {
       if (answer.status !== 409) {
         this.error = answer.error;
@@ -817,6 +856,8 @@ export class ChatState {
       }
     } else if (event.type === 'title') {
       session.title = event.title;
+    } else if (event.type === 'queue') {
+      session.queued = event.queued;
     }
     if (event.type === 'status' || event.type === 'title') {
       this.patchSummary(session);

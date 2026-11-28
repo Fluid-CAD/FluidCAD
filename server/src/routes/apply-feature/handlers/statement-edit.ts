@@ -210,8 +210,19 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
         res.status(422).json({ success: false, reason: 'the extrude target must be a single face selection' });
         return;
       }
-      foldSynthesis(synthesis);
-      edit.extrude!.toFace = { kind: 'selector' };
+      edit.extrude!.toFace = { kind: 'selector', part: foldSynthesis(synthesis) };
+    }
+    if (request.extrudeProfileFace) {
+      const synthesis = synthesizeSlot([request.extrudeProfileFace], 'extrude', undefined, []);
+      if (!synthesis) {
+        return;
+      }
+      // The profile argument is ONE SceneObject, like the target.
+      if (synthesis.spec.parts.length !== 1) {
+        res.status(422).json({ success: false, reason: 'the extrude profile must be a single face selection' });
+        return;
+      }
+      edit.extrude!.profile = { kind: 'selector', part: foldSynthesis(synthesis) };
     }
     if (request.ribSpine) {
       edit.rib!.spine = { kind: 'sketch', producer: sketchRef(request.ribSpine, 's') };

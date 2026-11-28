@@ -2505,7 +2505,9 @@ export class FluidCadServer {
   }
 
   /**
-   * Export the current assembly — every instance where it sits. `livePoses`
+   * Export the current assembly — every instance where it sits, as solids
+   * (`step`, `stl`) or as a 2D drawing of their view on `options.plane`
+   * (`dxf`, `svg`), whose outcome may carry `warnings`. `livePoses`
    * are a viewer's placements (parts dragged along free joints, a driven
    * mate); absent, the instances go where the engine's own mate solve puts
    * them, and the outcome says which was written. Null when nothing is
@@ -2513,7 +2515,7 @@ export class FluidCadServer {
    * or the poses do not cover it.
    */
   exportAssembly(
-    options: Omit<SolidExportOptions, 'unit'>,
+    options: ExportOptions,
     livePoses?: AssemblyExportPose[],
     scratch?: Extract<ScratchRender, { ok: true }>,
   ): AssemblyExportOutcome | null {
@@ -2525,7 +2527,17 @@ export class FluidCadServer {
       return null;
     }
     const name = basename(this.currentFileName).replace(/\.(assembly|part|fluid)?\.?js$/, '');
-    return this.sceneManager.exportAssembly(scene, { ...options, name, livePoses });
+    const outcome = this.sceneManager.exportAssembly(scene, { ...options, name, livePoses });
+    // An engine that predates assembly drawings writes its STL mesh instead; the file's extension gives that away.
+    const drawing = options.format !== 'step' && options.format !== 'stl';
+    if (drawing && outcome && !('reason' in outcome) && !String(outcome.fileName ?? '').toLowerCase().endsWith(`.${options.format}`)) {
+      return {
+        ok: false,
+        reason: `This workspace's FluidCAD engine cannot export a ${options.format.toUpperCase()} drawing of an assembly: it predates it. `
+          + 'Update the fluidcad package the workspace uses.',
+      };
+    }
+    return outcome;
   }
 
   /**

@@ -41,6 +41,94 @@ describe('applySolvedEmission', () => {
     expect(result.newCode).toContain('midpoint(p1, a.start(), l1.end());');
   });
 
+  it('writes imported points: a point statement is its own target for a join and for a fix', async () => {
+    // What the DXF import emits for a line with a point on its end and a point standing alone.
+    const result = await applySolvedEmission(EMPTY_SKETCH, {
+      sketchLine: 3,
+      geometry: [
+        { kind: 'line', text: 'line([0, 0], [40, 0])' },
+        { kind: 'point', text: 'point([40, 0])' },
+        { kind: 'point', text: 'point([20, 10])' },
+      ],
+      constraints: [
+        { kind: 'coincident', targets: [{ newIndex: 0, role: 'end' }, { newIndex: 1 }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+        { kind: 'fix', targets: [{ newIndex: 2 }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('const p1 = point([40, 0]);');
+    expect(result.newCode).toContain('const p2 = point([20, 10]);');
+    expect(result.newCode).toContain('coincident(l1.end(), p1);');
+    expect(result.newCode).toContain('fix(p2);');
+    expect(result.newCode).toMatch(/import \{[^}]*\bpoint\b[^}]*\} from "fluidcad\/core"/);
+  });
+
+  it('writes imported construction lines as guide lines, whose ends a fix still names', async () => {
+    // What the DXF import emits for a line of the outline and a construction line across it, fixed in place.
+    const result = await applySolvedEmission(EMPTY_SKETCH, {
+      sketchLine: 3,
+      geometry: [
+        { kind: 'line', text: 'line([0, 0], [40, 0])' },
+        { kind: 'line', text: 'line([20, -4], [20, 24])', guide: true },
+      ],
+      constraints: [
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+        { kind: 'fix', targets: [{ newIndex: 1, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 1, role: 'end' }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n').map((line) => line.trim());
+    expect(lines).toContain('const l1 = line([0, 0], [40, 0]);');
+    expect(lines).toContain('const l2 = line([20, -4], [20, 24]).guide();');
+    // The guide mark is on the statement, not on the name a constraint refers to it by.
+    expect(lines).toContain('fix(l2.start());');
+    expect(lines).toContain('fix(l2.end());');
+    expect(lines.indexOf('const l2 = line([20, -4], [20, 24]).guide();')).toBeLessThan(lines.indexOf('fix(l2.start());'));
+    expect(result.names).toEqual(['l1', 'l2']);
+  });
+
+  it('writes an imported elliptical arc with what fixes it: its points, a semi-radius, its axis, its centre from its start', async () => {
+    // What the DXF import emits for elliptical arcs fixed in place, each held the way its ends allow.
+    const result = await applySolvedEmission(EMPTY_SKETCH, {
+      sketchLine: 3,
+      geometry: [
+        { kind: 'eArc', text: 'eArc([120, 50], [100, 60], [100, 50], 20, 10)' },
+        { kind: 'line', text: 'line([100, 60], [120, 50])' },
+        { kind: 'eArc', text: 'eArc([13.660254, 12.320508], [-4.330127, 17.5], [0, 0], 20, 10, 30)' },
+        { kind: 'eArc', text: 'eArc([20, 0], [-20, 0], [0, 0], 20, 10)' },
+      ],
+      constraints: [
+        { kind: 'coincident', targets: [{ newIndex: 0, role: 'end' }, { newIndex: 1, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'start' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'end' }] },
+        { kind: 'fix', targets: [{ newIndex: 0, role: 'center' }] },
+        { kind: 'horizontal', targets: [{ newIndex: 0 }] },
+        { kind: 'radius', targets: [{ newIndex: 2 }], valueExpr: '20', axis: 'x' },
+        { kind: 'radius', targets: [{ newIndex: 3 }], valueExpr: '10', axis: 'y' },
+        { kind: 'distance', targets: [{ newIndex: 3, role: 'start' }, { newIndex: 3, role: 'center' }], valueExpr: '20', axis: 'x' },
+        { kind: 'horizontal', targets: [{ newIndex: 3, role: 'start' }, { newIndex: 3, role: 'center' }] },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n').map((line) => line.trim());
+    expect(lines).toContain('const ea1 = eArc([120, 50], [100, 60], [100, 50], 20, 10);');
+    expect(lines).toContain('const ea2 = eArc([13.660254, 12.320508], [-4.330127, 17.5], [0, 0], 20, 10, 30);');
+    expect(lines).toContain('coincident(ea1.end(), l1.start());');
+    expect(lines).toContain('fix(ea1.start());');
+    expect(lines).toContain('fix(ea1.center());');
+    expect(lines).toContain('horizontal(ea1);');
+    expect(lines).toContain(`radius(ea2, 20, 'x');`);
+    expect(lines).toContain(`radius(ea3, 10, 'y');`);
+    expect(lines).toContain(`distance(ea3.start(), ea3.center(), 20, 'x');`);
+    expect(lines).toContain('horizontal(ea3.start(), ea3.center());');
+    expect(result.names).toEqual(['ea1', 'l1', 'ea2', 'ea3']);
+    expect(result.newCode).toMatch(/import \{[^}]*\beArc\b[^}]*\} from "fluidcad\/core"/);
+  });
+
   it('inserts geometry BEFORE the first constraint statement, constraints at the body end', async () => {
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,

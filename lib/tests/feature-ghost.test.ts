@@ -4376,3 +4376,163 @@ describe("feature ghost — split", () => {
     expect(splitGhost(scene, [5], { plane: { kind: 'sketchEdge', filePath: FILE, line: 99 } }).ok).toBe(false);
   });
 });
+
+/**
+ * The face-sourced extrude — `extrude(d, <face>)`: the profile is a face
+ * picked on a solid, swept as it stands off its own plane. A 100×50×20 plate
+ * carries a 40×20×10 boss, whose top face (z = 30) is the pick.
+ */
+describe("feature ghost — a face as the profile", () => {
+  setupOC();
+
+  function plateWithBoss(): Extrude {
+    sketch("xy", () => { testRect(100, 50); });
+    extrude(20);
+    sketch(plane("xy", { offset: 20 }), () => { testRect(40, 20, { at: [10, 10] }); });
+    return extrude(10) as Extrude;
+  }
+
+  /** The live solid's face the predicate accepts, as a viewport pick names it. */
+  function liveFace(scene: Scene, accept: (face: Face) => boolean): { shapeId: string; index: number } {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getShapes()) {
+        if (!shape.isSolid()) {
+          continue;
+        }
+        const faces = Explorer.findFacesWrapped(shape);
+        try {
+          const index = faces.findIndex(accept);
+          if (index >= 0) {
+            return { shapeId: shape.id, index };
+          }
+        } finally {
+          for (const f of faces) {
+            f.dispose();
+          }
+        }
+      }
+    }
+    throw new Error('no such face in the scene');
+  }
+
+  /** The boss's top face: the flat one at z = 30. */
+  function bossTop(scene: Scene): { shapeId: string; index: number } {
+    return liveFace(scene, f => {
+      const box = ShapeOps.getBoundingBox(f);
+      return Math.abs(box.minZ - 30) < 1e-6 && Math.abs(box.maxZ - 30) < 1e-6;
+    });
+  }
+
+  function faceGhost(scene: Scene, overrides: Partial<ExtrudeGhostRequest> = {}) {
+    return buildFeatureGhost(
+      scene,
+      { ...BASE, ...overrides, profile: { kind: 'face', ...bossTop(scene) } },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  it("sweeps the picked face off its own plane, exactly where the apply builds it", () => {
+    const boss = plateWithBoss();
+    const scene = render();
+
+    const result = faceGhost(scene, { distance: 15 });
+
+    expect(refusal(result)).toBe('');
+    const box = bounds(result);
+    expect(box.minX).toBeCloseTo(10, 3);
+    expect(box.maxX).toBeCloseTo(50, 3);
+    expect(box.minY).toBeCloseTo(10, 3);
+    expect(box.maxY).toBeCloseTo(30, 3);
+    expect(box.minZ).toBeCloseTo(30, 3);
+    expect(box.maxZ).toBeCloseTo(45, 3);
+
+    // The statement the dialog writes for the same pick lands on the same span.
+    const applied = extrude(15, boss.endFaces()).new() as Extrude;
+    render();
+    expect(applied.getError()).toBeNull();
+    const built = ShapeOps.getBoundingBox(applied.getShapes()[0]);
+    expect(built.minZ).toBeCloseTo(30, 3);
+    expect(built.maxZ).toBeCloseTo(45, 3);
+  });
+
+  it("shows a cut's tool sinking into the solid the face lies on", () => {
+    plateWithBoss();
+    const scene = render();
+
+    const result = faceGhost(scene, { op: 'remove', distance: 4 });
+
+    expect(refusal(result)).toBe('');
+    const box = bounds(result);
+    expect(box.minZ).toBeCloseTo(26, 3);
+    expect(box.maxZ).toBeCloseTo(30, 3);
+  });
+
+  it("spans both sides for the symmetric and two-distance forms", () => {
+    plateWithBoss();
+    const scene = render();
+
+    const symmetric = bounds(faceGhost(scene, { distance: 8, symmetric: true }));
+    expect(symmetric.minZ).toBeCloseTo(26, 3);
+    expect(symmetric.maxZ).toBeCloseTo(34, 3);
+    const two = bounds(faceGhost(scene, { distance: 6, distance2: 2 }));
+    expect(two.minZ).toBeCloseTo(28, 3);
+    expect(two.maxZ).toBeCloseTo(36, 3);
+  });
+
+  it("ends on a first-face target ahead of the face", () => {
+    plateWithBoss();
+    sketch(plane("xy", { offset: 50 }), () => { testRect(100, 50); });
+    extrude(5).new();
+    const scene = render();
+    const result = buildFeatureGhost(
+      scene,
+      { ...BASE, distance: null, toFace: { kind: 'first-face' }, profile: { kind: 'face', ...bossTop(scene) } },
+      DEFAULT_MESH_CONFIG,
+    );
+
+    expect(refusal(result)).toBe('');
+    const box = bounds(result);
+    expect(box.minZ).toBeCloseTo(30, 3);
+    expect(box.maxZ).toBeCloseTo(50, 3);
+  });
+
+  it("draws nothing for a through-all cut — a face has no such form", () => {
+    plateWithBoss();
+    const scene = render();
+
+    const result = faceGhost(scene, { op: 'remove', distance: null });
+
+    expect(result.ok && result.solids).toEqual([]);
+  });
+
+  it("tells the dialog a curved face cannot be extruded", () => {
+    sketch("xy", () => { circle([0, 0], 20); });
+    extrude(30);
+    const scene = render();
+    const curved = liveFace(scene, f => {
+      const box = ShapeOps.getBoundingBox(f);
+      return box.maxZ - box.minZ > 1;
+    });
+
+    const result = buildFeatureGhost(
+      scene, { ...BASE, profile: { kind: 'face', ...curved } }, DEFAULT_MESH_CONFIG,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toBe('Only a planar face can be extruded.');
+    expect('surface' in result && result.surface).toBe(true);
+  });
+
+  it("refuses a face the scene no longer holds, quietly", () => {
+    plateWithBoss();
+    const scene = render();
+
+    const result = buildFeatureGhost(
+      scene, { ...BASE, profile: { kind: 'face', shapeId: 'gone', index: 0 } }, DEFAULT_MESH_CONFIG,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toBe('That face is not in the rendered scene.');
+    expect('surface' in result && result.surface).toBeFalsy();
+  });
+});

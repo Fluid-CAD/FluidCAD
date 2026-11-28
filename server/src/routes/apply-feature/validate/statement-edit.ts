@@ -1,6 +1,7 @@
 // In-place statement edit request validation: the per-feature option slots an edit dialog commits.
 
 import {
+  faceProfileRefusal,
   shapedConnectorRotate,
   validConnectorAnchor,
   validConnectorOffset,
@@ -24,7 +25,7 @@ import { validateBooleanEdit } from './boolean.ts';
 import { validateColorEdit } from './color.ts';
 import { isKeepSlot, validateProfileFeature, validateThinOffsets } from './common.ts';
 import { validateCopyEdit, type CopyEditAxisInput } from './copy.ts';
-import { validateExtrudeOptions } from './extrude.ts';
+import { FACE_PROFILE_SHAPE, validateExtrudeOptions, validateFaceProfilePick } from './extrude.ts';
 import { validateHelixOption, validateHelixSource, type HelixSourceInput } from './helix.ts';
 import {
   validateEditLoftGuides,
@@ -77,6 +78,8 @@ export type StatementEditRequest = {
   sketchPicks?: { shapeId: string }[];
   /** Re-sourced extrude profile sketch; absent keeps the statement's. */
   extrudeProfile?: SketchLoc & { feature: 'sketch' | 'offset' };
+  /** Re-picked extrude profile face (`extrude(d, <face>)`); excludes `extrudeProfile`. */
+  extrudeProfileFace?: Pick;
   /** Re-picked extrude up-to-face target; the keep case rides the edit target. */
   extrudeToFace?: Pick;
   /** Re-sourced rib spine sketch; absent keeps the statement's. */
@@ -277,10 +280,28 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     if (isKeepSlot(body?.profile)) {
       return result;
     }
+    if (body.profile?.mode === 'face') {
+      // A re-picked face profile: swept as it stands, so it takes no thin
+      // offsets, no regions and no through-all.
+      const pick = validateFaceProfilePick(body.profile.entity);
+      if (!pick) {
+        return { error: FACE_PROFILE_SHAPE };
+      }
+      const refusal = faceProfileRefusal({
+        distance: options.distance, thin: options.thin, toFace: hasToFace ? toFaceRaw : undefined,
+        regionCount: regionResult.regions?.length ?? 0,
+      });
+      if (refusal) {
+        return { error: refusal };
+      }
+      result.extrudeProfileFace = pick;
+      result.needsPicks = true;
+      return result;
+    }
     const loc = validateSketchLoc(body.profile);
     const profileFeature = validateProfileFeature(body.profile?.feature);
     if (body.profile?.mode !== 'bound' || !loc || !profileFeature) {
-      return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch or offset' };
+      return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch or offset, or {mode: "face", entity} of a picked face' };
     }
     return { ...result, extrudeProfile: { ...loc, feature: profileFeature } };
   }

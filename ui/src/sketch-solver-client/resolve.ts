@@ -5,7 +5,12 @@
 
 import type { SolverRef } from '../../../lib/sketch-solver/types.js';
 import { arcSweep } from './tessellate';
+import { isEllipseLike } from './model';
 import type { SolvedEntityView, SolvedSketchModel } from './model';
+import {
+  ellipseArcContainsParam, ellipseArcPointAt, ellipseParamOf,
+} from '../../../lib/sketch-solver/earc-geometry.js';
+import { ellipticalArcSpanOf } from './elliptical-arc';
 
 export type Vec2 = [number, number];
 
@@ -181,7 +186,29 @@ export function entityAnchor(e: SolvedEntityView): Vec2 | null {
       const s = Math.sin(e.theta ?? 0);
       return [e.center[0] + x * c - y * s, e.center[1] + x * s + y * c];
     }
+    case 'eArc': {
+      // Halfway along the drawn piece.
+      const span = ellipticalArcSpanOf(e);
+      return span ? ellipseArcPointAt(span, 0.5) : e.center ?? null;
+    }
   }
+}
+
+/**
+ * A point of an ellipse-like entity's ellipse, brought onto what is
+ * actually drawn: unchanged for a full ellipse or when it already falls on
+ * an elliptical arc's piece, the arc's nearer end otherwise. Badges that
+ * compute a contact on the whole ellipse land on the arc this way.
+ */
+function ontoDrawnPiece(e: SolvedEntityView, at: Vec2 | null): Vec2 | null {
+  if (!at || e.kind !== 'eArc') {
+    return at;
+  }
+  const span = ellipticalArcSpanOf(e);
+  if (!span || !e.start || !e.end || ellipseArcContainsParam(span, ellipseParamOf(span, at[0], at[1]))) {
+    return at;
+  }
+  return dist(at, e.start) <= dist(at, e.end) ? e.start : e.end;
 }
 
 /** Outward unit normal of an ellipse at (or near) `at`: the implicit
@@ -241,7 +268,7 @@ export function offsetDirAt(
     const radial = sub(at, e.center);
     return norm(radial) > 1e-9 ? normalize(radial) : [0, 1];
   }
-  if (e.kind === 'ellipse') {
+  if (isEllipseLike(e.kind)) {
     return ellipseNormalAt(e, at) ?? [0, 1];
   }
   return [0, 1];
@@ -260,7 +287,7 @@ export function alongDirAt(e: SolvedEntityView | undefined, at: Vec2): Vec2 {
     const radial = sub(at, e.center);
     return norm(radial) > 1e-9 ? perp(normalize(radial)) : [1, 0];
   }
-  if (e.kind === 'ellipse') {
+  if (isEllipseLike(e.kind)) {
     const n = ellipseNormalAt(e, at);
     return n ? perp(n) : [1, 0];
   }
@@ -284,7 +311,7 @@ export function entitySpan(e: SolvedEntityView | undefined): number {
   if (e.kind === 'circle' || e.kind === 'arc') {
     return e.radius ?? 0;
   }
-  if (e.kind === 'ellipse') {
+  if (isEllipseLike(e.kind)) {
     return e.radii ? Math.min(e.radii[0], e.radii[1]) : 0;
   }
   return 0;
@@ -338,24 +365,26 @@ export function pointOnCircumference(e: SolvedEntityView, p: Vec2): Vec2 | null 
 export function tangencyPoint(a: SolvedEntityView, b: SolvedEntityView): Vec2 | null {
   const line = a.kind === 'line' ? a : b.kind === 'line' ? b : null;
   const round = a.kind === 'line' ? b : a;
-  if (line && round.kind === 'ellipse' && round.center) {
+  if (line && isEllipseLike(round.kind) && round.center) {
     // The ellipse's support point toward the line: where a line with that
     // normal touches it — exact for the distance form of the constraint.
     const foot = footOnLine(line, round.center);
     const toLine = sub(foot, round.center);
-    return norm(toLine) > 1e-9 ? ellipseSupportPoint(round, normalize(toLine)) : foot;
+    return norm(toLine) > 1e-9
+      ? ontoDrawnPiece(round, ellipseSupportPoint(round, normalize(toLine)))
+      : foot;
   }
   if (line && round.center) {
     return footOnLine(line, round.center);
   }
-  if (a.kind === 'ellipse' && a.center && b.center) {
+  if (isEllipseLike(a.kind) && a.center && b.center) {
     // Ellipse against a circle/arc/ellipse: the ellipse's boundary point on
     // the ray toward the other center — the contact for a circle-like
     // partner within badge accuracy.
-    return ellipseRayPoint(a, sub(b.center, a.center));
+    return ontoDrawnPiece(a, ellipseRayPoint(a, sub(b.center, a.center)));
   }
-  if (b.kind === 'ellipse' && a.center && b.center) {
-    return ellipseRayPoint(b, sub(a.center, b.center));
+  if (isEllipseLike(b.kind) && a.center && b.center) {
+    return ontoDrawnPiece(b, ellipseRayPoint(b, sub(a.center, b.center)));
   }
   if (a.center && b.center && a.radius !== undefined) {
     return pointOnCircumference(a, b.center);

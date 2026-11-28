@@ -48,8 +48,9 @@ export type ExtrudeGhostOptions = {
   /**
    * The picked `.region()` faces, already resolved from the profile's
    * regions — built in place of the profile's own regions. Ignored by a thin
-   * extrude, which offsets the whole profile (the kernel's own rule). Owned
-   * by the caller, who disposes them with the scratch.
+   * extrude, which offsets the whole profile (the kernel's own rule). A
+   * face-sourced extrude hands its picked face here, with no geometry behind
+   * it. Owned by the caller, who disposes them with the scratch.
    */
   faces?: Face[];
 };
@@ -109,7 +110,8 @@ function buildSolids(
 ): Shape[] | { refusal: string } {
   const plane = profile.getPlane();
   const geometries = profile.getGeometries();
-  if (!plane || geometries.length === 0) {
+  // Handed faces stand in for the geometry: a face-sourced extrude has none.
+  if (!plane || (geometries.length === 0 && !options.faces?.length)) {
     return [];
   }
   // A face-bounded sweep has no span of its own; the distance modes refuse

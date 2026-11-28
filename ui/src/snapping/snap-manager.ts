@@ -7,7 +7,7 @@ import { viewerSettings } from '../scene/viewer-settings';
 import { PlaneData, SceneObjectRender } from '../types';
 import { SceneIndex } from '../helpers/scene-index';
 import { SceneContext } from '../scene/scene-context';
-import { buildSolvedSketchModel, isSolvedSketch } from '../sketch-solver-client/model';
+import { buildSolvedSketchModel, isArcLike, isSolvedSketch } from '../sketch-solver-client/model';
 import type { SolvedEntityView, SolvedSketchModel } from '../sketch-solver-client/model';
 import { worldUnitsPerPixel } from '../meshes/screen-scale';
 import { resolveGridSpacing } from '../grid/grid-spacing';
@@ -193,7 +193,7 @@ export class SnapManager {
         }
         const roles: ('start' | 'end' | 'center')[] =
           e.kind === 'line' ? ['start', 'end']
-            : e.kind === 'arc' ? ['start', 'end', 'center']
+            : isArcLike(e.kind) ? ['start', 'end', 'center']
               : e.kind === 'circle' || e.kind === 'ellipse' ? ['center'] : [];
         for (const role of roles) {
           const p = e[role];

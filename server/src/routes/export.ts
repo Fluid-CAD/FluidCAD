@@ -171,11 +171,12 @@ function parseAssemblyPoses(assembly: unknown): AssemblyExportPose[] | undefined
  * `front`, `xy`, `-xz` …), hidden-line removed, at model coordinates in the
  * document's unit. `hiddenLines` and `tangentEdges` add those edges on
  * their own layers. The solids of the selection are drawn together, one
- * hiding another. The file is `export-<view>.dxf` / `.svg`; what the
- * drawing had to approximate comes back in `X-FluidCAD-Export-Warnings` (a
- * URI-encoded JSON array of strings), or as `warnings` beside `savedTo`.
- * The 3D formats' options are a 400 here, and the whole assembly is a 422:
- * it has no drawing export yet.
+ * hiding another; `assembly` draws every instance where it sits, the same
+ * way. The file is `export-<view>.dxf` / `.svg`, an assembly's
+ * `<name>-<view>.dxf` / `.svg`; what the drawing had to approximate comes
+ * back in `X-FluidCAD-Export-Warnings` (a URI-encoded JSON array of
+ * strings), or as `warnings` beside `savedTo`. The 3D formats' options are
+ * a 400 here.
  *
  * An SVG is put on a page: `strokeWidth` (default 0.25) is the stroke of
  * its visible edges and `margin` (default 5) the blank band around the
@@ -237,12 +238,6 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
       const parsed = parseDrawingOptions(format, req.body);
       if ('error' in parsed) {
         res.status(400).json(parsed);
-        return;
-      }
-      if (hasAssembly) {
-        res.status(422).json({
-          error: `A ${format.toUpperCase()} drawing of the whole assembly is not available yet. Export a part or its solids instead.`,
-        });
         return;
       }
       drawing = parsed;
@@ -322,7 +317,7 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
     try {
       let result: { data: string | Uint8Array; fileName: string; warnings?: string[] };
       if (hasAssembly) {
-        const outcome = fluidCadServer.exportAssembly(solidOptions, livePoses, scratch);
+        const outcome = fluidCadServer.exportAssembly(options, livePoses, scratch);
         if (!outcome) {
           res.status(404).json({ error: 'No active scene to export.' });
           return;
@@ -348,8 +343,9 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
 
       const mimeType = MIME_TYPES[format as SolidFormat | DrawingFormat];
       // A drawing is named after its view whatever name the plane was asked
-      // under: `xy` and `top` are both `export-top.dxf` (or `.svg`).
-      const fileName = drawing ? `export-${standardPlaneView(drawing.plane)}.${drawing.format}` : result.fileName;
+      // under: `xy` and `top` are both `export-top.dxf` (or `.svg`). An
+      // assembly's carries the assembly's name as well (`rig-top.dxf`).
+      const fileName = drawing && !hasAssembly ? `export-${standardPlaneView(drawing.plane)}.${drawing.format}` : result.fileName;
       const warnings = (result.warnings ?? []).filter((warning) => typeof warning === 'string' && warning.length > 0);
       const bytes = typeof result.data === 'string'
         ? Buffer.from(result.data, 'utf-8')

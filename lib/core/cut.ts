@@ -4,6 +4,7 @@ import { Extrude } from "../features/extrude.js";
 import { ExtrudeToFace } from "../features/extrude-to-face.js";
 import { ExtrudeTwoDistances } from "../features/extrude-two-distances.js";
 import { ExtrudeBase } from "../features/extrude-base.js";
+import { SelectSceneObject } from "../features/select.js";
 import { Extrudable } from "../helpers/types.js";
 import { ICut, ISceneObject } from "./interfaces.js";
 import { type NumberParam, isNumberParam, resolveParam } from "./param.js";
@@ -22,7 +23,7 @@ interface CutFunction {
   /**
    * Cuts using the given sketch by a given distance.
    * @param distance - The cut depth
-   * @param target - The sketch to cut with
+   * @param target - The sketch or face-bearing scene object to cut with
    */
   (distance: NumberParam, target?: ISceneObject): ICut;
   /**
@@ -35,7 +36,7 @@ interface CutFunction {
    * Cuts by two distances using the given sketch.
    * @param distance1 - The first cut distance
    * @param distance2 - The second cut distance
-   * @param target - The sketch to cut with
+   * @param target - The sketch or face-bearing scene object to cut with
    */
   (distance1: NumberParam, distance2: NumberParam, target: ISceneObject): ICut;
   /**
@@ -56,7 +57,7 @@ interface CutFunction {
   /**
    * Cuts up to a specific face using the given sketch.
    * @param face - A face selection to cut up to
-   * @param target - The sketch to cut with
+   * @param target - The sketch or face-bearing scene object to cut with
    */
   (face: ISceneObject, target: ISceneObject): ICut;
   /**
@@ -77,9 +78,24 @@ function isExtrudable(obj: any): obj is Extrudable {
   return obj instanceof SceneObject && obj.isExtrudable();
 }
 
+/**
+ * A trailing argument that is not a sketch but bears faces — a face
+ * selection, or a feature's face accessor (`e.endFaces()`): the cut sweeps
+ * those faces in place of a sketch profile, as `extrude()` does.
+ */
+function isFaceSource(obj: any): boolean {
+  if (!(obj instanceof SceneObject) || isExtrudable(obj)) {
+    return false;
+  }
+  if (obj instanceof SelectSceneObject) {
+    return obj.shapeType() === 'face';
+  }
+  return true;
+}
+
 function build(context: SceneParserContext): CutFunction {
 
-  function doCut(params: any[], extrudable?: Extrudable): ExtrudeBase {
+  function doCut(params: any[], extrudable?: Extrudable | SceneObject): ExtrudeBase {
     if (params.length === 0) {
       return new Extrude(0, extrudable).remove();
     }
@@ -113,9 +129,15 @@ function build(context: SceneParserContext): CutFunction {
   return function cut() {
     const args = [...arguments];
 
-    let extrudable: Extrudable | undefined;
-    if (args.length > 0 && isExtrudable(args[args.length - 1])) {
+    let extrudable: Extrudable | SceneObject | undefined;
+    const last = args.length > 0 ? args[args.length - 1] : undefined;
+    if (last !== undefined && isExtrudable(last)) {
       extrudable = args.pop() as Extrudable;
+    } else if (last !== undefined && args.length >= 2 && isFaceSource(last)) {
+      // With one argument a face selection is the up-to-face target, so a
+      // face source always follows a distance or a target.
+      extrudable = args.pop() as SceneObject;
+      context.addSceneObject(extrudable);
     } else {
       extrudable = context.getLastExtrudable() || undefined;
     }

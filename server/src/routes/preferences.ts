@@ -16,6 +16,7 @@ import {
   parseToolbarPackages,
   resetPreferences,
   savePreferences,
+  serializePreferenceWrite,
   type Preferences,
 } from '../preferences.ts';
 import { AgentCredentials } from '../agent-credentials.ts';
@@ -72,13 +73,9 @@ export function createPreferencesRouter(onSaved: (prefs: Preferences) => void = 
   // (the grid chip persists a pitch and the lock back to back) would each
   // load the pre-edit file and the later `writeFile` could land mid-way
   // through the earlier one — a torn, unparseable preferences.json. One
-  // chain serializes them; each request still answers with its own result.
-  let writes: Promise<unknown> = Promise.resolve();
-  const serialized = <T>(task: () => Promise<T>): Promise<T> => {
-    const run = writes.then(task, task);
-    writes = run.catch((): undefined => undefined);
-    return run;
-  };
+  // chain, shared with the agent's own writes, serializes them; each request
+  // still answers with its own result.
+  const serialized = serializePreferenceWrite;
 
   router.get('/preferences', async (_req, res) => {
     try {

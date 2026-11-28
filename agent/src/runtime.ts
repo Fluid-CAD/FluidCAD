@@ -395,6 +395,18 @@ export class AgentRuntime {
       }),
       // An engine that cannot list its parameters has none to offer.
       model: () => ({ file: this.deps.currentFile(), params: this.deps.modelParams?.() ?? [] }),
+      // "Always" on an install's card is the `agent.alwaysAllowInstalls` preference, read on every install.
+      alwaysAllowed: async (name) => name === 'install_package' && (await this.deps.loadPreferences()).agent?.alwaysAllowInstalls === true,
+      ...(this.deps.updateAgentPreferences
+        ? {
+            allowAlways: async (name: string) => {
+              if (name === 'install_package') {
+                await this.deps.updateAgentPreferences!({ alwaysAllowInstalls: true });
+              }
+            },
+          }
+        : {}),
+      ...(this.deps.installTarget ? { installTarget: () => this.deps.installTarget!() } : {}),
       instructions: () => {
         let text = this.instructionsText.get(kind);
         if (text === undefined) {

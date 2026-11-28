@@ -1,6 +1,7 @@
 import type { TopoDS_Shape } from "ocjs-fluidcad";
-import { HiddenLineProjection } from "../../oc/projection/hidden-line.js";
-import type { ViewShape } from "../../oc/projection/hidden-line.js";
+import type { HiddenLineEdges, ViewShape } from "../../oc/projection/hidden-line.js";
+import { ViewProjection } from "../../oc/projection/view-projection.js";
+import type { ViewBody, ViewStats } from "../../oc/projection/view-projection.js";
 import { EdgeToCurve2D } from "../../oc/projection/edge-to-curve2d.js";
 import { Plane, isStandardPlane, toPlane } from "../../math/plane.js";
 import type { StandardPlane } from "../../math/plane.js";
@@ -15,9 +16,23 @@ export { Curves, DRAWING_LAYERS, DRAWING_TOLERANCE_MM } from "./drawing.js";
 export { DrawingCleanup } from "./cleanup.js";
 export type { DrawingChain, DrawingChainItem } from "./cleanup.js";
 export { DxfWriter } from "./dxf-writer.js";
+export { DxfReader } from "./dxf-reader.js";
+export { SvgReader } from "./svg-reader.js";
+export type { SvgReadOptions } from "./svg-reader.js";
+export { ImportedDrawings } from "./import.js";
+export type { ImportedConstructionLine, ImportedDrawing, ImportedEntity, ImportedLayer, ImportedPoint, ImportedUnit } from "./import.js";
+export { ImportedTexts } from "./imported-text.js";
+export type { FontMeasure, FontMeasureRequest, ImportedText, ResolvedText, TextFont, TextIssue, TextRefusal } from "./imported-text.js";
+export { ConstructionLines } from "./construction-lines.js";
+export type { CutLine, EndlessLine } from "./construction-lines.js";
+export { SketchImport } from "./sketch-import.js";
+export type { SketchImportExtras, SketchImportOptions, SketchImportPlan, SketchJoin, SketchJoinEnd, SketchDrawnPrimitive, SketchPin, SketchPinPoint, SketchPrimitive, SketchTextPrimitive } from "./sketch-import.js";
+export { Affine } from "./affine.js";
+export type { Affine2 } from "./affine.js";
 export { SvgWriter, SVG_DEFAULT_MARGIN_MM, SVG_DEFAULT_STROKE_WIDTH_MM } from "./svg-writer.js";
 export type { SvgWriterOptions } from "./svg-writer.js";
 export type { ViewShape } from "../../oc/projection/hidden-line.js";
+export type { ViewBody, ViewStats } from "../../oc/projection/view-projection.js";
 
 /** The 2D formats: a view of the model drawn on a plane. */
 export type DrawingFormat = 'dxf' | 'svg';
@@ -83,16 +98,49 @@ export class DrawingExport {
     plane: Plane,
     options: { unit: LengthUnit; hiddenLines?: boolean; tangentEdges?: boolean },
   ): Drawing2D {
+    return DrawingExport.drawn(plane, options, () => ViewProjection.project(
+      shapes.map((shape) => ('shape' in shape ? shape : { shape })), plane,
+      { hidden: options.hiddenLines === true, tangent: options.tangentEdges === true },
+    ));
+  }
+
+  /**
+   * The view of an assembly's bodies on a standard plane: each body a shape
+   * in its own frame with the pose that places it. The drawing is the one
+   * {@link fromShapes} would make of the placed shapes; it is computed body
+   * by body (`ViewProjection`), which is what keeps an assembly's view
+   * to seconds.
+   */
+  static fromBodies(
+    bodies: readonly ViewBody[],
+    options: DrawingViewOptions & { unit: LengthUnit },
+    onStats?: (stats: ViewStats) => void,
+  ): Drawing2D {
+    if (!isStandardPlane(options.plane)) {
+      throw new Error(`Unknown drawing plane ${JSON.stringify(options.plane)}`);
+    }
+    const plane = toPlane(options.plane);
+    const drawing = DrawingExport.drawn(plane, options, () => {
+      const edges = ViewProjection.project(bodies, plane, {
+        hidden: options.hiddenLines === true,
+        tangent: options.tangentEdges === true,
+      });
+      onStats?.(edges.stats);
+      return edges;
+    });
+    drawing.plane = options.plane;
+    return drawing;
+  }
+
+  /** The edges of a view → the drawing: exact projection of each, then the cleanup. */
+  private static drawn(plane: Plane, options: { unit: LengthUnit }, project: () => HiddenLineEdges): Drawing2D {
     const tolerance = Curves.tolerance(options.unit, DRAWING_TOLERANCE_MM);
     const raw: DrawingEntity[] = [];
     let approximated = 0;
 
     // The kernel helpers read their tolerances from the active unit.
     withUnit(options.unit, () => {
-      const edges = HiddenLineProjection.project(shapes, plane, {
-        hidden: options.hiddenLines === true,
-        tangent: options.tangentEdges === true,
-      });
+      const edges = project();
       try {
         const layers: DrawingLayer[] = ['visible', 'tangent', 'hidden'];
         for (const layer of layers) {

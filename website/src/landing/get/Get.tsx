@@ -29,7 +29,7 @@ const PLATFORM_ICONS = { mac: IconBrandApple, windows: IconBrandWindows, linux: 
 const PLATFORMS: { id: PlatformId; name: string; detail: string }[] = [
   { id: 'mac', name: 'macOS', detail: 'Apple silicon, signed and notarized' },
   { id: 'windows', name: 'Windows', detail: '64-bit installer' },
-  { id: 'linux', name: 'Linux', detail: 'AppImage and .deb, x86-64' }
+  { id: 'linux', name: 'Linux', detail: 'AppImage, .deb and .rpm, x86-64' }
 ]
 
 /**

@@ -406,7 +406,7 @@ describe('a chat', () => {
     expect(h.openSource).toHaveBeenCalledWith('/w/plate.part.js', 7, 3);
   });
 
-  it('Stop and Escape cancel the turn; typing goes on while it runs, and Enter waits', async () => {
+  it('Stop and Escape cancel the turn; typing goes on while it runs', async () => {
     const h = mount();
     await opened(h);
     h.type('first');
@@ -415,27 +415,140 @@ describe('a chat', () => {
     const id = [...h.client.snapshots.keys()][0];
     const a = h.client.startAssistant(id);
     h.client.part(id, a, { type: 'text', id: 'x', text: 'Partial' });
+    // Nothing to send: the button stops the turn. With a message written it sends (after the turn).
+    expect(h.sendButton().dataset.action).toBe('stop');
     h.type('next question');
     expect(h.input().disabled).toBe(false);
-    h.key('Enter');
-    await settle();
-    expect(h.client.sent).toHaveLength(1);
-    expect(h.input().value).toBe('next question');
+    expect(h.sendButton().dataset.action).toBe('send');
+    expect(h.sendButton().title).toBe('Send when the agent is done (Enter)');
+    // Escape stops the turn whatever is written, and the text stays.
     const escape = h.key('Escape');
     expect(escape.defaultPrevented).toBe(true);
     await settle();
     expect(h.client.cancel).toHaveBeenCalledWith(id);
+    expect(h.client.sent).toHaveLength(1);
+    expect(h.input().value).toBe('next question');
     expect(h.$('[data-part="notice"]')!.textContent!.trim()).toBe('Stopped.');
     expect(h.sendButton().dataset.action).toBe('send');
+    expect(h.sendButton().title).toBe('Send (Enter)');
     // The partial answer stays.
     expect(h.$$('[data-part="text"]').map((e) => e.textContent)).toContain('Partial');
     // The Stop button does the same as Escape.
     h.key('Enter');
     await settle();
     expect(h.client.sent.map((s) => s.message.text)).toEqual(['first', 'next question']);
+    expect(h.sendButton().dataset.action).toBe('stop');
     h.sendButton().click();
     await settle();
     expect(h.client.cancel).toHaveBeenCalledTimes(2);
+  });
+
+  it('a message sent while a turn runs waits above the composer, and goes when the turn is done', async () => {
+    const h = mount();
+    await opened(h);
+    const queue = () => h.$('[data-ref="queue"]')!;
+    const waiting = () => h.$$('[data-ref="queued-text"]').map((e) => e.textContent);
+    expect(queue().classList.contains('hidden')).toBe(true);
+    h.type('first');
+    h.key('Enter');
+    await settle();
+    const id = [...h.client.snapshots.keys()][0];
+    const a = h.client.startAssistant(id);
+    h.client.part(id, a, { type: 'text', id: 'x', text: 'Working on it' });
+
+    // Enter while the turn runs: the engine keeps the message, the box empties, the turn goes on.
+    h.type('second');
+    h.key('Enter');
+    await settle();
+    expect(h.client.send).toHaveBeenCalledTimes(2);
+    expect(h.client.sent).toHaveLength(1);
+    expect(h.input().value).toBe('');
+    expect(h.panel.el.dataset.status).toBe('running');
+    expect(h.sendButton().dataset.action).toBe('stop');
+    expect(queue().classList.contains('hidden')).toBe(false);
+    expect(queue().dataset.held).toBe('false');
+    expect(waiting()).toEqual(['second']);
+    expect(h.$('[data-ref="queue-label"]')!.textContent).toBe('Sent once the agent is done');
+    expect(h.$('[data-ref="queue-send"]')).toBeNull();
+    // Not in the transcript until its turn.
+    expect(h.$$('[data-role="user"] .chat-user-text').map((e) => e.textContent)).toEqual(['first']);
+
+    // The Send button does the same.
+    h.type('third');
+    h.sendButton().click();
+    await settle();
+    expect(waiting()).toEqual(['second', 'third']);
+    expect(h.$('[data-ref="queue-label"]')!.textContent).toBe('Sent one after the other, once the agent is done');
+
+    // One is taken back.
+    h.$<HTMLButtonElement>('[data-ref="queued"] [data-ref="queued-remove"]')!.click();
+    await settle();
+    expect(h.client.removeQueued).toHaveBeenCalledWith(id, 'queued-1');
+    expect(waiting()).toEqual(['third']);
+
+    // The turn ends: the waiting message has its turn, with what it was sent with.
+    h.client.finish(id, a);
+    await settle();
+    expect(h.client.sent.map((s) => s.message)).toEqual([
+      { text: 'first', model: 'default', mode: 'ask' },
+      { text: 'third', model: 'default', mode: 'ask' },
+    ]);
+    expect(queue().classList.contains('hidden')).toBe(true);
+    expect(h.$$('[data-role="user"] .chat-user-text').map((e) => e.textContent)).toEqual(['first', 'third']);
+    expect(h.panel.el.dataset.status).toBe('running');
+  });
+
+  it('after a turn that was stopped the waiting messages stay until Send now', async () => {
+    const h = mount();
+    await opened(h);
+    h.type('first');
+    h.key('Enter');
+    await settle();
+    const id = [...h.client.snapshots.keys()][0];
+    h.client.startAssistant(id);
+    h.type('second');
+    h.key('Enter');
+    await settle();
+    h.key('Escape');
+    await settle();
+    expect(h.client.cancel).toHaveBeenCalledWith(id);
+    expect(h.client.sent).toHaveLength(1);
+    expect(h.panel.el.dataset.status).toBe('idle');
+    expect(h.$('[data-ref="queue"]')!.dataset.held).toBe('true');
+    expect(h.$('[data-ref="queue-label"]')!.textContent).toBe('Not sent yet: the agent stopped before it was done.');
+    expect(h.$$('[data-ref="queued-text"]').map((e) => e.textContent)).toEqual(['second']);
+
+    h.$<HTMLButtonElement>('[data-ref="queue-send"]')!.click();
+    await settle();
+    expect(h.client.resumeQueue).toHaveBeenCalledWith(id);
+    expect(h.client.sent.map((s) => s.message.text)).toEqual(['first', 'second']);
+    expect(h.$('[data-ref="queue"]')!.classList.contains('hidden')).toBe(true);
+    expect(h.panel.el.dataset.status).toBe('running');
+  });
+
+  it('a chat opened with messages waiting shows them, and what each carries besides its words', async () => {
+    const client = new FakeChatClient();
+    client.addSession({
+      id: 's',
+      title: 'Bracket',
+      queued: [
+        { id: 'q1', createdAt: '2026-11-17T10:00:06.000Z', text: 'Make the holes 6 mm\nand countersunk', images: 1, references: 2 },
+        { id: 'q2', createdAt: '2026-11-17T10:00:07.000Z', text: '', images: 2, references: 0 },
+      ],
+    });
+    const h = mount(client);
+    await opened(h);
+    const rows = h.$$('[data-ref="queued"]');
+    expect(rows.map((r) => r.dataset.queuedId)).toEqual(['q1', 'q2']);
+    expect(rows[0].querySelector('[data-ref="queued-text"]')!.textContent).toBe('Make the holes 6 mm\nand countersunk');
+    expect(rows[0].querySelector('.chat-queue-extras')!.textContent).toBe('1 image, 2 references');
+    // Images only: they are what the row says.
+    expect(rows[1].querySelector('[data-ref="queued-text"]')!.textContent).toBe('2 images');
+    expect(rows[1].querySelector('.chat-queue-extras')).toBeNull();
+    expect(h.$('[data-ref="queue-send"]')).not.toBeNull();
+    // Another tab took one back: the list follows the stream.
+    client.emit('s', { type: 'queue', queued: [] });
+    expect(h.$('[data-ref="queue"]')!.classList.contains('hidden')).toBe(true);
   });
 
   it('a send the engine refuses keeps the text and says why', async () => {
@@ -1345,6 +1458,168 @@ describe('approval on tool cards (§12.1)', () => {
     expect(h.$('[data-ref="approval-question"]')!.textContent!.trim()).toBe("A package's code runs in FluidCAD with your permissions. Install it?");
     expect(h.$$('[data-ref="approval"] button').map((b) => b.dataset.ref)).toEqual(['allow', 'deny']);
     expect(h.$('[data-part="tool"]')!.textContent).toContain('Install @acme/kit from the hub');
+  });
+
+  /** An install waiting, with what the hub said of the package. */
+  const installPart = (overrides: Partial<ToolPart> = {}) => editPart({
+    name: 'install_package',
+    title: 'Install @acme/kit from the hub',
+    kind: 'outside',
+    input: { name: '@acme/kit' },
+    diff: undefined,
+    approval: { id: 'ap3', canAllowSession: false, canAllowAlways: true },
+    install: {
+      state: 'ready',
+      name: '@acme/kit',
+      version: '0.2.0',
+      target: null,
+      upgrade: false,
+      publisher: 'acme',
+      description: 'Standoffs and <b>mounting</b> bosses.',
+      license: 'MIT',
+      installs: 1234,
+      contents: { features: 2, parts: 1, assemblies: 0 },
+      installed: [],
+      pinned: null,
+    },
+    ...overrides,
+  });
+
+  it('an install shows a confirmation card: the package as the hub describes it, then Install, Always and Deny', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart());
+    const h = mount(client);
+    await opened(h);
+    const card = h.$('[data-ref="approval"] [data-ref="install"]')!;
+    expect(card.dataset.state).toBe('ready');
+    expect(card.querySelector('[data-ref="install-name"]')!.textContent).toBe('@acme/kit');
+    expect(card.querySelector('[data-ref="install-version"]')!.textContent).toBe('0.2.0');
+    expect(card.querySelector('[data-ref="install-meta"]')!.textContent).toBe('by acme · MIT · 1,234 installs');
+    // The publisher's text is text: no markup of theirs reaches the page.
+    const description = card.querySelector('[data-ref="install-description"]')!;
+    expect(description.textContent).toBe('Standoffs and <b>mounting</b> bosses.');
+    expect(description.querySelector('b')).toBeNull();
+    expect(card.querySelector('[data-ref="install-facts"]')!.textContent).toBe('2 features, 1 part · Goes where Settings → Packages puts new packages');
+    expect(h.$$('[data-ref="approval"] button').map((b) => [b.dataset.ref, b.textContent!.trim()])).toEqual([
+      ['allow', 'Install'],
+      ['allow-always', 'Always'],
+      ['deny', 'Deny'],
+    ]);
+  });
+
+  it('the install card says where the package goes, an upgrade, a copy already here and a deprecation; reading the hub, it says so', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart({
+      input: { name: '@acme/kit', target: 'project', upgrade: true },
+      install: { state: 'ready', name: '@acme/kit', version: '0.2.0', target: 'project', upgrade: true, installed: ['0.2.0'], pinned: '0.1.0', deprecated: 'Use @acme/kit2.' },
+    }));
+    const h = mount(client);
+    await opened(h);
+    expect(h.$('[data-ref="install-facts"]')!.textContent).toBe('Copied into this project’s packages/ folder');
+    expect(h.$('[data-ref="install-upgrade"]')!.textContent!.trim()).toBe('Moves this project up from 0.1.0');
+    expect(h.$('[data-ref="install-local"]')!.textContent!.trim()).toBe('Already on this machine: nothing to download');
+    expect(h.$('[data-ref="install-deprecated"]')!.textContent!.trim()).toBe('Deprecated: Use @acme/kit2.');
+
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'edit', patch: { install: { state: 'loading', name: '@acme/kit', version: null, target: null, upgrade: false } } });
+    expect(h.$('[data-ref="install"]')!.dataset.state).toBe('loading');
+    expect(h.$('[data-ref="install-loading"]')!.textContent).toBe('Reading the package on the hub…');
+    expect(h.$('[data-ref="install-version"]')).toBeNull();
+    // The buttons work while the hub is read.
+    expect(h.$$<HTMLButtonElement>('[data-ref="approval"] button').every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('Always sends its decision, tells the page, and the card says installs are allowed always, with a way to change it', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart());
+    const onInstallsAlwaysAllowed = vi.fn();
+    const h = mount(client, {}, { onInstallsAlwaysAllowed });
+    await opened(h);
+    h.$<HTMLButtonElement>('[data-ref="allow-always"]')!.click();
+    await settle();
+    expect(client.decideApproval).toHaveBeenLastCalledWith('s', 'ap3', 'allow-always');
+    expect(onInstallsAlwaysAllowed).toHaveBeenCalledTimes(1);
+    client.emit('s', { type: 'part-update', messageId: 'a1', partId: 'edit', patch: { state: 'running', approval: { id: 'ap3', canAllowSession: false, canAllowAlways: true, decision: 'allow-always' } } });
+    const approval = h.$('[data-ref="approval"]')!;
+    expect(approval.textContent).toContain('You allowed package installs always');
+    approval.querySelector<HTMLButtonElement>('[data-ref="always-settings"]')!.click();
+    expect(h.openSettings).toHaveBeenCalledWith('general');
+  });
+
+  it('where an install goes is chosen as in the Hub panel: a split Install button, its places menu, the choice beside it and sent with the answer', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart({
+      approval: { id: 'ap3', canAllowSession: false, canAllowAlways: true, canChooseTarget: true },
+      install: { state: 'ready', name: '@acme/kit', version: '0.2.0', target: 'library', upgrade: false, contents: { features: 2, parts: 0, assemblies: 0 } },
+    }));
+    const onInstallTargetChosen = vi.fn();
+    const h = mount(client, {}, { onInstallTargetChosen });
+    await opened(h);
+    // The place is the button's: the facts keep what the package exports.
+    expect(h.$('[data-ref="install-facts"]')!.textContent).toBe('2 features');
+    expect(h.$('[data-ref="install-target"]')!.textContent).toBe('into my library');
+    expect(h.$$('[data-ref="approval"] button').map((b) => b.dataset.ref)).toEqual(['allow', 'target-menu', 'allow-always', 'deny']);
+    expect(h.$('[data-ref="install-targets"]')).toBeNull();
+
+    const chevron = h.$<HTMLButtonElement>('[data-ref="target-menu"]')!;
+    chevron.click();
+    expect(h.$('[data-ref="target-menu"]')!.getAttribute('aria-expanded')).toBe('true');
+    const options = h.$$<HTMLButtonElement>('[data-ref="install-targets"] [role="menuitemradio"]');
+    expect(options.map((o) => [o.dataset.target, o.getAttribute('aria-checked'), o.textContent!.trim()])).toEqual([
+      ['library', 'true', 'My libraryEvery project can use it; this project uses it.'],
+      ['project', 'false', 'This projectA copy in its packages/ folder, committed with it.'],
+    ]);
+    options[1].click();
+    expect(h.$('[data-ref="install-targets"]')).toBeNull();
+    expect(h.$('[data-ref="install-target"]')!.textContent).toBe('into this project');
+    expect(onInstallTargetChosen).toHaveBeenCalledWith('project');
+
+    // The same place again is no new choice; Escape closes the menu.
+    h.$<HTMLButtonElement>('[data-ref="target-menu"]')!.click();
+    h.$$<HTMLButtonElement>('[data-ref="install-targets"] [data-target="project"]')[0].click();
+    expect(onInstallTargetChosen).toHaveBeenCalledTimes(1);
+    h.$<HTMLButtonElement>('[data-ref="target-menu"]')!.click();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(h.$('[data-ref="install-targets"]')).toBeNull();
+
+    h.$<HTMLButtonElement>('[data-ref="allow"]')!.click();
+    await settle();
+    expect(client.decideApproval).toHaveBeenLastCalledWith('s', 'ap3', 'allow', 'project');
+    // Answered: the details keep where it went.
+    h.$<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    expect(h.$('[data-ref="details"] [data-ref="install-facts"]')!.textContent).toBe('2 features · Copied into this project’s packages/ folder');
+  });
+
+  it('a press outside the places menu closes it and still lands; Deny sends no place', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart({
+      approval: { id: 'ap3', canAllowSession: false, canChooseTarget: true },
+      install: { state: 'loading', name: '@acme/kit', version: null, target: 'project', upgrade: false },
+    }));
+    const h = mount(client);
+    await opened(h);
+    expect(h.$('[data-ref="install-target"]')!.textContent).toBe('into this project');
+    h.$<HTMLButtonElement>('[data-ref="target-menu"]')!.click();
+    const deny = h.$<HTMLButtonElement>('[data-ref="deny"]')!;
+    deny.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(h.$('[data-ref="install-targets"]')).toBeNull();
+    expect(h.$('[data-ref="deny"]')).toBe(deny);
+    deny.click();
+    await settle();
+    expect(client.decideApproval).toHaveBeenLastCalledWith('s', 'ap3', 'deny');
+  });
+
+  it('an install that ran without asking because of Always says so', async () => {
+    const client = new FakeChatClient();
+    waitingSession(client, installPart({ state: 'done', approval: { id: 'ap4', canAllowSession: false, decision: 'allow-always', standing: true } }));
+    const h = mount(client);
+    await opened(h);
+    const approval = h.$('[data-ref="approval"]')!;
+    expect(approval.classList.contains('hidden')).toBe(false);
+    expect(approval.textContent).toContain('Installed without asking: you chose Always for package installs');
+    expect(approval.querySelector('[data-ref="install"]')).toBeNull();
+    // The package stays with the card's details.
+    h.$<HTMLButtonElement>('[data-ref="toggle"]')!.click();
+    expect(h.$('[data-ref="details"] [data-ref="install-name"]')!.textContent).toBe('@acme/kit');
   });
 
   it('settled elsewhere (another tab, a stop): the buttons go; stopped, timed out and cancelled cards say why', async () => {

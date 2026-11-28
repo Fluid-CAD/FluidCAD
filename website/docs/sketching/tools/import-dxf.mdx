@@ -1,0 +1,195 @@
+---
+sidebar_position: 11
+title: "Import DXF"
+---
+
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+
+# Import DXF
+
+Bring a 2D drawing into a sketch: a laser profile, a supplier's outline, a logo, a legacy 2D part. The **DXF** tool reads the file, lets you place it by hand, and writes its curves as the sketch's own entities — `line`, `arc`, `circle`, `ellipse`, `eArc` and `bezier` statements you can drag, constrain, trim and extrude like anything you drew yourself.
+
+The file is read once. Nothing links the sketch to it afterwards: editing the DXF later does not change the model, and the file does not need to travel with the project.
+
+## In the viewport
+
+1. [Start or reopen a sketch](/docs/sketching/introduction#starting-a-sketch).
+2. Click **DXF** on the sketch toolbar (its tooltip is **Import DXF**; the shortcut is <kbd>dx</kbd>).
+3. In the **Import DXF** dialog, click **Choose DXF…** and select the file. The drawing appears on the sketch plane at once, inside a frame with handles.
+
+<UiFigure
+  src="/img/docs/ui/import-dxf-placing.png"
+  alt="A sketch with the Import DXF dialog open: a mounting plate outline with a slot and four holes drawn on the sketch plane inside a frame with corner handles and a rotate knob"
+  rings={[{x: 68.22, y: 5.61, w: 2.92, h: 5.56}]}
+  caption="The drawing is shown where it will land. Drag it, a corner or the knob to place it."
+/>
+
+4. Place the drawing with the handles, and set its unit, scale and layers in the dialog. Both are described below.
+5. Click **Import**. FluidCAD writes one statement per curve into the sketch body, and a `coincident` constraint wherever two ends meet.
+
+To try it, save the [sample mounting plate](/img/docs/sketching/mounting-plate.dxf) and import it into a sketch on the XY plane.
+
+## The dialog
+
+<UiFigure
+  src="/img/docs/ui/import-dxf-dialog.png"
+  alt="Import DXF dialog showing the chosen file, a File unit select, a Scale field, three layers with tick boxes, Join ends that meet and Fix in place toggles, As drawn and Centre in view buttons with the drawing's size and centre, what Import would write, and a folded Warnings section"
+  markers={[
+    {n: 1, x: 4, y: 10.5, label: 'Choose DXF…', description: 'Read a file, or another one in place of the current one.'},
+    {n: 2, x: 4, y: 24.5, label: 'File unit', description: 'The unit the file\'s numbers are in. They are converted into the document\'s unit.'},
+    {n: 3, x: 4, y: 35.2, label: 'Scale', description: 'A factor on top of the unit conversion. Dragging a corner sets it too.'},
+    {n: 4, x: 4, y: 46.3, label: 'Layers', description: 'Only ticked layers are imported. Shown when the file has more than one.'},
+    {n: 5, x: 4, y: 56.4, label: 'Join ends that meet', description: 'Write a coincident constraint at every shared end point.'},
+    {n: 6, x: 4, y: 61.7, label: 'Fix in place', description: 'Also pin the drawing where it lands, so the sketch is fully constrained.'},
+    {n: 7, x: 4, y: 71.4, label: 'Position', description: 'As drawn puts the drawing back at the file\'s coordinates, Centre in view in the middle of the view. Under them, read-only: the placed drawing\'s size, centre and angle.'},
+    {n: 8, x: 4, y: 80.9, label: 'What Import writes', description: 'The number of sketch entities, joins and fixing constraints.'},
+    {n: 9, x: 4, y: 87, label: 'Warnings', description: 'Folded, with a count: what the file holds that was left out or written approximately. Click to read them.'},
+  ]}
+  caption="Import writes the statements. Cancel leaves the sketch untouched."
+/>
+
+### Unit
+
+A DXF usually says which unit it is drawn in. The **File unit** select then reads **Same as file (mm)** (or in, cm, …) and the drawing is converted into the document's unit: a 2 in hole in an inch drawing becomes a 50.8 mm hole in a millimetre document.
+
+When the file does not say, the select reads **Document unit (mm)**: the numbers are taken as they are, in the document's unit. If the drawing comes out 25.4 times too small or too large, pick the unit it was really drawn in.
+
+### Layers
+
+Each layer of the file that has curves on it gets a tick box with its number of curves. Layers that are switched off or frozen in the file are marked **off** and start unticked — they are usually notes, borders and construction lines the drawing's author was not looking at either. Tick them to bring them in.
+
+### Construction lines
+
+A DXF may hold construction lines: lines with no end (`XLINE`), or with only one (`RAY`), drawn to lay a part out. When the file has any, the dialog shows a **Construction lines** toggle. It starts off. Turn it on to bring them in as [guide lines](/docs/sketching/tools/guides): drawn dashed, there to snap and constrain to, and left out of the profiles a feature is made from.
+
+A sketch line has two ends, so each construction line is cut to the drawing it lays out. It reaches a tenth of the drawing's longer side past the drawing, and stops there:
+
+- A level or upright line is as long as the drawing is wide or tall, plus that margin at each end.
+- A slanted line crosses the whole drawing and its margin.
+- A ray starts where the file starts it and runs to where a line would stop. One that points away from the drawing is a stub as long as the margin.
+- A line that passes beside the drawing stays where the file has it, and is as long as the drawing is wide seen along it.
+
+When construction lines are all the ticked layers hold, they are sized by the points the file gives them by. If those are all one point, such as two axes through the origin, each line is 100 units long about it.
+
+The frame with the handles stays around the drawing itself; the guide lines reach past it. A guide line's ends are where it was cut, not points of the drawing, so **Join ends that meet** ties them to nothing, and [Fix in place](#fix-in-place) fixes each end on its own. A construction line the file has twice is written once.
+
+### Text
+
+When the file has text that can come in, the dialog shows a **Text** toggle. It starts off: the text of a technical drawing is notes and labels, and sketch [text](/docs/sketching/compound/text) is geometry, whose letters are outlines that extrude with the rest of the profile. Turn it on to bring the text in as `text()` statements, each where the file has it. While you place the drawing, a box on each line of text shows where its letters will land.
+
+The fonts are those of the machine that builds the sketch, so the text is checked against them when the file is read:
+
+- **Position.** A text stands on the point the file places it by. Left, Centre and Right with Baseline, Middle or Top are followed; so is multi-line text attached by its top.
+- **Size.** A DXF gives the height of a capital letter, and a sketch text the size of the font's em. The size is worked out from the font itself, so the capitals come out as tall as the file says.
+- **Angle.** A sketch text has no angle of its own. A text that reads level is placed by its anchor, `.at([x, y])`. A turned one is written along a guide line drawn on its baseline, `text("SIDE", l5)`: move or turn the line and the text follows.
+- **Font.** The style's font has to be installed. A font made to the same letter widths stands in for one that is missing (Liberation Sans for Arial, Liberation Serif for Times New Roman), and **Warnings** says so.
+- **Blocks.** Text in a block is moved, turned and scaled with its reference. The attribute values of a reference come in as text; attribute definitions do not.
+
+[Fix in place](#fix-in-place) fixes a level text by its anchor and a turned one by the two ends of its baseline.
+
+Text that a sketch text cannot stand for is left out, and **Warnings** says how many and why:
+
+| Left out | Why |
+|---|---|
+| Text in a pen font (`.shx`, such as `txt` or `romans`) | A pen font is strokes, not outlines, and no installed font has its letters. |
+| Text in a font that is not installed | Its letters would have other widths. Install the font, then import again. |
+| A width factor, a slant, backwards or upside-down letters, letters stacked top to bottom | Sketch text is not stretched, slanted or mirrored. This includes text in a block that is mirrored or scaled unevenly. |
+| Aligned, Fit, Middle (on its own) and Bottom justification; multi-line text attached by its middle or bottom | Where these put a text depends on the letters of the font it was drawn with: how wide they are, how far they reach below the line. |
+| Multi-line text that changes font, height or spacing part-way, has stacked fractions, tabs or columns | A sketch text is written one way from start to end. |
+| Multi-line text wider than the box it wraps in | Where its lines break depends on the font it was drawn with. |
+
+Underlines, overlines and colours are dropped: they change no letter. To bring in text that was left out, convert it to curves in the program that made the file (*TXTEXP* in AutoCAD's Express Tools), and it imports as lines and arcs.
+
+### Joins
+
+A sketch does not treat two ends as connected because they share coordinates; a [coincident](/docs/sketching/constraints/introduction) constraint connects them. With **Join ends that meet** on, the import writes one wherever ends are within a thousandth of a millimetre of each other, so an imported outline stays in one piece when you drag part of it. It starts on when the sketch's **Infer while drawing** setting is on.
+
+Turn it off to get the geometry alone. The outline still forms closed profiles and extrudes; it just comes apart when dragged.
+
+### Fix in place
+
+By default an import is free geometry: it sits where the file drew it, and you can drag any part of it. Turn **Fix in place** on to pin it there instead, so the sketch is fully constrained the moment it is imported — useful for a profile that should be used as it is, or as a fixed outline to build other geometry against.
+
+The import then also writes:
+
+- a `fix` on every point — once per meeting point when ends are joined, so nothing is stated twice;
+- a `radius` on every arc and a `diameter` on every circle;
+- both semi-radii of every ellipse, and `horizontal` or `vertical` when it lies along a sketch axis;
+- on every elliptical arc, what its two fixed ends leave open: most often a `fix` on its centre with `horizontal` or `vertical` when it lies along a sketch axis, and with one semi-radius when it does not;
+- a `fix` on every control point of a bezier.
+
+<UiFigure
+  src="/img/docs/ui/import-dxf-fixed.png"
+  alt="The mounting plate imported with Fix in place: green geometry with F glyphs at its points, R8 dimensions on its corners and diameter 6 dimensions on its holes, and the status Fully constrained"
+  caption="Imported with Fix in place: every point is fixed, every size dimensioned, and the sketch reports Fully constrained."
+/>
+
+To change part of a fixed import, delete the constraints that hold it (pick the glyph or the dimension and press <kbd>Delete</kbd>) and add your own. Two details:
+
+- An arc of about a half turn is not held by a radius: with both ends fixed, its radius barely changes as it bulges, so the constraint would hold nothing. Its centre is held level with its start instead (`vertical(a.start(), a.center())`), or at a distance from it along one axis.
+- An elliptical arc between two fixed ends needs three more things held, out of its centre, its two semi-radii and its angle. Which three depends on where its ends are on the ellipse: half an ellipse, for one, has its centre on the line between its ends whatever its other radius is, so that radius is dimensioned and the centre is held across the line, like the centre of a half-turn arc.
+- An ellipse turned off the sketch axes keeps one degree of freedom, its angle: no constraint holds it. The ends of a turned elliptical arc hold its angle for it, unless both are on the ellipse's own axes: a quarter, a half or three quarters of an ellipse, from the end of one axis to the end of another, keeps that degree of freedom too.
+
+## Move, scale and rotate
+
+| Action | Gesture |
+|---|---|
+| Move | Drag the drawing. |
+| Scale | Drag a corner handle. The opposite corner stays in place; the drawing always keeps its proportions. |
+| Rotate | Drag the knob above the drawing's top edge. |
+| Rotate in steps | Hold <kbd>Shift</kbd> while rotating to snap to 15° increments. |
+
+A drawing made near its file's origin lands **as drawn**: its coordinates become sketch coordinates, so a [view exported from FluidCAD](/docs/import-export/export#dxf-and-svg) comes back exactly where the model is. A drawing made far from its origin — a detail somewhere on a large sheet — starts in the middle of the view instead. **As drawn** and **Centre in view** switch between the two at any time. If the drawing is larger than what the view shows, the camera zooms out to it.
+
+<kbd>Esc</kbd> cancels a drag in progress first; otherwise it leaves the tool without importing.
+
+## What is imported
+
+| In the file | In the sketch |
+|---|---|
+| Line | `line` |
+| Circle | `circle` |
+| Arc | `arc` |
+| Polyline, with or without arc segments (bulges) | One `line` or `arc` per segment |
+| Ellipse | `ellipse` |
+| Elliptical arc | [`eArc`](/docs/sketching/primitives/elliptical-arc): the same arc |
+| Spline | Its own Bézier pieces, as `bezier` statements: the same curve |
+| Point | [`point`](/docs/sketching/primitives/point) |
+| Construction line (`XLINE`), ray (`RAY`) | A `line` marked `.guide()`, when [Construction lines](#construction-lines) is on |
+| Text, multi-line text, attribute values | [`text`](/docs/sketching/compound/text), when [Text](#text) is on |
+| Block reference (insert) | The block's contents, in place: moved, turned, scaled, mirrored, arrayed |
+
+A point of the file — a drill centre, a datum mark — is a `point` in the sketch: something to snap, constrain or dimension to, and to place a [hole](/docs/3d-operations/hole) on. It is shown as a dot while you place the drawing, sits on its layer like a curve, and is tied to a line or arc end it lies on when **Join ends that meet** is ticked.
+
+Dimensions, leaders, hatches and images are neither curves, points nor text and are left out: they annotate a drawing, and a sketch holds the geometry a feature is made from. The dialog's **Warnings** section lists how many of each it skipped. A curve drawn twice in the file is written once. Only model space is read.
+
+A sketch has no statement for a weighted (rational) spline or a spline above degree three. These are written as cubic beziers that stay within a ten-thousandth of a millimetre of the original, and **Warnings** says how many there were.
+
+<UiFigure
+  src="/img/docs/ui/import-dxf-result.png"
+  alt="The imported mounting plate as sketch geometry: lines and arcs with end points, circles with centre points, each listed as a row under the sketch in the History panel, and 42 degrees of freedom remaining"
+  caption="After Import the drawing is ordinary sketch geometry, with a row per entity."
+/>
+
+## After importing
+
+Unless you imported with [Fix in place](#fix-in-place), the entities sit at the positions the file gave them but are not yet dimensioned: the status at the bottom of the viewport reports the degrees of freedom that remain. They extrude as they are. To make the sketch driven by dimensions, [constrain](/docs/sketching/constraints/introduction) it the usual way — pin a point, add horizontal and vertical constraints, dimension the sizes that matter.
+
+In the code, the import is plain sketch statements, with coordinates written to more decimals than a clicked point so corners, tangencies and centres stay as exact as the file had them. An elliptical arc keeps the file's centre, semi-radii and angle; its two ends, and the ends of whatever meets them, are written finer still, so that they lie on the ellipse it is written with. Where two elliptical arcs meet, each ellipse is made to pass through the point they share instead, and two of its numbers are the ones written finer:
+
+```js
+sketch("xy", () => {
+  const l1 = line([-52, -35], [52, -35]);
+  const a1 = arc([52, -35], [60, -27], [52, -27]);
+  const l2 = line([60, -27], [60, 27]);
+  // …
+  const c1 = circle([-48, -23], 6);
+  coincident(l1.end(), a1.start());
+  coincident(a1.end(), l2.start());
+  // …
+});
+```
+
+One import writes up to 2,000 sketch entities. A larger drawing is refused with its count; untick layers to bring it in by parts, or simplify it in the program that made it. Binary DXF and DWG files are not read: save the drawing as an ASCII DXF first.
+
+To trace over a picture instead of importing curves, use a [Reference Image](/docs/sketching/tools/reference-image). A vector drawing saved as SVG is imported the same way with [Import SVG](/docs/sketching/tools/import-svg).

@@ -39,6 +39,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'arc3', label: '3-Point Arc', caption: '3-Pt Arc', iconPng: 'arc' },
     { id: 'arc2', label: 'Center Arc', iconPng: 'carc' },
+    { id: 'earc', label: 'Elliptical Arc', caption: 'Ell. Arc', iconPng: 'earc' },
   ]},
   { tools: [
     { id: 'slot', label: 'Slot', iconPng: 'slot' },
@@ -46,6 +47,8 @@ const TOOL_LAYOUT: ToolEntry[] = [
   { tools: [
     { id: 'text', label: 'Text', iconPng: 'text' },
     { id: 'image', label: 'Reference Image', caption: 'Image', iconPng: 'image' },
+    { id: 'dxf', label: 'Import DXF', caption: 'DXF', iconPng: 'dxf' },
+    { id: 'svg', label: 'Import SVG', caption: 'SVG', iconPng: 'svg' },
   ]},
   { tools: [
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
@@ -72,6 +75,7 @@ export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   polyline: 'll',
   arc3: 'a',
   arc2: 'ca',
+  earc: 'ea',
   bezier: 'b',
   spline: 'sl',
   fillet: 'f',
@@ -82,6 +86,8 @@ export const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   mirror: 'm',
   text: 'x',
   image: 'im',
+  dxf: 'dx',
+  svg: 'sv',
   project: 'pj',
   intersect: 'ix',
 };

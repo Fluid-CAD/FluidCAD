@@ -5,6 +5,7 @@ import { PackageRoots, type PackageLocation } from '../packages/package-roots.ts
 import {
   DEFAULT_CONFIGURATION_NAME,
   findInvalidParam,
+  isPosition,
   type InsertParamValue,
   type InsertPartEntry,
   type InsertPartKind,
@@ -24,6 +25,8 @@ export type InsertRequestEntry = {
   params?: Record<string, InsertParamValue>;
   /** A row of the definition's `configurations()` table; `'Default'` writes none. A generated definition has none. */
   configuration?: string;
+  /** Where the instance goes, in the assembly's unit: written as `.translate(x, y, z)`. Absent leaves it at the origin. */
+  position?: [number, number, number];
 };
 
 /** A new variable an expression value introduced (`width = 600`), declared with the edit. */
@@ -58,6 +61,8 @@ export type InsertPlan = {
  *   module, the package's bare name for an installed package's (only for a
  *   name its entry exports), nothing for the assembly file's own export.
  *   One that can't be reached refuses the basket with the reason.
+ * - A `position` is three finite numbers, written as the statement's
+ *   `.translate()`; without one the instance stays at the origin.
  * - Values are written as given, keyed as given: by label for a `param()`
  *   definition, by id for a generated one. `'Default'` names no row.
  */
@@ -125,6 +130,7 @@ export class CatalogInsertRequest {
         ...(typeof entry.configuration === 'string' && entry.configuration !== DEFAULT_CONFIGURATION_NAME
           ? { configuration: entry.configuration }
           : {}),
+        ...(entry.position ? { position: entry.position } : {}),
       });
     }
     const spec: ApplyFeatureEditSpec = {
@@ -142,12 +148,13 @@ export class CatalogInsertRequest {
   }
 
   private static isEntry(entry: unknown): entry is InsertRequestEntry {
-    const { file, exportName, kind, params, configuration } = (entry ?? {}) as Record<string, unknown>;
+    const { file, exportName, kind, params, configuration, position } = (entry ?? {}) as Record<string, unknown>;
     return typeof file === 'string' && file.length > 0
       && typeof exportName === 'string' && CatalogInsertRequest.IDENTIFIER.test(exportName)
       && (CatalogInsertRequest.KINDS as readonly unknown[]).includes(kind)
       && findInvalidParam(params as Record<string, InsertParamValue> | undefined) === null
-      && (configuration === undefined || (typeof configuration === 'string' && configuration.trim() !== ''));
+      && (configuration === undefined || (typeof configuration === 'string' && configuration.trim() !== ''))
+      && (position === undefined || isPosition(position));
   }
 
   /** `[{ name, initializer }]`, both strings. */

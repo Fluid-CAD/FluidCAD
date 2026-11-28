@@ -9,7 +9,12 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 /** A tool call as the gate sees it: the tool's name and its validated arguments. */
 export type McpToolCall = { name: string; input: unknown };
 
-export type McpToolGateDecision = { allow: true } | { allow: false; message: string };
+/**
+ * `input`, on an allowed call: the arguments the tool runs with instead of
+ * the model's (the user chose where an install goes). The schema already
+ * accepted the model's; a gate only changes values the schema allows.
+ */
+export type McpToolGateDecision = { allow: true; input?: unknown } | { allow: false; message: string };
 
 export type McpToolGate = {
   /**
@@ -56,7 +61,7 @@ export function gateToolHandler<H>(gate: McpToolGate, name: string, handler: H):
     }
     let result: CallToolResult;
     try {
-      result = await run(args, extra);
+      result = await run(decision.input !== undefined ? decision.input : args, extra);
     } catch (e) {
       result = toolError(e instanceof Error ? e.message : String(e));
     }

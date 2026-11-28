@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import type { ChatAnswer, ChatClient, ChatStream, ChatStreamHandlers } from '../../src/ui/chat/chat-client';
+import type { ChatAnswer, ChatClient, ChatStream, ChatStreamHandlers, SendAnswer } from '../../src/ui/chat/chat-client';
 import { reduceChat, reduceTurns } from '../../src/ui/chat/chat-reducer';
 import type {
   AgentInstall,
@@ -7,12 +7,14 @@ import type {
   AgentModel,
   ApiProviderStatus,
   ApprovalDecision,
+  InstallTarget,
   ChatEvent,
   ChatPart,
   LoginStatus,
   ParamsKept,
   PermissionMode,
   QuestionReply,
+  QueuedMessage,
   RevertResult,
   SendMessage,
   SessionSnapshot,
@@ -23,6 +25,7 @@ import type {
   VariantPicture,
   VariantsReply,
 } from '../../src/ui/chat/chat-types';
+import { isBusy } from '../../src/ui/chat/chat-types';
 
 const BUILT_INS = ['anthropic', 'openai', 'openrouter'];
 
@@ -40,7 +43,9 @@ type Subscription = {
  * any moment is what the stream has said so far. {@link emit} plays the
  * engine's side of a turn; `send` and `cancel` answer the way the runtime
  * does (the user message and `starting`/`running`; a notice, the end of the
- * message and `idle`). Each route is a `vi.fn` the tests assert on.
+ * message and `idle`). A message sent while a turn runs waits as the
+ * runtime keeps it, and {@link finish} starts the one that waited longest.
+ * Each route is a `vi.fn` the tests assert on.
  */
 export class FakeChatClient implements ChatClient {
   agentsValue: AgentInstall[] = [FakeChatClient.install()];
@@ -71,6 +76,9 @@ export class FakeChatClient implements ChatClient {
   /** What `chooseVariant` answers (before the engine settles the card); null: 204 and the card settles. */
   variantsAnswer: ChatAnswer<null> | null = null;
   private nextId = 1;
+  /** The messages waiting for their turn, per session, with what was sent. */
+  private readonly waiting = new Map<string, { message: SendMessage; queued: QueuedMessage }[]>();
+  private nextQueued = 1;
 
   static install(overrides: Partial<AgentInstall> = {}): AgentInstall {
     return {
@@ -167,6 +175,8 @@ export class FakeChatClient implements ChatClient {
       snapshot.status = event.status;
     } else if (event.type === 'title') {
       snapshot.title = event.title;
+    } else if (event.type === 'queue') {
+      snapshot.queued = event.queued;
     }
     const envelope = { epoch: options.epoch ?? snapshot.epoch, seq: snapshot.seq, event };
     for (const sub of this.subscriptions) {
@@ -216,10 +226,40 @@ export class FakeChatClient implements ChatClient {
     this.emit(id, { type: 'part-delta', messageId, partId, text });
   }
 
-  /** End the turn: the message ends, the session goes idle. */
+  /** End the turn: the message ends, the session goes idle, and the message that waited longest has its turn. */
   finish(id: string, messageId: string): void {
     this.emit(id, { type: 'message-end', messageId });
     this.emit(id, { type: 'status', status: { state: 'idle' } });
+    this.startNextQueued(id);
+  }
+
+  /** The waiting message of `id` that waited longest starts its turn; false when none waits. */
+  private startNextQueued(id: string): boolean {
+    const waiting = this.waiting.get(id) ?? [];
+    const next = waiting.shift();
+    if (!next) {
+      return false;
+    }
+    this.emit(id, { type: 'queue', queued: waiting.map((w) => w.queued) });
+    this.begin(id, next.message);
+    return true;
+  }
+
+  /** A turn begins with `message`, as the runtime starts one; returns its id. */
+  private begin(id: string, message: SendMessage): string {
+    const snapshot = this.snapshots.get(id)!;
+    this.sent.push({ id, message: structuredClone(message) });
+    const turnId = `turn-${this.sent.length}`;
+    const userId = `user-${this.sent.length}`;
+    this.emit(id, { type: 'message-start', message: { id: userId, role: 'user', turnId, createdAt: '2026-11-17T10:00:04.000Z' } });
+    this.emit(id, { type: 'part-start', messageId: userId, part: { type: 'text', id: `${userId}-text`, text: message.text } });
+    this.emit(id, { type: 'message-end', messageId: userId });
+    if (snapshot.title === 'New chat') {
+      this.emit(id, { type: 'title', title: message.text.split('\n')[0] });
+    }
+    this.emit(id, { type: 'status', status: { state: 'starting', turnId } });
+    this.emit(id, { type: 'status', status: { state: 'running', turnId } });
+    return turnId;
   }
 
   // --- ChatClient ------------------------------------------------------------
@@ -319,26 +359,56 @@ export class FakeChatClient implements ChatClient {
     return { ok: true, value: structuredClone(snapshot) };
   });
 
-  send = vi.fn(async (id: string, message: SendMessage): Promise<ChatAnswer<{ turnId: string }>> => {
+  send = vi.fn(async (id: string, message: SendMessage): Promise<ChatAnswer<SendAnswer>> => {
     const snapshot = this.snapshots.get(id);
     if (!snapshot) {
       return { ok: false, status: 404, error: 'No such session.' };
     }
-    if (snapshot.status.state === 'running' || snapshot.status.state === 'starting') {
+    if (isBusy(snapshot.status)) {
+      // A turn runs: the message waits for its own.
+      const waiting = this.waiting.get(id) ?? [];
+      const queuedId = `queued-${this.nextQueued++}`;
+      waiting.push({
+        message: structuredClone(message),
+        queued: {
+          id: queuedId,
+          createdAt: '2026-11-17T10:00:06.000Z',
+          text: message.text,
+          images: message.attachments?.length ?? 0,
+          references: message.references?.length ?? 0,
+        },
+      });
+      this.waiting.set(id, waiting);
+      this.emit(id, { type: 'queue', queued: waiting.map((w) => w.queued) });
+      return { ok: true, value: { queuedId } };
+    }
+    return { ok: true, value: { turnId: this.begin(id, message) } };
+  });
+
+  removeQueued = vi.fn(async (id: string, queuedId: string): Promise<ChatAnswer<null>> => {
+    const waiting = this.waiting.get(id) ?? [];
+    const index = waiting.findIndex((w) => w.queued.id === queuedId);
+    if (index < 0) {
+      return { ok: false, status: 404, error: 'No such message is waiting; it may have started.' };
+    }
+    waiting.splice(index, 1);
+    this.emit(id, { type: 'queue', queued: waiting.map((w) => w.queued) });
+    return { ok: true, value: null };
+  });
+
+  resumeQueue = vi.fn(async (id: string): Promise<ChatAnswer<{ turnId: string }>> => {
+    const snapshot = this.snapshots.get(id);
+    if (!snapshot) {
+      return { ok: false, status: 404, error: 'No such session.' };
+    }
+    if (isBusy(snapshot.status)) {
       return { ok: false, status: 409, error: 'A turn is already running in this session.' };
     }
-    this.sent.push({ id, message: structuredClone(message) });
-    const turnId = `turn-${this.sent.length}`;
-    const userId = `user-${this.sent.length}`;
-    this.emit(id, { type: 'message-start', message: { id: userId, role: 'user', turnId, createdAt: '2026-11-17T10:00:04.000Z' } });
-    this.emit(id, { type: 'part-start', messageId: userId, part: { type: 'text', id: `${userId}-text`, text: message.text } });
-    this.emit(id, { type: 'message-end', messageId: userId });
-    if (snapshot.title === 'New chat') {
-      this.emit(id, { type: 'title', title: message.text.split('\n')[0] });
+    if (!this.startNextQueued(id)) {
+      return { ok: false, status: 409, error: 'No message is waiting.' };
     }
-    this.emit(id, { type: 'status', status: { state: 'starting', turnId } });
-    this.emit(id, { type: 'status', status: { state: 'running', turnId } });
-    return { ok: true, value: { turnId } };
+    const status = snapshot.status as SessionStatus & { turnId?: string };
+    return { ok: true, value: { turnId: status.turnId ?? 'turn' } };
   });
 
   cancel = vi.fn(async (id: string): Promise<ChatAnswer<null>> => {
@@ -352,14 +422,18 @@ export class FakeChatClient implements ChatClient {
     return { ok: true, value: null };
   });
 
-  continueTurn = vi.fn(async (id: string, mode?: PermissionMode): Promise<ChatAnswer<{ turnId: string }>> =>
-    this.send(id, { text: 'Continue.', ...(mode ? { mode } : {}) }));
+  continueTurn = vi.fn(async (id: string, mode?: PermissionMode): Promise<ChatAnswer<{ turnId: string }>> => {
+    if (!this.snapshots.has(id)) {
+      return { ok: false, status: 404, error: 'No such session.' };
+    }
+    return { ok: true, value: { turnId: this.begin(id, { text: 'Continue.', ...(mode ? { mode } : {}) }) } };
+  });
 
   /**
    * Answers like the runtime: the waiting card settles (`running` with the
    * decision, or `denied`), the status goes back to `running`.
    */
-  decideApproval = vi.fn(async (id: string, approvalId: string, decision: ApprovalDecision): Promise<ChatAnswer<null>> => {
+  decideApproval = vi.fn(async (id: string, approvalId: string, decision: ApprovalDecision, target?: InstallTarget): Promise<ChatAnswer<null>> => {
     if (this.decideAnswer) {
       return this.decideAnswer;
     }
@@ -371,11 +445,13 @@ export class FakeChatClient implements ChatClient {
             return { ok: false, status: 409, error: 'This approval was already settled.' };
           }
           const approval = { ...part.approval, decision };
+          // An install goes where the user chose on its card.
+          const install = target && decision !== 'deny' && part.install ? { install: { ...part.install, target } } : {};
           this.emit(id, {
             type: 'part-update',
             messageId: message.id,
             partId: part.id,
-            patch: decision === 'deny' ? { state: 'denied', approval, error: 'Declined.' } : { state: 'running', approval },
+            patch: decision === 'deny' ? { state: 'denied', approval, error: 'Declined.' } : { state: 'running', approval, ...install },
           });
           const status = snapshot.status as SessionStatus & { turnId?: string };
           this.emit(id, { type: 'status', status: { state: 'running', turnId: status.turnId ?? 'turn' } });

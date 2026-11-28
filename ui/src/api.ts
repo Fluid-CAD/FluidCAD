@@ -1,6 +1,7 @@
 import type { VariableInfo } from './ui/expression-input';
 import type { LengthUnit } from './units/units';
 import type { ContactEntity } from '../../lib/assembly-solver/types.js';
+import type { FontMeasure, FontMeasureRequest } from '../../lib/io/drawing/imported-text.js';
 import type { MeshLookup } from './scene/scene-meshes';
 import type {
   GlobalParamsSnapshot,
@@ -370,6 +371,8 @@ export interface AgentPreferences {
   providers?: AgentProviderConfig[];
   /** Ask before every edit (default), or apply workspace edits without asking. */
   permissionMode: 'ask' | 'auto-edits';
+  /** The agent installs hub packages without asking ("Always" on an install's card). Absent: it asks. */
+  alwaysAllowInstalls?: boolean;
 }
 
 /**
@@ -622,6 +625,16 @@ export async function getFontFamilies(): Promise<string[]> {
 }
 
 /**
+ * How the fonts installed where the sketch is built measure, for the texts
+ * of a drawing being imported: one answer per request, in order. Null when
+ * the server does not answer.
+ */
+export async function measureFonts(texts: FontMeasureRequest[], signal?: AbortSignal): Promise<FontMeasure[] | null> {
+  const data = await postJson<{ measures: FontMeasure[] }>('api/font-measure', { texts }, signal);
+  return data?.measures ?? null;
+}
+
+/**
  * World-space outline polylines (flat xyz runs) of the text laid out with
  * the given options — the Text tool's viewport preview. Null on failure.
  */
@@ -702,7 +715,7 @@ export type ExtrudeGhostRequest = {
   /** The drill flag, or an expression the preview evaluates to one. */
   drill: boolean | FeatureExprValue;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
-  profile: { filePath: string; line: number };
+  profile: GhostExtrudeProfileRef;
   /**
    * The dialog's region picks — the regions to build. Absent builds every
    * region; an empty list is the bare `.region()`, which builds nothing.
@@ -714,6 +727,16 @@ export type ExtrudeGhostRequest = {
    */
   toFace?: GhostExtrudeTargetRef;
 };
+
+/**
+ * The profile an extrude ghost sweeps: a sketch by its producing statement,
+ * or a face picked on a solid by its viewport address on the rendered (edit
+ * mode: rolled-back) scene — swept as it stands, so it carries no regions
+ * and no thin offsets.
+ */
+export type GhostExtrudeProfileRef =
+  | { filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
 
 /**
  * Where an up-to-face extrude ends, as the ghost endpoint resolves it: the
@@ -2419,7 +2442,7 @@ export type SketchConstraintTargetParam = {
   occurrence?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
   featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy' | 'mirror'
-    | 'ellipse' | 'text' | 'bezier' | 'spline';
+    | 'ellipse' | 'eArc' | 'text' | 'bezier' | 'spline';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /**
    * Mirror-image targets: the mirrored statement whose image on the 2D
@@ -2552,7 +2575,7 @@ export type SolvedEmissionTargetParam = {
   occurrence?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'text' | 'bezier' | 'spline'
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'mirror' | 'ellipse' | 'eArc' | 'text' | 'bezier' | 'spline'
     | 'project' | 'intersect';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /** Mirror-image targets: the mirrored statement (a nested line-addressed
@@ -2577,10 +2600,26 @@ export type SolvedGeometryParam = {
    * `center` role is its one point accessor — or a bezier/spline,
    * addressed only through its literal points (`featureType: 'bezier' |
    * 'spline'` + `pointIndex` on a `newIndex` target). */
-  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'bezier' | 'spline';
+  kind: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'eArc' | 'bezier' | 'spline';
   /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
   text: string;
   guide?: boolean;
+};
+
+/**
+ * A `text()` statement riding a solved emission — a drawing import's text.
+ * The server puts the call together: the string, the path when the text is
+ * written along a statement of the same emission, then the options.
+ */
+export type SolvedTextParam = {
+  /** The string, as its literal: `"Plate A"`. */
+  string: string;
+  /** The options chained after the call: `.font('Arial').size(5).at([10, 20])`. */
+  chain: string;
+  /** The index in `geometry` of the statement the text follows. */
+  path?: number;
+  /** Fix the text's anchor where it is written. */
+  fix?: boolean;
 };
 
 export type SolvedConstraintParam = {
@@ -2602,6 +2641,8 @@ export async function insertSolvedGeometry(options: {
   filePath?: string;
   geometry: SolvedGeometryParam[];
   constraints: SolvedConstraintParam[];
+  /** Text statements, written after the constraints. */
+  texts?: SolvedTextParam[];
   newVariables?: { name: string; initializer: string }[];
   /** Constraint statements to DELETE in the same edit, by 1-indexed line —
    * the constraint bar swaps out a replaced orientation and deletes the
@@ -2811,8 +2852,15 @@ async function postSketchCut<Result extends { success: boolean; reason?: string 
   }
 }
 
-/** The profile sketch an extrude consumes, addressed by its source location. */
-export type ExtrudeProfileRef = {
+/**
+ * The profile an extrude consumes: a sketch addressed by its source
+ * location, or a face picked on a solid — synthesized into a face selector
+ * server-side and swept as it stands (`extrude(25, e.endFaces())`).
+ */
+export type ExtrudeProfileRef = ExtrudeSketchProfileRef | { mode: 'face'; entity: ApplyFeatureEntity };
+
+/** A sketch profile, addressed by its source location. */
+export type ExtrudeSketchProfileRef = {
   /** `active` consumes the sketch implicitly; `bound` binds it to a variable. */
   mode: 'active' | 'bound';
   /**
@@ -2873,9 +2921,10 @@ export type ExtrudeApplyOptions = ExtrudeOptionValues & {
 
 /**
  * Ask the server to write (or, with `preview`, just render) an extrude/cut
- * statement consuming a sketch profile. Same endpoint and response shape as
- * {@link applyFeature}; the only pick involved is a picked up-to-face target,
- * synthesized into a face selector server-side.
+ * statement consuming a sketch profile or a picked face. Same endpoint and
+ * response shape as {@link applyFeature}; the picks involved — a face
+ * profile, a picked up-to-face target — are synthesized into face selectors
+ * server-side.
  */
 export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyFeatureResponse> {
   return postApplyFeature({
@@ -2916,7 +2965,7 @@ export type RibOptionValues = {
 };
 
 export type RibApplyOptions = RibOptionValues & {
-  spine: ExtrudeProfileRef;
+  spine: ExtrudeSketchProfileRef;
   /** The solid statements the rib's `.scope(…)` names; empty writes no chain. */
   scope: SketchSourceRef[];
   /** Render the statement preview without applying. */
@@ -3100,7 +3149,7 @@ export type RevolveAxisRef =
   | ({ kind: 'connector'; slot?: number } & SketchSourceRef);
 
 export type RevolveApplyOptions = RevolveOptionValues & {
-  profile: ExtrudeProfileRef;
+  profile: ExtrudeSketchProfileRef;
   axis: RevolveAxisRef;
   /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
   scope?: SketchSourceRef[];
@@ -3205,7 +3254,7 @@ export type SweepApplyOptions = {
   extendEnd: ValueExpr | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
-  profile: ExtrudeProfileRef;
+  profile: ExtrudeSketchProfileRef;
   /** The path: another sketch, or picked edges to synthesize a selector from. */
   path:
     | ({ kind: 'sketch' } & SketchSourceRef)
@@ -4408,8 +4457,13 @@ export type ScopeTargetRef =
   | ({ kind: 'feature' } & SketchSourceRef);
 
 export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
-  /** Re-sourced profile (a sketch or a top-level offset); omitted keeps the statement's own. */
-  profile?: { mode: 'bound'; feature?: 'sketch' | 'offset' } & SketchSourceRef;
+  /**
+   * Re-sourced profile — a sketch or a top-level offset by call site, or a
+   * face picked on the pre-statement scene (`before` carries the boundary);
+   * omitted keeps the statement's own.
+   */
+  profile?: ({ mode: 'bound'; feature?: 'sketch' | 'offset' } & SketchSourceRef)
+    | { mode: 'face'; entity: ApplyFeatureEntity };
   /**
    * Up-to-face target: `keep` re-emits the statement's own target text,
    * `face` re-picks it, `first-face`/`last-face` swap it for that literal.
@@ -6435,6 +6489,8 @@ export type CatalogInsertRequest = {
   params?: Record<string, CatalogParamValue | CatalogParamExpr>;
   /** A row of the definition's `configurations()` table — `insert(def, 'Name', …)`; absent for Default. */
   configuration?: string;
+  /** Where the instance goes, in the assembly's unit — written as `.translate(x, y, z)`; absent for the origin. */
+  position?: [number, number, number];
 };
 
 /**

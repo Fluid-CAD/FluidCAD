@@ -265,12 +265,27 @@ describe('export route', () => {
       expect(exportCalls).toEqual([]);
     });
 
-    it('answers 422 for the whole assembly: it has no drawing yet', async () => {
-      const { status, body } = await postExport({ format: 'dxf', plane: 'top', assembly: {} });
-      expect(status).toBe(422);
-      expect(body.error).toMatch(/DXF drawing of the whole assembly is not available yet/);
-      expect(assemblyCalls).toEqual([]);
+    it('draws the whole assembly: the drawing options and the live poses reach the engine, the file is named after the assembly', async () => {
+      assemblyOutcome = { ok: true, data: 'dxf', fileName: 'rig-top.dxf', posesSource: 'live', warnings: ['one warning'] };
+      const res = await fetch(`${baseUrl}/api/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'dxf', plane: 'xy', hiddenLines: true, assembly: { poses: [pose('inst-1')] } }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('image/vnd.dxf');
+      expect(res.headers.get('content-disposition')).toContain('rig-top.dxf');
+      expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('live');
+      expect(JSON.parse(decodeURIComponent(res.headers.get('x-fluidcad-export-warnings')!))).toEqual(['one warning']);
+      expect(assemblyCalls).toEqual([{ options: { format: 'dxf', plane: 'xy', hiddenLines: true }, livePoses: [pose('inst-1')] }]);
       expect(exportCalls).toEqual([]);
+    });
+
+    it('still asks the whole assembly for its plane', async () => {
+      const { status, body } = await postExport({ format: 'dxf', assembly: {} });
+      expect(status).toBe(400);
+      expect(body.planes).toContain('top');
+      expect(assemblyCalls).toEqual([]);
     });
 
     it('carries the drawing\'s warnings in a header, URI-encoded JSON', async () => {
@@ -424,12 +439,18 @@ describe('export route', () => {
       expect(exportCalls).toEqual([]);
     });
 
-    it('answers 422 for the whole assembly: it has no drawing yet', async () => {
-      const { status, body } = await postExport({ format: 'svg', plane: 'top', assembly: {} });
-      expect(status).toBe(422);
-      expect(body.error).toMatch(/SVG drawing of the whole assembly is not available yet/);
-      expect(assemblyCalls).toEqual([]);
-      expect(exportCalls).toEqual([]);
+    it('draws the whole assembly, with the page options', async () => {
+      assemblyOutcome = { ok: true, data: '<svg/>', fileName: 'rig-front.svg', posesSource: 'solved' };
+      const res = await fetch(`${baseUrl}/api/export`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ format: 'svg', plane: 'front', strokeWidth: 0.5, assembly: {} }),
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('image/svg+xml');
+      expect(res.headers.get('content-disposition')).toContain('rig-front.svg');
+      expect(res.headers.get('x-fluidcad-assembly-poses')).toBe('solved');
+      expect(assemblyCalls).toEqual([{ options: { format: 'svg', plane: 'front', svg: { strokeWidth: 0.5 } }, livePoses: undefined }]);
     });
 
     it('carries the drawing\'s warnings in the same header as DXF', async () => {

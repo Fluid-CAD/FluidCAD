@@ -1,8 +1,8 @@
 import {
   applyExtrude, applyExtrudeEdit, featureGhostScope, fetchFeatureGhost, fetchFeatureSources, ExtrudeEditOptions,
-  ExtrudeProfileRef, FeatureEditTarget, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
+  ExtrudeSketchProfileRef, FeatureEditTarget, GhostExtrudeProfileRef, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
-import { toggleEntity } from '../../helpers/entities';
+import { sameEntity, toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
@@ -34,9 +34,12 @@ type ExtrudeApplyRequest = Parameters<typeof applyExtrude>[0];
  * scene has anything to work from — an unconsumed sketch or a solid (matching
  * Loft); the dialog's dropdown offers the unconsumed sketches and
  * a chosen one is bound to a variable (`const s = sketch(…)` → `extrude(25,
- * s)`). The only 3D picking is the "Up to face" direction mode, where a face
- * click sets the extrusion's target (`extrude(<face>, s)`) — its "Up to first
- * face" / "Up to last face" siblings write the literal the kernel resolves
+ * s)`). A planar face of a solid is a profile too: with the profile slot
+ * holding the viewport (the default), a face click takes the sketch's place
+ * and the statement sweeps that face as it stands (`extrude(25,
+ * e.endFaces())`). In the "Up to face" direction mode a face click sets the
+ * extrusion's target instead (`extrude(<face>, s)`) — its "Up to first face"
+ * / "Up to last face" siblings write the literal the kernel resolves
  * (`extrude('first-face', s)`) and pick nothing; otherwise the re-render is
  * the preview and editor undo is the rollback, as on the modify rails.
  */
@@ -51,6 +54,8 @@ export class ExtrudeFeatureService {
   private sceneSketchActive = false;
   /** The picked up-to-face target ("Up to face" direction, both modes). */
   private toFaceEntity: SelectedEntity | null = null;
+  /** The face picked as the profile, in place of a sketch (both modes). */
+  private profileFace: SelectedEntity | null = null;
   /** The `.scope(…)` targets, part-restricted whole-solid picks. */
   private scope = new ScopeTargetList();
   /** The edited statement's enclosing part — the scope picker's restriction. */
@@ -80,7 +85,11 @@ export class ExtrudeFeatureService {
     private viewer: Viewer,
     private navbar: Navbar,
     private hooks: {
-      onEnter?: () => void;
+      /**
+       * May return the current selection — one selected face seeds the
+       * dialog as its profile.
+       */
+      onEnter?: () => { seed: SelectedEntity[] } | void;
       /** Armed or disarmed — lets the Sketch button owner re-check `isActive`. */
       onActiveChange?: () => void;
       /** An edit session armed while a sketch is edited — release the sketch UI. */
@@ -93,8 +102,8 @@ export class ExtrudeFeatureService {
     this.button = new FeatureButton(group, {
       icon: iconUrl('extrude'),
       label: 'Extrude',
-      tip: 'Extrude a sketch',
-      ariaLabel: 'Extrude a sketch',
+      tip: 'Extrude a sketch or a face',
+      ariaLabel: 'Extrude a sketch or a face',
     });
     this.button.onClick = () => {
       if (this.armed) {
@@ -112,6 +121,8 @@ export class ExtrudeFeatureService {
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
+      // The profile chip's ✕ drops a picked face — the entity goes with it.
+      this.syncProfileFace();
       this.syncFacePickMode();
       // The profile choice drives the scope's part restriction (producers
       // win — the statement inserts in the profile's scope).
@@ -133,8 +144,11 @@ export class ExtrudeFeatureService {
     };
     this.panel.onArmedPickChange = () => {
       // A face or scope slot took the viewport — region picking hands it
-      // over (the panel re-arms the slot as the picker reports it off).
-      this.regions.stop();
+      // over (the panel re-arms the slot as the picker reports it off). The
+      // profile slot takes nothing from it: the regions are the profile's.
+      if (!this.panel.profilePickArmed) {
+        this.regions.stop();
+      }
       this.syncFacePickMode();
     };
     this.regions = new RegionPicker(viewer, this.panel.regionControl, {
@@ -169,9 +183,10 @@ export class ExtrudeFeatureService {
       },
       // Create-mode distance previews stay quiet — transient failures would
       // flash while sketching. The statement changed shape under the dialog
-      // (an undo, a concurrent edit) or the picked target face has no safe
-      // selector — those surface before Apply.
-      surfacePreviewReasons: () => this.editTarget !== null || this.panel.isToFace(),
+      // (an undo, a concurrent edit), or a picked face — the target or the
+      // profile — has no safe selector or cannot be swept: those surface
+      // before Apply.
+      surfacePreviewReasons: () => this.editTarget !== null || this.panel.isToFace() || this.profileFace !== null,
       // The statement preview's geometric twin: the prism the values describe,
       // drawn translucent in the viewport. Same debounce, same abort scope.
       ghost: {
@@ -211,13 +226,24 @@ export class ExtrudeFeatureService {
   }
 
   /**
-   * Face picks are live while the dialog's direction is "Up to face" — the
-   * click sets the extrusion's target face. In edit mode the pick resolves
-   * against the rolled-back pre-statement scene (the loft edit behavior).
-   * The armed scope slot takes the clicks over instead (whole-solid picks).
+   * Target-face picks are live while the dialog's direction is "Up to face"
+   * and its slot holds the viewport — the click sets the extrusion's target
+   * face. In edit mode the pick resolves against the rolled-back
+   * pre-statement scene (the loft edit behavior). The armed scope slot takes
+   * the clicks over instead (whole-solid picks), the armed profile slot
+   * takes them as the profile.
    */
   get isFacePicking(): boolean {
-    return this.armed && this.panel.isToFace() && !this.panel.scopePickArmed;
+    return this.armed && this.panel.isToFace() && !this.panel.scopePickArmed && !this.panel.profilePickArmed;
+  }
+
+  /**
+   * The profile slot holds the viewport — a face click sets the profile, the
+   * face the statement sweeps in place of a sketch. Region picking suspends
+   * it: those clicks pick regions of the sketch.
+   */
+  get isProfileFacePicking(): boolean {
+    return this.armed && this.panel.profilePickArmed && !this.regions.isActive;
   }
 
   /** The scope slot is armed — face/edge clicks toggle whole scope solids. */
@@ -271,9 +297,10 @@ export class ExtrudeFeatureService {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked face's shape id; the keep chip
       // is text-addressed and survives.
-      if (this.toFaceEntity) {
+      if (this.toFaceEntity || this.profileFace) {
         this.toFaceEntity = null;
         this.panel.setFaceChip(null);
+        this.dropProfileFace();
         this.panel.setMessage('The code changed — the re-picked face was reset.');
       }
     }
@@ -326,12 +353,14 @@ export class ExtrudeFeatureService {
       this.sketchUI.suspend();
     }
     // Shape ids changed with the render — a picked target face is stale and
-    // drops back to the pick prompt (the loft behavior). Chosen scope solids
-    // re-match by source line instead.
+    // drops back to the pick prompt (the loft behavior), and a picked profile
+    // face to the sketch it replaced. Chosen scope solids re-match by source
+    // line instead.
     if (this.toFaceEntity) {
       this.toFaceEntity = null;
       this.panel.setFaceChip(null);
     }
+    this.dropProfileFace();
     this.scope.setScene(sceneObjects, this.scopePartLoc());
     this.viewer.pickSketchWires = true;
     this.viewer.pickProfileWires = true;
@@ -366,6 +395,7 @@ export class ExtrudeFeatureService {
     this.sourceProfile = null;
     this.sourceToFace = null;
     this.toFaceEntity = null;
+    this.profileFace = null;
     this.editSceneStale = false;
     // The statement's enclosing part restricts the scope picker — derived
     // from the pre-rollback scene, where the edited row still renders.
@@ -421,6 +451,9 @@ export class ExtrudeFeatureService {
       this.sourceProfile = { kind: 'opaque' };
       this.sourceToFace = null;
     }
+    // A face-sourced statement resolves its profile to face picks — the kept
+    // chip parks the controls a face cannot carry.
+    this.panel.setKeptProfileIsFace(this.sourceProfile.kind === 'entities');
     this.refreshHighlight();
     // The ghost's keep-profile path reads `sourceProfile`, which resolves
     // after `enterEdit` already scheduled its preview — re-kick so the ghost
@@ -433,9 +466,10 @@ export class ExtrudeFeatureService {
       return;
     }
     this.session.end('continue');
-    this.hooks.onEnter?.();
+    const seeded = this.hooks.onEnter?.();
     this.armed = true;
     this.toFaceEntity = null;
+    this.profileFace = null;
     this.scope.clear();
     this.regions.reset();
     this.editPartLoc = null;
@@ -451,6 +485,14 @@ export class ExtrudeFeatureService {
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show(this.options);
+    // A face already selected when the tool arms is the face to extrude: it
+    // opens in the profile slot, ahead of the default sketch — the explicit
+    // selection wins, and the chip's ✕ hands the slot back to that sketch.
+    const seedFace = seeded ? singleFace(seeded.seed) : null;
+    if (seedFace) {
+      this.profileFace = seedFace;
+      this.panel.setProfileFace('Picked face');
+    }
     // The direction select persists across sessions — re-arm face picking
     // when the dialog reopens on "Up to face".
     this.syncFacePickMode();
@@ -481,6 +523,7 @@ export class ExtrudeFeatureService {
     this.sourceProfile = null;
     this.sourceToFace = null;
     this.toFaceEntity = null;
+    this.profileFace = null;
     this.scope.clear();
     this.regions.reset();
     this.editPartLoc = null;
@@ -520,9 +563,17 @@ export class ExtrudeFeatureService {
     const wireIds = option && (option.kind === 'other' || this.editTarget)
       ? sketchWireShapeIds(option, this.sceneObjects)
       : [];
+    // The profile face: the pick, or an edit session's keep chip through the
+    // resolved current source (a face-sourced statement's own faces).
+    const faces: SelectedEntity[] = [];
+    if (this.profileFace) {
+      faces.push(this.profileFace);
+    } else if (this.editTarget && this.panel.profileSelection()?.kind === 'keep'
+      && this.sourceProfile?.kind === 'entities') {
+      faces.push(...this.sourceProfile.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub })));
+    }
     // The target face: the re-pick, or an edit session's keep chip through
     // the resolved current source (the statement's own face at the boundary).
-    const faces: SelectedEntity[] = [];
     if (this.isFacePicking) {
       if (this.toFaceEntity) {
         faces.push(this.toFaceEntity);
@@ -547,7 +598,36 @@ export class ExtrudeFeatureService {
       return this.editPartLoc;
     }
     const option = this.panel.selectedOption();
-    return scopePartLocation(option ? { filePath: option.filePath, line: option.line } : null, this.sceneObjects);
+    // A face profile pins the statement like a sketch does: to the part of
+    // the statement its solid belongs to.
+    const primary = option
+      ? { filePath: option.filePath, line: option.line }
+      : this.profileFace ? this.statementOfShape(this.profileFace.shapeId) : null;
+    return scopePartLocation(primary, this.sceneObjects);
+  }
+
+  /** The statement a rendered shape belongs to, by its row's source location. */
+  private statementOfShape(shapeId: string): SourceLocation | null {
+    return this.sceneObjects.find(o => o.sceneShapes?.some(s => s.shapeId === shapeId))?.sourceLocation ?? null;
+  }
+
+  /**
+   * Drop the picked profile face (its shape died, or a sketch took the
+   * slot): the chip goes back to the sketch it replaced.
+   */
+  private dropProfileFace(): void {
+    if (!this.profileFace) {
+      return;
+    }
+    this.profileFace = null;
+    this.panel.setProfileFace(null);
+  }
+
+  /** The slot no longer shows a face (its ✕, a sketch pick) — forget the entity. */
+  private syncProfileFace(): void {
+    if (this.profileFace && this.panel.profileSelection()?.kind !== 'face') {
+      this.profileFace = null;
+    }
   }
 
   /** Recompute the offered scope solids, the chips and the highlight. */
@@ -615,16 +695,20 @@ export class ExtrudeFeatureService {
       return;
     }
     this.panel.selectProfile(index);
+    // The sketch takes the slot from a picked face.
+    this.syncProfileFace();
     this.panel.setMessage(null);
-    this.refreshHighlight();
+    this.refreshScope();
     this.runner.schedulePreview();
   }
 
   /**
    * Routes viewer clicks: with the scope slot armed, any face or edge click
    * selects the owning solid whole and toggles it in the scope list; while
-   * face picking is live instead, a face click sets the up-to-face target
-   * (clicking the picked face again clears it). Empty-space clicks keep both.
+   * target-face picking is live instead, a face click sets the up-to-face
+   * target; and with the profile slot holding the viewport, a face click
+   * sets the profile (clicking a picked face again clears it). Empty-space
+   * clicks keep everything.
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
     if (this.isScopePicking) {
@@ -639,12 +723,32 @@ export class ExtrudeFeatureService {
       this.toggleScope(option);
       return;
     }
-    if (!this.isFacePicking || !shapeId || !sub || sub.type !== 'face') {
+    if (!shapeId || !sub || sub.type !== 'face') {
+      return;
+    }
+    if (this.isProfileFacePicking) {
+      // "Up to first/last face" picks nothing itself, so a face click there
+      // is most often aimed at the target: it never takes the slot from a
+      // sketch. The chip's ✕ empties the slot for a face.
+      if (this.sketchHoldsProfile() && this.panel.faceTarget() !== null) {
+        this.panel.setMessage(SKETCH_KEPT_MESSAGE);
+        return;
+      }
+      this.profileFace = toggleEntity(this.profileFace, { shapeId, sub });
+      this.panel.setProfileFace(this.profileFace ? 'Picked face' : null);
+      this.panel.setMessage(this.targetIsProfileFace() ? SAME_FACE_MESSAGE : null);
+      // The profile choice drives the scope's part restriction.
+      this.refreshScope();
+      this.runner.schedulePreview();
+      return;
+    }
+    if (!this.isFacePicking) {
       return;
     }
     this.toFaceEntity = toggleEntity(this.toFaceEntity, { shapeId, sub });
     this.panel.setFaceChip(this.toFaceEntity ? 'Picked face' : null);
-    this.panel.setMessage(null);
+    // Said at the click, not only on Apply: the preview stays quiet about it.
+    this.panel.setMessage(this.targetIsProfileFace() ? SAME_FACE_MESSAGE : null);
     this.refreshHighlight();
     this.runner.schedulePreview();
   }
@@ -665,7 +769,8 @@ export class ExtrudeFeatureService {
   /**
    * The viewer's pick mode follows the armed slot: "Up to face" picks faces
    * only; the armed scope slot opens everything — any face or edge click
-   * resolves to its owning solid. (The sketch suspension is owned by
+   * resolves to its owning solid — and so does the profile slot, which takes
+   * a sketch's wires as readily as a face. (The sketch suspension is owned by
    * enter/exit — the dialog holds the free 3D view for its whole lifetime.)
    */
   private syncFacePickMode(): void {
@@ -694,10 +799,11 @@ export class ExtrudeFeatureService {
     if ('error' in values) {
       return null;
     }
-    const profile = this.ghostProfile();
+    const profile = this.ghostProfileRef();
     if (!profile) {
       return null;
     }
+    const faceProfile = 'kind' in profile;
     // A face-bounded direction with no target to end on draws nothing.
     const target = ExtrudeTargetSlot.ghostTarget(this.targetState());
     if (!target) {
@@ -712,9 +818,10 @@ export class ExtrudeFeatureService {
       draft: values.draft,
       endOffset: values.endOffset,
       drill: values.drill,
-      thin: values.thin,
+      // A face is swept as it stands — no thin wall, no regions.
+      thin: faceProfile ? null : values.thin,
       profile,
-      regions: this.regions.ghostPicks(),
+      regions: faceProfile ? undefined : this.regions.ghostPicks(),
       ...target,
     }, featureGhostScope(this.editTarget), signal);
   }
@@ -730,8 +837,34 @@ export class ExtrudeFeatureService {
     };
   }
 
+  /**
+   * The profile the ghost extrudes: the picked face — or, in the edit dialog
+   * with the "Current: …" chip kept, a face-sourced statement's own single
+   * face as the sources query resolved it — else the sketch. Null while
+   * there is nothing to sweep.
+   */
+  private ghostProfileRef(): GhostExtrudeProfileRef | null {
+    if (this.profileFace) {
+      return this.profileFace.sub?.type === 'face'
+        ? { kind: 'face', shapeId: this.profileFace.shapeId, index: this.profileFace.sub.index }
+        : null;
+    }
+    if (this.editTarget && this.panel.profileSelection()?.kind === 'keep'
+      && this.sourceProfile?.kind === 'entities') {
+      const [entity, ...rest] = this.sourceProfile.entities;
+      return entity && rest.length === 0 && entity.sub.type === 'face'
+        ? { kind: 'face', shapeId: entity.shapeId, index: entity.sub.index }
+        : null;
+    }
+    return this.ghostProfile();
+  }
+
   /** The sketch the ghost extrudes, or null while there is nothing to sweep. */
   private ghostProfile(): { filePath: string; line: number } | null {
+    // A face profile has no sketch behind it — and no regions to read.
+    if (this.profileFace) {
+      return null;
+    }
     if (this.editTarget) {
       const selection = this.panel.profileSelection();
       if (selection?.kind === 'sketch') {
@@ -754,6 +887,22 @@ export class ExtrudeFeatureService {
     return { filePath: option.filePath, line: option.line };
   }
 
+  /**
+   * "Up to face" ends on the very face being extruded: a zero-length sweep
+   * the kernel refuses. Usually the face was meant as the target only and a
+   * click with the profile slot armed made it the profile as well.
+   */
+  private targetIsProfileFace(): boolean {
+    return this.panel.isToFace() && this.profileFace !== null && this.toFaceEntity !== null
+      && sameEntity(this.profileFace, this.toFaceEntity);
+  }
+
+  /** The profile slot holds a sketch — chosen, or the edited statement's own. */
+  private sketchHoldsProfile(): boolean {
+    const selection = this.panel.profileSelection();
+    return selection?.kind === 'sketch' || (selection?.kind === 'keep' && !this.panel.profileIsFace());
+  }
+
   /** The create request for the current form state, or the blocking message. */
   private buildRequest(): ExtrudeApplyRequest | { error: string } {
     const values = this.panel.values();
@@ -761,25 +910,30 @@ export class ExtrudeFeatureService {
       return values;
     }
     const option = this.panel.selectedOption();
-    if (!option) {
-      return { error: 'No sketch to extrude.' };
+    if (!option && !this.profileFace) {
+      return { error: 'Pick a sketch or a face to extrude.' };
+    }
+    if (this.targetIsProfileFace()) {
+      return { error: SAME_FACE_MESSAGE };
     }
     return {
       ...values,
-      profile: profileRef(option),
+      profile: option ? profileRef(option) : { mode: 'face', entity: this.profileFace! },
       toFace: this.panel.faceTarget()
         ?? (this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined),
       // A separate body has no boolean to scope — the hidden section's picks
       // stay parked in case the user switches back.
       scope: values.op === 'new' ? undefined : this.scope.createRefs(),
-      regions: this.regions.picks,
+      // A face is swept as it stands — the sketch's region picks stay parked.
+      regions: option ? this.regions.picks : undefined,
     };
   }
 
   /**
    * The edit-mode apply payload: the form values plus the session fields —
    * the staleness guard, the re-sourced profile when the slot moved off its
-   * "Current: …" entry, and the to-face target while one of those directions
+   * "Current: …" entry (a sketch by call site, a face as a pick with the
+   * boundary it resolves against), and the to-face target while one of those directions
    * is selected — `keep` for the statement's own target, a face pick (with
    * the boundary it resolves against) for a re-pick, the literal for
    * first/last-face. No toFace field means the distance form.
@@ -789,8 +943,11 @@ export class ExtrudeFeatureService {
     if ('error' in values) {
       return values;
     }
+    if (this.targetIsProfileFace()) {
+      return { error: SAME_FACE_MESSAGE };
+    }
     const selection = this.panel.profileSelection();
-    const profile = selection?.kind === 'sketch'
+    const profile: ExtrudeEditOptions['profile'] = selection?.kind === 'sketch'
       ? {
         mode: 'bound' as const,
         feature: selection.option.feature === 'offset' ? 'offset' as const : undefined,
@@ -798,7 +955,9 @@ export class ExtrudeFeatureService {
         line: selection.option.line,
         column: selection.option.column,
       }
-      : undefined;
+      : this.profileFace ? { mode: 'face', entity: this.profileFace } : undefined;
+    // A face profile — re-picked, or the statement's own — has no regions.
+    const faceProfile = this.panel.profileIsFace();
     let toFace: ExtrudeEditOptions['toFace'];
     const faceTarget = this.panel.faceTarget();
     if (faceTarget) {
@@ -811,7 +970,7 @@ export class ExtrudeFeatureService {
     return {
       ...values,
       expectedStatement: this.session.expectedStatement,
-      before: toFace?.kind === 'face' ? this.session.boundary ?? undefined : undefined,
+      before: toFace?.kind === 'face' || profile?.mode === 'face' ? this.session.boundary ?? undefined : undefined,
       profile,
       toFace,
       // The dialog owns the chain it shows: the full list on Add/Remove, and
@@ -819,13 +978,23 @@ export class ExtrudeFeatureService {
       // statement rewritten to a separate body must not keep one.
       scope: values.op === 'new' ? [] : this.scope.editRefs(),
       // Likewise the region list: the picks shown are the picks written.
-      regions: this.regions.picks,
-      regionSketch: this.ghostProfile() ?? undefined,
+      regions: faceProfile ? [] : this.regions.picks,
+      regionSketch: faceProfile ? undefined : this.ghostProfile() ?? undefined,
     };
   }
 }
 
-function profileRef(option: SketchProfileOption): ExtrudeProfileRef {
+const SKETCH_KEPT_MESSAGE = 'This direction finds its face itself — the sketch stays the profile. Remove the sketch to extrude a face instead.';
+
+const SAME_FACE_MESSAGE = 'The face to extrude is also the face to extrude up to — remove it from the profile to extrude the sketch, or pick another target.';
+
+/** The selection when it is exactly one face — the only one that names a profile. */
+function singleFace(selection: SelectedEntity[]): SelectedEntity | null {
+  const [entity, ...rest] = selection;
+  return entity && rest.length === 0 && entity.sub?.type === 'face' ? entity : null;
+}
+
+function profileRef(option: SketchProfileOption): ExtrudeSketchProfileRef {
   return {
     mode: option.kind === 'active' ? 'active' : 'bound',
     feature: option.feature === 'offset' ? 'offset' : undefined,

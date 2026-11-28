@@ -61,15 +61,21 @@ export function buildStatement(
   const scopeVarNames = (scope: number[] | undefined): string[] =>
     (scope ?? []).map(p => bindings[p].varName!);
   if (spec.feature === 'extrude') {
-    const target = spec.extrude!.toFace;
+    const ext = spec.extrude!;
+    const target = ext.toFace;
+    const partExpr = (index: number): string => {
+      const part = spec.parts[index];
+      return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
+    };
     let faceExpr: string | null = null;
     if (target === 'selector') {
-      const part = spec.parts[0];
-      faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
+      faceExpr = partExpr(ext.toFacePart ?? 0);
     } else if (target !== undefined) {
       faceExpr = renderFaceTargetExpr(target);
     }
-    return renderExtrudeStatement(spec.extrude!, bindings[0].varName, faceExpr, scopeVarNames(spec.extrude!.scope));
+    // A sketch profile is producers[0]; a face one its own selector part.
+    const profileExpr = ext.profile === 'face' ? partExpr(ext.profilePart!) : bindings[0].varName;
+    return renderExtrudeStatement(ext, profileExpr, faceExpr, scopeVarNames(ext.scope));
   }
   if (spec.feature === 'rib') {
     const rb = spec.rib!;

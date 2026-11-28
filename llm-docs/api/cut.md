@@ -22,6 +22,10 @@ cut("last-face")
 cut(face, target)
 ```
 
+`target` is a sketch, or — after a depth or an up-to-face target — a planar
+face selection that sinks into its own solid: `cut(5, e.endFaces())`. A face
+target has no through-all form and takes no `.thin()` or `.region()`.
+
 Returns `Cut`. Always subtractive — equivalent to `extrude(...).remove()`.
 Same chain set as `extrude` except no `.add()` / `.new()`: `.symmetric()`,
 `.draft()`, `.endOffset()`, `.thin()`, `.region()`, `.scope()`, plus

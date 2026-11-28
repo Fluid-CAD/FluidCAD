@@ -14,6 +14,7 @@ type DownloadLinkProps = {
    * The artifact name after `FluidCAD-<version>-`, as electron-builder's
    * `artifactName` in shell/electron-builder.yml produces it:
    * `win-x64.exe`, `linux-x86_64.AppImage`, `linux-amd64.deb`,
+   * `linux-x86_64.rpm`,
    * `mac-arm64.dmg`, `mac-arm64.zip`.
    */
   asset: string;

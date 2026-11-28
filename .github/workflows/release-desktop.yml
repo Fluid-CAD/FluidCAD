@@ -97,6 +97,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # AppImage, deb and rpm, all from electron-builder.yml's linux
+          # targets.
           - os: ubuntu-latest
             target: linux-x64
             flags: --linux --x64
@@ -147,6 +149,12 @@ jobs:
       - name: Stage the built-in engine
         run: node scripts/stage-engine.js --target ${{ matrix.target }}
         working-directory: shell
+
+      - name: Install rpmbuild
+        # electron-builder's rpm target runs fpm, which needs `rpmbuild`; the
+        # Ubuntu runner does not ship it.
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm
 
       - name: Prepare macOS signing
         # Secrets (repository → Settings → Secrets and variables → Actions):

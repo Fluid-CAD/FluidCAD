@@ -7,7 +7,11 @@
 // this file is JSON-serializable — it is the shape that rides the
 // render payload to the UI.
 
-export type EntityKind = 'point' | 'line' | 'circle' | 'arc' | 'ellipse';
+/**
+ * `eArc` is the elliptical arc — an open piece of an ellipse, named after
+ * its statement (`eArc(...)`) the way every other kind is.
+ */
+export type EntityKind = 'point' | 'line' | 'circle' | 'arc' | 'ellipse' | 'eArc';
 
 export type PointRole = 'start' | 'end' | 'center';
 
@@ -49,7 +53,7 @@ export function datumNameOf(entityId: number): DatumName | null {
  * Reference to an entity or one of its points. Without `point` it
  * names the entity itself (a point entity doubles as its own point);
  * with `point` it names a vertex: line start/end, circle center, arc
- * center/start/end, ellipse center.
+ * center/start/end, ellipse center, elliptical arc center/start/end.
  */
 export type SolverRef = { entity: number; point?: PointRole };
 
@@ -70,10 +74,11 @@ export type ConstraintSpec =
   /** Point–point (2) or point-on-line / point-on-circle-or-arc /
    * point-on-ellipse (1), chosen by what the refs resolve to.
    * Point-on-line means the infinite line; point-on-circle means the
-   * full circle. */
+   * full circle, and a point on an elliptical arc the full ellipse. */
   | { kind: 'coincident'; a: SolverRef; b: SolverRef }
-  /** One line (1), one ellipse (1 — its RX axis runs along the sketch
-   * x / y direction), or two or more points sharing the axis value
+  /** One line (1), one ellipse or elliptical arc (1 — its RX axis runs
+   * along the sketch x / y direction), or two or more points sharing the
+   * axis value
    * (1 per pair — `others` extends the POINT form only; every point
    * after the first is aligned to the first). */
   | { kind: 'horizontal'; a: SolverRef; b?: SolverRef; others?: SolverRef[] }
@@ -92,6 +97,8 @@ export type ConstraintSpec =
    * Line–circle/arc (1), circle–circle (1), line–ellipse (1), or
    * ellipse–circle/arc/ellipse (1 net: the contact point rides along as
    * two compile-time aux params under three rows); branch from guesses.
+   * An elliptical arc stands in for an ellipse everywhere here, and its
+   * end joined to the other curve's end is a one-row junction form.
    */
   | { kind: 'tangent'; a: SolverRef; b: SolverRef }
   /**
@@ -109,16 +116,17 @@ export type ConstraintSpec =
    * 'min' is the near side. Requires a circle/arc reference.
    */
   | { kind: 'distance'; a: SolverRef; b: SolverRef; value: number; axis?: 'x' | 'y'; tangency?: 'min' | 'max' }
-  /** Circle/arc radius (1), or one semi-radius of an ellipse — `axis`
-   * names which ('x' = RX, 'y' = RY) and is required there, refused on a
-   * circle/arc. */
+  /** Circle/arc radius (1), or one semi-radius of an ellipse or
+   * elliptical arc — `axis` names which ('x' = RX, 'y' = RY) and is
+   * required there, refused on a circle/arc. */
   | { kind: 'radius'; a: SolverRef; value: number; axis?: 'x' | 'y' }
   | { kind: 'diameter'; a: SolverRef; value: number }
   /** Equal line lengths, equal radii (1 per pair) or equal ellipse shapes
-   * (2 per pair: both semi-radii). `others` extends the equality to
+   * (2 per pair: both semi-radii; ellipses and elliptical arcs mix).
+   * `others` extends the equality to
    * further entities of the same family — each is equated to `a`. */
   | { kind: 'equal'; a: SolverRef; b: SolverRef; others?: SolverRef[] }
-  /** Circle/arc/ellipse centers coincide (2). */
+  /** Circle/arc/ellipse/elliptical-arc centers coincide (2). */
   | { kind: 'concentric'; a: SolverRef; b: SolverRef }
   /** Both endpoints of line b on the infinite line of a (2). */
   | { kind: 'collinear'; a: SolverRef; b: SolverRef }
@@ -128,7 +136,7 @@ export type ConstraintSpec =
    * line form with a/b standing in for the line's endpoints. */
   | { kind: 'midpoint'; p: SolverRef; a: SolverRef; b: SolverRef }
   /** Points a and b mirror across line l (2); or two entities of one kind
-   * — lines (4), circles (3), arcs (5), ellipses (5). */
+   * — lines (4), circles (3), arcs (5), ellipses (5), elliptical arcs (7). */
   | { kind: 'symmetric'; a: SolverRef; b: SolverRef; l: SolverRef }
   /**
    * Anchor a point at (x, y) (2). When x/y are omitted at constrain()
@@ -138,7 +146,8 @@ export type ConstraintSpec =
   | { kind: 'fix'; p: SolverRef; x?: number; y?: number }
   /**
    * Internal (auto-added per arc): |start−center| = r and
-   * |end−center| = r (2). Never user-authored; carries a negative id.
+   * |end−center| = r (2); for an elliptical arc, start and end on its
+   * ellipse (2). Never user-authored; carries a negative id.
    */
   | { kind: 'arc-consistency'; entity: number }
   /**
@@ -147,7 +156,8 @@ export type ConstraintSpec =
    * p' = [[a,b],[c,d]]·p + [tx,ty] with matrix = [a, b, c, d, tx, ty].
    * One LINEAR row per free target param (point 2, line 4, circle 3,
    * arc 7, ellipse 5 — center and radii linear, the rotation through
-   * one angular row), so a tied entity adds zero net DOF and
+   * one angular row — elliptical arc 9: the ellipse's five plus both
+   * ends), so a tied entity adds zero net DOF and
    * constraining either side moves both. Added via SketchSystem.addTransformTie —
    * never user-authored; carries a negative id, and diagnose never
    * names it in conflicting/redundant (conflicts surface on the user
@@ -166,8 +176,8 @@ export type ConstraintSpec =
    * rows then carry the line's params, so a moving mirror line moves
    * its images) or a constant line [sx, sy, ex, ey] in sketch
    * coordinates (a world axis). One row per target param (point 2,
-   * line 4, circle 3, arc 7, ellipse 5): net-zero DOF, bidirectional
-   * coupling.
+   * line 4, circle 3, arc 7, ellipse 5, elliptical arc 9): net-zero DOF,
+   * bidirectional coupling.
    * Added via SketchSystem.addMirrorTie — never user-authored; negative
    * id, and diagnose never names it (like transform-tie).
    */
@@ -210,7 +220,9 @@ export type EntityRecord = {
    * Layouts: point [x,y]; line [sx,sy,ex,ey]; circle [cx,cy,r];
    * arc [cx,cy,r,sx,sy,ex,ey]; ellipse [cx,cy,rx,ry,theta] — semi-radii
    * along the ellipse's own axes plus the rotation of its RX axis from
-   * the sketch x direction (radians). */
+   * the sketch x direction (radians); eArc
+   * [cx,cy,rx,ry,theta,sx,sy,ex,ey] — the ellipse's five, then the two
+   * end points. */
   paramOffset: number;
 };
 

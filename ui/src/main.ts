@@ -1450,7 +1450,11 @@ function loadAgentPanel(): Promise<ChatPanel> {
       slot: leftSlot,
       settings: () => agentSettings.current,
       openExternal: (url) => void ExternalLinks.open(url),
-      openSettings: () => settingsModal.show('agent', 'api-keys'),
+      openSettings: (section) => settingsModal.show('agent', section ?? 'api-keys'),
+      // The engine saved "Always" for installs itself: Settings → Agent shows it from now on.
+      onInstallsAlwaysAllowed: () => agentSettings.update({ ...agentSettings.current, alwaysAllowInstalls: true }),
+      // Where an install card puts a package is the project's choice, as the Hub panel's Install dropdown keeps it.
+      onInstallTargetChosen: (target) => hubPanel.setInstallTarget(target),
       // `@` in the composer names a project file: the `+` picker's listing.
       listFiles: async () => (await listWorkspaceFiles()).files,
       openSource: editorSurfaceEnabled
@@ -1742,6 +1746,7 @@ generatedMenu.menu.onToolbarPackagesChange = (names) => {
 };
 // A generated tile of the Insert dialog opens the definition's dialog.
 insertPartDialog.onGenerated = (definition) => openGeneratedCreate(definition);
+insertPartDialog.sceneBounds = () => viewer.getGeometryBounds();
 
 /** Insert a generated definition into the assembly on screen through its dialog. */
 function openGeneratedCreate(definition: GeneratedDefinition): void {
@@ -1859,8 +1864,11 @@ const resumeSketchForFeature = () => {
 // the sketch tools; its `immune` flag keeps it visible in sketch mode, where
 // extruding the active sketch is the primary flow.
 const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
+  // The current selection seeds the dialog: one selected face opens as the
+  // profile. enterPartDialog captures it before its exits clear it.
   onEnter: () => {
-    enterPartDialog('extrude');
+    const { selection } = enterPartDialog('extrude');
+    return { seed: selection };
   },
   onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: suspendSketchForFeature,
@@ -3285,8 +3293,9 @@ viewer.setHoverMoveHandler((shapeId, sub, clientX, clientY) => {
 
 // A dialog only owns the viewport while it consumes picks (each dialog's
 // `isPicking`). Edit sessions own picking like create mode (their slots
-// re-pick against the rolled-back scene) — except extrude and sweep, whose
-// profiles come from dropdown/timeline/wire clicks only.
+// re-pick against the rolled-back scene) — extrude's included, whose profile
+// slot takes a face — except sweep, whose profile comes from
+// dropdown/timeline/wire clicks only.
 const createDialogPicking = () => featureDialogs.isPicking || projectionService.isPicking;
 
 viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {

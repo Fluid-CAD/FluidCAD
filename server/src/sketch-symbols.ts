@@ -13,13 +13,14 @@ export const SOLVED_CONSTRAINT_KINDS = new Set<string>([
   'concentric', 'collinear', 'midpoint', 'symmetric', 'fix', 'offsetFrom',
 ]);
 
-export type SolvedEntityKind = 'line' | 'arc' | 'circle' | 'point' | 'ellipse';
+export type SolvedEntityKind = 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'eArc';
 
 /** The solved-sketch entity statement callees (fluidcad/core). The ellipse
  * is an entity like the circle: its `center` role is its one point
  * accessor, and the bare name takes horizontal/vertical/concentric/tangent;
- * its radii stay literals. */
-export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', 'point', 'ellipse']);
+ * its radii stay literals. The elliptical arc (`eArc`) is that plus an
+ * arc's `start` and `end` roles. */
+export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', 'point', 'ellipse', 'eArc']);
 
 /**
  * What the emission rail may write as geometry: the entity statements, plus

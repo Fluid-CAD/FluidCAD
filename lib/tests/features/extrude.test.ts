@@ -983,4 +983,19 @@ describe("extrude", () => {
       expect(() => extrude(20, edgeSelection as any)).toThrow();
     });
   });
+
+  // #103: a zero-length sweep is a volume-less solid later booleans hang on.
+  describe("zero distance", () => {
+    it("should fail the build for a zero-distance add", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+
+      const e = extrude(0) as Extrude;
+      render();
+
+      expect(e.getError()).toMatch(/zero distance/);
+      expect(e.getShapes()).toHaveLength(0);
+    });
+  });
 });

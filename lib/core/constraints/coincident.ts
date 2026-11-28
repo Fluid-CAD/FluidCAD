@@ -6,8 +6,9 @@ import type { ConstraintSpec } from "../../sketch-solver/index.js";
 
 /**
  * Makes two points coincide (2 dims), or puts a point on an entity (1 dim:
- * point-on-infinite-line, point-on-circle/arc). `coincident(p, l.mid())`
- * lowers to the midpoint constraint.
+ * point-on-infinite-line, point-on-circle/arc, point-on-ellipse, where an
+ * arc counts as its whole circle and an elliptical arc as its whole
+ * ellipse). `coincident(p, l.mid())` lowers to the midpoint constraint.
  * @param a - A point accessor, point statement, or entity
  * @param b - A point accessor, point statement, or entity
  */

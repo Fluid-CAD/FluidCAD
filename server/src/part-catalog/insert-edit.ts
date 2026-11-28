@@ -10,6 +10,7 @@ import {
   walkTree,
 } from '../code-editor/index.ts';
 import { appendInsideBody, assemblyBodies } from '../assembly-chain-tools.ts';
+import { formatTranslateNumber } from '../insert-chain-edit.ts';
 
 /** The reserved configuration name — the `param()` literals, never a row of the table. */
 export const DEFAULT_CONFIGURATION_NAME = 'Default';
@@ -60,6 +61,14 @@ export type InsertPartEntry = {
    * is the literals and renders nothing, like an absent name.
    */
   configuration?: string;
+  /**
+   * Where the new instance goes, in the assembly's unit — rendered as a
+   * trailing `.translate(x, y, z)`, the same call a drag in the viewport
+   * writes. The dialog picks a spot beside what the assembly already holds,
+   * so a new part doesn't land inside the ones at the origin. Absent (or the
+   * origin itself) renders no call.
+   */
+  position?: [number, number, number];
 };
 
 /**
@@ -78,7 +87,7 @@ export type InsertPartEditSpec = {
  *
  *     import { extrusion } from './extrusion.fluid.js';
  *     const extrusion1 = insert(extrusion, { Size: '80x80', Length: 540 }).name('extrusion1');
- *     const extrusion2 = insert(extrusion, { Size: '80x80', Length: 540 }).name('extrusion2');
+ *     const extrusion2 = insert(extrusion, { Size: '80x80', Length: 540 }).name('extrusion2').translate(90, 0, 0);
  *
  * Every entry is bound to a fresh `const` so the follow-up flows (translate
  * chains, mates, sub-assembly part paths) have a name to reference; names
@@ -123,6 +132,9 @@ export async function applyInsertPartEdit(
       && (typeof entry.configuration !== 'string' || entry.configuration.trim() === '')) {
       return { newCode: code, error: `The configuration of ${entry.exportName} needs a name.` };
     }
+    if (entry.position !== undefined && !isPosition(entry.position)) {
+      return { newCode: code, error: `The position of ${entry.exportName} needs three numbers.` };
+    }
   }
 
   let out = code;
@@ -151,7 +163,7 @@ export async function applyInsertPartEdit(
     if (paramsLiteral) {
       args.push(paramsLiteral);
     }
-    const statement = `const ${varName} = insert(${args.join(', ')}).name('${varName}');`;
+    const statement = `const ${varName} = insert(${args.join(', ')}).name('${varName}')${renderTranslate(entry.position)};`;
 
     const parser = await getJavaScriptParser();
     const tree = parser.parse(out);
@@ -176,6 +188,24 @@ export async function applyInsertPartEdit(
   const first = [...walkTree(tree.rootNode)].find(node => node.type === 'variable_declarator'
     && node.childForFieldName('name')?.text === firstBinding);
   return { newCode: out, statementLine: first ? first.startPosition.row + 1 : undefined };
+}
+
+/** Three finite numbers — what an entry's `position` must be. */
+export function isPosition(value: unknown): value is [number, number, number] {
+  return Array.isArray(value) && value.length === 3
+    && value.every(n => typeof n === 'number' && Number.isFinite(n));
+}
+
+/** `.translate(90, 0, 0)` — nothing for an absent position or one that rounds to the origin. */
+function renderTranslate(position: [number, number, number] | undefined): string {
+  if (!position) {
+    return '';
+  }
+  const args = position.map(formatTranslateNumber);
+  if (args.every(arg => Number(arg) === 0)) {
+    return '';
+  }
+  return `.translate(${args.join(', ')})`;
 }
 
 /** The first param label whose value can't render as a literal, if any. */

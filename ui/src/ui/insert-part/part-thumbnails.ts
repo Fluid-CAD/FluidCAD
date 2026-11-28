@@ -16,6 +16,7 @@ import { buildObjectMesh, buildSceneMesh } from '../../meshes/mesh-factory';
 import { disposeEnvironmentOf, environmentFor } from '../../meshes/appearance/environment';
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
+import { geometryBoundsOf } from '../../scene/scene-geometry-bounds';
 import { AssemblySolverModel, Solver } from '../../../../lib/assembly-solver/index.js';
 import { PartMateGeometryReader } from '../../scene/part-mate-geometry';
 import type {
@@ -61,15 +62,26 @@ export class PartThumbnailRenderer {
   private renderer: WebGLRenderer | null = null;
   private solver = new Solver();
   private readonly size: number;
+  private measured: Box3 | null = null;
 
   constructor(options: { size?: number } = {}) {
     this.size = options.size ?? THUMB_SIZE;
+  }
+
+  /**
+   * The space the last picture's model takes around its own origin, in its
+   * own unit — its solids only, no sketches, planes or connectors. Null when
+   * that render drew nothing. The Insert dialog places a new instance by it.
+   */
+  get lastBounds(): Box3 | null {
+    return this.measured ? this.measured.clone() : null;
   }
 
   /** A single part: its rendered subtree, camera-framed. */
   render(objects: SceneObjectRender[], rootId: string): string | null {
     const root = SceneIndex.of(objects).byId(rootId);
     if (!root) {
+      this.measured = null;
       return null;
     }
     const camera = this.makeCamera();
@@ -124,7 +136,11 @@ export class PartThumbnailRenderer {
   ): string | null {
     const camera = this.makeCamera();
     const container = this.assemblyGroup(objects, instances, mates, connectors, camera);
-    return container ? this.renderGroup(container, camera) : null;
+    if (!container) {
+      this.measured = null;
+      return null;
+    }
+    return this.renderGroup(container, camera);
   }
 
   dispose(): void {
@@ -215,6 +231,8 @@ export class PartThumbnailRenderer {
     scene.updateMatrixWorld(true);
 
     const own = computeSceneBounds(group);
+    const solids = geometryBoundsOf(group);
+    this.measured = solids.isEmpty() ? null : solids;
     if (own.isEmpty()) {
       scene.remove(group);
       disposeMaterials(group);

@@ -431,7 +431,7 @@ export function resolveFeatureSources(
         return {
           ok: true,
           feature: kind,
-          profile: resolver.profileSlot(feature),
+          profile: resolver.extrudeProfileSlot(feature),
           // The target face as viewport entities; 'first-face'/'last-face'
           // literals have no picked face to resolve.
           toFace: feature.face instanceof SceneObject
@@ -439,7 +439,7 @@ export function resolveFeatureSources(
             : OPAQUE,
         };
       }
-      return { ok: true, feature: kind, profile: resolver.profileSlot(feature) };
+      return { ok: true, feature: kind, profile: resolver.extrudeProfileSlot(feature) };
     }
     return { ok: false, reason: `${feature.getType()}() has no editable sources` };
   } finally {
@@ -680,6 +680,14 @@ class SourceResolver {
       return OPAQUE;
     }
     return { kind: 'sketch', filePath: loc.filePath, line: loc.line, column: loc.column };
+  }
+
+  /**
+   * An extrude's or a cut's profile: a sketch, or — face-sourced,
+   * `extrude(d, <face>)` — the faces it sweeps as viewport entities.
+   */
+  extrudeProfileSlot(feature: ExtrudeBase): SourceSlot {
+    return feature.faceSource ? this.entitiesSlot([feature.faceSource]) : this.profileSlot(feature);
   }
 
   /** The profile of an extrude-family feature: a sketch, or nothing pickable. */

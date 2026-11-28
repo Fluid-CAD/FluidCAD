@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" version="1.1" width="140mm" height="90mm" viewBox="0 0 140 90">
+  <title>Mounting plate</title>
+  <defs>
+    <circle id="hole" r="3"/>
+  </defs>
+  <g id="outline" inkscape:groupmode="layer" inkscape:label="Outline" transform="translate(70 45)" fill="none" stroke="#000000" stroke-width="0.25">
+    <rect x="-60" y="-35" width="120" height="70" rx="8"/>
+    <rect x="-20" y="-6" width="40" height="12" rx="6"/>
+  </g>
+  <g id="holes" inkscape:groupmode="layer" inkscape:label="Holes" transform="translate(70 45)" fill="none" stroke="#000000" stroke-width="0.25">
+    <use xlink:href="#hole" x="-48" y="-23"/>
+    <use xlink:href="#hole" x="48" y="-23"/>
+    <use xlink:href="#hole" x="48" y="23"/>
+    <use xlink:href="#hole" x="-48" y="23"/>
+  </g>
+  <g id="notes" inkscape:groupmode="layer" inkscape:label="Notes" style="display:none" fill="none" stroke="#808080" stroke-width="0.125">
+    <path d="M 10 86 H 130 M 10 84 V 88 M 130 84 V 88"/>
+    <text x="70" y="84" font-family="sans-serif" font-size="3" text-anchor="middle" fill="#808080" stroke="none">120</text>
+  </g>
+</svg>

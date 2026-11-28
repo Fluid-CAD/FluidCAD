@@ -4,6 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import { circle, region } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
+import { Extrude } from "../../features/extrude.js";
 import { ExtrudeTwoDistances } from "../../features/extrude-two-distances.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import cylinder from "../../core/cylinder.js";
@@ -388,6 +389,59 @@ describe("extrude two distances", () => {
       render();
 
       expect(e.getShapes()).toHaveLength(0);
+    });
+  });
+
+  // #103: a zero side swept a volume-less prism the halves fuse hung on.
+  describe("zero distance", () => {
+    it("should fail the build instead of hanging when the first distance is 0", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+
+      const e = extrude(0, 10) as ExtrudeTwoDistances;
+      render();
+
+      expect(e.getError()).toMatch(/zero distance/);
+      expect(e.getShapes()).toHaveLength(0);
+    });
+
+    it("should fail the build instead of hanging when the second distance is 0", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+
+      const e = extrude(10, 0) as ExtrudeTwoDistances;
+      render();
+
+      expect(e.getError()).toMatch(/zero distance/);
+    });
+
+    it("should fail a two-distance cut with a zero side and leave the stock alone", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+      const stock = extrude(20) as Extrude;
+
+      sketch("xy", () => {
+          circle([50, 25], 10);
+        });
+      const c = extrude(0, 10).remove() as ExtrudeTwoDistances;
+      render();
+
+      expect(c.getError()).toMatch(/zero distance/);
+      expect(stock.getShapes()).toHaveLength(1);
+    });
+
+    it("should fail when the end offset cancels a side", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+
+      const e = extrude(20, 5).endOffset(5) as ExtrudeTwoDistances;
+      render();
+
+      expect(e.getError()).toMatch(/end offset leaves nothing to extrude/);
     });
   });
 });

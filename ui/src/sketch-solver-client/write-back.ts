@@ -3,11 +3,12 @@
 // drifted from its statement-time literals (beyond 2dp resolution) yields
 // one edit against its statement: the drifted point args, addressed by
 // chain-point index, guarded by the expected source values — plus the
-// solved scalars a statement carries as literals: a circle's diameter, an
-// ellipse's semi-radii and rotation.
+// solved scalars a statement carries as literals: a circle's diameter, the
+// semi-radii and rotation of an ellipse or an elliptical arc.
 
 import type { SketchPositionEditParam } from '../api';
 import type { LiveEntityGeometry } from './live-system';
+import { isEllipseLike } from './model';
 import type { SolvedEntityView, SolvedSketchModel } from './model';
 
 /** Half a 2dp step: drift below this cannot change the written literal. */
@@ -19,13 +20,15 @@ type RoleName = 'point' | 'start' | 'end' | 'center';
 
 /** Chain-point-arg index of each role per statement form:
  * point([p]) / line([s], [e]) / arc([s], [e], [c]) / circle([c], d) /
- * ellipse([c], rx, ry, rotation). */
+ * ellipse([c], rx, ry, rotation) /
+ * eArc([s], [e], [c], rx, ry, rotation). */
 const ROLE_INDEX: Record<SolvedEntityView['kind'], Partial<Record<RoleName, number>>> = {
   point: { point: 0 },
   line: { start: 0, end: 1 },
   arc: { start: 0, end: 1, center: 2 },
   circle: { center: 0 },
   ellipse: { center: 0 },
+  eArc: { start: 0, end: 1, center: 2 },
 };
 
 /** An ellipse is the same shape every 180°: the drift of a solved rotation
@@ -108,8 +111,9 @@ export function buildPositionWriteBack(
       edit.scalar = { value: round2(g.radius * 2), expected: guess.diameter };
     }
     // An ellipse's semi-radii: the 2nd and 3rd arguments, like a circle's
-    // diameter — solver params the dimensions drive.
-    if (view.kind === 'ellipse' && g.radii && guess.rx !== undefined && guess.ry !== undefined) {
+    // diameter — solver params the dimensions drive. An elliptical arc's
+    // are the two scalars after its points; the server splices both alike.
+    if (isEllipseLike(view.kind) && g.radii && guess.rx !== undefined && guess.ry !== undefined) {
       const radii: NonNullable<SketchPositionEditParam['radii']> = {};
       if (Math.abs(g.radii[0] - guess.rx) >= WRITE_TOL) {
         radii.rx = { value: round2(g.radii[0]), expected: guess.rx };
@@ -121,10 +125,11 @@ export function buildPositionWriteBack(
         edit.radii = radii;
       }
     }
-    // An ellipse's rotation: the 4th argument, appended when the statement
-    // has none yet (`expected` absent). Written as the value nearest the
-    // literal, so a rotation the solve left alone never churns the source.
-    if (view.kind === 'ellipse' && g.theta !== undefined) {
+    // An ellipse's rotation: the trailing argument (an elliptical arc's
+    // too), appended when the statement has none yet (`expected` absent).
+    // Written as the value nearest the literal, so a rotation the solve
+    // left alone never churns the source.
+    if (isEllipseLike(view.kind) && g.theta !== undefined) {
       const written = guess.rotation ?? 0;
       const drift = wrap180((g.theta * 180) / Math.PI - written);
       if (Math.abs(drift) >= WRITE_TOL) {

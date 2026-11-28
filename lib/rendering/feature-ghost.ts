@@ -113,8 +113,12 @@ export type ExtrudeGhostRequest = {
   endOffset: number | null;
   drill: boolean;
   thin: [number] | [number, number] | null;
-  /** The producing statement of the profile to extrude. */
-  profile: { filePath: string; line: number };
+  /**
+   * The profile to extrude: a sketch by its producing statement, or a face
+   * picked on a scene solid — `extrude(d, <face>)`, which sweeps the face
+   * itself and so takes no regions and no thin offsets.
+   */
+  profile: GhostExtrudeProfileRef;
   /**
    * The dialog's region picks: the declared names and/or boundaries of the
    * regions to build. Absent builds every region; an empty list is the
@@ -127,6 +131,11 @@ export type ExtrudeGhostRequest = {
    */
   toFace?: GhostExtrudeTargetRef;
 };
+
+/** An extrude's profile: a sketch statement, or a picked face of a scene solid. */
+export type GhostExtrudeProfileRef =
+  | { filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
 
 /**
  * Where an up-to-face extrude ends, as the dialog addresses it: a picked face
@@ -2669,7 +2678,10 @@ function buildProfileGhost(
   scene: Scene,
   request: ExtrudeGhostRequest | RevolveGhostRequest,
 ): GhostBuild {
-  const profile = findProfile(scene, request.profile);
+  if (request.feature === 'extrude' && 'kind' in request.profile) {
+    return buildFaceExtrudeGhost(scene, request, request.profile);
+  }
+  const profile = findProfile(scene, request.profile as { filePath: string; line: number });
   if (!profile) {
     return { reason: 'That sketch is not in the rendered scene.' };
   }
@@ -2735,6 +2747,64 @@ function buildProfileGhost(
   }
 }
 
+/**
+ * The face-sourced extrude — `extrude(d, <face>)`: the picked face is swept
+ * as it stands, off its own plane, the way `ExtrudeBase.getSourceFaces`
+ * hands it to the build. There are no regions to resolve and nothing to
+ * offset, so a thin request has no body (the apply refuses it); a through-all
+ * cut has none either, for the same reason.
+ */
+function buildFaceExtrudeGhost(
+  scene: Scene,
+  request: ExtrudeGhostRequest,
+  ref: { shapeId: string; index: number },
+): GhostBuild {
+  // The picked solid's face wrappers and the target's, until the build takes them over.
+  const scratch: Shape[] = [];
+  try {
+    const face = resolvePickedFace(scene, ref, scratch);
+    if (!face) {
+      return { reason: 'That face is not in the rendered scene.' };
+    }
+    const plane = FaceOps.tryGetPlane(face);
+    if (!plane) {
+      return { reason: 'Only a planar face can be extruded.', surface: true };
+    }
+    if (request.thin) {
+      return { reason: 'A face cannot be extruded thin.' };
+    }
+    const target = request.toFace ? resolveExtrudeTarget(scene, request.toFace, null, scratch) : undefined;
+    if (request.toFace && !target) {
+      return { reason: 'That face is not in the rendered scene.' };
+    }
+    const built = buildExtrudeGhostSolids({ getGeometries: () => [], getPlane: () => plane }, {
+      op: request.op,
+      distance: request.distance,
+      distance2: request.distance2,
+      symmetric: request.symmetric,
+      draft: request.draft,
+      endOffset: request.endOffset,
+      drill: request.drill,
+      thin: null,
+      throughAllLength: 0,
+      faces: [face],
+      toFace: target ?? undefined,
+    });
+    built.scratch.push(...scratch);
+    scratch.length = 0;
+    if (built.refusal) {
+      disposeBuilt(built);
+      return { reason: built.refusal, surface: true };
+    }
+    return built;
+  } finally {
+    // Still holding the wrappers: the build never took them over.
+    for (const shape of scratch) {
+      shape.dispose();
+    }
+  }
+}
+
 /** Free a finished build whole — its bodies and everything behind them. */
 function disposeBuilt(built: { solids: Shape[]; scratch: Shape[] }): void {
   for (const shape of [...built.solids, ...built.scratch]) {
@@ -2754,7 +2824,7 @@ function disposeBuilt(built: { solids: Shape[]; scratch: Shape[] }): void {
 function resolveExtrudeTarget(
   scene: Scene,
   ref: GhostExtrudeTargetRef,
-  profile: Extrudable,
+  profile: Extrudable | null,
   scratch: Shape[],
 ): ExtrudeGhostTarget | null {
   if (ref.kind === 'face') {

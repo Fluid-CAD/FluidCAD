@@ -12,11 +12,12 @@ import type {
   SolvedConstraintParam as WireConstraintParam,
   SolvedEmissionTargetParam,
   SolvedGeometryParam,
+  SolvedTextParam,
 } from '../../api';
 import type { SolvedVertexRef } from '../../snapping/types';
 import type { NewVariable, PickedPoint } from '../sketch-tool';
 
-export type { SolvedEmissionTargetParam, SolvedGeometryParam };
+export type { SolvedEmissionTargetParam, SolvedGeometryParam, SolvedTextParam };
 
 /**
  * A constraint as a tool emits it: the wire shape plus the INFERRED mark.
@@ -42,6 +43,8 @@ export type SolvedEmitResult = {
 export type SolvedEmissionRequest = {
   geometry: SolvedGeometryParam[];
   constraints: SolvedConstraintParam[];
+  /** `text()` statements, written after the constraints: a drawing import's text. */
+  texts?: SolvedTextParam[];
   newVariables?: NewVariable[];
   /** Constraint statements to DELETE in the same edit, by 1-indexed line —
    * the constraint bar swaps out a replaced orientation and deletes the
@@ -115,6 +118,26 @@ export function ellipseText(
   const ry = typeof ryExpr === 'number' ? fmt(ryExpr) : ryExpr;
   const rotation = rotationDeg !== undefined ? `, ${fmt(rotationDeg)}` : '';
   return `ellipse(${solvedPointText(center)}, ${rx}, ${ry}${rotation})`;
+}
+
+/** `eArc(start, end, center, rx, ry[, rotation])[.cw()]` — an elliptical
+ * arc: the three points lead like an arc's, the semi-radii and the
+ * rotation (DEGREES of the RX axis from the sketch x direction) follow
+ * like an ellipse's. Every one is a guess the solver moves. */
+export function eArcText(
+  start: [number, number] | PickedPoint,
+  end: [number, number] | PickedPoint,
+  center: [number, number] | PickedPoint,
+  rxExpr: string | number,
+  ryExpr: string | number,
+  rotationDeg?: number,
+  cw = false,
+): string {
+  const rx = typeof rxExpr === 'number' ? fmt(rxExpr) : rxExpr;
+  const ry = typeof ryExpr === 'number' ? fmt(ryExpr) : ryExpr;
+  const rotation = rotationDeg !== undefined ? `, ${fmt(rotationDeg)}` : '';
+  const points = `${solvedPointText(start)}, ${solvedPointText(end)}, ${solvedPointText(center)}`;
+  return `eArc(${points}, ${rx}, ${ry}${rotation})${cw ? '.cw()' : ''}`;
 }
 
 export function pointText(p: [number, number] | PickedPoint): string {

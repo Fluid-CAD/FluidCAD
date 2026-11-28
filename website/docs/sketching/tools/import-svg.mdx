@@ -1,0 +1,187 @@
+---
+sidebar_position: 12
+title: "Import SVG"
+---
+
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+
+# Import SVG
+
+Bring a vector drawing into a sketch: a logo, an outline from Inkscape, Illustrator, Affinity or Figma, a laser profile, an icon. The **SVG** tool reads the file, lets you place it by hand, and writes its curves as the sketch's own entities — `line`, `arc`, `circle`, `ellipse`, `eArc` and `bezier` statements you can drag, constrain, trim and extrude like anything you drew yourself.
+
+The file is read once. Nothing links the sketch to it afterwards: editing the SVG later does not change the model, and the file does not need to travel with the project.
+
+It works like [Import DXF](/docs/sketching/tools/import-dxf) — the same dialog, the same handles — so this page covers what is particular to SVG and points there for the rest.
+
+## In the viewport
+
+1. [Start or reopen a sketch](/docs/sketching/introduction#starting-a-sketch).
+2. Click **SVG** on the sketch toolbar (its tooltip is **Import SVG**; the shortcut is <kbd>sv</kbd>).
+3. In the **Import SVG** dialog, click **Choose SVG…** and select the file. The drawing appears on the sketch plane at once, inside a frame with handles.
+
+<UiFigure
+  src="/img/docs/ui/import-svg-placing.png"
+  alt="A sketch with the Import SVG dialog open: a mounting plate outline with a slot and four holes drawn above and to the right of the sketch origin, inside a frame with corner handles and a rotate knob; the dialog lists the layers Outline, Holes and an unticked Notes marked off, with a Text toggle on under them"
+  rings={[{x: 71.27, y: 5.61, w: 2.92, h: 5.56}]}
+  caption="The drawing is shown where it will land: the page's lower-left corner on the sketch origin. Drag it, a corner or the knob to place it."
+/>
+
+4. Place the drawing with the handles, and set its unit, scale and layers in the dialog.
+5. Click **Import**. FluidCAD writes one statement per curve into the sketch body, and a `coincident` constraint wherever two ends meet.
+
+To try it, save the [sample mounting plate](/img/docs/sketching/mounting-plate.svg) and import it into a sketch on the XY plane.
+
+The dialog's rows — **File unit**, **Scale**, **Layers**, **Join ends that meet**, **Fix in place**, **Position** and **Warnings** — and the move, scale and rotate gestures are the ones described under [Import DXF](/docs/sketching/tools/import-dxf#the-dialog). Under the layers, a file with Inkscape guides adds a **Guides** toggle and a file with text a **Text** toggle: see [Guides](#guides) and [Text](#text). The sample's Notes layer holds a line of text, so its dialog shows **Text**.
+
+## Flattening
+
+An SVG is not a list of curves. It is a tree: groups inside groups, each with its own `transform`; shapes drawn once and repeated by reference; a page that scales everything on it. A circle in the file may be written as a unit circle, scaled along one axis by its group, turned by the group above that, and moved by a third.
+
+The import flattens all of it. Every curve that comes out is in one coordinate system, with every transform between it and the page worked into its numbers:
+
+- **Transforms** on any element — `translate`, `scale`, `rotate` (about a point too), `skewX`, `skewY`, `matrix`, in any order and nested to any depth — whether written as a `transform` attribute or in a style, and with `transform-origin`.
+- **The page's view box**, and `preserveAspectRatio` when the box and the page have different proportions.
+- **References**: what a `<use>` points at is drawn where the reference stands, as many times as it is referred to. A `<symbol>` is fitted into the size the reference gives it. An `<svg>` nested in the drawing is placed and scaled like a page of its own.
+- **Units and percentages** on any length: `10mm`, `1in`, `50%` of the page.
+
+The geometry stays what it is under a transform. A circle moved, turned or scaled evenly is a `circle`; scaled along one axis or sheared, it is the `ellipse` it has become, and an arc of it the `eArc`. A mirrored arc is the arc that turns the other way, over the same points.
+
+## Unit and size
+
+An SVG's numbers are in its own *user units*, and its page says how long one is: the `width` and `height` of the file give the page a size, and the `viewBox` says how many units fit across it.
+
+| The file's page | The **File unit** select reads | One unit is |
+|---|---|---|
+| `width="210mm" viewBox="0 0 210 297"` | **Same as file (mm)** | 1 mm |
+| `width="100mm" viewBox="0 0 1000 500"` | **Same as file (0.1 mm)** | a tenth of a millimetre |
+| `width="8in" viewBox="0 0 8 4"` | **Same as file (in)** | 1 in |
+| `width="512" height="512"` (pixels) | **Same as file (px)** | 1/96 in, as browsers have it |
+| No `width` and `height` at all | **Document unit (mm)** | whatever the document's unit is |
+
+A size in pixels is a convention, not a measurement: a pixel is 1/96 in to a browser, and that is how it is read. A file with no size at all — most icons — says nothing about how large it is, so its numbers are taken as they are, in the document's unit. If the drawing comes out the wrong size, pick the unit it was really drawn in: the select offers the document units and, for SVG, **Pixel, 96 to the inch**, **Point, 72 to the inch** and **Pixel, 90 to the inch**. For a size no unit gives, type a factor in **Scale** or drag a corner.
+
+Two programs count differently, and the import follows them:
+
+- **Adobe Illustrator** writes points (72 to the inch) and calls them pixels. A file that names Illustrator as its generator and gives no physical size is read at 72 to the inch.
+- **Inkscape before 0.92** counted 90 pixels to the inch. A file from one of those versions without a view box is read that way.
+
+Either case is noted under **Warnings**, so you know which reading was taken.
+
+## Where the drawing lands
+
+SVG measures Y *down* from the top of the page; a sketch measures it up. The import turns the page over so the drawing reads the same way up as in any viewer: **the page's lower-left corner is the sketch origin**, and the drawing lies above and to the right of it. A shape 10 mm in from the left and 10 mm up from the bottom of the page is at `[10, 10]`.
+
+**As drawn** puts the drawing back at that position at any time; **Centre in view** moves it to the middle of the view.
+
+A drawing exported from FluidCAD as [SVG](/docs/import-export/export#dxf-and-svg) comes back at its true size, with its **Visible**, **Tangent** and **Hidden** layers. Its position is the page's, not the model's: the export puts the view on a page with a margin, and the page does not record where the model's origin was. To bring a view back exactly where the model is, use DXF.
+
+## Layers
+
+SVG has no layers of its own; each program marks them its own way, and the import reads the common ones:
+
+- **Inkscape** layers, by the name shown in its Layers panel. A layer inside a layer is listed on its own.
+- **Illustrator, Affinity, Figma and others** write a document's layers as its named top-level groups. A group with a name that is not inside another named group is a layer.
+- Everything else is listed as **(no layer)**.
+
+A layer the file hides is marked **off** and starts unticked. The list is shown when the file has more than one layer.
+
+## Guides
+
+Inkscape keeps guides beside a drawing: lines with no end that shapes were snapped to. They are not part of the picture and no viewer shows them. When the file has any, the dialog shows a **Guides** toggle. It starts off. Turn it on to bring them in as [guide lines](/docs/sketching/tools/guides), cut a little past the drawing the way [Import DXF](/docs/sketching/tools/import-dxf#construction-lines) cuts construction lines. Guides belong to the page, not to a layer: they come with whatever layers are ticked.
+
+Guides are read from files made with Inkscape 0.92 or later, on a page that is neither turned nor stretched. Older versions placed guides another way; those, and guides on a turned or stretched page, are left out and counted under **Warnings**.
+
+## Text
+
+When the file has text that can come in, the dialog shows a **Text** toggle. For an SVG it starts on: the text of an illustration is part of the artwork. It comes in as the sketch's own [text](/docs/sketching/compound/text), whose letters are outlines that extrude with the rest. Turn the toggle off to leave it out. While you place the drawing, a box on each line of text shows where its letters will land.
+
+An SVG places a line of text by the start of its baseline, which is what a sketch text's anchor is, so a line placed by one point comes in as it stands:
+
+- `x` and `y` are the anchor, and `text-anchor` says whether it is the start, the middle or the end of the line.
+- `font-size` is the size, through every transform above the text.
+- `font-family` is searched, in order, for a font that is installed where the sketch is built. A generic name (`sans-serif`, `serif`, `monospace`) takes a font of that kind. A font made to the same letter widths stands in for one that is missing, and **Warnings** says so.
+- `font-weight` and `font-style` say bold and italic; `letter-spacing` is the same thing in a sketch.
+- A `<tspan>` with an `x` of its own starts again from another point, the way a drawing program writes each line of a paragraph: every such line is a text of its own.
+
+A text that is turned by a `transform` is written along a guide line drawn on its baseline, as under [Import DXF](/docs/sketching/tools/import-dxf#text).
+
+Text that a sketch text cannot stand for is left out, and **Warnings** says how many and why:
+
+- **Letters placed one by one**: a list of numbers in `x`, `y`, `dx` or `dy`, or a `rotate`. This is how a file converted from a PDF holds its text.
+- **Text on a path** (`<textPath>`).
+- **A line that changes font, size or weight part-way**, or shifts from where its letters ended (a `dx`, or a `dy` in the middle of a line, as for a subscript).
+- **Stretched, skewed or mirrored** text: a transform that is more than a move, a turn and one scale.
+- `textLength`, word spacing, small capitals, a baseline other than the letters' own (`dominant-baseline`, `baseline-shift`), text set top to bottom or right to left.
+- Text in a **font that is not installed**, when the file names no other.
+
+To bring those in, convert the text to paths in the program that made the file (*Object to Path* in Inkscape, *Create Outlines* in Illustrator): its outlines import like any other path.
+
+## What is imported
+
+| In the file | In the sketch |
+|---|---|
+| `<line>`, `<polyline>`, `<polygon>` | One `line` per segment |
+| `<rect>` | Four `line`s; with rounded corners, an `arc` at each |
+| `<circle>` | `circle` |
+| `<ellipse>` | `ellipse` |
+| `<path>`: straight segments | `line` |
+| `<path>`: arcs of a circle | `arc`, or `circle` when they go all the way round |
+| `<path>`: arcs of an ellipse | `ellipse` when they close it, else [`eArc`](/docs/sketching/primitives/elliptical-arc): the same arc |
+| `<path>`: cubic and quadratic curves | `bezier`: the same curve |
+| `<g>`, `<a>`, `<switch>`, `<svg>`, `<use>`, `<symbol>` | What they hold or refer to, [flattened](#flattening) |
+| An Inkscape guide | A `line` marked `.guide()`, when [Guides](#guides) is on |
+| `<text>` | [`text`](/docs/sketching/compound/text), when [Text](#text) is on |
+
+### Circles and arcs drawn as curves
+
+A path cannot say "circle". It draws one as two arcs — or, in programs that convert shapes to curves, as four cubic béziers that only *approximate* it. Read literally, a round hole would arrive as a ring of four `bezier` curves with no centre to dimension and no diameter to change.
+
+So the import puts circles back together:
+
+- Arcs that carry on along one circle are read as one `arc`, and as a `circle` when they close it.
+- A cubic bezier that follows a circle is read as that `arc`. It has to stay within a thousandth of the radius of the circle all the way along, and closer still when it is shallow; a curve that merely looks round is left as the `bezier` it is.
+
+**Warnings** says how many béziers were read as arcs.
+
+### What a style decides
+
+How a shape is drawn is not geometry, and is not imported: fills, stroke widths, dashes, colours. A stroke comes in as its centre line, whatever its width. Three things a style says do decide *what* is imported:
+
+- **Hidden** elements (`display: none`) are left out, as in any viewer. A hidden *layer* is read and offered unticked instead.
+- A shape with **neither a fill nor a stroke** was never visible in the drawing — typically a bounding box or a leftover guide — and is left out. **Warnings** counts them. If nothing in the file is painted at all, everything is imported.
+- Styles set in a `<style>` block are applied, since that is where Illustrator and others put them.
+
+### What is left out
+
+- **Images** embedded in the file. To trace over a picture, use a [Reference Image](/docs/sketching/tools/reference-image).
+- **Clipping and masks.** A clipped shape is imported whole, and **Warnings** says how many there were. Trim what you do not want with the [Trim](/docs/sketching/tools/trim) tool.
+- Markers, patterns, gradients, filters and animations.
+
+The dialog's **Warnings** section lists how many of each it skipped. A curve drawn twice in the file is written once.
+
+## After importing
+
+<UiFigure
+  src="/img/docs/ui/import-svg-result.png"
+  alt="The imported mounting plate as sketch geometry: lines and arcs with end points, circles with centre points, each listed as a row under the sketch in the History panel, and 42 degrees of freedom remaining"
+  caption="After Import the drawing is ordinary sketch geometry, with a row per entity. The rounded rectangles of the file are lines and arcs; the holes, drawn once and referred to four times, are four circles."
+/>
+
+The result is ordinary sketch geometry. Unless you imported with [Fix in place](/docs/sketching/tools/import-dxf#fix-in-place), the entities sit where the file drew them but are not yet dimensioned: [constrain](/docs/sketching/constraints/introduction) them the usual way, or extrude them as they are.
+
+In the code, the sample plate is plain sketch statements:
+
+```js
+sketch("xy", () => {
+  const l1 = line([18, 80], [122, 80]);
+  const a1 = arc([130, 72], [122, 80], [122, 72]);
+  const l2 = line([130, 72], [130, 18]);
+  // …
+  const c1 = circle([22, 68], 6);
+  coincident(l1.end(), a1.end());
+  coincident(a1.start(), l2.start());
+  // …
+});
+```
+
+One import writes up to 2,000 sketch entities. A drawing with more — a detailed illustration, a map — is refused with its count; untick layers to bring it in by parts, or simplify it in the program that made it. Compressed SVG (`.svgz`) is not read: save the drawing as plain SVG first.

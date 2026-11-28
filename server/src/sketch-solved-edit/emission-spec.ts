@@ -15,6 +15,22 @@ export type SolvedGeometryEmission = {
   guide?: boolean;
 };
 
+/**
+ * A `text()` statement riding the emission — what a drawing import writes
+ * for the drawing's text. It is no solver geometry: it lands after the
+ * constraints, where the derived operations go.
+ */
+export type SolvedTextEmission = {
+  /** The string to write, as its literal: `"Plate A"`. */
+  string: string;
+  /** The options chained after the call, as written — `.font('Arial').size(5).at([10, 20])` — or nothing. */
+  chain: string;
+  /** The index in `geometry` of the statement the text is written along: the call's second argument. */
+  path?: number;
+  /** Fix the text's anchor where it is written: `fix(t1.anchor())`, right after it. */
+  fix?: boolean;
+};
+
 export type SolvedConstraintEmission = {
   kind: string;
   targets: SolvedEmissionTarget[];
@@ -35,6 +51,8 @@ export type SolvedEmissionSpec = {
   sketchLine: number;
   geometry: SolvedGeometryEmission[];
   constraints: SolvedConstraintEmission[];
+  /** Text statements, written after the constraints (see {@link SolvedTextEmission}). */
+  texts?: SolvedTextEmission[];
   /** `const name = init;` declarations riding the commit — locals land at the
    * top of the sketch body, `param(…)` initializers at top level. */
   newVariables?: NewVariableDecl[];

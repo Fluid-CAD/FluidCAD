@@ -601,4 +601,48 @@ describe("cut", () => {
       expect(endEdges.length).toBeGreaterThan(0);
     });
   });
+
+  describe("face-source cut", () => {
+    it("cuts a pocket from a face selection, into the solid it lies on", () => {
+      // A base plate with a narrower boss on top: the boss's top face is the
+      // profile, and the cut sinks it back down through the boss.
+      sketch("xy", () => {
+        testRect(100, 50);
+      });
+      extrude(20);
+      sketch(plane("xy", 20), () => {
+        testRect(40, 20);
+      });
+      const boss = extrude(10) as Extrude;
+
+      const c = cut(4, boss.endFaces()) as ExtrudeBase;
+
+      const scene = render();
+
+      expect(c.getError()).toBeNull();
+      const solids = scene.getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .filter(s => s.getType() === "solid");
+      expect(solids).toHaveLength(1);
+      // 100×50×20 plate + 40×20×10 boss − 40×20×4 cut.
+      expect(ShapeProps.getProperties(solids[0].getShape()).volumeMm3)
+        .toBeCloseTo(100 * 50 * 20 + 40 * 20 * 6, 0);
+    });
+
+    it("reads a lone face selection as the up-to-face target, not the profile", () => {
+      sketch("xy", () => {
+        testRect(100, 50);
+      });
+      extrude(20);
+      sketch(plane("xy", 20), () => {
+        testRect(40, 20);
+      });
+
+      const c = cut(select(face().onPlane("xy"))) as ExtrudeBase;
+
+      render();
+
+      expect(c.isFaceSourced()).toBe(false);
+    });
+  });
 });

@@ -25,8 +25,9 @@ export type ResolvedPoint = { ix: number; iy: number };
 export type ResolvedLine = { sx: number; sy: number; ex: number; ey: number };
 /** Param indices of a circle-like entity (circle or arc). */
 export type ResolvedCircle = { cx: number; cy: number; r: number };
-/** Param indices of an ellipse: center, the two (locked) semi-radii and
- * the rotation θ of its RX axis from the sketch x direction. */
+/** Param indices of an ellipse — a full one or the ellipse an elliptical
+ * arc lies on: center, the two semi-radii and the rotation θ of its RX
+ * axis from the sketch x direction. */
 export type ResolvedEllipse = { cx: number; cy: number; rx: number; ry: number; th: number };
 
 /**
@@ -48,7 +49,8 @@ export type CompileCtx = {
   isLine(ref: SolverRef): boolean;
   /** Entity ref (no role) to a circle or arc? */
   isCircle(ref: SolverRef): boolean;
-  /** Entity ref (no role) to an ellipse? */
+  /** Entity ref (no role) to an ellipse or an elliptical arc (which every
+   * ellipse row treats as its whole ellipse)? */
   isEllipse(ref: SolverRef): boolean;
   /**
    * Allocate `init.length` scratch params owned by the constraint being

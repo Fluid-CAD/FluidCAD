@@ -65,6 +65,22 @@ export interface HiddenLineEdges {
 }
 
 /**
+ * What a view of one shape could draw, undecided: every piece is a stretch
+ * of the model's own curve. `shape` is the copy the pieces were read from,
+ * its edges' continuity recorded from the geometry. `dispose()` frees all.
+ */
+export interface ViewCurves {
+  shape: TopoDS_Shape;
+  /** Creases between faces. */
+  sharp: TopoDS_Edge[];
+  /** Silhouettes of curved faces for the view's direction. */
+  outline: TopoDS_Edge[];
+  /** Smooth edges between faces; empty unless asked for. */
+  smooth: TopoDS_Edge[];
+  dispose(): void;
+}
+
+/**
  * Hidden-line removal for a drawing view: which stretches of which edges a
  * viewer on the plane's normal side sees, looking back along the normal.
  *
@@ -198,6 +214,59 @@ export class HiddenLineProjection {
       probe.dispose();
       unseen.forEach((set) => set.dispose());
       Explorer.deleteAll(classified);
+      frame.delete();
+      disposeX();
+      disposeNormal();
+      disposeOrigin();
+    }
+  }
+
+  /**
+   * Everything a view of one shape could draw, with nothing decided about
+   * what is seen: its creases, its silhouettes for the plane's direction
+   * and — on request — its smooth edges, as pieces in space. The front half
+   * of {@link project}: the algorithm computes the outlines (`Update`) and
+   * the hiding pass is left out (`ShowAll`), which is where all of its time
+   * goes on a model whose edges land on each other in the drawing.
+   * Regularity is encoded and unseen edges are stripped as there. The
+   * caller owns the result, the classified copy of the shape included.
+   */
+  static curves(view: ViewShape, plane: Plane, options: { tangent?: boolean } = {}): ViewCurves {
+    const oc = getOC();
+    const type = oc.HLRBRep_TypeOfResultingEdge;
+    const [origin, disposeOrigin] = Convert.toGpPnt(plane.origin);
+    const [normal, disposeNormal] = Convert.toGpDir(plane.normal);
+    const [xDirection, disposeX] = Convert.toGpDir(plane.xDirection);
+    const frame = new oc.gp_Ax2(origin, normal, xDirection);
+    const classified = HiddenLineProjection.withEncodedRegularity(view.shape);
+    const unseen = new UnseenEdges(view);
+    const curves: ViewCurves = {
+      shape: classified,
+      sharp: [],
+      outline: [],
+      smooth: [],
+      dispose() {
+        Explorer.deleteAll([...this.sharp, ...this.outline, ...this.smooth, this.shape]);
+        this.sharp = [];
+        this.outline = [];
+        this.smooth = [];
+      },
+    };
+    try {
+      HiddenLineProjection.withAlgo([classified], frame, false, (toShape) => {
+        const read = (kind: HLRBRep_TypeOfResultingEdge) => HiddenLineProjection.edgesOf(toShape, classified, kind, true);
+        curves.sharp = unseen.strip(read(type.HLRBRep_Sharp));
+        curves.outline = read(type.HLRBRep_OutLine);
+        if (options.tangent) {
+          curves.smooth = [...unseen.strip(read(type.HLRBRep_Rg1Line)), ...unseen.strip(read(type.HLRBRep_RgNLine))];
+        }
+      });
+      return curves;
+    } catch (error) {
+      curves.dispose();
+      throw error;
+    } finally {
+      unseen.dispose();
       frame.delete();
       disposeX();
       disposeNormal();

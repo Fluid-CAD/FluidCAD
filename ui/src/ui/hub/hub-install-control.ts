@@ -140,6 +140,13 @@ export class HubInstallControl {
     this.render();
   }
 
+  /** The place was chosen elsewhere (an install card in the chat): the label beside the button follows. */
+  targetChanged(): void {
+    if (this.model) {
+      this.render();
+    }
+  }
+
   get busy(): boolean {
     return this.phase.kind === 'downloading' || this.phase.kind === 'installing';
   }

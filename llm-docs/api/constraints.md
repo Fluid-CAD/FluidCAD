@@ -44,7 +44,8 @@ A constraint argument can be:
 ## Geometric constraints
 
 ```ts
-coincident(a, b)      // two points coincide; or point-on-line/arc/circle/ellipse.
+coincident(a, b)      // two points coincide; or point-on-line/arc/circle/ellipse
+                      // (an elliptical arc, eArc, counts as its whole ellipse).
                       // coincident(p, l.mid()) lowers to midpoint(p, l).
 horizontal(l)         // line horizontal — or an ellipse's RX axis along X —
                       // or horizontal(p1, p2, ...): equal y
@@ -53,11 +54,11 @@ vertical(l)           // line vertical — or an ellipse's RX axis along Y —
 parallel(a, b, ...more)
                       // two or more lines, all paralleled to the first
 perpendicular(a, b)   // two lines
-tangent(a, b)         // line/arc/circle/ellipse tangent to another (not two lines)
+tangent(a, b)         // line/arc/circle/ellipse/eArc tangent to another (not two lines)
 equal(a, b, ...more)  // equal length (lines), equal radius (arcs/circles) or
                       // equal shape (ellipses: both semi-radii); two or more
                       // entities, all equated to the first
-concentric(a, b)      // arcs/circles/ellipses share a center
+concentric(a, b)      // arcs/circles/ellipses/eArcs share a center
 collinear(a, b)       // line along another line — or along xAxis()/yAxis()
 midpoint(p, l)        // point at the line's midpoint
 midpoint(p, a, b)     // point halfway between two points a and b
@@ -75,7 +76,8 @@ distance(p1, p2, value, 'x')  // point–point measured along one axis ('x' | 'y
 angle(a, b, degrees)          // CCW angle from line a to line b, 0–360
 radius(c, value)              // arc or circle radius
 radius(e, value, 'x')         // an ellipse's RX semi-radius ('y' for RY) — the
-                              // axis is required there, refused on arcs/circles
+                              // axis is required there, refused on arcs/circles;
+                              // an elliptical arc (eArc) takes the same form
 diameter(c, value)            // arc or circle diameter
 offsetFrom(o, s, value)       // o held `value` from s: a line parallel to its
                               // source, an arc/circle concentric at R ± value

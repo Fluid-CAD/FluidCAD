@@ -10,6 +10,7 @@
 // piece.
 
 import type { SolvedEmissionTargetParam, SplittableEntityParam } from '../../api';
+import { isEllipseLike } from '../../sketch-solver-client/model';
 import type { SolvedEntityView, SolvedSketchModel } from '../../sketch-solver-client/model';
 import { entityIntersections, type Crossing } from '../../sketch-solver-client/intersections';
 import { lineDir, type Vec2 } from '../../sketch-solver-client/resolve';
@@ -205,14 +206,14 @@ function circleSegment(view: SolvedEntityView, model: SolvedSketchModel, at: Vec
  * The entity a crossing belongs to, as the emission target the cut end is
  * pinned to: a T-junction names the end of it the crossing sits on. Null
  * when there is nothing a coincident can name — a bezier or spline curve, an
- * ellipse, an anchor point, a looped statement.
+ * ellipse or elliptical arc, an anchor point, a looped statement.
  */
 function cutterTarget(model: SolvedSketchModel, crossing: Crossing): SolvedEmissionTargetParam | null {
   if (crossing.entityId === null) {
     return null;
   }
   const view = model.entities.get(crossing.entityId);
-  if (!view || view.anchor || view.kind === 'ellipse' || view.kind === 'point') {
+  if (!view || view.anchor || isEllipseLike(view.kind) || view.kind === 'point') {
     return null;
   }
   const target = entityTarget(model, view);

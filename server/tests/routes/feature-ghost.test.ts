@@ -1294,6 +1294,55 @@ describe('feature-ghost route — up to face', () => {
   });
 });
 
+describe('feature-ghost route — a face as the extrude profile', () => {
+  useGhostRoute();
+
+  // `extrude(d, <face>)`: the profile is a picked face, by its viewport address.
+  const faceBody = {
+    feature: 'extrude', op: 'add', distance: 10, distance2: null, symmetric: false, draft: null,
+    endOffset: null, drill: true, thin: null, profile: { kind: 'face', shapeId: 's1', index: 4 },
+  };
+
+  it('passes the picked face through as the profile, with a target beside it', async () => {
+    const { status } = await postGhost(faceBody);
+    expect(status).toBe(200);
+    expect(received.profile).toEqual({ kind: 'face', shapeId: 's1', index: 4 });
+    expect(received.regions).toBeUndefined();
+
+    const toFace = { kind: 'face', shapeId: 's1', index: 2 };
+    const targeted = await postGhost({ ...faceBody, distance: null, toFace });
+    expect(targeted.status).toBe(200);
+    expect(received).toMatchObject({ profile: { kind: 'face', shapeId: 's1', index: 4 }, toFace });
+  });
+
+  it.each([
+    { kind: 'face' },
+    { kind: 'face', shapeId: 's1' },
+    { kind: 'face', shapeId: '', index: 0 },
+    { kind: 'face', shapeId: 's1', index: -1 },
+    { kind: 'face', shapeId: 's1', index: 1.5 },
+  ])('refuses a malformed face profile %j', async (profile) => {
+    const { status, body } = await postGhost({ ...faceBody, profile });
+    expect(status).toBe(400);
+    expect(body.reason).toBe('Invalid profile reference');
+    expect(received).toBeUndefined();
+  });
+
+  it('refuses the regions and thin offsets a face cannot carry', async () => {
+    expect((await postGhost({ ...faceBody, regions: [{ name: 'outer' }] })).status).toBe(400);
+    expect((await postGhost({ ...faceBody, thin: [2] })).status).toBe(400);
+    expect(received).toBeUndefined();
+  });
+
+  it('keeps the face form to extrude — a revolve profile is a sketch', async () => {
+    const { status } = await postGhost({
+      feature: 'revolve', op: 'add', angle: 360, symmetric: false, thin: null,
+      profile: faceBody.profile, axis: { kind: 'standard', axis: 'y' },
+    });
+    expect(status).toBe(400);
+  });
+});
+
 describe('feature-ghost route — region picks', () => {
   useGhostRoute();
 

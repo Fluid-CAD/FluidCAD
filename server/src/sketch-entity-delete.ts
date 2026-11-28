@@ -312,6 +312,12 @@ export class SketchEntityDelete extends SketchEntityRewrite {
           return null;
         }
         return property === 'start' ? args[0] : property === 'end' ? args[1] : property === 'center' ? args[2] : null;
+      case 'eArc':
+        // eArc(start, end, center, rx, ry[, rotation]): the three points lead.
+        if (args.length < 5) {
+          return null;
+        }
+        return property === 'start' ? args[0] : property === 'end' ? args[1] : property === 'center' ? args[2] : null;
       case 'circle':
       case 'ellipse':
         return property === 'center' && args.length >= 1 ? args[0] : null;

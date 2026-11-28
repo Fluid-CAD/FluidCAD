@@ -15,7 +15,38 @@ import type {
   SolveOutcome,
 } from '../../../lib/sketch-solver/types.js';
 
-export type SolvedEntityKind = 'point' | 'line' | 'circle' | 'arc' | 'ellipse';
+/** The solver's entity kinds, named as their statements are: `eArc` is the
+ * elliptical arc. */
+export type SolvedEntityKind = 'point' | 'line' | 'circle' | 'arc' | 'ellipse' | 'eArc';
+
+/** The kinds that lie on an ellipse and carry its `center`, `radii` and
+ * `theta`: the full ellipse and the elliptical arc. Everything an ellipse's
+ * outline answers (its normal, its semi-radius dimensions, its orientation)
+ * an elliptical arc answers the same way. */
+export function isEllipseLike(kind: SolvedEntityKind): boolean {
+  return kind === 'ellipse' || kind === 'eArc';
+}
+
+/** The open curves with `start`, `end` and `center` points and a drawn
+ * side: the circular arc and the elliptical arc. */
+export function isArcLike(kind: SolvedEntityKind): boolean {
+  return kind === 'arc' || kind === 'eArc';
+}
+
+/** How each entity kind reads in a message, with its article. */
+const ENTITY_KIND_LABELS: Record<SolvedEntityKind, string> = {
+  point: 'a point',
+  line: 'a line',
+  circle: 'a circle',
+  arc: 'an arc',
+  ellipse: 'an ellipse',
+  eArc: 'an elliptical arc',
+};
+
+/** An entity kind in plain words ("an elliptical arc"), for messages. */
+export function entityKindLabel(kind: SolvedEntityKind): string {
+  return ENTITY_KIND_LABELS[kind];
+}
 
 /** Statement-time argument values (the source literals, when the args are
  * literals) — the drag write-back drift-guards its splices against these. */
@@ -25,11 +56,12 @@ export type SolvedEntityGuess = {
   end?: [number, number];
   center?: [number, number];
   diameter?: number;
-  /** An ellipse's semi-radius literals. */
+  /** An ellipse's or an elliptical arc's semi-radius literals. */
   rx?: number;
   ry?: number;
-  /** An ellipse's 4th argument in DEGREES — present only when the statement
-   * carries it (its absence means the write-back appends one). */
+  /** An ellipse's or an elliptical arc's trailing rotation argument in
+   * DEGREES — present only when the statement carries it (its absence
+   * means the write-back appends one). */
   rotation?: number;
 };
 
@@ -46,8 +78,8 @@ export type SolvedEntityView = {
   center?: [number, number];
   radius?: number;
   cw?: boolean;
-  /** An ellipse's rotation of its RX axis from the sketch x direction,
-   * RADIANS (the solver's param). */
+  /** An ellipse's or an elliptical arc's rotation of its RX axis from the
+   * sketch x direction, RADIANS (the solver's param). */
   theta?: number;
   guess?: SolvedEntityGuess;
   /**
@@ -82,7 +114,8 @@ export type SolvedEntityView = {
    * An ellipse's solved semi-radii along its own RX/RY axes — free params
    * like a circle's radius, dimensioned with radius(el, v, 'x' | 'y').
    * With `center` and `theta` they are the whole outline the live drag
-   * redraws (tessellate.ts).
+   * redraws (tessellate.ts). An elliptical arc carries the same three for
+   * the ellipse it lies on, plus `start`, `end` and `cw` like an arc.
    */
   radii?: [number, number];
 };
@@ -207,6 +240,7 @@ const ENTITY_KINDS: Record<string, SolvedEntityKind> = {
   'solved-circle': 'circle',
   'solved-arc': 'arc',
   'solved-ellipse': 'ellipse',
+  'solved-earc': 'eArc',
 };
 
 /** Reference producers (P6): their payload's `entities` array joins each
@@ -249,6 +283,12 @@ function snapshotEntityView(
     view.center = [p[o], p[o + 1]];
     view.radii = [p[o + 2], p[o + 3]];
     view.theta = p[o + 4];
+  } else if (kind === 'eArc') {
+    view.center = [p[o], p[o + 1]];
+    view.radii = [p[o + 2], p[o + 3]];
+    view.theta = p[o + 4];
+    view.start = [p[o + 5], p[o + 6]];
+    view.end = [p[o + 7], p[o + 8]];
   } else {
     view.point = [p[o], p[o + 1]];
   }
@@ -466,6 +506,16 @@ function entityView(obj: SceneObjectRender, kind: SolvedEntityKind): SolvedEntit
       // The payload's rotation is degrees (the statement's unit); the view
       // keeps the solver's radians.
       view.theta = typeof payload.rotation === 'number' ? (payload.rotation * Math.PI) / 180 : 0;
+      break;
+    case 'eArc':
+      view.center = toPair(payload.center);
+      view.start = toPair(payload.start);
+      view.end = toPair(payload.end);
+      if (typeof payload.rx === 'number' && typeof payload.ry === 'number') {
+        view.radii = [payload.rx, payload.ry];
+      }
+      view.theta = typeof payload.rotation === 'number' ? (payload.rotation * Math.PI) / 180 : 0;
+      view.cw = payload.cw === true;
       break;
   }
   return view;

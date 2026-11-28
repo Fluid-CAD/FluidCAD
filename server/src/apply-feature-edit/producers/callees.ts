@@ -55,6 +55,7 @@ export const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
   circle: ['circle'],
   ellipse: ['ellipse'],
   arc: ['arc'],
+  eArc: ['eArc'],
   bezier: ['bezier'],
   spline: ['spline'],
   offset: ['offset'],

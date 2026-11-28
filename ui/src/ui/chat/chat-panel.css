@@ -132,6 +132,60 @@
   color: var(--color-error);
 }
 
+/* The messages waiting for their turn (§29): a quiet list over the composer. */
+[data-role='chat-panel'] .chat-queue {
+  flex-shrink: 0;
+  padding: 0 12px;
+}
+
+[data-role='chat-panel'] .chat-queue-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 148px;
+  margin-top: 6px;
+  padding: 4px 4px 4px 8px;
+  overflow-y: auto;
+  border: 1px solid var(--chat-line);
+  border-radius: var(--radius-field);
+  background: var(--chat-surface);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+[data-role='chat-panel'] .chat-queue-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding-right: 4px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+[data-role='chat-panel'] .chat-queue-icon {
+  flex-shrink: 0;
+  color: var(--chat-faint);
+}
+
+[data-role='chat-panel'] .chat-queue-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-role='chat-panel'] .chat-queue-extras {
+  flex-shrink: 0;
+  color: var(--chat-faint);
+}
+
 [data-role='chat-panel'] .chat-composer {
   flex-shrink: 0;
   padding: 8px 12px 12px;
@@ -838,6 +892,157 @@
   flex-direction: row;
   align-items: center;
   gap: 6px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-approval-link {
+  margin-left: 2px;
+  font-size: inherit;
+  color: var(--color-base-content);
+}
+
+/* --- Install confirmation (install_package) -------------------------------- */
+
+[data-role='chat-panel'] .chat-install {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 12%, transparent);
+  background: color-mix(in oklab, var(--color-base-content) 3%, var(--color-base-100));
+}
+
+[data-role='chat-panel'] .chat-install-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+[data-role='chat-panel'] .chat-install-icon {
+  margin-top: 1px;
+  color: var(--color-primary);
+}
+
+[data-role='chat-panel'] .chat-install-name-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+
+[data-role='chat-panel'] .chat-install-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-base-content);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-install-version {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-install-meta,
+[data-role='chat-panel'] .chat-install-facts,
+[data-role='chat-panel'] .chat-install-loading {
+  font-size: 11px;
+  color: var(--chat-muted);
+}
+
+[data-role='chat-panel'] .chat-install-description {
+  margin: 0;
+  color: var(--color-base-content);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-install-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-role='chat-panel'] .chat-install-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--chat-muted);
+  overflow-wrap: anywhere;
+}
+
+[data-role='chat-panel'] .chat-install-note.chat-install-warning {
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-install-note.chat-install-warning > span:first-child {
+  color: var(--color-warning);
+}
+
+/* Install as a split button (the Hub panel's): the chevron opens the places, the choice shows beside it. */
+[data-role='chat-panel'] .chat-install-split {
+  position: relative;
+}
+
+[data-role='chat-panel'] .chat-install-chevron {
+  padding-inline: 5px;
+  border-left: 1px solid color-mix(in oklab, var(--color-primary-content) 25%, transparent);
+}
+
+[data-role='chat-panel'] .chat-install-where {
+  font-size: 11px;
+  color: var(--chat-muted);
+}
+
+/* Opens upward: a waiting card sits at the foot of the conversation. */
+[data-role='chat-panel'] .chat-install-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 4px);
+  z-index: 20;
+  width: 15rem;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  border: 1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent);
+  background: var(--color-base-100);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+[data-role='chat-panel'] .chat-install-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-align: left;
+  color: var(--color-base-content);
+}
+
+[data-role='chat-panel'] .chat-install-option:hover,
+[data-role='chat-panel'] .chat-install-option[aria-checked='true'] {
+  background: color-mix(in oklab, var(--color-base-content) 6%, transparent);
+}
+
+[data-role='chat-panel'] .chat-install-option-check {
+  margin-top: 1px;
+  color: var(--color-primary);
+}
+
+[data-role='chat-panel'] .chat-install-option-text {
+  display: flex;
+  flex-direction: column;
+}
+
+[data-role='chat-panel'] .chat-install-option-hint {
+  font-size: 11px;
   color: var(--chat-muted);
 }
 

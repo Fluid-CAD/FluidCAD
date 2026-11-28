@@ -4,6 +4,7 @@ import type { ProjectionOp } from '../api';
 import { LineTool } from './tools/line-tool';
 import { CircleTool } from './tools/circle-tool';
 import { EllipseTool } from './tools/ellipse-tool';
+import { EllipticalArcTool } from './tools/elliptical-arc-tool';
 import { CenterArcTool } from './tools/center-arc-tool';
 import { ThreePointArcTool } from './tools/three-point-arc-tool';
 import { RectTool } from './tools/rect-tool';
@@ -15,6 +16,7 @@ import { SplineTool } from './tools/spline-tool';
 import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
 import { ReferenceImageTool } from './tools/reference-image-tool';
+import { DrawingImportTool, DXF_IMPORT, SVG_IMPORT } from './tools/drawing-import-tool';
 import { ReferenceImageController } from '../scene/reference-image-controller';
 import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
 import { DimensionLabelDragHandler } from './drag-move-handler/dimension-label-drag-handler';
@@ -865,6 +867,11 @@ export class SketchToolbarService {
         return applySolvedContext(new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.polygonModeChecked));
       case 'arc2':
         return applySolvedContext(new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
+      case 'earc': {
+        const tool = applySolvedContext(new EllipticalArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
       case 'arc3': {
         const tool = applySolvedContext(new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
         tool.onSceneUpdate(sceneObjects, sketchId);
@@ -918,6 +925,15 @@ export class SketchToolbarService {
           onRequestExit: () => this.handleToolSelect(null),
         });
       }
+      case 'dxf':
+      case 'svg':
+        // The drawing is read and placed in the page; Import writes its
+        // curves as the sketch's own statements through the solved rail,
+        // in one edit. One tool for both formats: only the reader differs.
+        return applySolvedContext(new DrawingImportTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, {
+          source: toolId === 'svg' ? SVG_IMPORT : DXF_IMPORT,
+          onRequestExit: () => this.handleToolSelect(null),
+        }));
       default:
         return null;
     }
@@ -1050,6 +1066,7 @@ export class SketchToolbarService {
       filePath: info.sourceLocation.filePath,
       geometry,
       constraints,
+      ...(request.texts && request.texts.length > 0 ? { texts: request.texts } : {}),
       ...(request.newVariables && request.newVariables.length > 0
         ? { newVariables: request.newVariables } : {}),
       ...(request.removals && request.removals.length > 0

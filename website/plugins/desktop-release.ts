@@ -45,6 +45,7 @@ const KINDS: {test: RegExp; platform: 'mac' | 'windows' | 'linux'; label: (name:
   {test: /\.exe$/i, platform: 'windows', label: () => 'Installer (.exe)'},
   {test: /\.appimage$/i, platform: 'linux', label: () => 'AppImage'},
   {test: /\.deb$/i, platform: 'linux', label: () => 'Debian package (.deb)'},
+  {test: /\.rpm$/i, platform: 'linux', label: () => 'RPM package (.rpm)'},
 ];
 
 type GitHubAsset = {name: string; browser_download_url: string; size: number};

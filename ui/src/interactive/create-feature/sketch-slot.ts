@@ -1,4 +1,4 @@
-import { SketchProfileOption, keepSketchChip, sourceChip } from './sketch-profiles';
+import { SketchProfileOption, keepChip, keepSketchChip, sourceChip } from './sketch-profiles';
 import { PickSlot } from '../pick-slot';
 import { RegionPickControl } from './region-pick-control';
 import { consumedReveal } from './consumed-reveal';
@@ -10,6 +10,12 @@ export type SketchSlotSelection =
   | { kind: 'sketch'; option: SketchProfileOption };
 
 /**
+ * The state of a slot that also takes a face (`faces`): `face` is one picked
+ * in the viewport in place of a sketch — the owning service keeps the entity.
+ */
+export type ProfileSlotSelection = SketchSlotSelection | { kind: 'face'; label: string };
+
+/**
  * The single-sketch picker the profile slots share (extrude, revolve, sweep,
  * wrap): a single-chip PickSlot owning the option list and its selection —
  * defaulting to the first offered sketch (the active one, in sketch mode),
@@ -18,7 +24,9 @@ export type SketchSlotSelection =
  * profile, and wearing the shared empty-slot prompts. The panel owns arming
  * policy. `regions` adds the region row under the chip — the "Pick regions"
  * link and pick count the swept features carry (a rib's spine has no
- * regions to pick).
+ * regions to pick). `faces` lets the slot hold a picked face instead of a
+ * sketch (extrude sweeps a face as it stands): the service owns the entity
+ * and pushes its chip through {@link selectFace}.
  */
 export class SketchSlotControl {
   /** The slot was clicked — the panel arms it as the pick target. */
@@ -32,12 +40,17 @@ export class SketchSlotControl {
   private readonly slot: PickSlot;
   private readonly host: HTMLElement;
   private optionList: SketchProfileOption[] = [];
-  private state: SketchSlotSelection | null = null;
+  private state: ProfileSlotSelection | null = null;
+  /** The choice a picked face replaced — what its ✕ goes back to. */
+  private beforeFace: ProfileSlotSelection | null = null;
   /** Edit mode: the statement's own profile text (null when implicit). */
-  private keep: { label: string | null } | null = null;
+  private keep: { label: string | null; face: boolean } | null = null;
+  /** The slot takes a picked face as well as a sketch. */
+  private readonly faces: boolean;
 
-  constructor(host: HTMLElement, opts: { label?: string; boxed?: boolean; regions?: boolean } = {}) {
+  constructor(host: HTMLElement, opts: { label?: string; boxed?: boolean; regions?: boolean; faces?: boolean } = {}) {
     this.host = host;
+    this.faces = opts.faces === true;
     this.slot = new PickSlot(host, {
       label: opts.label ?? 'Sketch',
       multiple: false,
@@ -54,9 +67,11 @@ export class SketchSlotControl {
     }
     this.slot.onArm = () => this.onArm?.();
     this.slot.onRemove = () => {
-      // Create mode: back to the prompt; edit mode: back to the statement's
-      // own profile (a re-pick is undone, never the profile itself).
-      this.state = this.fallbackState();
+      // A picked face gives the slot back to the sketch it replaced.
+      // Otherwise, create mode: back to the prompt; edit mode: back to the
+      // statement's own profile (a re-pick is undone, never the profile).
+      this.state = this.state?.kind === 'face' ? this.restoredState() : this.fallbackState();
+      this.beforeFace = null;
       this.render();
       this.onChange?.();
     };
@@ -79,6 +94,7 @@ export class SketchSlotControl {
   reset(options: SketchProfileOption[]): void {
     this.keep = null;
     this.state = null;
+    this.beforeFace = null;
     this.optionList = options;
     // The default pick is the active sketch, else the last sketch in scene
     // order — the one a bare `extrude()` would take, used or not (a region
@@ -92,11 +108,41 @@ export class SketchSlotControl {
     this.render();
   }
 
-  /** Seed the edited statement's own profile (edit mode); label null = implicit. */
-  seedKeep(label: string | null): void {
-    this.keep = { label };
+  /**
+   * Seed the edited statement's own profile (edit mode); label null =
+   * implicit. `face` marks a profile that is not a sketch — a face selector
+   * (`extrude(10, e.endFaces())`) — so its chip reads as the expression.
+   */
+  seedKeep(label: string | null, face = false): void {
+    this.keep = { label, face: face && label !== null };
     this.optionList = [];
     this.state = { kind: 'keep' };
+    this.beforeFace = null;
+    this.render();
+  }
+
+  /**
+   * A face was picked in the viewport as the profile (the service owns the
+   * entity). No events fire.
+   */
+  selectFace(label: string): void {
+    if (this.state?.kind !== 'face') {
+      this.beforeFace = this.state;
+    }
+    this.state = { kind: 'face', label };
+    this.render();
+  }
+
+  /**
+   * Drop the picked face — it was toggled off, or its shape died with a
+   * re-render — back to the choice it replaced. No events fire.
+   */
+  clearFace(): void {
+    if (this.state?.kind !== 'face') {
+      return;
+    }
+    this.state = this.restoredState();
+    this.beforeFace = null;
     this.render();
   }
 
@@ -108,15 +154,30 @@ export class SketchSlotControl {
   setOptions(options: SketchProfileOption[]): void {
     this.optionList = options;
     if (this.state?.kind === 'sketch') {
-      const prev = this.state.option;
-      const match = options.find(o => o.kind === prev.kind
-        && (o.kind === 'active' || (o.filePath === prev.filePath && o.line === prev.line)));
-      this.state = match ? { kind: 'sketch', option: match } : this.fallbackState();
+      this.state = this.rematched(this.state);
+    }
+    // The sketch a picked face replaced follows the options too.
+    if (this.beforeFace?.kind === 'sketch') {
+      this.beforeFace = this.rematched(this.beforeFace);
     }
     this.render();
   }
 
+  /** The same sketch among the current options, else the fallback. */
+  private rematched(state: { kind: 'sketch'; option: SketchProfileOption }): SketchSlotSelection | null {
+    const prev = state.option;
+    const match = this.optionList.find(o => o.kind === prev.kind
+      && (o.kind === 'active' || (o.filePath === prev.filePath && o.line === prev.line)));
+    return match ? { kind: 'sketch', option: match } : this.fallbackState();
+  }
+
+  /** The sketch choice; null too while the slot holds a picked face. */
   selection(): SketchSlotSelection | null {
+    return this.state?.kind === 'face' ? null : this.state;
+  }
+
+  /** The full state of a slot that takes faces, a picked face included. */
+  profileSelection(): ProfileSlotSelection | null {
     return this.state;
   }
 
@@ -131,6 +192,7 @@ export class SketchSlotControl {
       return false;
     }
     this.state = { kind: 'sketch', option };
+    this.beforeFace = null;
     this.render();
     return true;
   }
@@ -145,6 +207,7 @@ export class SketchSlotControl {
       return false;
     }
     this.state = { kind: 'sketch', option };
+    this.beforeFace = null;
     this.render();
     return true;
   }
@@ -159,6 +222,19 @@ export class SketchSlotControl {
     return this.keep !== null ? { kind: 'keep' } : null;
   }
 
+  /** What a dropped face hands the slot back to: the choice it replaced. */
+  private restoredState(): ProfileSlotSelection | null {
+    return this.beforeFace ?? this.fallbackState();
+  }
+
+  /** The empty slot's prompt. */
+  private emptyPrompt(): string {
+    if (this.faces) {
+      return 'Pick a sketch or a face';
+    }
+    return this.optionList.length > 0 || this.editMode ? 'Pick a sketch' : 'No sketch — create one first';
+  }
+
   /** The slot: one chip (the chosen sketch), or the pick prompt. */
   private render(): void {
     const state = this.state;
@@ -166,17 +242,16 @@ export class SketchSlotControl {
     consumedReveal.set(this, this.host, state?.kind === 'sketch' && state.option.consumer ? state.option : null);
 
     if (state?.kind === 'keep') {
-      this.slot.setChips([keepSketchChip(this.keep?.label ?? null)]);
+      this.slot.setChips([this.keep?.face ? keepChip(this.keep.label!) : keepSketchChip(this.keep?.label ?? null)]);
+      this.slot.setPrompt(null);
+    } else if (state?.kind === 'face') {
+      this.slot.setChips([{ label: state.label, badge: '●', removable: true }]);
       this.slot.setPrompt(null);
     } else {
       this.slot.setChips(state
         ? [sourceChip(state.option, { badge: '●', removable: true })]
         : []);
-      this.slot.setPrompt(state
-        ? null
-        : this.optionList.length > 0 || this.editMode
-          ? 'Pick a sketch'
-          : 'No sketch — create one first');
+      this.slot.setPrompt(state ? null : this.emptyPrompt());
     }
   }
 }

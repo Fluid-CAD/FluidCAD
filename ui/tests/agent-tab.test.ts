@@ -110,6 +110,31 @@ describe('Settings → Agent', () => {
     expect(agentSettings.current).toMatchObject({ claudeModel: 'sonnet', codexEffort: 'high', permissionMode: 'auto-edits' });
   });
 
+  it('shows "Always" for installs as a toggle, and sends it only when changed here', async () => {
+    applyAgentPreferences({ agent: { defaultAgent: null, permissionMode: 'ask', alwaysAllowInstalls: true } } as UserPreferences);
+    const h = mount();
+    h.modal.show('agent');
+    await settle();
+    const toggle = h.$<HTMLInputElement>('[data-ref="always-allow-installs"]');
+    expect(toggle.checked).toBe(true);
+    toggle.checked = false;
+    toggle.dispatchEvent(new Event('change'));
+    h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
+    await settle();
+    expect(h.save.mock.calls[0][0]).toEqual({ defaultAgent: null, permissionMode: 'ask', alwaysAllowInstalls: false });
+    expect(agentSettings.current.alwaysAllowInstalls).toBeUndefined();
+
+    // Another field saved: the toggle, untouched, is not sent.
+    h.modal.show('agent');
+    await settle();
+    const mode = h.$<HTMLSelectElement>('[data-ref="permission-mode"]');
+    mode.value = 'auto-edits';
+    mode.dispatchEvent(new Event('change'));
+    h.overlay.querySelector<HTMLButtonElement>('[data-ref="save"]')!.click();
+    await settle();
+    expect(h.save.mock.calls[1][0]).toEqual({ defaultAgent: null, permissionMode: 'auto-edits' });
+  });
+
   it('Check again detects afresh', async () => {
     const h = mount();
     h.modal.show('agent');

@@ -27,7 +27,7 @@ The export is of the scene as served. Confirm `render.state` is `rendered` with 
 - **Coordinates and units.** The drawing keeps model coordinates in the document's unit and declares that unit; nothing is recentred or scaled. A point at (12, 7, z) is at (12, 7) in a top view.
 - **Layers.** Visible edges and silhouettes are on `VISIBLE`. `hiddenLines: true` adds the edges behind the model, dashed, on `HIDDEN`; `tangentEdges: true` adds smooth edges such as a fillet's borders on `TANGENT`. Leave both off for a cutting outline: a cutter follows every line it is given.
 - **Several shapes** are drawn together, the nearer hiding the farther. To cut parts separately, export each on its own.
-- `resolution`, `includeColors` and `scaleTo` belong to the 3D formats and are refused here. `assembly: true` has no DXF yet: pass the `shapeIds` of the solids.
+- `resolution`, `includeColors` and `scaleTo` belong to the 3D formats and are refused here. `assembly: true` in place of `shapeIds` draws the whole assembly, every part where it sits, one hiding another.
 - If the result has `warnings` (curves that had to be approximated by polylines), tell the user.
 - A drawing is checked like a model: it shows what the view shows. Look at the same view with `screenshot` (`view: "top"`, …) before handing it over; a feature on the far side is not in the outline.
 

@@ -1,50 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { SketchSystem, center, end, entityRef, start } from "../../sketch-solver/index.js";
-import { makeLcg } from "../solver-core/synthetic.js";
+import { fdCheckRows } from "./fd-rows.js";
 
 // Analytic-Jacobian cross-check against centered finite differences
 // for every constraint kind and overload form, at random generic
 // configurations (the ezpz practice). A menagerie system holds one
 // instance of every form; conflicts are irrelevant — rows are only
 // evaluated, never solved.
-
-/** FD-verify every compiled row of the system at perturbed configs. */
-function fdCheckRows(sys: SketchSystem, seeds: number[], amp: number): void {
-  const compiled = sys.compiled();
-  expect(compiled.rows.length).toBeGreaterThan(0);
-  for (const seed of seeds) {
-    const rand = makeLcg(seed);
-    const p = new Float64Array(sys.values);
-    for (let i = 0; i < p.length; i++) {
-      p[i] += (rand() * 2 - 1) * amp;
-    }
-    for (let k = 0; k < compiled.rows.length; k++) {
-      const row = compiled.rows[k];
-      const analytic = new Float64Array(row.params.length);
-      row.jac(p, analytic);
-      // Aggregate per unique param (duplicate slots sum).
-      const byParam = new Map<number, number>();
-      for (let s = 0; s < row.params.length; s++) {
-        byParam.set(row.params[s], (byParam.get(row.params[s]) ?? 0) + analytic[s]);
-      }
-      for (const [gp, an] of byParam) {
-        const h = 1e-6 * Math.max(1, Math.abs(p[gp]));
-        const saved = p[gp];
-        p[gp] = saved + h;
-        const plus = row.eval(p);
-        p[gp] = saved - h;
-        const minus = row.eval(p);
-        p[gp] = saved;
-        const fd = (plus - minus) / (2 * h);
-        expect(
-          Math.abs(fd - an),
-          `row ${k} (constraint ${sys.constraints()[compiled.rowConstraint[k]].id}, ` +
-            `${sys.constraints()[compiled.rowConstraint[k]].spec.kind}) ∂/∂p[${gp}]: fd=${fd} analytic=${an}`,
-        ).toBeLessThanOrEqual(2e-5 + 1e-4 * Math.abs(an));
-      }
-    }
-  }
-}
 
 describe("constraint jacobians vs finite differences", () => {
   it("covers every constraint kind and form", () => {

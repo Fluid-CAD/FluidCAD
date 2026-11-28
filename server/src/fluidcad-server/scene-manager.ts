@@ -239,6 +239,6 @@ export type SceneManager = {
   exportShapes(scene: any, shapeIds: string[], options: ExportOptions): ExportResult;
   exportAssembly(
     scene: any,
-    options: Omit<SolidExportOptions, 'unit'> & { name: string; livePoses?: AssemblyExportPose[] },
+    options: ExportOptions & { name: string; livePoses?: AssemblyExportPose[] },
   ): AssemblyExportOutcome;
 };

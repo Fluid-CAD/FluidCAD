@@ -1155,6 +1155,133 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('toFace');
   });
 
+  describe('a picked face as the extrude profile', () => {
+    const FACE_PROFILE = { mode: 'face', entity: { shapeId: 'shape-1', sub: { type: 'face', index: 5 } } };
+    /** The profile face, then the target face: one synthesis per pick, in that order. */
+    const startFacesSynthesis = {
+      ...toFaceSynthesis,
+      spec: {
+        ...toFaceSynthesis.spec,
+        parts: [{ producer: 0, accessor: 'startFaces', indices: null, filterArgs: null }],
+      },
+    };
+
+    it('synthesizes the face and renders it as the trailing argument', async () => {
+      currentSynthesis = toFaceSynthesis;
+      const { status, body } = await post({
+        feature: 'extrude', op: 'add', distance: 12, profile: FACE_PROFILE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('extrude(12, e.endFaces())');
+      expect(synthesizeCalls).toEqual([{ feature: 'extrude', value: undefined }]);
+      expect(synthesizeInputs[0].picks).toEqual([FACE_PROFILE.entity]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'extrude',
+        filePath: '/ws/m.fluid.js',
+        extrude: { op: 'add', distance: 12, profile: 'face', profilePart: 0 },
+        producers: [{ line: 4, featureType: 'extrude', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces' }],
+      });
+      // A face has no regions to declare.
+      expect(relayed[0].spec.extrude).not.toHaveProperty('regionPicks');
+      expect(relayed[0].spec.extrude).not.toHaveProperty('regionSketch');
+    });
+
+    it('previews the remove as cut(<depth>, <face>) and the two-distance and new forms', async () => {
+      currentSynthesis = toFaceSynthesis;
+      const cut = await post({ feature: 'extrude', op: 'remove', distance: 4, profile: FACE_PROFILE, preview: true });
+      expect(cut.body.preview).toBe('cut(4, e.endFaces())');
+      const two = await post({
+        feature: 'extrude', op: 'new', distance: 5, distance2: 8, draft: 3, profile: FACE_PROFILE, preview: true,
+      });
+      expect(two.body.preview).toBe('extrude(5, 8, e.endFaces()).draft(3).new()');
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('takes a picked target too, merging both faces\' producers into one binding', async () => {
+      currentSynthesis = [toFaceSynthesis, startFacesSynthesis];
+      const { status, body } = await post({
+        feature: 'extrude', op: 'add', distance: null, profile: FACE_PROFILE, toFace: TO_FACE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('extrude(e.startFaces(), e.endFaces())');
+      expect(synthesizeInputs.map(call => call.picks)).toEqual([[FACE_PROFILE.entity], [TO_FACE]]);
+      expect(relayed[0].spec.producers).toHaveLength(1);
+      expect(relayed[0].spec).toMatchObject({
+        extrude: { profile: 'face', profilePart: 0, toFace: 'selector', toFacePart: 1 },
+        parts: [{ producer: 0, accessor: 'endFaces' }, { producer: 0, accessor: 'startFaces' }],
+      });
+    });
+
+    it('writes a first-face target ahead of the face', async () => {
+      currentSynthesis = toFaceSynthesis;
+      const { body } = await post({
+        feature: 'extrude', op: 'add', distance: null, profile: FACE_PROFILE, toFace: 'first-face', preview: true,
+      });
+      expect(body.preview).toBe(`extrude('first-face', e.endFaces())`);
+    });
+
+    it('scopes the boolean to picked solids, reusing the face\'s own producer', async () => {
+      currentSynthesis = toFaceSynthesis;
+      const { body } = await post({
+        feature: 'extrude', op: 'add', distance: 12, profile: FACE_PROFILE,
+        scope: [{ filePath: '/ws/m.fluid.js', line: 4, column: 0 }, { filePath: '/ws/m.fluid.js', line: 9, column: 0 }],
+      });
+      expect(body.preview).toBe('extrude(12, e.endFaces()).scope(e, f)');
+      expect(relayed[0].spec.extrude.scope).toEqual([0, 1]);
+    });
+
+    it('rejects what a face cannot carry: thin walls, regions and a through-all cut', async () => {
+      const thin = await post({ feature: 'extrude', op: 'add', distance: 12, thin: [2], profile: FACE_PROFILE });
+      expect(thin.status).toBe(400);
+      expect(thin.body.error).toContain('thin');
+      const regions = await post({
+        feature: 'extrude', op: 'add', distance: 12, profile: FACE_PROFILE, regions: [{ name: 'r1' }],
+      });
+      expect(regions.status).toBe(400);
+      expect(regions.body.error).toContain('regions');
+      const through = await post({ feature: 'extrude', op: 'remove', distance: null, profile: FACE_PROFILE });
+      expect(through.status).toBe(400);
+      expect(through.body.error).toContain('through all');
+      expect(synthesizeCalls).toEqual([]);
+    });
+
+    it('rejects an edge pick as the profile', async () => {
+      const { status, body } = await post({
+        feature: 'extrude', op: 'add', distance: 12,
+        profile: { mode: 'face', entity: { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } } },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('face profile');
+    });
+
+    it('refuses a multi-part face synthesis and relays a synthesis refusal', async () => {
+      currentSynthesis = {
+        ...toFaceSynthesis,
+        spec: { ...toFaceSynthesis.spec, parts: [...toFaceSynthesis.spec.parts, ...startFacesSynthesis.spec.parts] },
+      };
+      const multi = await post({ feature: 'extrude', op: 'add', distance: 12, profile: FACE_PROFILE });
+      expect(multi.status).toBe(422);
+      expect(multi.body.reason).toContain('single face');
+      currentSynthesis = { ok: false, reason: 'that face has no stable selector', pick: FACE_PROFILE.entity };
+      const refused = await post({ feature: 'extrude', op: 'add', distance: 12, profile: FACE_PROFILE });
+      expect(refused.status).toBe(422);
+      expect(refused.body.reason).toContain('stable selector');
+    });
+
+    it('refuses a target face from a different file than the profile face', async () => {
+      currentSynthesis = [
+        toFaceSynthesis,
+        { ...startFacesSynthesis, spec: { ...startFacesSynthesis.spec, filePath: '/ws/other.fluid.js' } },
+      ];
+      const { status, body } = await post({
+        feature: 'extrude', op: 'add', distance: null, profile: FACE_PROFILE, toFace: TO_FACE,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('different files');
+    });
+  });
+
   const SWEEP_PROFILE = { mode: 'active', filePath: '/ws/m.fluid.js', line: 7, column: 0 };
   const SWEEP_PATH = { kind: 'sketch', filePath: '/ws/m.fluid.js', line: 3, column: 0 };
 
@@ -3394,6 +3521,91 @@ describe('apply-feature route validation', () => {
           parts: [{ producer: 0, accessor: 'startFaces' }],
           edit: { line: 6, column: 0, extrude: { toFace: { kind: 'selector' } } },
         });
+      });
+
+      it('re-sources the profile to a picked face: synthesis with the boundary, the selector as the trailing argument', async () => {
+        currentCode = TOFACE_CODE;
+        currentSynthesis = toFaceEditSynthesis;
+        const { status, body } = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          op: 'add', distance: 8, thin: null, regions: [],
+          profile: { mode: 'face', entity: FACE_PICK },
+          before: TOFACE_BEFORE,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('extrude(8, e.startFaces())');
+        expect(synthesizeBoundaries).toEqual([TOFACE_BEFORE]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'extrude',
+          producers: [{ line: 4, featureType: 'extrude', bind: true }],
+          parts: [{ producer: 0, accessor: 'startFaces' }],
+          edit: { line: 6, column: 0, extrude: { profile: { kind: 'selector', part: 0 } } },
+        });
+      });
+
+      it('re-picks the target and the profile face together, each from its own part', async () => {
+        currentCode = TOFACE_CODE;
+        currentSynthesis = [
+          toFaceEditSynthesis,
+          {
+            ...toFaceEditSynthesis,
+            spec: {
+              ...toFaceEditSynthesis.spec,
+              parts: [{ producer: 0, accessor: 'sideFaces', indices: [0], filterArgs: null }],
+            },
+          },
+        ];
+        const { status, body } = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          op: 'remove', distance: null, thin: null,
+          toFace: { kind: 'face', entity: FACE_PICK },
+          profile: { mode: 'face', entity: { shapeId: 'shape-1', sub: { type: 'face', index: 9 } } },
+          before: TOFACE_BEFORE,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe('cut(e.startFaces(), e.sideFaces(0))');
+        expect(relayed[0].spec.producers).toHaveLength(1);
+        expect(relayed[0].spec.edit.extrude).toMatchObject({
+          toFace: { kind: 'selector', part: 0 }, profile: { kind: 'selector', part: 1 },
+        });
+      });
+
+      it('keeps the target while the profile becomes a face', async () => {
+        currentCode = TOFACE_CODE;
+        currentSynthesis = toFaceEditSynthesis;
+        const { body } = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          op: 'add', distance: null, thin: null,
+          toFace: { kind: 'keep' },
+          profile: { mode: 'face', entity: FACE_PICK },
+          before: TOFACE_BEFORE,
+        });
+        expect(body.preview).toBe('extrude(e.endFaces(), e.startFaces())');
+      });
+
+      it('rejects a re-picked face profile without a boundary, or with thin walls', async () => {
+        currentCode = TOFACE_CODE;
+        const unbounded = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          op: 'add', distance: 8, thin: null,
+          profile: { mode: 'face', entity: FACE_PICK },
+        });
+        expect(unbounded.status).toBe(400);
+        expect(unbounded.body.error).toContain('before is required');
+        const thin = await post({
+          feature: 'extrude',
+          edit: { filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+          op: 'add', distance: 8, thin: [2],
+          profile: { mode: 'face', entity: FACE_PICK },
+          before: TOFACE_BEFORE,
+        });
+        expect(thin.status).toBe(400);
+        expect(thin.body.error).toContain('thin');
+        expect(synthesizeCalls).toEqual([]);
       });
 
       it('switches a to-face edit back to a distance, dropping the target', async () => {

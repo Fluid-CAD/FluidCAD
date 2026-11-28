@@ -26,6 +26,7 @@ import {
   SolvedSketchModel,
   curveControlPoints,
   buildSolvedSketchModel,
+  isArcLike,
   layoutConstraintGlyphs,
   tessellateCurve,
   tessellateSolvedEntity,
@@ -604,22 +605,20 @@ export class SketchMesh extends Group {
         // before the guide skip: guiding an entity marks every shape it
         // owns, but its center stays a solver point — draggable and
         // constrainable — so the dot must survive the conversion.
+        const lone = SketchMesh.loneVertices(shape);
         if (shape.isMetaShape) {
-          for (const meshData of shape.meshes) {
-            if (meshData.vertices.length === 3 && meshData.indices.length === 0) {
-              metaVertices.push(new Vector3(
-                meshData.vertices[0],
-                meshData.vertices[1],
-                meshData.vertices[2],
-              ));
-            }
-          }
+          metaVertices.push(...lone);
           continue;
         }
 
+        // A `point()` entity is a lone vertex and nothing else: no polyline
+        // to have ends, so the dot is all there is to see of it. A guide
+        // point stays a solver point too, and reads as a centre mark does.
         if (shape.isGuide) {
+          metaVertices.push(...lone);
           continue;
         }
+        target.push(...lone);
 
         for (const meshData of shape.meshes) {
           if (!meshData.indices.length) {
@@ -676,14 +675,27 @@ export class SketchMesh extends Group {
     this.addVertexDots(uniqueMeta, normal, worldFromMm(META_VERTEX_RADIUS_MM), META_VERTEX_PX_RADIUS, META_VERTEX_COLOR, 0.5);
   }
 
-  /** Whether the object's solver entity has start/end point roles (a line
-   * or an arc) — the roles a closed curve's seam vertex can stand for. */
+  /** The positions of a shape's meshes that are one vertex and no polyline:
+   * a centre mark, a text anchor, a `point()` entity. */
+  private static loneVertices(shape: SceneObjectRender['sceneShapes'][number]): Vector3[] {
+    const positions: Vector3[] = [];
+    for (const meshData of shape.meshes) {
+      if (meshData.vertices.length === 3 && meshData.indices.length === 0) {
+        positions.push(new Vector3(meshData.vertices[0], meshData.vertices[1], meshData.vertices[2]));
+      }
+    }
+    return positions;
+  }
+
+  /** Whether the object's solver entity has start/end point roles (a line,
+   * an arc or an elliptical arc) — the roles a closed curve's seam vertex
+   * can stand for. */
   private hasEndpointRoles(obj: SceneObjectRender): boolean {
     if (!this.isSolvedEntity(obj)) {
       return false;
     }
     const kind = this.solvedModel!.entities.get(obj.object!.entityId as number)?.kind;
-    return kind === 'line' || kind === 'arc';
+    return kind !== undefined && (kind === 'line' || isArcLike(kind));
   }
 
   /** Solved-entity child of this solved sketch (they report 'selectable'

@@ -90,7 +90,8 @@ const PICKED: Record<OperandKind, string> = { curve: 'edges', surface: 'faces' }
  * The service of an operand-row dialog: a tool whose statement takes rows
  * of curve and surface picks ({@link OperandRowPanel}), with options of its
  * own, that previews its result as a curve and is edited back from its
- * timeline row. Curves › Intersect and Curves › Project are two.
+ * timeline row. Curves › Intersect, Project and Offset are three; Curves ›
+ * Bridge has no operand rows, only its two ends beside them.
  *
  * It owns what every such dialog does alike:
  *
@@ -102,7 +103,8 @@ const PICKED: Record<OperandKind, string> = { curve: 'edges', surface: 'faces' }
  *   were re-picked.
  * - **Routing every gesture into the armed row**: a click, a sketch's wire
  *   in a curve row, a timeline row (refused in the row's words), a
- *   right-click group and a double-click growing an operand row. A
+ *   right-click group and a double-click growing an operand row, and the
+ *   hover a row beside them floats something for (an end row). A
  *   double-click's two clicks land first; when the first handed the border
  *   on and the second landed in the next row as its echo — the same pick,
  *   or the face behind the edge or the sketch's wire the first picked — the
@@ -179,8 +181,8 @@ export abstract class OperandRowService<
       this.closeExtras();
       this.syncChannels();
     };
-    for (const extra of this.extras) {
-      extra.onPick = outcome => this.landExtra(outcome);
+    for (const row of this.panel.extraRows) {
+      this.tool.extraRows[row].onPick = outcome => this.landExtra(row, outcome);
     }
 
     // Every group is offered, and each lands in the armed operand row as plain picks.
@@ -233,6 +235,11 @@ export abstract class OperandRowService<
   /** The armed dialog owns viewport clicks, double-clicks and the right-click menu. */
   get isPicking(): boolean {
     return this.armed;
+  }
+
+  /** A row beside the operand rows that floats something under the cursor is armed (an end row): the hover is its. */
+  get isHoverPicking(): boolean {
+    return this.armed && this.armedExtra()?.hover !== undefined;
   }
 
   /** A curve row is armed: a sketch's wire is its pick. */
@@ -520,7 +527,7 @@ export abstract class OperandRowService<
     const row = this.armedOperandRow();
     if (row === null) {
       this.recentClicks.forget();
-      void this.takeExtraClick(this.armedExtra(), shapeId, sub);
+      void this.takeExtraClick(this.armedExtraRow(), shapeId, sub);
       return;
     }
     const outcome = this.panel.slot(row).takeClick(shapeId, sub);
@@ -569,6 +576,18 @@ export abstract class OperandRowService<
     this.land(row, outcome);
   }
 
+  /**
+   * The cursor rests on (or moves along) a face, an edge or a vertex — or
+   * left them (`null`): the armed row beside the operand rows has it when it
+   * floats something under the cursor ({@link ExtraPickRow.hover}: an end
+   * row floats the hovered edge's nearest end).
+   */
+  handleHover(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
+    if (this.isHoverPicking) {
+      this.armedExtra().hover(shapeId, sub, clientX, clientY);
+    }
+  }
+
   /** A right-click on an edge or a face of a body: the multi-select menu for it, its group landing in the armed operand row. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
     if (!this.armed) {
@@ -600,12 +619,13 @@ export abstract class OperandRowService<
     }
     const row = this.armedOperandRow();
     if (row === null) {
-      const extra = this.armedExtra();
+      const extraRow = this.armedExtraRow();
+      const extra = this.tool.extraRows[extraRow];
       const outcome = extra.takeRow(obj);
       if (outcome === 'ignored') {
         this.panel.setMessage(`${obj.name || 'That row'} ${extra.rowRefusal}`);
       } else {
-        this.landExtra(outcome);
+        this.landExtra(extraRow, outcome);
       }
       return true;
     }
@@ -630,10 +650,16 @@ export abstract class OperandRowService<
     return this.panel.isOperandRow(row) ? row : null;
   }
 
+  /** The name of the armed row beside the operand rows, or null while an operand row holds the border. */
+  private armedExtraRow(): X | null {
+    const row = this.panel.armedRow;
+    return this.panel.isOperandRow(row) ? null : row;
+  }
+
   /** The armed row beside the operand rows, or null while an operand row holds the border. */
   private armedExtra(): ExtraPickRow | null {
-    const row = this.panel.armedRow;
-    return this.panel.isOperandRow(row) ? null : this.tool.extraRows[row];
+    const row = this.armedExtraRow();
+    return row === null ? null : this.tool.extraRows[row];
   }
 
   /** Keep the click for a double-click that may follow it. */
@@ -660,10 +686,10 @@ export abstract class OperandRowService<
   }
 
   /** An extra row's answer to a click, once it has it (the engine may be asked first). */
-  private async takeExtraClick(extra: ExtraPickRow, shapeId: string, sub: NonNullable<SubSelection>): Promise<void> {
-    const outcome = await extra.takeClick(shapeId, sub);
+  private async takeExtraClick(row: X, shapeId: string, sub: NonNullable<SubSelection>): Promise<void> {
+    const outcome = await this.tool.extraRows[row].takeClick(shapeId, sub);
     if (this.armed) {
-      this.landExtra(outcome);
+      this.landExtra(row, outcome);
     }
   }
 
@@ -675,9 +701,10 @@ export abstract class OperandRowService<
     }
   }
 
-  /** What an extra row answered: the pick lands, or its refusal shows. */
-  private landExtra(outcome: PickOutcome): void {
+  /** What the extra row `row` answered: the pick lands, handing the border on when the row joined the hand-on, or its refusal shows. */
+  private landExtra(row: X, outcome: PickOutcome): void {
     if (this.took(outcome)) {
+      this.panel.advanceFrom(row);
       this.changed();
     }
   }
@@ -940,10 +967,16 @@ export abstract class OperandRowService<
     }
   }
 
-  /** What the operand rows pick one by one: "faces", "edges and faces". */
+  /** What the rows pick one by one: "faces", "edges and faces" — and what the rows beside them say they pick ("ends"). */
   private pickedNoun(): string {
     const kinds = new Set(this.panel.rows.map(row => this.panel.slot(row).kind));
-    return (['curve', 'surface'] as const).filter(kind => kinds.has(kind)).map(kind => PICKED[kind]).join(' and ');
+    const nouns = (['curve', 'surface'] as const).filter(kind => kinds.has(kind)).map(kind => PICKED[kind]);
+    for (const extra of this.extras) {
+      if (extra.pickedNoun && !nouns.includes(extra.pickedNoun)) {
+        nouns.push(extra.pickedNoun);
+      }
+    }
+    return nouns.join(' and ');
   }
 
   private syncLauncher(): void {

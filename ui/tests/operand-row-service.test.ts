@@ -2,12 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PerspectiveCamera, Scene } from 'three';
 import type {
-  ApplyFeatureResponse, FeatureEditTarget, FeatureSourcesResult, IntersectionCurveApplyOptions, IntersectionCurveEditOptions,
-  IntersectionCurveGhostRequest, NewVariable, OperandInputRef, GhostOperandRef, SelectionGroup, ValueExpr,
+  ApplyFeatureResponse, BridgeGhostRequest, EditSessionFields, FeatureEditTarget, FeatureSourcesResult,
+  IntersectionCurveApplyOptions, IntersectionCurveEditOptions, IntersectionCurveGhostRequest, NewVariable, OperandInputRef,
+  GhostOperandRef, SelectionGroup, ValueExpr,
 } from '../src/api';
 import type { ExtraPickRow, ExtraRowHighlight } from '../src/interactive/create-feature/extra-pick-row';
 import type { FeatureLauncher } from '../src/interactive/create-feature/feature-button';
-import { OperandRowPanel, type ArmableControl } from '../src/interactive/create-feature/operand-row-panel';
+import { OperandRowPanel, type ArmableControl, type HandingControl } from '../src/interactive/create-feature/operand-row-panel';
 import { OperandRowService, type Blocked, type RowEdits, type RowLists } from '../src/interactive/create-feature/operand-row-service';
 import { RecentClicks, type ClickedPick } from '../src/interactive/create-feature/recent-clicks';
 import { NO_CHANNELS, type PickChannels, type PickOutcome } from '../src/interactive/create-feature/schema/schema-pickers';
@@ -27,7 +28,8 @@ import { FakeSelectionServer } from './fixtures/fake-selection-server';
 // because the suite shares one worker across files.
 
 let server: FakeSelectionServer;
-const services: FixtureService[] = [];
+/** Every dialog a test mounted, closed after it. */
+const services: { exit(): void }[] = [];
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -798,6 +800,198 @@ describe('the operand-row service — a value field', () => {
       .dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await vi.advanceTimersByTimeAsync(0);
     expect(applied(rig.service)).toEqual([{ kind: 'edit', request: { size: 7, expectedStatement: INFO.expectedStatement } }]);
+  });
+});
+
+/** The DOM half of a row beside the operand rows that joins the hand-on: it holds what the test says. */
+class StubHandingControl extends StubControl implements HandingControl {
+  held = false;
+  /** An edit's own argument, which the row keeps. */
+  kept = false;
+
+  holds(): boolean {
+    return this.held;
+  }
+
+  isEmpty(): boolean {
+    return !this.held && !this.kept;
+  }
+}
+
+/** A row beside the operand rows whose pick the test's control holds, and which, `hovers`, floats something under the cursor. */
+class StubHandingRow extends StubExtraRow {
+  readonly hovered: (string | null)[] = [];
+  hover?: (shapeId: string | null) => void;
+
+  constructor(private readonly control: StubHandingControl, hovers: boolean) {
+    super();
+    if (hovers) {
+      this.hover = shapeId => this.hovered.push(shapeId);
+    }
+  }
+
+  override async takeClick(shapeId: string): Promise<PickOutcome> {
+    const answer = await super.takeClick(shapeId);
+    if (answer === 'taken') {
+      this.control.held = true;
+    }
+    return answer;
+  }
+}
+
+type EndsRow = 'start' | 'finish' | 'loose';
+
+/** No operand rows: two rows that join the hand-on, and one beside them that does not. */
+class EndsPanel extends OperandRowPanel<never, EndsRow> {
+  readonly controls: Record<EndsRow, StubHandingControl>;
+
+  constructor(container: HTMLElement) {
+    super(container, { id: 'ends-fixture', title: 'Ends', editTitle: 'Edit ends', rows: [], bodyHtml: '' });
+    this.controls = {
+      start: this.armable('start', new StubHandingControl(), { handsOn: true }),
+      finish: this.armable('finish', new StubHandingControl(), { handsOn: true }),
+      loose: this.armable('loose', new StubHandingControl()),
+    };
+  }
+}
+
+/** The ends fixture borrows the bridge's statement kinds; its requests carry nothing of their own. */
+type EndsWires = {
+  parsed: ParsedFeatureOf<'bridge'>;
+  sources: Extract<FeatureSourcesResult, { feature: 'bridge' }>;
+  create: object;
+  edit: EditSessionFields;
+  ghost: BridgeGhostRequest;
+};
+
+class EndsService extends OperandRowService<never, EndsRow, EndsWires, EndsPanel> {
+  readonly rows: Record<EndsRow, StubHandingRow>;
+
+  constructor(container: HTMLElement, viewer: Viewer) {
+    const panel = new EndsPanel(container);
+    const rows = {
+      start: new StubHandingRow(panel.controls.start, true),
+      finish: new StubHandingRow(panel.controls.finish, true),
+      loose: new StubHandingRow(panel.controls.loose, false),
+    };
+    super(container, viewer, { setActive: () => {}, setDisabled: () => {}, remove: () => {} }, {}, panel, {
+      kind: 'bridge',
+      noun: 'ends fixture',
+      create: async () => APPLIED,
+      edit: async () => APPLIED,
+      extraRows: rows,
+    });
+    this.rows = rows;
+  }
+
+  protected isAvailable(): boolean {
+    return true;
+  }
+
+  protected createRequest(): object {
+    return {};
+  }
+
+  protected editRequest(): EditSessionFields {
+    return this.editSession({});
+  }
+
+  protected ghostRequest(): BridgeGhostRequest | null {
+    return null;
+  }
+}
+
+describe('the operand-row panel and service — rows beside no operand rows', () => {
+  function mountEnds() {
+    unmount();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const { viewer, channels } = stubViewer();
+    const service = new EndsService(container, viewer);
+    services.push(service);
+    service.update(scene());
+    return { service, channels, dialog: service.dialogPanel, controls: service.dialogPanel.controls, rows: service.rows };
+  }
+
+  it('opens on the first row of the hand-on, hands the border to the next while it is empty, and never from a row outside it', async () => {
+    const rig = mountEnds();
+    rig.service.enter();
+    expect(rig.dialog.armedRow).toBe('start');
+    expect(rig.controls.start.armed).toBe(true);
+    expect(rig.rows.start.calls).toContain('aim:true');
+    expect(rig.channels).toMatchObject({ pickFilter: 'vertex', pickVertices: true });
+
+    rig.service.handleClick('block-solid', edge(1).sub);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.rows.start.calls).toContain('click:block-solid');
+    expect(rig.dialog.armedRow).toBe('finish');
+
+    // The last row of the hand-on keeps the border; back on the first, the next holding a pick, so does it.
+    rig.service.handleClick('block-solid', edge(2).sub);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.dialog.armedRow).toBe('finish');
+    rig.dialog.armRow('start');
+    rig.service.handleClick('block-solid', edge(3).sub);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.dialog.armedRow).toBe('start');
+
+    // A pick by the row's own channel hands on too — and an edit's own argument in the next row is not empty.
+    rig.controls.finish.held = false;
+    rig.controls.finish.kept = true;
+    rig.rows.start.onPick!('taken');
+    expect(rig.dialog.armedRow).toBe('start');
+    rig.controls.finish.kept = false;
+    rig.rows.start.onPick!('taken');
+    expect(rig.dialog.armedRow).toBe('finish');
+
+    // A refusal hands nothing on.
+    rig.dialog.armRow('start');
+    rig.controls.finish.held = false;
+    rig.rows.start.onPick!({ message: 'Not that one.' });
+    expect(rig.dialog.armedRow).toBe('start');
+
+    // A row outside the hand-on is armed by a click on it, and keeps the border.
+    rig.dialog.armRow('loose');
+    rig.service.handleClick('block-solid', edge(4).sub);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.rows.loose.calls).toContain('click:block-solid');
+    expect(rig.dialog.armedRow).toBe('loose');
+
+    // A fresh dialog opens on the first row again.
+    rig.service.exit();
+    rig.service.enter();
+    expect(rig.dialog.armedRow).toBe('start');
+  });
+
+  it('hands the hover to the armed row when it floats something under the cursor, and to no other', () => {
+    const rig = mountEnds();
+    expect(rig.service.isHoverPicking).toBe(false);
+    rig.service.enter();
+    expect(rig.service.isHoverPicking).toBe(true);
+    rig.service.handleHover('block-solid', edge(1).sub, 3, 4);
+    rig.service.handleHover(null, null, 0, 0);
+    expect(rig.rows.start.hovered).toEqual(['block-solid', null]);
+
+    rig.dialog.armRow('finish');
+    rig.service.handleHover('block-solid', edge(2).sub, 3, 4);
+    expect(rig.rows.finish.hovered).toEqual(['block-solid']);
+
+    rig.dialog.armRow('loose');
+    expect(rig.service.isHoverPicking).toBe(false);
+    rig.service.handleHover('block-solid', edge(3).sub, 3, 4);
+    expect([...rig.rows.start.hovered, ...rig.rows.finish.hovered]).toHaveLength(3);
+
+    rig.service.exit();
+    expect(rig.service.isHoverPicking).toBe(false);
+  });
+
+  it('takes no hover while an operand row is armed', () => {
+    const rig = mount();
+    rig.service.enter();
+    expect(rig.service.isHoverPicking).toBe(false);
+    // The stub row beside them floats nothing either.
+    rig.dialog.armRow('extra');
+    expect(rig.service.isHoverPicking).toBe(false);
   });
 });
 

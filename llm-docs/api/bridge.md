@@ -1,7 +1,7 @@
 ---
 id: api/bridge
 title: bridge(from, to)
-summary: A smooth curve between two curve ends — closing the gap between two guide curves so a loft or a sweep has a continuous rail, a transition that leaves one edge and arrives at another, the fourth side of a boundary. Matches position, tangent (default) or curvature at each end; continuity and the two magnitudes are chained methods.
+summary: A smooth curve between two curve ends — closing the gap between two guide curves so a loft or a sweep has a continuous rail, a transition that leaves one edge and arrives at another, the fourth side of a boundary. Matches position, tangent (default) or curvature, set for both ends or each end; continuity and the two magnitudes are chained methods.
 tags: [api, 3d, curve, wire]
 symbols: [bridge]
 seeAlso: [api/projected-curve, api/intersection-curve, api/helix, api/sweep, api/loft, api/select, api/types/bridge]
@@ -14,7 +14,8 @@ the curve with `bezier()`).
 
 ```ts
 bridge(from: CurveEnd | Point, to: CurveEnd | Point): IBridge
-  .continuity('g0' | 'g1' | 'g2')   // default 'g1'
+  .continuity(both)                  // 'g0' | 'g1' | 'g2', default 'g1'
+  .continuity(start, end)            // each end its own
   .startMagnitude(n)                 // default 1, > 0
   .endMagnitude(n)                   // default 1, > 0
 ```
@@ -32,10 +33,10 @@ bridge(from: CurveEnd | Point, to: CurveEnd | Point): IBridge
   edge's start is its end towards −X, then −Y, then −Z). Which one is
   called start does not change how the bridge leaves it: at the end of an
   edge the bridge always continues the edge, out of it.
-- A **corner of a solid** has no point-only form: written as the end of an
-  edge through it (`e.endEdges(0).start()`), it is that edge's end, and the
-  bridge continues that edge. To leave a corner in a direction of your
-  choosing, take the end of the edge that runs the way you want.
+- A **corner of a solid** is written as the end of an edge through it
+  (`e.endEdges(0).start()`): with the default continuity the bridge
+  continues that edge. To meet the corner at its position only, give that
+  end `'g0'`: `.continuity('g1', 'g0')` (see below).
 - `.center()`, `.offset(…)` and an anchor on a face are refused.
 
 **The bridge continues each curve.** It leaves `from` in the direction that
@@ -48,14 +49,17 @@ other way).
 
 | Method | Meaning |
 |---|---|
-| `.continuity('g0')` | Position only: a straight line between the two points. |
+| `.continuity('g0')` | Position only: at both ends, a straight line between the two points. |
 | `.continuity('g1')` | The default: tangent — the bridge leaves and arrives along the curves. |
 | `.continuity('g2')` | Curvature too — the bridge bends as the curve bends where they meet (a straight end has zero curvature, and that is matched). |
+| `.continuity(start, end)` | Each end its own: the first value at `from`, the second at `to` — `.continuity('g2', 'g0')`. One value sets both ends; `.continuity('g1', 'g1')` is `.continuity('g1')`. |
 | `.startMagnitude(n)` | How far the bridge keeps going straight before it turns, at `from`. 1 by default; larger is fuller, smaller is tighter. A number or a parameter, greater than zero. |
 | `.endMagnitude(n)` | The same at `to`. |
 
-The continuity applies at both ends; an end that is a plain point only
-ever matches position.
+Each end is matched at the lower of its own continuity and what the end
+offers: an end that is a plain point only ever matches position. The main
+use of two values is a solid's corner, written as an edge end: `'g0'` at
+that end meets it at its position without following the edge.
 
 **Magnitude.** At each end the bridge leaves along the curve's direction
 at a speed — the length of its derivative there — of `magnitude ×` the
@@ -65,12 +69,15 @@ keeps on along the curve's direction longer and swings round in a fuller
 arc. Because the speed is measured against the gap, the shape stays the
 same when the whole layout is scaled. A tiny curvature radius against a
 long gap, or a large magnitude, can make the bridge loop; lower the
-magnitude at that end. The magnitudes do nothing with `'g0'`, but must
-still be greater than zero.
+magnitude at that end. An end at `'g0'` ignores its magnitude (and an end
+that is a plain point too), but a magnitude must still be greater than
+zero.
 
-**Shape.** One Bezier curve. Position at both ends is a line, tangent at
-both a cubic, curvature at both a quintic; mixed ends (a curve end and a
-point, `'g2'` at one end and a point at the other) something in between.
+**Shape.** One Bezier curve, of degree `c0 + c1 + 1` where each `c` is
+what its end is matched at (0 position, 1 tangent, 2 curvature). Position
+at both ends is a line, tangent at both a cubic, curvature at both a
+quintic; mixed ends (a curve end and a point, `.continuity('g2', 'g0')`)
+something in between.
 
 ## Result
 
@@ -93,7 +100,8 @@ it selects stays readable.
 | The two ends are the same point | `bridge: the two ends are at the same point.` Hint: `A bridge joins two ends apart from each other: pick the end of another curve, or a point elsewhere.` |
 | A magnitude is zero or negative (when the curve builds) | `bridge: a magnitude must be greater than zero.` Hint: `1 is the default: larger keeps the bridge going straight longer before it turns, smaller turns it sooner.` |
 | An end is `.center()`, `.offset(…)`, an anchor on a face, or no point at all | `bridge: an end is the start or the end of an edge, or a point.` Hint: `Take .start() or .end() of an edge or a curve (c.end(), e.sideEdges(2).start()), or give a vertex or a sketch point.` |
-| `.continuity(…)` outside its set (thrown where the statement is written) | `bridge: .continuity() takes 'g0', 'g1' or 'g2'.` |
+| `.continuity(…)` outside its set (thrown where the statement is written) | `bridge: .continuity() takes 'g0', 'g1' or 'g2'.` With two values, `… for the start.` or `… for the end.` |
+| `.continuity(…)` with three or more values | `bridge: .continuity() takes one value for both ends, or two: the start's and the end's; got 3.` |
 | A magnitude that is not a number (thrown where the statement is written) | `bridge: .startMagnitude() takes a number.` (or `.endMagnitude()`) |
 | An argument that is no end (a whole curve, a solid, a number) | `bridge: the from argument must be a curve end, the start() or end() of an edge or a curve, or a point; got a projected-curve.` (or `to`) |
 | Fewer or more than two arguments | `bridge: give the two ends to join: bridge(from, to), each the start() or end() of an edge or a curve, or a point.` / `bridge: takes two arguments, the two ends, got 3.` |
@@ -186,4 +194,42 @@ const { l, m } = rails.geometries;
 // the points; 2 runs on along each line and swings round in a fuller S.
 const tight = bridge(l.end(), m.start()).startMagnitude(0.5).endMagnitude(0.5);
 const full = bridge(l.end(), m.start()).startMagnitude(2).endMagnitude(2);
+```
+
+## Example: to a corner of a solid, at its position only
+
+```fluid.js
+import { sketch, line, extrude, plane, project, bridge, origin } from "fluidcad/core";
+import { coincident, distance, horizontal, vertical, fix } from "fluidcad/constraints";
+
+sketch("xy", () => {
+  const b = line([0, 0], [40, 0]);
+  const r = line([40, 0], [40, 20]);
+  const t = line([40, 20], [0, 20]);
+  const l = line([0, 20], [0, 0]);
+  coincident(b.start(), origin());
+  coincident(b.end(), r.start());
+  coincident(r.end(), t.start());
+  coincident(t.end(), l.start());
+  coincident(l.end(), b.start());
+  horizontal(b);
+  vertical(r);
+  horizontal(t);
+  vertical(l);
+  distance(b.start(), b.end(), 40);
+  distance(r.start(), r.end(), 20);
+});
+const body = extrude(10);
+
+// A rail on the top face.
+const rail = project(sketch(plane("xy", 30), () => {
+  const l = line([10, 10], [25, 10]);
+  fix(l.start(), [10, 10]);
+  fix(l.end(), [25, 10]);
+}), body.endFaces());
+
+// The corner is written as the end of a top edge: 'g0' at that end lands on
+// the corner without following the edge, while the start leaves the rail
+// along it.
+const toCorner = bridge(rail.end(), body.endEdges(0).start()).continuity("g1", "g0");
 ```

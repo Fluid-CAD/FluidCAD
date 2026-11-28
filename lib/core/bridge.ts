@@ -13,6 +13,9 @@ interface BridgeFunction {
    * the fourth side of a fill boundary. It matches the tangent at each end
    * by default; `.continuity('g2')` matches the curvature too, and
    * `.continuity('g0')` only the position (a straight line).
+   * `.continuity(start, end)` gives each end its own — `'g0'` at a solid's
+   * corner, written as an edge end, meets the corner without following the
+   * edge.
    *
    * At the end of a curve the bridge continues it: it leaves `from` in the
    * direction that curve was heading and arrives at `to` heading into that

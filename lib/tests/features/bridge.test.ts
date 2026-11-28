@@ -92,18 +92,42 @@ function kernelEnd(e: Edge, end: "start" | "end") {
 }
 
 /**
+ * What the kernel finds where the curve of `source` (at its end `sourceEnd`,
+ * in the edge's own sense) meets the bridge's edge at its end `own`: G1,
+ * and G2 when asked. The kernel's angle is between lines, so a curve
+ * doubling back also reads as G1; the callers check the direction too.
+ */
+function kernelJoint(source: Edge, sourceEnd: "start" | "end", bridgeEdge: Edge, own: "start" | "end", g2: boolean) {
+  const oc = getOC();
+  const a = oc.BRep_Tool.Curve(source.getShape() as TopoDS_Edge, 0, 1);
+  const b = oc.BRep_Tool.Curve(bridgeEdge.getShape() as TopoDS_Edge, 0, 1);
+  const shape = (g2 ? oc.GeomAbs_Shape.GeomAbs_G2 : oc.GeomAbs_Shape.GeomAbs_G1) as GeomAbs_Shape;
+  const analysis = new oc.LocalAnalysis_CurveContinuity(
+    a.returnValue as Geom_Curve, kernelEnd(source, sourceEnd), b.returnValue as Geom_Curve, kernelEnd(bridgeEdge, own), shape,
+  );
+  try {
+    expect(analysis.IsDone()).toBe(true);
+    return { c0: analysis.C0Value(), g1: analysis.IsG1(), g2: g2 && analysis.IsG2(), angle: analysis.G1Angle() };
+  } finally {
+    analysis.delete();
+    a[Symbol.dispose]();
+    b[Symbol.dispose]();
+  }
+}
+
+/**
  * Checks each end of a built bridge against the curve it continues, where
- * the end offers a tangent and the continuity asks for `order` derivatives:
- * the kernel finds the joint G1 (G2 at order 2), the bridge runs on the
- * same way — its tangent out of itself the opposite of the curve's, which
- * the kernel's angle between lines cannot tell — and at order 2 it has the
- * curve's own curvature there.
+ * the end offers a tangent and its continuity asks for `orders[i]`
+ * derivatives: the kernel finds the joint G1 (G2 at order 2), the bridge
+ * runs on the same way — its tangent out of itself the opposite of the
+ * curve's, which the kernel's angle between lines cannot tell — and at
+ * order 2 it has the curve's own curvature there.
  */
 let kernelG2 = 0;
-function expectJoins(br: unknown, ends: [unknown, unknown], order: number): void {
-  const oc = getOC();
+function expectJoins(br: unknown, ends: [unknown, unknown], orders: [number, number]): void {
   const bridgeEdge = edgeOf(br);
   ends.forEach((end, i) => {
+    const order = orders[i];
     const at = CurveEnds.edgeEndOf(asObject(end));
     if (!at || order === 0) {
       return;
@@ -119,23 +143,11 @@ function expectJoins(br: unknown, ends: [unknown, unknown], order: number): void
     // The kernel has no normal to compare at a straight end: there the zero
     // curvature is checked above, and the kernel checks the tangent.
     const curved = order === 2 && source.curvature!.length() > 1e-9;
-    const a = oc.BRep_Tool.Curve(at.edge.getShape() as TopoDS_Edge, 0, 1);
-    const b = oc.BRep_Tool.Curve(bridgeEdge.getShape() as TopoDS_Edge, 0, 1);
-    const shape = (curved ? oc.GeomAbs_Shape.GeomAbs_G2 : oc.GeomAbs_Shape.GeomAbs_G1) as GeomAbs_Shape;
-    const analysis = new oc.LocalAnalysis_CurveContinuity(
-      a.returnValue as Geom_Curve, kernelEnd(at.edge, at.end), b.returnValue as Geom_Curve, kernelEnd(bridgeEdge, own), shape,
-    );
-    try {
-      expect(analysis.IsDone()).toBe(true);
-      expect(analysis.IsG1()).toBe(true);
-      if (curved) {
-        expect(analysis.IsG2()).toBe(true);
-        kernelG2 += 1;
-      }
-    } finally {
-      analysis.delete();
-      a[Symbol.dispose]();
-      b[Symbol.dispose]();
+    const verdict = kernelJoint(at.edge, at.end, bridgeEdge, own, curved);
+    expect(verdict.g1).toBe(true);
+    if (curved) {
+      expect(verdict.g2).toBe(true);
+      kernelG2 += 1;
     }
   });
 }
@@ -264,7 +276,7 @@ describe("bridge(from, to)", () => {
       expect(xyz(CurveEnds.ofEdge(edgeOf(br), "end").tangent!)).toEqual([0, 1, 0]);
     });
 
-    it("builds for every pair of end kinds at every continuity, the joints G1 or G2 by the kernel", () => {
+    it("builds for every pair of end kinds at every continuity at each end, the joints G1 or G2 by the kernel", () => {
       const box = block();
       const { a, b } = rails(box);
       const marks = sketch(plane("xy", 20), () => ({
@@ -282,27 +294,28 @@ describe("bridge(from, to)", () => {
       ];
       const offers = ends.map((_, i) => i < 5);
       const continuities = ["g0", "g1", "g2"] as const;
-      const built: { br: Bridge; from: number; to: number; order: number }[] = [];
+      const built: { br: Bridge; from: number; to: number; orders: [number, number] }[] = [];
       ends.forEach((from, i) => ends.forEach((to, j) => {
         if (i !== j) {
-          continuities.forEach((continuity, order) => {
-            built.push({ br: bridge(from, to).continuity(continuity) as unknown as Bridge, from: i, to: j, order });
-          });
+          continuities.forEach((start, startOrder) => continuities.forEach((end, endOrder) => {
+            built.push({ br: bridge(from, to).continuity(start, end) as unknown as Bridge, from: i, to: j, orders: [startOrder, endOrder] });
+          }));
         }
       }));
       const scene = render();
 
       expect(errorsOf(scene)).toEqual([]);
-      expect(built).toHaveLength(90);
+      expect(built).toHaveLength(270);
       kernelG2 = 0;
-      for (const { br, from, to, order } of built) {
-        expect(br.getError(), `${from} → ${to} at g${order}`).toBeNull();
-        const degree = (offers[from] ? order : 0) + (offers[to] ? order : 0) + 1;
-        expect(curveOf(br).degree, `${from} → ${to} at g${order}`).toBe(degree);
-        expectJoins(br, [ends[from], ends[to]], order);
+      for (const { br, from, to, orders } of built) {
+        const label = `${from} → ${to} at g${orders[0]}, g${orders[1]}`;
+        expect(br.getError(), label).toBeNull();
+        const degree = (offers[from] ? orders[0] : 0) + (offers[to] ? orders[1] : 0) + 1;
+        expect(curveOf(br).degree, label).toBe(degree);
+        expectJoins(br, [ends[from], ends[to]], orders);
       }
-      // Every g2 bridge into or out of the arc: the kernel saw each of those joints G2.
-      expect(kernelG2).toBe(10);
+      // Every bridge leaving or reaching the arc at g2: the kernel saw each of those joints G2.
+      expect(kernelG2).toBe(30);
     });
 
     it("refuses a .center() anchor, and two ends at one point, in the build's words", () => {
@@ -330,6 +343,78 @@ describe("bridge(from, to)", () => {
       expect(curveOf(position)).toEqual({ degree: 1, poles: [[15, 5, 5], [25, 15, 5]] });
       expect(curveOf(tangent).degree).toBe(3);
       expect(curveOf(curvature).degree).toBe(5);
+    });
+
+    it("meets each end at its own continuity: g2 leaving an arc, g0 arriving on a curve's end — a cubic, G2 at the start, a corner at the end", () => {
+      const box = block();
+      const { b } = rails(box);
+      const marks = sketch(plane("xy", 20), () => ({ c: arc([40, 30], [35, 35], [35, 30]) }));
+      const leave = marks.geometries.c.start();
+      const arrive = b.start();
+      const mixed = bridge(leave, arrive).continuity("g2", "g0") as unknown as Bridge;
+      const scene = render();
+
+      expect(errorsOf(scene)).toEqual([]);
+      expect(curveOf(mixed).degree).toBe(3);
+      kernelG2 = 0;
+      expectJoins(mixed, [leave, arrive], [2, 0]);
+      expect(kernelG2).toBe(1);
+      // Position only at the end: the kernel sees a corner with B there.
+      const at = CurveEnds.edgeEndOf(asObject(arrive))!;
+      const corner = kernelJoint(at.edge, at.end, edgeOf(mixed), "end", false);
+      expect(corner.c0).toBeLessThan(1e-9);
+      expect(corner.g1).toBe(false);
+      expect(corner.angle).toBeGreaterThan(0.1);
+    });
+
+    it("meets a solid's corner, written as an edge end, at its position only with g0 there, and continues that edge without", () => {
+      const box = block();
+      const { a } = rails(box);
+      const cornerOf = () => box.endEdges(0).start();
+      const pointOnly = bridge(a.end(), cornerOf()).continuity("g1", "g0") as unknown as Bridge;
+      const ownCorner = cornerOf();
+      const leave = a.end();
+      const along = bridge(leave, ownCorner) as unknown as Bridge;
+      const scene = render();
+
+      expect(errorsOf(scene)).toEqual([]);
+      expect(curveOf(pointOnly).degree).toBe(2);
+      expect(curveOf(along).degree).toBe(3);
+      const at = CurveEnds.edgeEndOf(asObject(ownCorner))!;
+      expect(xyz(CurveEnds.ofEdge(edgeOf(pointOnly), "end").point)).toEqual(xyz(CurveEnds.ofEdge(at.edge, at.end).point));
+      // No tangent to the edge through the corner with g0; with the default, the bridge runs on into it.
+      expect(kernelJoint(at.edge, at.end, edgeOf(pointOnly), "end", false).g1).toBe(false);
+      expectJoins(along, [leave, ownCorner], [1, 1]);
+      // The start still leaves along A.
+      expect(xyz(CurveEnds.ofEdge(edgeOf(pointOnly), "start").tangent!)).toEqual([-1, 0, 0]);
+    });
+
+    it("reads one continuity as the same value at both ends", () => {
+      const box = block();
+      const { a, b } = rails(box);
+      const pairs = (["g0", "g1", "g2"] as const).map(value => [
+        bridge(a.end(), b.start()).continuity(value) as unknown as Bridge,
+        bridge(a.end(), b.start()).continuity(value, value) as unknown as Bridge,
+      ]);
+      render();
+
+      for (const [one, two] of pairs) {
+        expect(curveOf(one)).toEqual(curveOf(two));
+        expect(one.serialize()).toEqual(two.serialize());
+        expect(one.compareTo(two)).toBe(true);
+      }
+    });
+
+    it("leaves a g0 end's magnitude unused, the other end's still at work", () => {
+      const box = block();
+      const { a, b } = rails(box);
+      const plain = bridge(a.end(), b.start()).continuity("g1", "g0");
+      const ignored = bridge(a.end(), b.start()).continuity("g1", "g0").endMagnitude(5);
+      const fuller = bridge(a.end(), b.start()).continuity("g1", "g0").startMagnitude(2);
+      render();
+
+      expect(curveOf(ignored)).toEqual(curveOf(plain));
+      expect(curveOf(fuller)).not.toEqual(curveOf(plain));
     });
 
     it("sets how far the bridge runs straight at each end, numbers or parameters", () => {
@@ -366,6 +451,14 @@ describe("bridge(from, to)", () => {
       const { a, b } = rails(box);
       const br = bridge(a.end(), b.start());
       expect(() => br.continuity("g3" as never)).toThrow("bridge: .continuity() takes 'g0', 'g1' or 'g2'.");
+      expect(() => br.continuity("g4" as never, "g1")).toThrow("bridge: .continuity() takes 'g0', 'g1' or 'g2' for the start.");
+      expect(() => br.continuity("g1", "g3" as never)).toThrow("bridge: .continuity() takes 'g0', 'g1' or 'g2' for the end.");
+      expect(() => br.continuity("g1", undefined)).toThrow("bridge: .continuity() takes 'g0', 'g1' or 'g2' for the end.");
+      expect(() => (br.continuity as (...values: string[]) => unknown)("g1", "g1", "g2")).toThrow(
+        "bridge: .continuity() takes one value for both ends, or two: the start's and the end's; got 3.",
+      );
+      // A refused call leaves the options as they were.
+      expect(asObject(br).serialize()).toMatchObject({ startContinuity: "g1", endContinuity: "g1" });
       expect(() => br.startMagnitude("big" as never)).toThrow("bridge: .startMagnitude() takes a number.");
       expect(() => br.endMagnitude(undefined as never)).toThrow("bridge: .endMagnitude() takes a number.");
     });
@@ -375,10 +468,15 @@ describe("bridge(from, to)", () => {
       const { a, b } = rails(box);
       const one = bridge(a.end(), b.start()).continuity("g2").startMagnitude(1.5).endMagnitude(0.8);
       const other = bridge(a.end(), b.start()).endMagnitude(0.8).startMagnitude(1.5).continuity("g2");
+      const mixed = bridge(a.end(), b.start()).continuity("g2", "g1").startMagnitude(1.5).endMagnitude(0.8);
+      const mixedAgain = bridge(a.end(), b.start()).endMagnitude(0.8).startMagnitude(1.5).continuity("g2", "g1");
       render();
 
       expect(curveOf(one)).toEqual(curveOf(other));
       expect(asObject(one).serialize()).toEqual(asObject(other).serialize());
+      expect(curveOf(mixed).degree).toBe(4);
+      expect(curveOf(mixed)).toEqual(curveOf(mixedAgain));
+      expect(asObject(mixed).serialize()).toEqual(asObject(mixedAgain).serialize());
     });
 
     it("carries the ends, continuity and magnitudes through createCopy, compareTo, getDependencies and serialize", () => {
@@ -389,6 +487,8 @@ describe("bridge(from, to)", () => {
       const make = () => bridge(p, q) as unknown as Bridge;
       expectOptionsCarried<Bridge>(make, {
         continuity: tool => tool.continuity("g2"),
+        startContinuity: tool => tool.continuity("g2", "g1"),
+        endContinuity: tool => tool.continuity("g1", "g0"),
         startMagnitude: tool => tool.startMagnitude(2),
         endMagnitude: tool => tool.endMagnitude(0.5),
         to: tool => { tool["to"] = asObject(r); },
@@ -523,6 +623,14 @@ describe("bridge(from, to)", () => {
         startContinuity: "g1", endContinuity: "g1", startMagnitude: 1, endMagnitude: 1,
       }, DEFAULT_MESH_CONFIG);
       expect(result).toMatchObject({ ok: true, solids: [{ kind: "wire" }] });
+
+      const mixed = buildFeatureGhost(scene, {
+        feature: "bridge",
+        from: { kind: "edge-end", ...upright(box, 0, 0), end: "end" },
+        to: { kind: "edge-end", ...upright(box, 40, 20), end: "end" },
+        startContinuity: "g2", endContinuity: "g0", startMagnitude: 1, endMagnitude: 1,
+      }, DEFAULT_MESH_CONFIG);
+      expect(mixed).toMatchObject({ ok: true, solids: [{ kind: "wire" }] });
     });
 
     it("takes a curve's end by its statement, and a vertex as the point synthesis writes it", () => {

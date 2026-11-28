@@ -243,6 +243,26 @@ describe("BridgeOps", () => {
     expect(xyz(CurveEnds.ofEdge(br, "end").curvature!)).toEqual(xyz(from.curvature!));
   });
 
+  it("per end: g2 at the start of an arc and g0 at a line's start is a cubic, G2 at the start joint and a corner at the end", () => {
+    const a = arcEdge([0, 0, 0], 5, [0, -5, 0], [5, 0, 0]);
+    const b = segment([20, 10, 0], [30, 10, 0]);
+    const from = CurveEnds.ofEdge(a, "end");
+    const br = bridge(from, CurveEnds.ofEdge(b, "start"), ["g2", "g0"]);
+
+    expect(curveOf(br).degree).toBe(3);
+    expect(xyz(CurveEnds.ofEdge(br, "start").curvature!)).toEqual(xyz(from.curvature!));
+    expect(joint(a, br, 'G2')).toMatchObject({ g1: true, g2: true, sameWay: true });
+    const corner = joint(br, b, 'G1');
+    expect(corner.c0).toBeLessThan(1e-9);
+    expect(corner.g1).toBe(false);
+
+    // The other way round: g0 at the start, g1 at the end — a quadratic tangent to b only.
+    const back = bridge(from, CurveEnds.ofEdge(b, "start"), ["g0", "g1"]);
+    expect(curveOf(back).degree).toBe(2);
+    expect(joint(a, back, 'G1').g1).toBe(false);
+    expect(joint(back, b, 'G1')).toMatchObject({ g1: true, sameWay: true });
+  });
+
   it("two bare points are a straight edge at any continuity", () => {
     const br = bridge({ point: new Point(0, 0, 0) }, { point: new Point(0, 0, 10) }, "g2");
     expect(curveOf(br)).toEqual({ degree: 1, poles: [[0, 0, 0], [0, 0, 10]], line: true });

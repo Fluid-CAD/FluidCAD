@@ -413,7 +413,9 @@ describe('PartFeatureDialogs', () => {
       fakes[id].calls = [];
     }
 
-    const sketchTakers: PartId[] = ['extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'projected-curve', 'offset-curve', 'split', 'plane'];
+    const sketchTakers: PartId[] = [
+      'extrude', 'rib', 'revolve', 'sweep', 'wrap', 'loft', 'projected-curve', 'offset-curve', 'bridge', 'split', 'plane',
+    ];
     for (const id of PART_ORDER) {
       arm(id);
       expect(registry.routeSketchPick('w1'), id).toBe(sketchTakers.includes(id));
@@ -684,7 +686,8 @@ describe('PartFeatureDialogs', () => {
     expect(main).toMatch(/new BridgeFeatureService\(container, viewer, navbar,\s*curvesMenu\.add\(\{\s*id: 'bridge',\s*label: 'Bridge',\s*iconSrc: iconUrl\('bridge'\),[^}]*tip: 'Join two curve ends smoothly',\s*order: 40,/);
     expect(existsSync(fileURLToPath(new URL('../public/icons/bridge.png', import.meta.url)))).toBe(true);
 
-    // Armed, a click lands in the armed end row, the right-click menu and a
+    // Armed, a click lands in the armed end row, a sketch's wire too (a
+    // sketch's edge is picked by it), the right-click menu and a
     // double-click are its own (and grow nothing), and a timeline row
     // reaches it to be refused in its words.
     expect(dialog.isPicking).toBe(false);
@@ -695,18 +698,18 @@ describe('PartFeatureDialogs', () => {
     expect(registry.routeContextMenu('s1', FACE, 1, 2)).toBe(true);
     expect(registry.routeDoubleClick('s1', FACE)).toBe(true);
     expect(registry.routeTimelinePick(ROW)).toBe(true);
-    expect(service.calls).toEqual(['click', 'context', 'dblclick', 'timeline']);
+    expect(registry.routeSketchPick('w1')).toBe(true);
+    expect(service.calls).toEqual(['click', 'context', 'dblclick', 'timeline', 'sketch']);
     // The hover floats the hovered edge's nearer end while an end row is armed.
     expect(registry.routeHover('s1', FACE, 1, 2)).toBe(false);
     service.hoverPicking = true;
     expect(registry.routeHover('s1', FACE, 1, 2)).toBe(true);
     expect(service.calls.at(-1)).toBe('hover');
-    // No axis, plane, connector or sketch wire: an end row takes none of them.
+    // No axis, plane or connector: an end row takes none of them.
     Object.assign(service, { axisPicking: true, planePicking: true, connectorPicking: true, directionPicking: true });
     expect(registry.routeAxisPick('a1', AXIS)).toBe(false);
     expect(registry.routePlanePick('q1')).toBe(false);
     expect(registry.routeConnectorPick('c1', {})).toBe(false);
-    expect(registry.routeSketchPick('w1')).toBe(false);
     expect(takers('click')).toEqual(['bridge']);
     // Nor does it pin the sketch toolbar: it finishes no sketch.
     service.suspended = true;

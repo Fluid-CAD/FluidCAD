@@ -266,9 +266,10 @@ export class PartFeatureDialogs {
       edit: { rowTypes: ['bridge'], kind: 'bridge', open: (t, p, i) => s.bridge.enterEdit(t, p, i) },
       picking: (d) => d.isPicking,
       // Two end rows. A click lands in the armed one: a vertex as itself,
-      // an edge as the end its anchor suggestion floats nearest the click —
-      // the hover floats it. The right-click menu and a double-click grow
-      // no end; a timeline row is refused in the row's words.
+      // an edge — a sketch's edge by its wire — as the end its anchor
+      // suggestion floats nearest the click; the hover floats it. The
+      // right-click menu and a double-click grow no end; a timeline row is
+      // refused in the row's words.
       claims: {
         click: (d) => d.isPicking,
         hover: (d) => d.isHoverPicking,
@@ -276,6 +277,7 @@ export class PartFeatureDialogs {
         doubleClick: (d) => d.isPicking,
       },
       timelinePicks: true,
+      sketchPicks: true,
     }));
     registry.register(new ServiceDialog('repeat', s.repeat, {
       // `repeat('mirror'|'rotate', …)` rows carry the mirror and rotate

@@ -341,7 +341,8 @@ describe('the Bridge dialog — picking the ends', () => {
     rig.service.enter();
     const panel = rig.service.dialogPanel;
     expect(panel.armedRow).toBe('from');
-    expect(rig.channels).toMatchObject({ pickFilter: 'edge', pickVertices: true, pickSketchWires: false });
+    // Edges, and a sketch's edges by their wire, with the vertex dots tried first.
+    expect(rig.channels).toMatchObject({ pickFilter: 'edge', pickVertices: true, pickSketchWires: true });
     expect(rig.service.isHoverPicking).toBe(true);
     expect(rig.continuity('from')).toBe('Tangent');
     expect(rig.continuity('to')).toBe('Tangent');
@@ -389,6 +390,22 @@ describe('the Bridge dialog — picking the ends', () => {
     ]);
     await vi.advanceTimersByTimeAsync(300);
     expect(sent('api/feature-ghost')).toEqual([{ feature: 'bridge', from: BOX_END, to: RAIL_START, ...DEFAULTS }]);
+  });
+
+  it('floats a sketch edge\'s ends on its wire, and takes the one nearest the click as the vertex there', async () => {
+    const rig = mount();
+    rig.service.enter();
+    const { x, y } = screen(LINE[0]);
+    rig.service.handleHover('l1-edge', { type: 'sketch', index: 0 }, x + 1, y - 1);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(server.bodies('api/selection/connector-anchors').at(-1)).toEqual({ entity: edge(0, 'l1-edge'), purpose: 'hole', frames: true });
+    expect(rig.service.handleSketchPick('l1-edge')).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.chips('from')).toEqual(['Sketch edge end']);
+    expect(rig.highlights.at(-1)!.entities).toEqual([
+      { shapeId: 'l1-edge', sub: { type: 'vertex', index: 0, position: { x: 0, y: 30, z: 0 } } },
+    ]);
+    expect(rig.service.dialogPanel.armedRow).toBe('to');
   });
 
   it('takes a sketch edge\'s end as the vertex at that end, keeping the continuity', async () => {
@@ -481,6 +498,24 @@ describe('the Bridge dialog — picking the ends', () => {
     await rig.pickVertex('nowhere', 0, [0, 0, 0]);
     expect(rig.message()).toBe('That point cannot be an end — pick a corner, a point, or near the end of an edge.');
     expect(rig.chips('to')).toEqual([]);
+  });
+
+  it('takes a double-click\'s first click in From, its second refused in To as the same end, the cursor carried across', async () => {
+    const rig = mount();
+    rig.service.enter();
+    const { x, y } = screen(BOX[5]);
+    rig.service.handleHover('box-solid', edge(3).sub, x - 3, y);
+    await vi.advanceTimersByTimeAsync(150);
+    // The viewer's double-click: its two clicks land first, the second in To, just armed.
+    rig.service.handleClick('box-solid', edge(3).sub);
+    rig.service.handleClick('box-solid', edge(3).sub);
+    await vi.advanceTimersByTimeAsync(0);
+    await rig.service.handleDoubleClick('box-solid', edge(3).sub);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.chips('from')).toEqual(['Edge end']);
+    expect(rig.chips('to')).toEqual([]);
+    expect(rig.message()).toBe('The bridge already starts there — pick another end.');
+    expect(rig.service.dialogPanel.armedRow).toBe('to');
   });
 
   it('grows nothing on a double-click and opens no menu on a right-click', async () => {

@@ -166,7 +166,7 @@ export class BridgePanel extends OperandRowPanel<never, BridgeEnd> {
         label: 'Curvature',
         title: "The bridge carries on the curve's bend at the end as well — .continuity('g2')",
       },
-    ], 'g1');
+    ], 'g1', { compact: true });
     const options: EndOptions = {
       slot,
       tabs,

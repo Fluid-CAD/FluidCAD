@@ -10,7 +10,7 @@ import type { Navbar } from '../../ui/navbar';
 import type { Viewer } from '../../viewer';
 import type { ParsedFeatureOf } from '../feature-dialog-registry';
 import { BridgePanel, type BridgeEnd, type MagnitudeRead } from './bridge-panel';
-import { EndRow } from './end-row';
+import { EndPicks, EndRow } from './end-row';
 import { detachedLauncher, type FeatureLauncher } from './feature-button';
 import { OperandRowService, type Blocked, type OperandRowHooks } from './operand-row-service';
 
@@ -78,9 +78,10 @@ export class BridgeFeatureService extends OperandRowService<never, BridgeEnd, Br
     hooks: OperandRowHooks = {},
   ) {
     const panel = new BridgePanel(container);
+    const picks = new EndPicks(viewer);
     const ends = {} as Record<BridgeEnd, EndRow>;
     for (const end of ['from', 'to'] as const) {
-      ends[end] = new EndRow(panel[end], viewer, {
+      ends[end] = new EndRow(panel[end], picks, viewer, {
         refuse: input => EndRow.sameEnd(input, ends[OTHER[end]].createValue()) ? SAME_END[end] : null,
       });
     }

@@ -1,4 +1,4 @@
-import type { TopoDS_Edge, TopoDS_Face } from "ocjs-fluidcad";
+import type { BRepAdaptor_Curve, TopoDS_Edge, TopoDS_Face } from "ocjs-fluidcad";
 import { getOC } from "../oc/init.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
@@ -124,7 +124,7 @@ function anchorFromEdge(edge: Edge, spec: VertexAnchorSpec): AnchorPlacement {
     // that reconstruct the underlying curve pointing the other way. Other
     // curves keep the curve's own parameterization (shared via the TShape,
     // so every selection path agrees).
-    const flip = isLine && !isCanonicalLineDirection(evalAt(first).tangent.normalize());
+    const flip = runsAgainstCanonical(adaptor);
 
     const fraction = anchorFraction(spec, isLine, last - first);
     const oriented = flip ? 1 - fraction : fraction;
@@ -139,6 +139,40 @@ function anchorFromEdge(edge: Edge, spec: VertexAnchorSpec): AnchorPlacement {
     return { origin, zDir: tangent.multiply(flip ? -1 : 1).normalize() };
   } finally {
     adaptor.delete();
+  }
+}
+
+/**
+ * Where an edge's `.start()` or `.end()` stands on the edge's own curve, as
+ * {@link anchorFromShape} reads it: the curve's first parameter for the
+ * start and its last for the end — the other way round on a straight edge
+ * whose curve runs against the edge's canonical direction. `last` says
+ * which of the two it is. The edge's orientation plays no part, as for the
+ * anchors themselves.
+ */
+export function anchorEndParameter(adaptor: BRepAdaptor_Curve, end: "start" | "end"): { parameter: number; last: boolean } {
+  const last = (end === "end") !== runsAgainstCanonical(adaptor);
+  return { parameter: last ? adaptor.LastParameter() : adaptor.FirstParameter(), last };
+}
+
+/**
+ * Whether a straight edge's curve runs against the edge's canonical
+ * direction (see {@link isCanonicalLineDirection}), so its start() is the
+ * curve's last parameter. Never for any other curve.
+ */
+function runsAgainstCanonical(adaptor: BRepAdaptor_Curve): boolean {
+  const oc = getOC();
+  if (adaptor.GetType() !== oc.GeomAbs_CurveType.GeomAbs_Line) {
+    return false;
+  }
+  const pnt = new oc.gp_Pnt();
+  const vec = new oc.gp_Vec();
+  try {
+    adaptor.D1(adaptor.FirstParameter(), pnt, vec);
+    return !isCanonicalLineDirection(new Vector3d(vec.X(), vec.Y(), vec.Z()).normalize());
+  } finally {
+    pnt.delete();
+    vec.delete();
   }
 }
 

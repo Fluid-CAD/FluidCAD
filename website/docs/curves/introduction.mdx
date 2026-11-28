@@ -19,12 +19,14 @@ All of them are in the **Curves** menu of the toolbar.
 | [Intersect](/docs/curves/intersect) | **Curves** › **Intersect** | The curve where two sets of faces meet: a section of a body, or the seam between two surfaces |
 | [Project](/docs/curves/project) | **Curves** › **Project** | Curves thrown onto faces, along a line or to the closest point: a flat sketch laid onto a curved body |
 | [Offset](/docs/curves/offset) | **Curves** › **Offset** | A curve beside edges at a constant distance, lying on their faces: a line set back from a rim, or beside a projected curve |
+| [Bridge](/docs/curves/bridge) | **Curves** › **Bridge** | A smooth curve joining two curve ends, meeting each at its position, its direction or its bend: a gap closed between two rails |
 
 <ModeTable columns={[
   {title: 'Helix', code: 'helix("z")', image: '/img/docs/3d-operations/helix-basic.png', description: 'A coil around the Z axis.'},
   {title: 'Intersect', code: 'intersect(pipe.sideFaces(), slope)', image: '/img/docs/curves/intersect-basic.png', description: 'The ellipse where a pipe crosses a sloped face.'},
   {title: 'Project', code: 'project(logo, dome)', image: '/img/docs/curves/project-basic.png', description: 'A flat sketch laid onto a dome.'},
   {title: 'Offset', code: 'offset(3, box.endEdges(), { on: box.sideFaces() })', image: '/img/docs/curves/offset-rim.png', description: 'A loop 3 below the top rim of a block.'},
+  {title: 'Bridge', code: 'bridge(l1.end(), l2.start())', image: '/img/docs/curves/bridge-basic.png', description: 'An S joining the end of one line to the start of another.'},
 ]} />
 
 ## Curves are construction geometry

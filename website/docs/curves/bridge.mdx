@@ -1,0 +1,167 @@
+---
+sidebar_position: 5
+title: "Bridge"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import bridgeBasic from '!!raw-loader!./_examples/bridge-basic.js';
+import bridgePosition from '!!raw-loader!./_examples/bridge-position.js';
+import bridgeCurvature from '!!raw-loader!./_examples/bridge-curvature.js';
+import bridgeTight from '!!raw-loader!./_examples/bridge-tight.js';
+import bridgeFull from '!!raw-loader!./_examples/bridge-full.js';
+import bridgeCornerEdge from '!!raw-loader!./_examples/bridge-corner-edge.js';
+import bridgeCorner from '!!raw-loader!./_examples/bridge-corner.js';
+
+# Bridge
+
+Bridge joins two curve ends with one smooth curve: it closes the gap between two guide curves so a loft or a sweep has one continuous rail, leaves an edge of a model and arrives at another without a kink, or makes the missing side of a boundary. You choose how it meets each end — at its position, along its direction, or following its bend too — and how far it runs on before it turns. The curves it joins stay as they are; the result is a [curve](/docs/curves/introduction).
+
+## In the viewport
+
+1. Open the **Curves** menu on the toolbar and click **Bridge**. The **Bridge** dialog opens with the **From** row armed (blue border).
+2. Move the cursor along an edge or a curve: the end nearer the cursor shows a marker. Click: **From** takes that end, and **To** is armed. A click on a vertex dot takes that point instead (see [Picking an end](#picking-an-end)).
+3. Pick the other end the same way. As soon as both rows hold an end, the bridge previews in blue.
+4. Set each end's **Continuity** and **Magnitude**: the preview follows every change.
+5. Click **Apply**. The timeline gains a **Bridge** row and the statement is written to the file.
+
+<UiFigure
+  src="/img/docs/ui/bridge-dialog.png"
+  alt="The Bridge dialog with the end of one curve in From, met at Curvature with magnitude 1.5, and the start of another in To"
+  markers={[
+    {n: 1, x: 5, y: 11, label: 'From', description: 'Where the bridge starts: the start or the end of an edge or a curve, or a point. Click the row to arm it before picking again; the chip’s ✕ empties it.'},
+    {n: 2, x: 5, y: 24, label: 'Continuity', description: 'How the bridge meets the From end: Position, Tangent (the default) or Curvature.'},
+    {n: 3, x: 5, y: 36, label: 'Magnitude', description: 'How far the bridge keeps going along the curve at the From end before it turns: 1 by default, larger is fuller. Hidden at Position, where it does nothing.'},
+    {n: 4, x: 5, y: 52, label: 'To', description: 'Where the bridge ends, with its own Continuity and Magnitude below it.'},
+    {n: 5, x: 5, y: 95, label: 'Apply', description: 'Writes bridge(from, to) with the options that differ from their defaults. Both rows need an end. Exit closes the dialog without writing anything.'},
+  ]}
+/>
+
+If the bridge cannot be made, the dialog says why instead of drawing a preview: the two ends are at the same point, or a magnitude is not greater than zero.
+
+Two rails with a gap between them, joined from the end of the first to the start of the second:
+
+![A bridge from the end of one line to the start of another](/img/docs/curves/bridge-basic.png)
+
+<ExplainedCode code={bridgeBasic} fileName="rails.part.js">
+A sketch's lines are read from outside the sketch through `geometries`, which the sketch returns; the dialog writes the `return` for you when you pick a sketch's edge.
+</ExplainedCode>
+
+## Picking an end
+
+While an end row is armed:
+
+- **Near the end of an edge or a curve.** Hovering an edge of a solid, a surface, a curve or a sketch shows a marker at the end nearer the cursor; a click takes that end. The bridge then continues that edge out of its end. An edge of a curve made of several edges offers its own two ends, so take the curve's last edge near its end to start from the curve's end.
+- **A vertex dot.** Vertices show as dots, and a click on one takes it. The dot wins over the edge within a few pixels of it: move a little along the edge to take the edge's end instead.
+  - The end of a sketch's line or arc keeps its direction, as if you had picked near that end of the edge.
+  - A **corner of a solid or a surface** and a **sketch point** have no single direction, so they are met at their position only: the end's **Continuity** switches to **Position** and locks there, with the hint *A corner is met at its position.* (or *A point is met at its position.*). Pick another end in the row and the continuity you had chosen comes back.
+- A closed edge, such as a full circle, has no start or end: the dialog says so.
+- The same end in both rows is refused: the bridge needs two ends apart.
+
+## Continuity
+
+Each end has its own **Continuity**: how closely the bridge follows the curve it meets there.
+
+| Continuity | In code | At that end, the bridge |
+|-----------|---------|------------------------|
+| **Position** | `'g0'` | meets the point and nothing more: it can arrive at an angle |
+| **Tangent** (default) | `'g1'` | leaves the curve heading the way the curve heads, with no kink |
+| **Curvature** | `'g2'` | heads the way the curve heads and bends as it bends there, so even the change of bend is smooth |
+
+An end is met at the lower of its own continuity and what it offers: a point offers its position only, so Tangent or Curvature at a point still meets it at its position.
+
+The same two rails at each continuity, set at both ends:
+
+<ModeTable columns={[
+  {title: 'Position', code: ".continuity('g0')", image: '/img/docs/curves/bridge-position.png', description: 'A straight line between the two points.'},
+  {title: 'Tangent', code: 'bridge(a, b)', image: '/img/docs/curves/bridge-basic.png', description: 'Leaves along the first rail and arrives along the second: an S.'},
+  {title: 'Curvature', code: ".continuity('g2')", image: '/img/docs/curves/bridge-curvature.png', description: 'A line has no bend, so the bridge leaves each rail straighter and turns later.'},
+]} />
+
+<ExplainedCode code={bridgePosition} fileName="rails.part.js" title="The code behind Position" />
+
+<ExplainedCode code={bridgeCurvature} fileName="rails.part.js" title="The code behind Curvature" />
+
+## Magnitude
+
+The **Magnitude** of an end says how far the bridge keeps going along the curve's direction there before it turns. It is measured against the gap between the two ends, so the shape stays the same when the whole layout is scaled. 1 is balanced; smaller makes the bridge tighter, larger makes it fuller. Each end has its own, and an end met at **Position** has none: its field is hidden.
+
+<ModeTable columns={[
+  {title: 'Magnitude 0.5', code: '.startMagnitude(0.5).endMagnitude(0.5)', image: '/img/docs/curves/bridge-tight.png', description: 'Turns soon after each rail, close to the straight line between the points.'},
+  {title: 'Magnitude 2', code: '.startMagnitude(2).endMagnitude(2)', image: '/img/docs/curves/bridge-full.png', description: 'Runs on along each rail longer and swings round in a fuller S.'},
+]} />
+
+<ExplainedCode code={bridgeTight} fileName="rails.part.js" title="The code behind 0.5" />
+
+<ExplainedCode code={bridgeFull} fileName="rails.part.js" title="The code behind 2" />
+
+A small radius at an end against a long gap, or a large magnitude, can make the bridge loop. The preview shows it; lower the magnitude at that end.
+
+## Meeting a corner of a solid
+
+Code names a corner of a solid as the end of an edge through it, so with **Tangent** the bridge would follow whichever edge names the corner. Picking the corner's dot in the dialog sets that end to **Position**: the bridge lands on the corner and leaves the other end as you set it.
+
+<ModeTable columns={[
+  {title: 'Tangent at the corner', code: 'bridge(l.end(), corner)', image: '/img/docs/curves/bridge-corner-edge.png', description: 'Follows the upright edge that names the corner: it comes straight down onto it.'},
+  {title: 'Position at the corner', code: ".continuity('g1', 'g0')", image: '/img/docs/curves/bridge-corner.png', description: 'Lands on the corner at its position only, leaving the rail along it.'},
+]} />
+
+<ExplainedCode code={bridgeCorner} fileName="block.part.js" title="The code behind Position at the corner">
+`.continuity(start, end)` sets each end: here the start keeps Tangent and the corner gets Position. One value sets both ends.
+</ExplainedCode>
+
+<ExplainedCode code={bridgeCornerEdge} fileName="block.part.js" title="The code behind Tangent at the corner" />
+
+## Direction
+
+At an end of a curve the bridge **continues** the curve: it leaves **From** in the direction that curve was heading and arrives at **To** heading into that curve. There is nothing to flip. Swapping **From** and **To** gives the same curve, run the other way: the order only sets the direction of the result — where its `start()` and `end()` are.
+
+## Editing
+
+Double-click the **Bridge** row in the timeline. The view rolls back to just before the statement and the dialog reopens with each end on its own text as a **Current: …** chip, lit where it names an edge or a curve, and each end's **Continuity** and **Magnitude** as written.
+
+Pick in a row to change that end; the chip's ✕ goes back to the statement's own. **Apply** rewrites only what you changed: an end, a continuity, a magnitude. Changing only a magnitude leaves both ends and the continuities as they were written. An end written as a point (a sketch point) stays as written and shows no preview until you pick it again.
+
+## In code
+
+```js
+import { bridge } from 'fluidcad/core';
+
+const br = bridge(from, to)
+  .continuity('g2')          // both ends; or .continuity(start, end)
+  .startMagnitude(1.5)
+  .endMagnitude(0.8);
+```
+
+| Argument | Takes |
+|----------|-------|
+| `from`, `to` | A curve end: `.start()` or `.end()` of an edge selection (`body.sideEdges(2).end()`), of a curve (`c.end()`), of one edge of a curve (`c.edges(0).start()`), or of a sketch's line or arc (`s.geometries.l1.end()`). Or a point: a sketch point (`s.geometries.p1`) or a vertex, met at its position only. |
+
+| Chained method | Meaning |
+|----------------|---------|
+| `.continuity(value)` | `'g0'` position, `'g1'` tangent (default), `'g2'` curvature, at both ends. |
+| `.continuity(start, end)` | Each end its own: `.continuity('g1', 'g0')`. |
+| `.startMagnitude(n)`, `.endMagnitude(n)` | How far the bridge keeps going along the curve at that end, against the gap. 1 by default; greater than zero. A number or a parameter. |
+
+The dialog writes each option only when it differs from its default, and no magnitude at an end met at Position. The ends are read, not used up: the curves and bodies they lie on stay in the model.
+
+The result holds one wire with one edge, running from `from` to `to`:
+
+```js
+br.edges(0)       // its edge
+br.start()        // where it starts: the from end
+br.end()          // where it ends: the to end — an end for another bridge
+```
+
+Like any curve, a bridge can be a sweep path or a loft guide (see [Curves](/docs/curves/introduction#reading-a-curve-in-code)).
+
+## Errors
+
+| Situation | Message |
+|-----------|---------|
+| The two ends are at the same point | `bridge: the two ends are at the same point.` |
+| A magnitude is zero or negative | `bridge: a magnitude must be greater than zero.` |
+| An end is `.center()`, an offset or a face anchor | `bridge: an end is the start or the end of an edge, or a point.` |
+| `.continuity()` takes something else | `bridge: .continuity() takes 'g0', 'g1' or 'g2'.` |
+| Written inside a sketch | `bridge: is written outside a sketch; inside one, draw the curve with bezier().` |

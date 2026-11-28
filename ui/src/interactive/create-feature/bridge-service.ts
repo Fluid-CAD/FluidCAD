@@ -9,7 +9,7 @@ import type { SceneObjectRender } from '../../types';
 import type { Navbar } from '../../ui/navbar';
 import type { Viewer } from '../../viewer';
 import type { ParsedFeatureOf } from '../feature-dialog-registry';
-import { BridgePanel, type BridgeEnd, type MagnitudeRead } from './bridge-panel';
+import { BridgePanel, type BridgeEnd } from './bridge-panel';
 import { EndPicks, EndRow } from './end-row';
 import { detachedLauncher, type FeatureLauncher } from './feature-button';
 import { OperandRowService, type Blocked, type OperandRowHooks } from './operand-row-service';
@@ -198,11 +198,7 @@ export class BridgeFeatureService extends OperandRowService<never, BridgeEnd, Br
 
   /** The magnitude at `end` as the requests carry it: the field's while on show, 1 at an end met at Position. */
   private magnitude(end: BridgeEnd): EndMagnitude | Blocked {
-    if (!this.panel.magnitudeShown(end)) {
-      return { magnitude: 1 };
-    }
-    const read: MagnitudeRead = this.panel.readMagnitude(end);
-    return read;
+    return this.panel.magnitudeShown(end) ? this.panel.readMagnitude(end) : { magnitude: 1 };
   }
 }
 

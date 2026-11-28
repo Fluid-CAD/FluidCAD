@@ -89,7 +89,7 @@ const RAIL: Point[] = [[-30, 0, 5], [-10, 0, 5]];
 const LINE: Point[] = [[0, 30, 0], [10, 40, 0]];
 const POINT: Point = [30, 2, 0];
 
-/** A box, a projected curve, a sketch with a line and a point, a loaded surface and, with `withBridge`, the bridge an edit opens over. */
+/** A box, a projected curve, a sketch with a line, a point and a polyline, a loaded surface and, with `withBridge`, the bridge an edit opens over. */
 function scene(withBridge = false): SceneObjectRender[] {
   return [
     {
@@ -117,6 +117,11 @@ function scene(withBridge = false): SceneObjectRender[] {
       id: 'br', type: 'bridge', name: 'Bridge 1', ownShapes: [], sourceLocation: at(10),
       sceneShapes: [{ shapeId: 'br-wire', shapeType: 'wire', meshes: MESH }],
     }] : []),
+    // Last, so the bridge keeps its place in the scene: a polyline of the sketch, one wire of two edges.
+    {
+      id: 'pl', type: 'polyline', parentId: 'sk', ownShapes: [], sourceLocation: at(6, 20),
+      sceneShapes: [{ shapeId: 'pl-wire', shapeType: 'wire', meshes: MESH, vertices: [0, 50, 0, 10, 50, 0, 10, 60, 0] }],
+    },
   ] as unknown as SceneObjectRender[];
 }
 const rowOf = (id: string) => scene(true).find(o => o.id === id)!;
@@ -479,7 +484,7 @@ describe('the Bridge dialog — picking the ends', () => {
     }]);
   });
 
-  it('refuses the end the other row already holds, a closed edge, a timeline row and a point nothing names', async () => {
+  it('refuses the end the other row already holds, a closed edge, a timeline row, a point nothing names and a sketch wire of several edges', async () => {
     const rig = mount();
     rig.service.enter();
     await rig.pickEdgeEnd(edge(3), BOX[5]);
@@ -497,6 +502,12 @@ describe('the Bridge dialog — picking the ends', () => {
 
     await rig.pickVertex('nowhere', 0, [0, 0, 0]);
     expect(rig.message()).toBe('That point cannot be an end — pick a corner, a point, or near the end of an edge.');
+    expect(rig.chips('to')).toEqual([]);
+
+    // A sketch's wire of several edges says nothing of which one: its dots do.
+    expect(rig.service.handleSketchPick('pl-wire')).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.message()).toBe('That sketch wire has several edges — click the dot at the end you want.');
     expect(rig.chips('to')).toEqual([]);
   });
 

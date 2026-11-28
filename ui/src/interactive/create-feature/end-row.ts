@@ -25,6 +25,9 @@ export const CLOSED_EDGE_REFUSAL = 'A closed edge has no start or end — pick a
 /** What a vertex nothing can name is told. */
 const UNNAMED_VERTEX = 'That point cannot be an end — pick a corner, a point, or near the end of an edge.';
 
+/** What a sketch's wire of several edges is told: it says nothing of which edge. */
+const SKETCH_WIRE_REFUSAL = 'That sketch wire has several edges — click the dot at the end you want.';
+
 /**
  * The anchor suggestions a dialog's end rows share, one per dialog — the
  * start or the end of the hovered edge, floated as the connector dialog
@@ -163,7 +166,7 @@ export class EndRow implements ExtraPickRow {
       this.picks.click(shapeId, edge);
       return 'ignored';
     }
-    return sub.type === 'sketch' ? { message: UNNAMED_VERTEX } : 'ignored';
+    return sub.type === 'sketch' ? { message: SKETCH_WIRE_REFUSAL } : 'ignored';
   }
 
   /** No timeline row is an end: a curve's row says nothing of which end. */

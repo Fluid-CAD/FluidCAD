@@ -30,6 +30,11 @@ import {
 } from "../features/intersection-curve-geometry.js";
 import { buildProjectedWires, naturalDirection } from "../features/projected-curve-geometry.js";
 import { buildOffsetCurveWires } from "../features/offset-curve-geometry.js";
+import { Bridge } from "../features/bridge.js";
+import { CurveObject } from "../features/curve-object.js";
+import { CurveEndVertex, type CurveEnds as RecordedCurveEnds } from "../features/curve-end-vertex.js";
+import { CurveEnds, type CurveEnd } from "../helpers/curve-end.js";
+import { VertexPointSynthesizer } from "../selection/vertex-synthesis.js";
 import { sketchGeometryOwner } from "../features/2d/projection.js";
 import { FaceOperand, type HeldFace } from "../helpers/face-operand.js";
 import { DirectionInput } from "../helpers/direction-input.js";
@@ -103,6 +108,7 @@ export type FeatureGhostRequest =
   | IntersectionCurveGhostRequest
   | ProjectedCurveGhostRequest
   | OffsetCurveGhostRequest
+  | BridgeGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -426,6 +432,40 @@ export type OffsetCurveGhostRequest = {
   edges: GhostOperandRef[];
   on: GhostOperandRef[];
 };
+
+/**
+ * The bridge — `bridge(from, to)`: a smooth curve between two ends, built by
+ * the call the feature's build makes. Each end as the dialog picked it
+ * ({@link GhostEndRef}). The magnitudes are checked as the build checks
+ * them, whatever the continuity: a magnitude that is not above zero is
+ * refused.
+ */
+export type BridgeGhostRequest = {
+  feature: 'bridge';
+  from: GhostEndRef;
+  to: GhostEndRef;
+  continuity: 'g0' | 'g1' | 'g2';
+  startMagnitude: number;
+  endMagnitude: number;
+};
+
+/**
+ * One end of a bridge on the wire:
+ *
+ * - `edge-end` — the start or the end of an edge of a solid, a surface, a
+ *   curve or a sketch, by its viewport address, `end` in the edge's own
+ *   sense (`.start()` / `.end()`, the anchors the hover rail offers); the
+ *   statement writes the edge's selector with that accessor;
+ * - `curve-end` — where a curve object starts or ends (`c.start()`,
+ *   `c.end()`), by its statement;
+ * - `vertex` — a picked vertex, read as the point synthesis writes it: a
+ *   solid's as the end of the edge that names it (`e.endEdges(0).start()`,
+ *   so with that edge's tangent), a sketch's as its sketch point.
+ */
+export type GhostEndRef =
+  | { kind: 'edge-end'; shapeId: string; index: number; end: 'start' | 'end' }
+  | { kind: 'curve-end'; filePath: string; line: number; end: 'start' | 'end' }
+  | { kind: 'vertex'; shapeId: string; index: number };
 
 /**
  * A direction slot on the wire: the axis forms of {@link GhostAxisRef} — a
@@ -955,6 +995,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'offset-curve') {
     return buildOffsetCurveGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'bridge') {
+    return buildBridgeGhost(scene, request, meshConfig);
   }
   if (request.feature === 'repeat') {
     return buildRepeatGhost(scene, request, meshConfig);
@@ -3752,6 +3795,54 @@ function buildOffsetCurveGhost(
     scratch.push(...sources);
     return buildOffsetCurveWires(sources, support, request.distance);
   });
+}
+
+/**
+ * The bridge's preview: each end read as the build reads it, then the curve
+ * the feature would build, as lines. An end naming what the scene no longer
+ * holds shows nothing; a refusal — a magnitude not above zero, two ends at
+ * one point — is said, since changing a pick or a number is what the user
+ * can do about it.
+ */
+function buildBridgeGhost(
+  scene: Scene,
+  request: BridgeGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  return ghostOfPickedCurves(meshConfig, scratch => {
+    Bridge.checkMagnitudes(request.startMagnitude, request.endMagnitude);
+    const from = resolveBridgeEnd(scene, request.from, scratch);
+    const to = resolveBridgeEnd(scene, request.to, scratch);
+    if (!from || !to) {
+      return null;
+    }
+    return [Bridge.wireBetween(from, to, request)];
+  });
+}
+
+/**
+ * One end of the bridge dialog as the build reads its argument (see
+ * {@link GhostEndRef}). Null when the scene no longer holds what it names.
+ */
+function resolveBridgeEnd(scene: Scene, ref: GhostEndRef, scratch: Shape[]): CurveEnd | null {
+  if (ref.kind === 'edge-end') {
+    const edge = resolvePickedEdge(scene, ref, scratch);
+    return edge ? CurveEnds.ofEdge(edge, ref.end) : null;
+  }
+  if (ref.kind === 'curve-end') {
+    const curve = findByLocation(scene, ref, obj => obj instanceof CurveObject);
+    const ends = curve?.getState(CurveEndVertex.STATE_KEY) as RecordedCurveEnds | undefined;
+    return ends ? CurveEnds.ofEdge(ends[ref.end].edge, ends[ref.end].kind) : null;
+  }
+  const written = VertexPointSynthesizer.writtenPoint(scene, { shapeId: ref.shapeId, sub: { type: 'vertex', index: ref.index } });
+  if (!written) {
+    return null;
+  }
+  if (written.kind === 'edge') {
+    scratch.push(written.edge);
+    return CurveEnds.ofEdge(written.edge, written.role);
+  }
+  return CurveEnds.read(written.point);
 }
 
 /**

@@ -48,6 +48,9 @@ import { Intersect } from "../features/2d/intersect.js";
 import { IntersectionCurve } from "../features/intersection-curve.js";
 import { ProjectedCurve } from "../features/projected-curve.js";
 import { OffsetCurve } from "../features/offset-curve.js";
+import { Bridge } from "../features/bridge.js";
+import { CurveEndVertex } from "../features/curve-end-vertex.js";
+import { CurveEnds } from "../helpers/curve-end.js";
 import { Feature } from "../sdk/feature.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, objectAtRow, resolveScopedScene,
@@ -68,6 +71,20 @@ export type SourceSlot =
   | { kind: 'sketch'; filePath: string; line: number; column: number }
   | { kind: 'entities'; entities: PickRef[] }
   | { kind: 'connector'; filePath: string; line: number; column: number; slot?: number }
+  | { kind: 'opaque' };
+
+/**
+ * One end of a bridge, resolved for edit-dialog seeding: the start or the
+ * end of an edge — of a pre-statement solid or surface, or of a curve or a
+ * sketch — as a viewport entity with the end in the edge's own sense
+ * (`.start()` / `.end()`, as the end row's anchors offer it); where a curve
+ * object starts or ends (`c.start()`, `c.end()`), by the curve's call site;
+ * or `opaque` — a bare point (a sketch point, a vertex), or an edge nothing
+ * on screen holds — so the dialog keeps the end's verbatim text.
+ */
+export type EndSourceSlot =
+  | { kind: 'edge-end'; entity: PickRef; end: 'start' | 'end' }
+  | { kind: 'curve-end'; filePath: string; line: number; column: number; end: 'start' | 'end' }
   | { kind: 'opaque' };
 
 export type FeatureSources =
@@ -144,6 +161,11 @@ export type FeatureSources =
    * faces as its target does. The distance is read off the statement.
    */
   | { feature: 'offset-curve'; edges: SourceSlot[]; on: SourceSlot[] }
+  /**
+   * A bridge — `bridge(from, to)`: each end (see {@link EndSourceSlot}). The
+   * continuity and the magnitudes are read off the statement.
+   */
+  | { feature: 'bridge'; from: EndSourceSlot; to: EndSourceSlot }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
    * along — an axis per linear direction (one for circular and rotate), or the
@@ -284,6 +306,14 @@ export function resolveFeatureSources(
         feature: 'offset-curve',
         edges: feature.edgeOperands.map(operand => resolver.curveOperandSlot(operand)),
         on: feature.onOperands.map(operand => resolver.faceOperandSlot(operand)),
+      };
+    }
+    if (feature instanceof Bridge) {
+      return {
+        ok: true,
+        feature: 'bridge',
+        from: resolver.endSlot(feature.fromOperand),
+        to: resolver.endSlot(feature.toOperand),
       };
     }
     // A top-level (face-target) offset: its targets are face selections, the
@@ -505,6 +535,7 @@ export function resolveFeatureSources(
 }
 
 const OPAQUE: SourceSlot = { kind: 'opaque' };
+const OPAQUE_END: EndSourceSlot = { kind: 'opaque' };
 
 /** The scope that applies no removal: every object reads as holding all it was given. */
 const UNCONSUMED = new Set<SceneObject>();
@@ -765,6 +796,32 @@ class SourceResolver {
   }
 
   /**
+   * One end of a bridge (see {@link EndSourceSlot}): a curve object's own
+   * start or end by the curve's call site; any other end of an edge as
+   * that edge, mapped onto what the rolled-back scene shows, and the end in
+   * the edge's own sense; a bare point, or an edge nothing holds, opaque.
+   */
+  endSlot(obj: SceneObject): EndSourceSlot {
+    if (obj instanceof CurveEndVertex) {
+      const site = this.callSiteSlot(obj.curveObject);
+      if (site.kind === 'sketch') {
+        return { kind: 'curve-end', filePath: site.filePath, line: site.line, column: site.column, end: obj.walkEnd };
+      }
+    }
+    let at: ReturnType<typeof CurveEnds.edgeEndOf>;
+    try {
+      at = CurveEnds.edgeEndOf(obj);
+    } catch {
+      return OPAQUE_END;
+    }
+    if (!at) {
+      return OPAQUE_END;
+    }
+    const entity = this.mapShape(at.edge, true) ?? this.mapCurveEdge(at.edge);
+    return entity ? { kind: 'edge-end', entity, end: at.end } : OPAQUE_END;
+  }
+
+  /**
    * What a tool's `.direction()` holds: an axis as an axis slot resolves (a
    * connector by its site), a plane as a mirror's plane does, a picked edge
    * or face as viewport entities on the pre-statement solids and surfaces,
@@ -903,6 +960,30 @@ class SourceResolver {
       }
     }
     return this.solids;
+  }
+
+  /**
+   * An edge of a curve or of a sketch, as the viewport addresses it: the
+   * prefix object's own edge or wire that holds it, and its index among
+   * that shape's edges. Null when nothing before the statement holds it.
+   */
+  private mapCurveEdge(edge: Shape): PickRef | null {
+    const key = this.hasher.key(edge.getShape());
+    for (const obj of this.prefix) {
+      if (obj.isLazy()) {
+        continue;
+      }
+      for (const shape of obj.getAddedShapes()) {
+        if ((shape.getType() !== 'edge' && shape.getType() !== 'wire') || shape.isMetaShape()) {
+          continue;
+        }
+        const index = this.keyMapFor(shape, 'edge').get(key);
+        if (index !== undefined) {
+          return { shapeId: shape.id, sub: { type: 'edge', index } };
+        }
+      }
+    }
+    return null;
   }
 
   /** {@link terminalSolids} and the terminal surfaces, in prefix order. */

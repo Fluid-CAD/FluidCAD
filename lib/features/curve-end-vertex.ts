@@ -82,6 +82,16 @@ export class CurveEndVertex extends AnchoredLazyVertex {
     return point.distanceTo(start) <= point.distanceTo(end) ? 'start' : 'end';
   }
 
+  /** The curve object whose start or end this is. */
+  get curveObject(): SceneObject {
+    return this.curve;
+  }
+
+  /** Which end of the curve's walk: where it starts or where it ends. */
+  get walkEnd(): CurveEnd {
+    return this.end;
+  }
+
   private recorded(): CurveEndAnchor | null {
     const ends = this.curve.getState(CurveEndVertex.STATE_KEY) as CurveEnds | undefined;
     return ends ? ends[this.end] : null;

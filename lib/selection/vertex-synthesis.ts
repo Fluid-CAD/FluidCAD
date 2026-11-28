@@ -1,5 +1,7 @@
 import { SceneObject } from '../common/scene-object.js';
 import { Shape } from '../common/shape.js';
+import type { Edge } from '../common/edge.js';
+import type { LazyVertex } from '../features/lazy-vertex.js';
 import { Sketch } from '../features/2d/sketch.js';
 import { Point } from '../math/point.js';
 import { Explorer } from '../oc/explorer.js';
@@ -25,8 +27,25 @@ export type EdgePoint = {
   edge: number;
 };
 
-/** A vertex of a sketch, named as a point its sketch exports (`s.geometries.l1.start()`). */
-export type SketchPoint = { kind: 'sketch'; sketch: Sketch; request: SketchExportRequest; entities: Map<number, SceneObject> };
+/**
+ * A vertex of a sketch, named as a point its sketch exports
+ * (`s.geometries.l1.start()`); `point` is the reference that expression
+ * stands for.
+ */
+export type SketchPoint = {
+  kind: 'sketch';
+  sketch: Sketch;
+  request: SketchExportRequest;
+  entities: Map<number, SceneObject>;
+  point: LazyVertex;
+};
+
+/**
+ * What a vertex pick is written as, as the object a consumer reads: the end
+ * of an edge of the solid (a fresh wrapper the caller frees, and which of
+ * its two anchors), or a sketch point reference.
+ */
+export type WrittenPoint = { kind: 'edge'; edge: Edge; role: 'start' | 'end' } | { kind: 'sketch'; point: LazyVertex };
 
 /** How a picked vertex is written: the end of an edge, or a sketch point. */
 export type PointPart = EdgePoint | SketchPoint;
@@ -120,6 +139,42 @@ export class VertexPointSynthesizer {
     }
   }
 
+  /**
+   * What a vertex pick writes, read as the object the statement will hold:
+   * a solid's vertex as the end of the edge whose selector names it — that
+   * edge and which of its anchors — a sketch's as the point reference its
+   * expression stands for. Null when the pick no longer resolves or nothing
+   * can name it. A preview reads a vertex pick through this, so it shows
+   * what the written statement builds.
+   */
+  static writtenPoint(scene: SelectionScene, ref: PickRef, options: SynthesizeOptions = {}): WrittenPoint | null {
+    const index = new SelectionIndex(scene);
+    try {
+      const groups = VertexPointSynthesizer.groups(scene, index, [ref], options);
+      if ('ok' in groups) {
+        return null;
+      }
+      const best = groups[0][0];
+      if (best.kind === 'sketch') {
+        return { kind: 'sketch', point: best.point };
+      }
+      const located = VertexPointSynthesizer.locate(scene, ref);
+      if (!located) {
+        return null;
+      }
+      const edges = Explorer.findEdgesWrapped(located.shape);
+      const edge = edges[best.edge];
+      for (const other of edges) {
+        if (other !== edge) {
+          other.dispose();
+        }
+      }
+      return edge ? { kind: 'edge', edge, role: best.role } : null;
+    } finally {
+      index.dispose();
+    }
+  }
+
   private static groups(scene: SelectionScene, index: SelectionIndex, refs: PickRef[], options: SynthesizeOptions): PointGroup[] | Refusal {
     const bindable = makeStatementBindable(options.bindable);
     const groups: PointGroup[] = [];
@@ -177,7 +232,7 @@ export class VertexPointSynthesizer {
     if (attributed.ok === false) {
       return { ok: false, reason: attributed.reason, pick: ref };
     }
-    return [{ kind: 'sketch', sketch, request: attributed.request, entities: attributed.entities }];
+    return [{ kind: 'sketch', sketch, request: attributed.request, entities: attributed.entities, point: attributed.point }];
   }
 
   /** Every verified selector of every edge meeting the vertex, best ranked first. */

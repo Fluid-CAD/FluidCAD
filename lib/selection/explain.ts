@@ -187,6 +187,26 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'bridge') {
+    // The pick is one end of the bridge: the start or the end of a single
+    // edge, its accessor the anchor the dialog took. A vertex is written by
+    // the point synthesis (`VertexPointSynthesizer`), not here.
+    if (chains.length > 0 || refs.length !== 1 || refs[0].sub.type !== 'edge') {
+      return {
+        ok: false,
+        reason: 'a bridge end is the start or the end of one edge — pick exactly one edge',
+        pick: refs[0],
+      };
+    }
+    const anchor = options.connector?.anchor;
+    if (anchor && anchor.kind !== 'start' && anchor.kind !== 'end') {
+      return {
+        ok: false,
+        reason: 'a bridge end is the start or the end of an edge, not a point along it',
+        pick: refs[0],
+      };
+    }
+  }
   if (feature === 'helix') {
     // The helix source is a single edge — its axis, via axis() — or a single
     // cylindrical/conical face, which supplies the frame directly.
@@ -445,7 +465,7 @@ export function synthesizeApplyFeature(
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
         || feature === 'project' || feature === 'connector' || feature === 'expose' || feature === 'hole'
         || feature === 'color' || feature === 'intersection-curve' || feature === 'projected-curve'
-        || feature === 'offset-curve'
+        || feature === 'offset-curve' || feature === 'bridge'
         ? {} : { value }),
       ...(connectorPayload ? { connector: connectorPayload } : {}),
       ...(exposePayload ? { expose: exposePayload } : {}),
@@ -475,7 +495,7 @@ export function synthesizeApplyFeature(
 
     // The anchor suffix rides the args so the expression row shows (and can
     // edit) the full source expression, e.g. `e.endFaces().center()`.
-    const anchorSuffix = feature === 'connector' || feature === 'hole'
+    const anchorSuffix = feature === 'connector' || feature === 'hole' || feature === 'bridge'
       ? renderConnectorAnchorSuffix(options.connector?.anchor)
       : '';
 
@@ -767,6 +787,12 @@ function renderPreview(
     // The args are one row's selectors (the edges or the faces of { on });
     // the route composes the statement from both rows and the distance.
     return `offset(${args})`;
+  }
+  if (feature === 'bridge') {
+    // The args are one end: the edge's selector, with its .start() or
+    // .end() when the anchor is given; the route composes the statement
+    // from both ends and the options.
+    return `bridge(${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

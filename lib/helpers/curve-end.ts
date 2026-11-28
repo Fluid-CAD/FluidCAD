@@ -68,6 +68,21 @@ export class CurveEnds {
 
   /** The end `value` names: see the class comment. A BuildError for a value that is no end. */
   static read(value: SceneObject): CurveEnd {
+    const at = CurveEnds.edgeEndOf(value);
+    if (at) {
+      return CurveEnds.ofEdge(at.edge, at.end);
+    }
+    const ref = value instanceof SolvedPoint ? value.start() : value;
+    return { point: PointResolver.toWorld(ref as LazyVertex) };
+  }
+
+  /**
+   * The edge `value` names an end of, and which end in the edge's own
+   * sense; null when it names a bare point. A BuildError for a value that
+   * is no end — a centre, an offset, an anchor on a face, an object that is
+   * no point.
+   */
+  static edgeEndOf(value: SceneObject): { edge: Edge; end: EdgeEnd } | null {
     if (value instanceof AnchoredLazyVertex) {
       const spec = value.getAnchorSpec();
       if (spec.kind !== 'start' && spec.kind !== 'end') {
@@ -82,16 +97,14 @@ export class CurveEnds {
       if (shape instanceof Face || !(shape instanceof Edge)) {
         throw notAnEnd();
       }
-      return CurveEnds.ofEdge(shape, spec.kind);
+      return { edge: shape, end: spec.kind };
     }
     const ref = value instanceof SolvedPoint ? value.start() : value;
     if (ref instanceof SketchPointVertex) {
-      const point = PointResolver.toWorld(ref);
-      const at = CurveEnds.edgeEndAt(CurveEnds.entityEdges(ref), point, ref.role);
-      return at ? CurveEnds.ofEdge(at.edge, at.end) : { point };
+      return CurveEnds.edgeEndAt(CurveEnds.entityEdges(ref), PointResolver.toWorld(ref), ref.role);
     }
     if (ref instanceof LazyVertex) {
-      return { point: PointResolver.toWorld(ref) };
+      return null;
     }
     throw notAnEnd();
   }

@@ -29,6 +29,8 @@ export type SketchVertexAttribution = {
   sketch: Sketch;
   request: SketchExportRequest;
   entities: Map<number, SceneObject>;
+  /** The point reference the written expression stands for (`l1.start()`, `p1`'s point), for a consumer that reads it. */
+  point: LazyVertex;
 } | { ok: false; reason: string };
 
 /** Attribute a shared corner to the earliest incident entity with a named point. */
@@ -72,7 +74,7 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
         const target = owner instanceof ControlPointCurve
           ? { ...address.target, pointIndex: role === 'start' ? 0 : owner.controlPoints.length - 1 }
           : { ...address.target, role };
-        return { ok: true, sketch, request: { sketch: location, target }, entities: address.entities };
+        return { ok: true, sketch, request: { sketch: location, target }, entities: address.entities, point: ref };
       }
     } catch (error) {
       refusal ??= error instanceof Error ? error.message : String(error);
@@ -100,7 +102,7 @@ export function attributeSketchVertex(scene: SelectionScene, sketch: Sketch, poi
       const entities = new Map([[loc.line, owner as SceneObject]]);
       assertAddressable(scene, location.filePath, entities);
       const target: SolvedEmissionTarget = { line: loc.line, featureType: named.featureType, ...(named.role ? { role: named.role } : {}) };
-      return { ok: true, sketch, request: { sketch: location, target }, entities };
+      return { ok: true, sketch, request: { sketch: location, target }, entities, point: named.ref };
     } catch (error) {
       refusal ??= error instanceof Error ? error.message : String(error);
     }

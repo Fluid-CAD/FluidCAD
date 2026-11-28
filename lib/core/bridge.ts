@@ -46,8 +46,16 @@ function endArgument(value: unknown, name: typeof ENDS[number]): SceneObject {
   if (value instanceof LazyVertex || value instanceof SolvedPoint) {
     return value;
   }
-  const got = value instanceof SceneObject ? `a ${value.getType()}` : OperandArguments.describe(value);
-  throw new Error(`bridge: the ${name} argument must be a curve end, the start() or end() of an edge or a curve, or a point; got ${got}.`);
+  throw new Error(`bridge: the ${name} argument must be a curve end, the start() or end() of an edge or a curve, or a point; got ${describe(value)}.`);
+}
+
+/** A value that is no end, as the refusal names it: `an extrude`, `a select`, `3`, `'xy'`. */
+function describe(value: unknown): string {
+  if (!(value instanceof SceneObject)) {
+    return OperandArguments.describe(value);
+  }
+  const type = value.getType();
+  return `${/^[aeiou]/.test(type) ? 'an' : 'a'} ${type}`;
 }
 
 /**

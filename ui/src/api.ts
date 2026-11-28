@@ -695,6 +695,7 @@ export type FeatureGhostRequest =
   | IntersectionCurveGhostRequest
   | ProjectedCurveGhostRequest
   | OffsetCurveGhostRequest
+  | BridgeGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -1013,6 +1014,59 @@ export type OffsetCurveGhostRequest = {
   distance: ValueExpr;
   edges: GhostOperandRef[];
   on: GhostOperandRef[];
+};
+
+/**
+ * How a bridge meets one of its ends — `.continuity()`: `'g0'` its position
+ * only, `'g1'` its tangent too (the default), `'g2'` its curvature too. An
+ * end that offers less (a plain point offers position only) is met at what
+ * it offers.
+ */
+export type BridgeContinuity = 'g0' | 'g1' | 'g2';
+
+/**
+ * One end of a bridge on the ghost wire, as the end row holds it:
+ *
+ * - `edge-end` — the start or the end of an edge of a solid, a surface or a
+ *   curve, by its viewport address, `end` in the edge's own sense (by its
+ *   curve's parameter, the anchors the hover rail offers);
+ * - `curve-end` — where a curve object starts or ends, by its statement;
+ * - `vertex` — a picked vertex, read as the point synthesis writes it: a
+ *   solid's corner as the end of the edge whose selector names it (so with
+ *   that edge's tangent unless its end is met at `'g0'`), a sketch's vertex
+ *   as its sketch point (a line's end with the line's tangent).
+ *
+ * The apply route takes the same values ({@link EndInputRef}), a curve end
+ * with its statement's column.
+ */
+export type GhostEndRef =
+  | { kind: 'edge-end'; shapeId: string; index: number; end: 'start' | 'end' }
+  | { kind: 'curve-end'; filePath: string; line: number; end: 'start' | 'end' }
+  | { kind: 'vertex'; shapeId: string; index: number };
+
+/**
+ * The bridge dialog on the ghost wire — `bridge(from, to)`. A curve: no op;
+ * its two ends, how it meets each ('g1' when left out), and the magnitude at
+ * each — a number or an expression the server resolves where the statement
+ * sits, 1 when left out. At an end met at `'g0'` the magnitude is not
+ * written and does nothing, so whatever its field holds is not checked and
+ * stands as 1 unless it reads as a positive number. The server refuses an
+ * end it cannot read ("Invalid bridge ends"), a continuity outside its words
+ * ("Invalid bridge continuity") and a magnitude that is no value ("Invalid
+ * dimension"); one it cannot evaluate answers `success: false` with "That
+ * value is not a number the preview can resolve.". The engine refuses a
+ * magnitude not above zero ("bridge: a magnitude must be greater than
+ * zero.") and two ends at one point ("bridge: the two ends are at the same
+ * point.") as `surface` refusals.
+ */
+export type BridgeGhostRequest = {
+  feature: 'bridge';
+  from: GhostEndRef;
+  to: GhostEndRef;
+  startContinuity: BridgeContinuity;
+  endContinuity: BridgeContinuity;
+  startMagnitude: ValueExpr;
+  endMagnitude: ValueExpr;
 };
 
 /**
@@ -3481,6 +3535,71 @@ export async function applyOffsetCurve(options: OffsetCurveApplyOptions): Promis
   }, options.signal);
 }
 
+/**
+ * One end of a bridge as the apply route takes it: the ghost's
+ * {@link GhostEndRef} with a curve end's statement column, so an end row
+ * sends one value to both. An edge end is written as the edge's selector
+ * with `.start()` / `.end()`; a curve end as its variable with `.start()` /
+ * `.end()`; a vertex as the point synthesis writes it — a solid's corner
+ * `e.sideEdges(…).start()` (send its end's continuity `'g0'` to meet it at
+ * its position only), a sketch point `s.geometries.p1`, a sketch line's end
+ * `s.geometries.l1.end()` (exported from the sketch by the transform). An
+ * edge of a sketch has no selector: send the vertex at its end instead.
+ */
+export type EndInputRef =
+  | { kind: 'edge-end'; shapeId: string; index: number; end: 'start' | 'end' }
+  | { kind: 'curve-end'; filePath: string; line: number; column: number; end: 'start' | 'end' }
+  | { kind: 'vertex'; shapeId: string; index: number };
+
+export type BridgeApplyOptions = {
+  /** Where the bridge starts. */
+  from: EndInputRef;
+  /** Where it ends. The same pick as `from` is refused (400), "bridge: the two ends are at the same point.". */
+  to: EndInputRef;
+  /** How it meets its start ('g1' is the default, written as no chain). */
+  startContinuity: BridgeContinuity;
+  /** How it meets its end. */
+  endContinuity: BridgeContinuity;
+  /**
+   * How far it keeps going straight at its start, against the gap: a number
+   * or an expression, not written at 1 (the default). At a start met at
+   * `'g0'` it is not written, whatever it holds; elsewhere a literal zero or
+   * negative number is refused (400) in the engine's words, "bridge: a
+   * magnitude must be greater than zero.".
+   */
+  startMagnitude: ValueExpr;
+  /** The same at its end. */
+  endMagnitude: ValueExpr;
+  /** Declarations the magnitudes' expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a bridge —
+ * `bridge(from, to)` then `.continuity(…)` (left out when both ends are
+ * `'g1'`, one value when alike, two when they differ),
+ * `.startMagnitude(n)` and `.endMagnitude(n)` (each left out at 1 and at an
+ * end met at `'g0'`), named `Bridge n`. Same endpoint and response shape as
+ * {@link applyFeature}; a picked edge or vertex the synthesis cannot name
+ * is refused (422) in its words.
+ */
+export async function applyBridge(options: BridgeApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'bridge',
+    from: options.from,
+    to: options.to,
+    startContinuity: options.startContinuity,
+    endContinuity: options.endContinuity,
+    startMagnitude: options.startMagnitude,
+    endMagnitude: options.endMagnitude,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type SweepApplyOptions = {
   op: 'add' | 'remove' | 'new';
   /** `.thin()` offsets, or null for a plain sweep. */
@@ -4070,6 +4189,20 @@ export type SourceSlotRef =
   | { kind: 'connector'; filePath: string; line: number; column: number; slot?: number }
   | { kind: 'opaque' };
 
+/**
+ * One end of an edited bridge, resolved for dialog seeding: the start or
+ * the end of an edge — of a pre-statement solid or surface, or of a curve
+ * or a sketch — as a viewport entity with the end in the edge's own sense;
+ * where a curve object starts or ends (`c.start()`, `c.end()`), by the
+ * curve's call site; or `opaque` — a point (a sketch point, a corner the
+ * statement names as an edge's end the scene no longer shows), so the
+ * dialog keeps the end's verbatim text (the parsed `fromText` / `toText`).
+ */
+export type EndSourceSlotRef =
+  | { kind: 'edge-end'; entity: ApplyFeatureEntity; end: 'start' | 'end' }
+  | { kind: 'curve-end'; filePath: string; line: number; column: number; end: 'start' | 'end' }
+  | { kind: 'opaque' };
+
 export type FeatureSourcesResult =
   | { ok: true; feature: 'extrude' | 'cut'; profile: SourceSlotRef; toFace?: SourceSlotRef }
   /**
@@ -4109,6 +4242,11 @@ export type FeatureSourcesResult =
    * faces as its target. The distance is read off the parsed statement.
    */
   | { ok: true; feature: 'offset-curve'; edges: SourceSlotRef[]; on: SourceSlotRef[] }
+  /**
+   * A bridge: each end ({@link EndSourceSlotRef}). The continuities and the
+   * magnitudes are read off the parsed statement.
+   */
+  | { ok: true; feature: 'bridge'; from: EndSourceSlotRef; to: EndSourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
   /**
    * A colour: the faces it paints, as entities on the pre-statement solids
@@ -4408,6 +4546,29 @@ export type ParsedFeatureStatement =
       edgesArg: string;
       /** The `on` option's value as written (`on` for the shorthand). */
       onArg: string;
+    }
+  | {
+      feature: 'bridge';
+      /** The from end, verbatim: an edge's or a curve's `.start()` / `.end()`, or a point. */
+      fromText: string;
+      /** The to end, verbatim. */
+      toText: string;
+      /** The statement a bare-variable from end names, by call site, or null. */
+      fromRef: { line: number; column: number } | null;
+      /** The statement a bare-variable to end names, by call site, or null. */
+      toRef: { line: number; column: number } | null;
+      /** How the bridge meets its start: 'g1' when `.continuity()` is absent; one value there sets both ends. */
+      startContinuity: BridgeContinuity;
+      /** How the bridge meets its end. */
+      endContinuity: BridgeContinuity;
+      /** `.startMagnitude(…)` — a number, or the expression computing it; 1 when the chain is absent. */
+      startMagnitude: ValueExpr;
+      /** `.endMagnitude(…)`; 1 when the chain is absent. */
+      endMagnitude: ValueExpr;
+      /** The `.startMagnitude(…)` argument as written, or null when absent. */
+      startMagnitudeArg: string | null;
+      /** The `.endMagnitude(…)` argument as written, or null when absent. */
+      endMagnitudeArg: string | null;
     }
   | (ParsedScopeChain & {
       feature: 'loft';
@@ -5126,6 +5287,57 @@ export async function applyOffsetCurveEdit(
     distance: options.distance,
     edges: options.edges,
     on: options.on,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+export type BridgeEditOptions = EditSessionFields & {
+  /** The new start; omitted keeps the statement's own as written. A picked edge or vertex needs `before`. */
+  from?: EndInputRef;
+  /** The new end; omitted keeps the statement's own. */
+  to?: EndInputRef;
+  /** How it meets its start; omitted keeps the statement's own. Setting `'g0'` drops the start's magnitude from the statement. */
+  startContinuity?: BridgeContinuity;
+  /** How it meets its end; omitted keeps the statement's own. */
+  endContinuity?: BridgeContinuity;
+  /**
+   * The new start magnitude; omitted keeps the statement's own text. Not
+   * written at 1, nor at a start met at `'g0'`; a literal zero or negative
+   * number at a start that writes one is refused in the engine's words —
+   * 400 when the edit sets that end's continuity, else 422 once the
+   * statement says it is not `'g0'`.
+   */
+  startMagnitude?: ValueExpr;
+  /** The same at its end. */
+  endMagnitude?: ValueExpr;
+  /** Declarations the magnitudes' expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Rewrite the bridge statement at `edit` in place: the chains rewritten in
+ * canonical order with their defaults left out, a kept magnitude with its
+ * own text; what the edit leaves out stays as written, a trailing
+ * `.name(…)` too.
+ */
+export async function applyBridgeEdit(
+  edit: FeatureEditTarget,
+  options: BridgeEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'bridge',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    from: options.from,
+    to: options.to,
+    startContinuity: options.startContinuity,
+    endContinuity: options.endContinuity,
+    startMagnitude: options.startMagnitude,
+    endMagnitude: options.endMagnitude,
     newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);

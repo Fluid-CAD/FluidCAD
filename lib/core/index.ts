@@ -1,5 +1,5 @@
 export type {
-  ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect, ICurveResult, ISurfaceResult, IIntersectionCurve, IProjectedCurve, IOffsetCurve,
+  ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect, ICurveResult, ISurfaceResult, IIntersectionCurve, IProjectedCurve, IOffsetCurve, IBridge,
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IEllipticalArc, IText,
   IConnector, IPart, ILoadFile, LoadOptions, FontOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap,
@@ -33,6 +33,7 @@ export { default as rib } from "./rib.js";
 export { default as hole, type HolePlacementLike } from "./hole.js";
 export { default as wrap } from "./wrap.js";
 export { default as helix } from "./helix.js";
+export { default as bridge } from "./bridge.js";
 export { default as color } from "./color.js";
 export { default as draft } from "./draft.js";
 export { default as remove } from "./remove.js";

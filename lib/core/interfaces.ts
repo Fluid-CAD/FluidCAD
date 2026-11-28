@@ -338,6 +338,39 @@ export interface IProjectedCurve extends ICurveResult {
 export interface IOffsetCurve extends ICurveResult {}
 
 /**
+ * A smooth curve between two curve ends: `bridge(from, to)`. One wire of
+ * one edge that leaves `from` the way its curve was heading and arrives at
+ * `to` heading into its curve. The options are chained methods, in any
+ * order.
+ */
+export interface IBridge extends ICurveResult {
+  /**
+   * How the bridge meets each end: `'g0'` position only (a straight line
+   * between the two points), `'g1'` tangent (the default), `'g2'`
+   * curvature. Applied at both ends; an end that is a plain point only
+   * ever matches position.
+   * @param value - `'g0'`, `'g1'` or `'g2'`.
+   */
+  continuity(value: 'g0' | 'g1' | 'g2'): this;
+
+  /**
+   * How far the bridge keeps going straight before it turns, at its start:
+   * 1 by default; larger is fuller, smaller is tighter. Measured against
+   * the distance between the two ends, so the shape stays the same when the
+   * gap grows. Must be greater than zero.
+   * @param value - A number greater than zero.
+   */
+  startMagnitude(value: NumberParam): this;
+
+  /**
+   * The same at its end: how far the bridge runs straight into the `to`
+   * curve. 1 by default. Must be greater than zero.
+   * @param value - A number greater than zero.
+   */
+  endMagnitude(value: NumberParam): this;
+}
+
+/**
  * What every tool that leaves a surface answers: its faces, and the edges
  * of its open rim.
  */

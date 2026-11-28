@@ -535,8 +535,19 @@ export abstract class OperandRowService<
     this.remember(row, { shapeId, sub }, outcome);
   }
 
-  /** A sketch's wire clicked while a curve row is armed: the whole sketch. */
+  /**
+   * A sketch's wire clicked: in an armed curve row, the whole sketch; in an
+   * armed row beside the operand rows that asked for sketch wires (an end
+   * row), whatever that row takes of it.
+   */
   handleSketchPick(shapeId: string): boolean {
+    const extraRow = this.armed ? this.armedExtraRow() : null;
+    if (extraRow !== null && this.tool.extraRows[extraRow].channels().sketchWires) {
+      this.selectionMenu.hide();
+      this.recentClicks.forget();
+      void this.takeExtraClick(extraRow, shapeId, { type: 'sketch', index: 0 });
+      return true;
+    }
     if (!this.isCurvePicking) {
       return false;
     }

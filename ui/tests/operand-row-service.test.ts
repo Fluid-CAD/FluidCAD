@@ -818,16 +818,24 @@ class StubHandingControl extends StubControl implements HandingControl {
   }
 }
 
-/** A row beside the operand rows whose pick the test's control holds, and which, `hovers`, floats something under the cursor. */
+/**
+ * A row beside the operand rows whose pick the test's control holds, and
+ * which, `hovers`, floats something under the cursor and picks sketch wires
+ * as an end row does.
+ */
 class StubHandingRow extends StubExtraRow {
   readonly hovered: (string | null)[] = [];
   hover?: (shapeId: string | null) => void;
 
-  constructor(private readonly control: StubHandingControl, hovers: boolean) {
+  constructor(private readonly control: StubHandingControl, private readonly hovers: boolean) {
     super();
     if (hovers) {
       this.hover = shapeId => this.hovered.push(shapeId);
     }
+  }
+
+  override channels(): PickChannels {
+    return this.hovers ? { ...NO_CHANNELS, pickFilter: 'edge', sketchWires: true, vertices: true } : super.channels();
   }
 
   override async takeClick(shapeId: string): Promise<PickOutcome> {
@@ -919,7 +927,7 @@ describe('the operand-row panel and service — rows beside no operand rows', ()
     expect(rig.dialog.armedRow).toBe('start');
     expect(rig.controls.start.armed).toBe(true);
     expect(rig.rows.start.calls).toContain('aim:true');
-    expect(rig.channels).toMatchObject({ pickFilter: 'vertex', pickVertices: true });
+    expect(rig.channels).toMatchObject({ pickFilter: 'edge', pickVertices: true });
 
     rig.service.handleClick('block-solid', edge(1).sub);
     await vi.advanceTimersByTimeAsync(0);
@@ -983,6 +991,21 @@ describe('the operand-row panel and service — rows beside no operand rows', ()
 
     rig.service.exit();
     expect(rig.service.isHoverPicking).toBe(false);
+  });
+
+  it('hands a sketch\'s wire to the armed row beside the operand rows only when it asked for sketch wires', async () => {
+    const rig = mountEnds();
+    rig.service.enter();
+    expect(rig.channels).toMatchObject({ pickFilter: 'edge', pickSketchWires: true });
+    expect(rig.service.handleSketchPick('ring-wire')).toBe(true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rig.rows.start.calls).toContain('click:ring-wire');
+    expect(rig.dialog.armedRow).toBe('finish');
+
+    rig.dialog.armRow('loose');
+    expect(rig.channels).toMatchObject({ pickSketchWires: false });
+    expect(rig.service.handleSketchPick('ring-wire')).toBe(false);
+    expect(rig.rows.loose.calls).not.toContain('click:ring-wire');
   });
 
   it('takes no hover while an operand row is armed', () => {

@@ -15,6 +15,7 @@ import type {
   FluidCadServer,
   HoleGhostRequest,
   GhostDirectionRef,
+  GhostEndRef,
   GhostEntityRef,
   GhostExtrudeTargetRef,
   GhostFaceRef,
@@ -28,6 +29,7 @@ import { CONDITION_CHOICES, parseCondition, parseLoftConnections } from './loft.
 import {
   parseAxis,
   parseDirection,
+  parseEndRef,
   parseEntityRefs,
   parseExtrudeTarget,
   parseFaceProfile,
@@ -62,9 +64,9 @@ import { CustomGhostRoute, type GhostFeatureCatalog } from './custom.ts';
 import { GhostSlots } from './slots.ts';
 import { ValueScope } from './value-scope.ts';
 import type { GlobalParamCatalog } from '../../global-params/catalog.ts';
-import { isThin, isValueExprOrNull, type ValueExpr } from './values.ts';
+import { isThin, isValueExpr, isValueExprOrNull, type ValueExpr } from './values.ts';
 import {
-  BAND_FEATURES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, PROJECTION_KEEPS, PROJECTION_MODES, SHELL_JOINS,
+  BAND_FEATURES, BRIDGE_CONTINUITIES, FEATURES, OPS, PLANE_TYPES, PROFILE_FEATURES, PROJECTION_KEEPS, PROJECTION_MODES, SHELL_JOINS,
   SPLIT_KEEPS, type GhostBody,
 } from './vocabulary.ts';
 
@@ -120,6 +122,8 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     // So is the offset curve: it runs beside its edges row on its { on }
     // row's faces.
     const isOffsetCurve = body.feature === 'offset-curve';
+    // So is the bridge: it joins two ends.
+    const isBridge = body.feature === 'bridge';
     const isRepeat = body.feature === 'repeat';
     const isCopy = body.feature === 'copy';
     // The mirror is NOT exempt: its reflected bodies land the way its own op
@@ -139,7 +143,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
     const isMirror2D = body.feature === 'mirror2d';
     // A hole is always a removal — no op to declare.
     const isHole = body.feature === 'hole';
-    if (!isHole && !isBand && !isShell && !isHelix && !isIntersectionCurve && !isProjectedCurve && !isOffsetCurve && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
+    if (!isHole && !isBand && !isShell && !isHelix && !isIntersectionCurve && !isProjectedCurve && !isOffsetCurve && !isBridge && !isRepeat && !isCopy && !isRotate && !isTranslate && !isSplit && !isPlane
       && !isOffset && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -358,6 +362,38 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
     }
+    // Each end as its row holds it, how the bridge meets each ('g1' when
+    // left out), and each magnitude a value — 1 when left out — except at
+    // an end met at 'g0', where the statement writes none: whatever its
+    // field holds is not checked, and stands as 1 unless it reads as a
+    // magnitude the engine takes. The engine refuses two ends at one point,
+    // and says why (422).
+    let bridge: {
+      from: GhostEndRef;
+      to: GhostEndRef;
+      startContinuity: 'g0' | 'g1' | 'g2';
+      endContinuity: 'g0' | 'g1' | 'g2';
+    } | null = null;
+    if (isBridge) {
+      const from = parseEndRef(body.from);
+      const to = parseEndRef(body.to);
+      if (!from || !to) {
+        res.status(400).json({ success: false, reason: 'Invalid bridge ends' });
+        return;
+      }
+      const startContinuity = BRIDGE_CONTINUITIES.find(word => word === (body.startContinuity ?? 'g1'));
+      const endContinuity = BRIDGE_CONTINUITIES.find(word => word === (body.endContinuity ?? 'g1'));
+      if (!startContinuity || !endContinuity) {
+        res.status(400).json({ success: false, reason: 'Invalid bridge continuity' });
+        return;
+      }
+      if ((startContinuity !== 'g0' && !isValueExprOrNull(body.startMagnitude))
+        || (endContinuity !== 'g0' && !isValueExprOrNull(body.endMagnitude))) {
+        res.status(400).json({ success: false, reason: 'Invalid dimension' });
+        return;
+      }
+      bridge = { from, to, startContinuity, endContinuity };
+    }
     const axis = body.feature === 'revolve' ? parseAxis(body.axis) : null;
     if (body.feature === 'revolve' && !axis) {
       res.status(400).json({ success: false, reason: 'Invalid axis reference' });
@@ -565,6 +601,18 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
       ? [resolve(copy2d.center[0]), resolve(copy2d.center[1])]
       : null;
     const translation = translate ? translate.translation.map(v => resolve(v)) : null;
+    const bridgeMagnitude = (continuity: 'g0' | 'g1' | 'g2', raw: unknown): number | null => {
+      if (raw === null || raw === undefined) {
+        return 1;
+      }
+      if (continuity !== 'g0') {
+        return resolve(raw);
+      }
+      const read = isValueExpr(raw) ? scope.resolve(raw) : null;
+      return read !== null && read > 0 ? read : 1;
+    };
+    const bridgeStartMagnitude = bridge ? bridgeMagnitude(bridge.startContinuity, body.startMagnitude) : null;
+    const bridgeEndMagnitude = bridge ? bridgeMagnitude(bridge.endContinuity, body.endMagnitude) : null;
 
     if (values.some(v => v === null)) {
       // An expression this server can't evaluate — the client clears the ghost.
@@ -632,6 +680,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer, options
         return;
       }
       request = { feature: 'offset-curve', distance, ...offsetRows! };
+    } else if (isBridge) {
+      // Every magnitude resolved above, or the request never reached here.
+      request = { feature: 'bridge', ...bridge!, startMagnitude: bridgeStartMagnitude!, endMagnitude: bridgeEndMagnitude! };
     } else if (isPlane) {
       const rotationAxes = slots.choice(planeAxes, ['local', 'world'] as PlaneRotationAxes[], 'Rotation axes');
       if ('reason' in rotationAxes) {

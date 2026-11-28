@@ -2,6 +2,7 @@
 
 import type { Request, Response } from 'express';
 import {
+  BridgeEnds,
   enclosingSketchLine,
   extractNumericParams,
   HolePlacements,
@@ -29,6 +30,7 @@ import { validateBoundary, type Pick, type PickChain } from '../picks.ts';
 import { allocateProducerVars, makeProducerMerger } from '../synthesis.ts';
 import { AxisInputs } from '../axis-inputs.ts';
 import { DirectionInputs } from '../direction-inputs.ts';
+import { EndInputs } from '../end-inputs.ts';
 import { OperandInputs } from '../operand-inputs.ts';
 import type { OperandRowFeature } from '../operand-row-create.ts';
 import type { CopyEditAxisInput } from '../validate/copy.ts';
@@ -114,6 +116,8 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       ...(request.projectedCurve?.direction && request.projectedCurve.direction.kind !== 'cleared'
         ? [DirectionInputs.statement(request.projectedCurve.direction)].filter((loc): loc is SketchLoc => loc !== null)
         : []),
+      ...[EndInputs.statement(request.bridge?.from), EndInputs.statement(request.bridge?.to)]
+        .filter((loc): loc is SketchLoc => loc !== null),
     ];
     for (const loc of sketchLocs) {
       if (normalizePath(loc.filePath) !== normalizePath(request.target.filePath)) {
@@ -1096,6 +1100,35 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
       }
       Object.assign(edit.offsetCurve!, rows);
     }
+    if (request.feature === 'bridge' && request.bridge) {
+      // Each new end: a curve's start or end bound by call site, an edge's
+      // synthesized on its own and a vertex through the point synthesis,
+      // against the pre-statement scene.
+      const slots = (['from', 'to'] as const).filter(slot => request.bridge![slot] !== undefined);
+      const files: string[] = [];
+      const ends = await EndInputs.resolve(slots.map(slot => request.bridge![slot]!), {
+        merge: mergeProducer, parts, imports: importSet, files,
+      }, {
+        server: fluidCadServer,
+        feature: 'bridge',
+        code,
+        callees: ctx.currentCallees,
+        before: before ?? undefined,
+        refuse: (status, reason, pick) => {
+          res.status(status).json({ success: false, reason, ...(pick !== undefined ? { pick } : {}) });
+        },
+      });
+      if (!ends) {
+        return;
+      }
+      if (files.some(file => normalizePath(file) !== normalizePath(request.target.filePath))) {
+        res.status(422).json({ success: false, reason: 'a re-picked end lives in a different file than the edited statement' });
+        return;
+      }
+      slots.forEach((slot, i) => {
+        edit.bridge![slot] = ends[i];
+      });
+    }
     if (request.feature === 'color' && request.colorTargets) {
       // The Solid tab's list, the boolean's way; an empty list makes the
       // paint implicit again.
@@ -1156,7 +1189,9 @@ export async function handleStatementEdit(ctx: ApplyFeatureRequestContext, req: 
           ? await HolePlacements.prepare(code, spec, ctx.applyEdit)
           : spec.feature === 'split'
             ? await SplitSeeds.prepare(code, spec)
-            : { code, spec };
+            : spec.feature === 'bridge'
+              ? await BridgeEnds.prepare(code, spec)
+              : { code, spec };
       if ('error' in staged) {
         res.status(422).json({ success: false, reason: staged.error });
         return;

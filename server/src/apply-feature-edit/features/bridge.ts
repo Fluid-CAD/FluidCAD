@@ -28,6 +28,13 @@ export const BRIDGE_CONTINUITY = new WordOption<BridgeContinuity>('continuity', 
  */
 export const BRIDGE_MAGNITUDE_NOT_POSITIVE = 'bridge: a magnitude must be greater than zero.';
 
+/**
+ * The engine's refusal of two ends at one point, word for word: the route
+ * refuses a request whose two ends are the same pick before anything is
+ * written; ends that only meet where they lie are the engine's to refuse.
+ */
+export const BRIDGE_SAME_POINT = 'bridge: the two ends are at the same point.';
+
 /** The two ends of `bridge(from, to)`, as a refusal names them. */
 const SLOTS = { from: 'the from end', to: 'the to end' } as const;
 

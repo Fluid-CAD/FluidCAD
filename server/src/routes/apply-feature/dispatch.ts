@@ -15,6 +15,7 @@ import { handleHelix } from './handlers/helix.ts';
 import { handleIntersectionCurve } from './handlers/intersection-curve.ts';
 import { handleProjectedCurve } from './handlers/projected-curve.ts';
 import { handleOffsetCurve } from './handlers/offset-curve.ts';
+import { handleBridge } from './handlers/bridge.ts';
 import { handleLoft } from './handlers/loft.ts';
 import { handlePlane } from './handlers/plane.ts';
 import { handleRepeat } from './handlers/repeat.ts';
@@ -187,6 +188,14 @@ export function registerApplyFeatureEndpoint(router: Router, services: ApplyFeat
     // synthesized a row at a time.
     if (feature === 'offset-curve') {
       await handleOffsetCurve(ctx, req, res);
+      return;
+    }
+
+    // The bridge — `bridge(from, to)` — takes two ends, each an edge's or a
+    // curve's start or end, or a picked vertex named by the point synthesis,
+    // then the continuity at each end and the two magnitudes.
+    if (feature === 'bridge') {
+      await handleBridge(ctx, req, res);
       return;
     }
 

@@ -30,6 +30,8 @@ import { validateHelixOption, validateHelixSource, type HelixSourceInput } from 
 import { validateIntersectionCurveEdit, type IntersectionCurveEditRequest } from './intersection-curve.ts';
 import { validateProjectedCurveEdit, type ProjectedCurveEditRequest } from './projected-curve.ts';
 import { validateOffsetCurveEdit, type OffsetCurveEditRequest } from './offset-curve.ts';
+import { validateBridgeEdit } from './bridge.ts';
+import { EndInputs, type EndInput } from '../end-inputs.ts';
 import { DirectionInputs } from '../direction-inputs.ts';
 import { OperandInputs } from '../operand-inputs.ts';
 import {
@@ -60,7 +62,7 @@ import { validateSplitEdit, type SplitPlaneInput } from './split.ts';
 import { validateSweepExtend } from './sweep.ts';
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color', 'intersection-curve', 'projected-curve', 'offset-curve']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'translate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector', 'hole', 'split', 'color', 'intersection-curve', 'projected-curve', 'offset-curve', 'bridge']);
 
 export type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
@@ -121,6 +123,8 @@ export type StatementEditRequest = {
   projectedCurve?: Omit<ProjectedCurveEditRequest, 'mode' | 'keep'>;
   /** The offset curve's re-picked rows; an absent row keeps the statement's argument. The distance rides the edit target itself. */
   offsetCurve?: Omit<OffsetCurveEditRequest, 'distance'>;
+  /** The bridge's new ends; an absent end keeps the statement's own. The continuities and magnitudes ride the edit target itself. */
+  bridge?: { from?: EndInput; to?: EndInput };
   /** Full replacement loft profile list; absent keeps the statement's. */
   loftProfiles?: EditLoftProfileInput[];
   /** Full replacement loft guide list; absent keeps the statement's. */
@@ -225,7 +229,7 @@ export type StatementEditRequest = {
 export function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole", "split", "intersection-curve", "projected-curve" or "offset-curve" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "translate", "boolean", "offset", "project", "hole", "split", "intersection-curve", "projected-curve", "offset-curve" or "bridge" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -577,6 +581,22 @@ export function validateStatementEdit(body: any): StatementEditRequest | { error
     const { distance, ...slots } = request;
     edit.offsetCurve = distance !== undefined ? { distance } : {};
     return { ...base, offsetCurve: slots, needsPicks: OperandInputs.rowsPickGeometry(slots.rows) };
+  }
+
+  if (feature === 'bridge') {
+    // Each end kept or re-picked, the continuity at each end and each
+    // magnitude replaced when sent.
+    const request = validateBridgeEdit(body);
+    if ('error' in request) {
+      return request;
+    }
+    const { from, to, ...options } = request;
+    edit.bridge = options;
+    return {
+      ...base,
+      bridge: { ...(from ? { from } : {}), ...(to ? { to } : {}) },
+      needsPicks: EndInputs.picksGeometry(from) || EndInputs.picksGeometry(to),
+    };
   }
 
   if (feature === 'sweep' || feature === 'loft') {

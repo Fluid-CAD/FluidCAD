@@ -21,6 +21,7 @@ export type FeatureGhostRequest =
   | IntersectionCurveGhostRequest
   | ProjectedCurveGhostRequest
   | OffsetCurveGhostRequest
+  | BridgeGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
@@ -333,6 +334,35 @@ export type OffsetCurveGhostRequest = {
   edges: GhostOperandRef[];
   on: GhostOperandRef[];
 };
+
+/**
+ * The bridge — `bridge(from, to)`. A curve: no `op`; each end as the dialog
+ * picked it ({@link GhostEndRef}), how the bridge meets each, and the two
+ * magnitudes resolved to numbers. The engine checks both magnitudes above
+ * zero whatever the continuity, so an end met at `'g0'` — where its
+ * magnitude does nothing and the statement writes none — is sent one the
+ * engine takes. It refuses two ends at one point, and says why.
+ */
+export type BridgeGhostRequest = {
+  feature: 'bridge';
+  from: GhostEndRef;
+  to: GhostEndRef;
+  startContinuity: 'g0' | 'g1' | 'g2';
+  endContinuity: 'g0' | 'g1' | 'g2';
+  startMagnitude: number;
+  endMagnitude: number;
+};
+
+/**
+ * One end of a bridge on the wire: the start or the end of an edge (of a
+ * solid, a surface, a curve or a sketch) by its viewport address, `end` in
+ * the edge's own sense; where a curve object starts or ends, by its
+ * statement; or a picked vertex, read as the point synthesis writes it.
+ */
+export type GhostEndRef =
+  | { kind: 'edge-end'; shapeId: string; index: number; end: 'start' | 'end' }
+  | { kind: 'curve-end'; filePath: string; line: number; end: 'start' | 'end' }
+  | { kind: 'vertex'; shapeId: string; index: number };
 
 /**
  * The helix dialog's source slot on the wire: the axis family (a world axis,

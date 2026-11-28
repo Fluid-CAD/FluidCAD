@@ -141,6 +141,7 @@ export {
   BRIDGE_CONTINUITIES,
   BRIDGE_CONTINUITY,
   BRIDGE_MAGNITUDE_NOT_POSITIVE,
+  BRIDGE_SAME_POINT,
   BridgeEnds,
   bridgeMagnitudeError,
   renderBridgeStatement,

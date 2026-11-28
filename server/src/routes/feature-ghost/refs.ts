@@ -3,6 +3,7 @@
 import type {
   GhostAxisRef,
   GhostDirectionRef,
+  GhostEndRef,
   GhostEntityRef,
   GhostExtrudeTargetRef,
   GhostFaceRef,
@@ -145,6 +146,30 @@ export function parseOperandRows<R extends string>(
     rows[row] = refs;
   }
   return rows;
+}
+
+/**
+ * One end of a bridge, as its end row holds it: the start or the end of an
+ * edge by its viewport address, where a curve starts or ends by its
+ * statement (the column aside), or a picked vertex. Null for anything else
+ * — a keep chip the client could not address never travels.
+ */
+export function parseEndRef(value: unknown): GhostEndRef | null {
+  const ref = value as { kind?: unknown; shapeId?: unknown; index?: unknown; end?: unknown; filePath?: unknown; line?: unknown } | null;
+  const end = ref?.end === 'start' || ref?.end === 'end' ? ref.end : null;
+  const addressed = typeof ref?.shapeId === 'string' && ref.shapeId.length > 0
+    && Number.isSafeInteger(ref.index) && (ref.index as number) >= 0;
+  if (ref?.kind === 'edge-end' && addressed && end) {
+    return { kind: 'edge-end', shapeId: ref.shapeId as string, index: ref.index as number, end };
+  }
+  if (ref?.kind === 'curve-end' && typeof ref.filePath === 'string' && ref.filePath.length > 0
+    && Number.isSafeInteger(ref.line) && (ref.line as number) >= 1 && end) {
+    return { kind: 'curve-end', filePath: ref.filePath, line: ref.line as number, end };
+  }
+  if (ref?.kind === 'vertex' && addressed) {
+    return { kind: 'vertex', shapeId: ref.shapeId as string, index: ref.index as number };
+  }
+  return null;
 }
 
 /**

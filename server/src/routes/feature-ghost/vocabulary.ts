@@ -56,6 +56,13 @@ export type GhostBody = {
   target?: unknown;
   /** The offset curve: the `{ on }` row's picks (`edges` is its edges row, `distance` its distance). */
   on?: unknown;
+  /** The bridge: its two ends, how it meets each, and the magnitude at each. */
+  from?: unknown;
+  to?: unknown;
+  startContinuity?: unknown;
+  endContinuity?: unknown;
+  startMagnitude?: unknown;
+  endMagnitude?: unknown;
   mode?: unknown;
   direction?: unknown;
   radius?: unknown;
@@ -96,8 +103,11 @@ export type GhostBody = {
 export const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
   'rotate', 'translate', 'plane', 'rib', 'hole', 'offset', 'fillet2d', 'copy2d', 'mirror2d', 'split',
-  'shell', 'intersection-curve', 'projected-curve', 'offset-curve',
+  'shell', 'intersection-curve', 'projected-curve', 'offset-curve', 'bridge',
 ];
+
+/** How a bridge meets an end — its `.continuity()` words; 'g1' is the default. */
+export const BRIDGE_CONTINUITIES = ['g0', 'g1', 'g2'] as const;
 
 /** The projected curve's modes — `.mode()`; the first is the default. */
 export const PROJECTION_MODES = ['direction', 'normal'] as const;

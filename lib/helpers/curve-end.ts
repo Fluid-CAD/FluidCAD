@@ -1,7 +1,6 @@
 import type { TopoDS_Edge } from "ocjs-fluidcad";
 import { SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
-import { Face } from "../common/face.js";
 import { BuildError } from "../common/build-error.js";
 import { AnchoredLazyVertex } from "../features/anchored-vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
@@ -54,8 +53,7 @@ function notAnEnd(): BuildError {
  *
  * Anything else that is a point — a sketch point (`sk.geometries.p`, or
  * its `.start()`), a centre, a plain vertex — is a bare point: position
- * only. `.center()`, `.offset(…)` or an anchor
- * on a face is refused.
+ * only. `.center()`, `.offset(…)` or an anchor on a face is refused.
  *
  * The tangent always points **out of** the curve: at the curve's last
  * parameter along the first derivative, at its first against it. That is
@@ -88,13 +86,9 @@ export class CurveEnds {
       if (spec.kind !== 'start' && spec.kind !== 'end') {
         throw notAnEnd();
       }
-      let shape;
-      try {
-        shape = value.getAnchorShape();
-      } catch {
-        throw notAnEnd();
-      }
-      if (shape instanceof Face || !(shape instanceof Edge)) {
+      // A selection that holds nothing says so in the anchor's own words.
+      const shape = value.getAnchorShape();
+      if (!(shape instanceof Edge)) {
         throw notAnEnd();
       }
       return { edge: shape, end: spec.kind };

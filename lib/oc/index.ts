@@ -26,7 +26,7 @@ export { SweepOps } from "./sweep-ops.js";
 export { SectionOps } from "./section-ops.js";
 export { TubeOps } from "./tube-ops.js";
 export { BridgeOps } from "./bridge-ops.js";
-export type { BridgeContinuity } from "./bridge-ops.js";
+export type { BridgeContinuity, BridgeOptions } from "./bridge-ops.js";
 export { HelixOps } from "./helix-ops.js";
 export type { ShapeProperties } from './props.js';
 export { MeasureOps } from "./measure/measure-ops.js";

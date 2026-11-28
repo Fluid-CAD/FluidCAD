@@ -395,7 +395,7 @@ describe("bridge(from, to)", () => {
       });
       expect(make().getDependencies()).toEqual([p, q]);
       expect(make().getType()).toBe("bridge");
-      expect(make().serialize()).toMatchObject({ continuity: "g1", startMagnitude: 1, endMagnitude: 1 });
+      expect(make().serialize()).toMatchObject({ startContinuity: "g1", endContinuity: "g1", startMagnitude: 1, endMagnitude: 1 });
     });
   });
 
@@ -520,7 +520,7 @@ describe("bridge(from, to)", () => {
         feature: "bridge",
         from: { kind: "edge-end", ...upright(box, 0, 0), end: "end" },
         to: { kind: "edge-end", ...upright(box, 40, 20), end: "end" },
-        continuity: "g1", startMagnitude: 1, endMagnitude: 1,
+        startContinuity: "g1", endContinuity: "g1", startMagnitude: 1, endMagnitude: 1,
       }, DEFAULT_MESH_CONFIG);
       expect(result).toMatchObject({ ok: true, solids: [{ kind: "wire" }] });
     });
@@ -540,7 +540,7 @@ describe("bridge(from, to)", () => {
         { kind: "vertex" as const, shapeId: pointVertex.id, index: 0 },
       ]) {
         const result = buildFeatureGhost(scene, {
-          feature: "bridge", from: curveEnd, to, continuity: "g1", startMagnitude: 1, endMagnitude: 1,
+          feature: "bridge", from: curveEnd, to, startContinuity: "g1", endContinuity: "g1", startMagnitude: 1, endMagnitude: 1,
         }, DEFAULT_MESH_CONFIG);
         expect(result, JSON.stringify(to)).toMatchObject({ ok: true, solids: [{ kind: "wire" }] });
       }
@@ -575,18 +575,18 @@ describe("bridge(from, to)", () => {
       const other: GhostEndRef = { kind: "edge-end", ...upright(box, 40, 20), end: "end" };
 
       const zero = buildFeatureGhost(scene, {
-        feature: "bridge", from: end, to: other, continuity: "g1", startMagnitude: 0, endMagnitude: 1,
+        feature: "bridge", from: end, to: other, startContinuity: "g1", endContinuity: "g1", startMagnitude: 0, endMagnitude: 1,
       }, DEFAULT_MESH_CONFIG);
       expect(zero).toMatchObject({ ok: false, surface: true, reason: "bridge: a magnitude must be greater than zero." });
 
       const onePoint = buildFeatureGhost(scene, {
-        feature: "bridge", from: end, to: end, continuity: "g1", startMagnitude: 1, endMagnitude: 1,
+        feature: "bridge", from: end, to: end, startContinuity: "g1", endContinuity: "g1", startMagnitude: 1, endMagnitude: 1,
       }, DEFAULT_MESH_CONFIG);
       expect(onePoint).toMatchObject({ ok: false, surface: true, reason: "bridge: the two ends are at the same point." });
 
       const stale = buildFeatureGhost(scene, {
         feature: "bridge", from: { kind: "edge-end", shapeId: "gone", index: 0, end: "end" }, to: other,
-        continuity: "g1", startMagnitude: 1, endMagnitude: 1,
+        startContinuity: "g1", endContinuity: "g1", startMagnitude: 1, endMagnitude: 1,
       }, DEFAULT_MESH_CONFIG);
       expect(stale.ok).toBe(false);
     });

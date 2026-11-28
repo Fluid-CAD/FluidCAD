@@ -6,22 +6,15 @@ import { Operands } from "../common/operands.js";
 import { IBridge } from "../core/interfaces.js";
 import { type NumberParam, isNumberParam, resolveParam } from "../core/param.js";
 import { CurveEnds, type CurveEnd } from "../helpers/curve-end.js";
-import { BridgeOps, type BridgeContinuity } from "../oc/bridge-ops.js";
+import { BridgeOps, type BridgeContinuity, type BridgeOptions } from "../oc/bridge-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { AnchoredLazyVertex } from "./anchored-vertex.js";
 import { CurveObject } from "./curve-object.js";
 
-export type { BridgeContinuity };
+export type { BridgeContinuity, BridgeOptions };
 
 /** The values `.continuity()` takes. */
 const CONTINUITIES: readonly BridgeContinuity[] = ['g0', 'g1', 'g2'];
-
-/** A bridge's chained options. */
-export type BridgeOptions = {
-  continuity: BridgeContinuity;
-  startMagnitude: number;
-  endMagnitude: number;
-};
 
 /**
  * `bridge(from, to)`: a smooth curve between two curve ends, matching
@@ -33,13 +26,14 @@ export type BridgeOptions = {
  * there is nothing to flip, and swapping the two ends only reverses the
  * result. An end that is a plain point matches position only.
  *
- * The ends are arguments; the continuity and the two magnitudes are
- * chained methods, in any order. A magnitude is checked when the curve
- * builds, so a parameter or the dialog that sets it to zero fails this
- * feature, not the file.
+ * The ends are arguments; the continuity at each end and the two
+ * magnitudes are chained methods, in any order. A magnitude is checked when
+ * the curve builds, so a parameter or the dialog that sets it to zero fails
+ * this feature, not the file.
  */
 export class Bridge extends CurveObject implements IBridge {
-  private _continuity: BridgeContinuity = 'g1';
+  private _startContinuity: BridgeContinuity = 'g1';
+  private _endContinuity: BridgeContinuity = 'g1';
   private _startMagnitude = 1;
   private _endMagnitude = 1;
 
@@ -47,12 +41,21 @@ export class Bridge extends CurveObject implements IBridge {
     super();
   }
 
-  /** How the bridge meets each end; a value outside the set is refused where the statement is written. */
-  continuity(value: BridgeContinuity): this {
-    if (!CONTINUITIES.includes(value)) {
-      throw new Error(`bridge: .continuity() takes 'g0', 'g1' or 'g2'.`);
+  /**
+   * How the bridge meets its ends: one value for both, or the start's and
+   * the end's. A value outside the set, or a third argument, is refused
+   * where the statement is written.
+   */
+  continuity(start: BridgeContinuity, end?: BridgeContinuity): this;
+  continuity(...values: unknown[]): this {
+    if (values.length > 2) {
+      throw new Error(`bridge: .continuity() takes one value for both ends, or two: the start's and the end's; got ${values.length}.`);
     }
-    this._continuity = value;
+    const [start, end] = values.length === 1
+      ? [Bridge.checkContinuity(values[0], ''), Bridge.checkContinuity(values[0], '')]
+      : [Bridge.checkContinuity(values[0], ' for the start'), Bridge.checkContinuity(values[1], ' for the end')];
+    this._startContinuity = start;
+    this._endContinuity = end;
     return this;
   }
 
@@ -80,7 +83,12 @@ export class Bridge extends CurveObject implements IBridge {
 
   /** The chained options as they stand. */
   get options(): BridgeOptions {
-    return { continuity: this._continuity, startMagnitude: this._startMagnitude, endMagnitude: this._endMagnitude };
+    return {
+      startContinuity: this._startContinuity,
+      endContinuity: this._endContinuity,
+      startMagnitude: this._startMagnitude,
+      endMagnitude: this._endMagnitude,
+    };
   }
 
   override validate() {
@@ -110,7 +118,7 @@ export class Bridge extends CurveObject implements IBridge {
    * makes, and what the preview makes from the ends a dialog picked.
    */
   static wireBetween(from: CurveEnd, to: CurveEnd, options: BridgeOptions): Wire {
-    const edge = BridgeOps.make(from, to, options.continuity, options.startMagnitude, options.endMagnitude);
+    const edge = BridgeOps.make(from, to, options);
     try {
       return WireOps.makeWireFromEdges([edge]);
     } finally {
@@ -128,6 +136,14 @@ export class Bridge extends CurveObject implements IBridge {
         );
       }
     }
+  }
+
+  /** One continuity value, or the refusal where the statement is written; `which` names the end when two are given. */
+  private static checkContinuity(value: unknown, which: string): BridgeContinuity {
+    if (!CONTINUITIES.includes(value as BridgeContinuity)) {
+      throw new Error(`bridge: .continuity() takes 'g0', 'g1' or 'g2'${which}.`);
+    }
+    return value as BridgeContinuity;
   }
 
   /** A magnitude as given: a number or a parameter, read now; anything else is refused where the statement is written. */
@@ -148,7 +164,8 @@ export class Bridge extends CurveObject implements IBridge {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const copy = new Bridge(remap.get(this.from) ?? this.from, remap.get(this.to) ?? this.to);
-    copy._continuity = this._continuity;
+    copy._startContinuity = this._startContinuity;
+    copy._endContinuity = this._endContinuity;
     copy._startMagnitude = this._startMagnitude;
     copy._endMagnitude = this._endMagnitude;
     return copy;
@@ -157,7 +174,7 @@ export class Bridge extends CurveObject implements IBridge {
   override compareTo(other: SceneObject): boolean {
     return other instanceof Bridge && super.compareTo(other)
       && Operands.sameOne(this.from, other.from) && Operands.sameOne(this.to, other.to)
-      && this._continuity === other._continuity
+      && this._startContinuity === other._startContinuity && this._endContinuity === other._endContinuity
       && this._startMagnitude === other._startMagnitude && this._endMagnitude === other._endMagnitude;
   }
 
@@ -165,7 +182,8 @@ export class Bridge extends CurveObject implements IBridge {
     return {
       from: Operands.serializeOne(this.from),
       to: Operands.serializeOne(this.to),
-      continuity: this._continuity,
+      startContinuity: this._startContinuity,
+      endContinuity: this._endContinuity,
       startMagnitude: this._startMagnitude,
       endMagnitude: this._endMagnitude,
     };

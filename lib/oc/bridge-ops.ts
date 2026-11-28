@@ -12,6 +12,14 @@ export type BridgeContinuity = 'g0' | 'g1' | 'g2';
 /** The derivative constraints each continuity asks for at an end. */
 const ORDER: Record<BridgeContinuity, number> = { g0: 0, g1: 1, g2: 2 };
 
+/** How the bridge meets each of its ends, and how far it runs straight at each. */
+export type BridgeOptions = {
+  startContinuity: BridgeContinuity;
+  endContinuity: BridgeContinuity;
+  startMagnitude: number;
+  endMagnitude: number;
+};
+
 /**
  * The bridge curve: one Bezier between two curve ends that leaves `from`
  * the way its curve was heading and arrives at `to` heading into its curve,
@@ -20,9 +28,10 @@ const ORDER: Record<BridgeContinuity, number> = { g0: 0, g1: 1, g2: 2 };
  * With `P0`, `P1` the end points, `L = |P1 − P0|`, `T0`, `T1` the outward
  * tangents, `K0`, `K1` the curvature vectors and `s0 = startMagnitude · L`,
  * `s1 = endMagnitude · L` the speed at each end, an end takes `c` derivative
- * constraints — the lower of what the continuity asks (0, 1, 2) and what
- * the end offers (a bare point offers none) — and the curve has degree
- * `n = c0 + c1 + 1`, poles `Q0 … Qn`:
+ * constraints — the lower of what its own continuity asks (0, 1, 2) and
+ * what the end offers (a bare point offers none) — and the curve has
+ * degree `n = c0 + c1 + 1`, poles `Q0 … Qn`. An end's magnitude does
+ * nothing where that end takes no derivative:
  *
  * - `Q0 = P0`; `Q1 = Q0 + (s0 / n) · T0` when `c0 ≥ 1`;
  *   `Q2 = 2·Q1 − Q0 + (s0² / (n(n−1))) · K0` when `c0 = 2`;
@@ -40,8 +49,8 @@ const ORDER: Record<BridgeContinuity, number> = { g0: 0, g1: 1, g2: 2 };
 export class BridgeOps {
 
   /** The bridge between two ends, as an edge. Coincident ends are refused before anything is built. */
-  static make(from: CurveEnd, to: CurveEnd, continuity: BridgeContinuity, startMagnitude: number, endMagnitude: number): Edge {
-    const poles = BridgeOps.poles(from, to, continuity, startMagnitude, endMagnitude);
+  static make(from: CurveEnd, to: CurveEnd, options: BridgeOptions): Edge {
+    const poles = BridgeOps.poles(from, to, options);
     if (poles.length === 2) {
       return EdgeOps.makeLineEdge(poles[0], poles[1]);
     }
@@ -55,7 +64,7 @@ export class BridgeOps {
   }
 
   /** The poles `Q0 … Qn` of the bridge (see the class comment). Coincident ends are refused. */
-  static poles(from: CurveEnd, to: CurveEnd, continuity: BridgeContinuity, startMagnitude: number, endMagnitude: number): Point[] {
+  static poles(from: CurveEnd, to: CurveEnd, options: BridgeOptions): Point[] {
     const length = from.point.distanceTo(to.point);
     if (length < mmTol(1e-6)) {
       throw new BuildError(
@@ -63,11 +72,11 @@ export class BridgeOps {
         `A bridge joins two ends apart from each other: pick the end of another curve, or a point elsewhere.`,
       );
     }
-    const c0 = BridgeOps.constraintsAt(from, continuity);
-    const c1 = BridgeOps.constraintsAt(to, continuity);
+    const c0 = BridgeOps.constraintsAt(from, options.startContinuity);
+    const c1 = BridgeOps.constraintsAt(to, options.endContinuity);
     const n = c0 + c1 + 1;
-    const s0 = startMagnitude * length;
-    const s1 = endMagnitude * length;
+    const s0 = options.startMagnitude * length;
+    const s1 = options.endMagnitude * length;
 
     const poles: Point[] = new Array(n + 1);
     poles[0] = from.point;
@@ -87,7 +96,7 @@ export class BridgeOps {
     return poles;
   }
 
-  /** How many derivatives an end is matched to: what the continuity asks, at most what the end offers. */
+  /** How many derivatives an end is matched to: what its continuity asks, at most what the end offers. */
   private static constraintsAt(end: CurveEnd, continuity: BridgeContinuity): number {
     const offered = end.tangent ? (end.curvature ? 2 : 1) : 0;
     return Math.min(ORDER[continuity], offered);

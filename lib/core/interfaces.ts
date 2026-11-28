@@ -345,26 +345,34 @@ export interface IOffsetCurve extends ICurveResult {}
  */
 export interface IBridge extends ICurveResult {
   /**
-   * How the bridge meets each end: `'g0'` position only (a straight line
-   * between the two points), `'g1'` tangent (the default), `'g2'`
-   * curvature. Applied at both ends; an end that is a plain point only
-   * ever matches position.
-   * @param value - `'g0'`, `'g1'` or `'g2'`.
+   * How the bridge meets its ends: `'g0'` position only, `'g1'` tangent
+   * (the default), `'g2'` curvature. One value sets both ends; two set the
+   * start and the end — `.continuity('g2', 'g0')`. An end that is a plain
+   * point only ever matches position, whatever its value; `'g0'` at both
+   * ends is a straight line between the two points.
+   *
+   * The main use of two values: a solid's corner is written as the end of
+   * an edge through it (`e.endEdges(0).start()`), so the bridge would
+   * continue that edge; `'g0'` at that end matches its position only.
+   * @param start - At the start (`from`), or at both ends when it is the only value: `'g0'`, `'g1'` or `'g2'`.
+   * @param end - At the end (`to`): `'g0'`, `'g1'` or `'g2'`. Left out, the same as `start`.
    */
-  continuity(value: 'g0' | 'g1' | 'g2'): this;
+  continuity(start: 'g0' | 'g1' | 'g2', end?: 'g0' | 'g1' | 'g2'): this;
 
   /**
    * How far the bridge keeps going straight before it turns, at its start:
    * 1 by default; larger is fuller, smaller is tighter. Measured against
    * the distance between the two ends, so a magnitude gives the same shape
-   * at any scale. Must be greater than zero.
+   * at any scale. It does nothing at a `'g0'` end, and must be greater
+   * than zero all the same.
    * @param value - A number greater than zero.
    */
   startMagnitude(value: NumberParam): this;
 
   /**
    * The same at its end: how far the bridge runs straight into the `to`
-   * curve. 1 by default. Must be greater than zero.
+   * curve. 1 by default; nothing at a `'g0'` end. Must be greater than
+   * zero.
    * @param value - A number greater than zero.
    */
   endMagnitude(value: NumberParam): this;

@@ -37,8 +37,12 @@ function arcEdge(center: [number, number, number], radius: number, start: [numbe
   }
 }
 
-function bridge(from: CurveEnd, to: CurveEnd, continuity: BridgeContinuity, startMagnitude = 1, endMagnitude = 1): Edge {
-  return keep(BridgeOps.make(from, to, continuity, startMagnitude, endMagnitude));
+/** The bridge at one continuity for both ends, or `[start, end]`. */
+function bridge(
+  from: CurveEnd, to: CurveEnd, continuity: BridgeContinuity | [BridgeContinuity, BridgeContinuity], startMagnitude = 1, endMagnitude = 1,
+): Edge {
+  const [startContinuity, endContinuity] = Array.isArray(continuity) ? continuity : [continuity, continuity];
+  return keep(BridgeOps.make(from, to, { startContinuity, endContinuity, startMagnitude, endMagnitude }));
 }
 
 /** The bridge's curve as the kernel holds it: its degree and poles (a line has degree 1 and its two ends). */
@@ -247,7 +251,9 @@ describe("BridgeOps", () => {
   it("refuses two ends at the same point, before building", () => {
     const a = segment([0, 0, 0], [10, 0, 0]);
     const b = segment([10, 0, 0], [10, 10, 0]);
-    expect(() => BridgeOps.make(CurveEnds.ofEdge(a, "end"), CurveEnds.ofEdge(b, "start"), "g1", 1, 1))
+    expect(() => BridgeOps.make(CurveEnds.ofEdge(a, "end"), CurveEnds.ofEdge(b, "start"), {
+      startContinuity: "g1", endContinuity: "g1", startMagnitude: 1, endMagnitude: 1,
+    }))
       .toThrow(/^bridge: the two ends are at the same point\./);
   });
 });

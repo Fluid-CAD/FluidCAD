@@ -436,15 +436,16 @@ export type OffsetCurveGhostRequest = {
 /**
  * The bridge — `bridge(from, to)`: a smooth curve between two ends, built by
  * the call the feature's build makes. Each end as the dialog picked it
- * ({@link GhostEndRef}). The magnitudes are checked as the build checks
- * them, whatever the continuity: a magnitude that is not above zero is
- * refused.
+ * ({@link GhostEndRef}), with the continuity it meets that end at. The
+ * magnitudes are checked as the build checks them, whatever the
+ * continuity: a magnitude that is not above zero is refused.
  */
 export type BridgeGhostRequest = {
   feature: 'bridge';
   from: GhostEndRef;
   to: GhostEndRef;
-  continuity: 'g0' | 'g1' | 'g2';
+  startContinuity: 'g0' | 'g1' | 'g2';
+  endContinuity: 'g0' | 'g1' | 'g2';
   startMagnitude: number;
   endMagnitude: number;
 };

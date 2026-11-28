@@ -117,7 +117,7 @@ export const features: FeatureEntry[] = [
   { name: 'rib', displayName: 'rib', category: '3d', sourceFile: 'core/rib.ts', interfaceName: 'RibFunction', returnType: 'IRib', relatedGuide: '/docs/3d-operations/rib', sidebarPosition: 16 },
   { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/3d-operations/wrap', sidebarPosition: 17 },
   { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/3d-operations/helix', sidebarPosition: 18 },
-  { name: 'bridge', displayName: 'bridge', category: '3d', sourceFile: 'core/bridge.ts', interfaceName: 'BridgeFunction', returnType: 'IBridge', sidebarPosition: 18.8 },
+  { name: 'bridge', displayName: 'bridge', category: '3d', sourceFile: 'core/bridge.ts', interfaceName: 'BridgeFunction', returnType: 'IBridge', relatedGuide: '/docs/curves/bridge', sidebarPosition: 18.8 },
   { name: 'hole', displayName: 'hole', category: '3d', sourceFile: 'core/hole.ts', interfaceName: 'HoleFunction', returnType: 'IHole', relatedGuide: '/docs/3d-operations/hole', sidebarPosition: 19 },
   { name: 'split', displayName: 'split', category: '3d', sourceFile: 'core/split.ts', interfaceName: 'SplitFunction', returnType: 'ISplit', relatedGuide: '/docs/3d-operations/split', sidebarPosition: 20 },
 

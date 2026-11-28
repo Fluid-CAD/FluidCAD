@@ -1,0 +1,79 @@
+---
+sidebar_position: 18.8
+title: "bridge"
+description: "A smooth curve between two curve ends — closing a gap between two guide curves, a transition that leaves one edge and arrives at another, the fourth side of a fill boundary. It matches the tangent at each end by default; `.continuity('g2')` matches the curvature too, and `.continuity('g0')` only the position (a straight line). `.continuity(start, end)` gives each end its own — `'g0'` at a solid's corner, written as an edge end, meets the corner without following the edge."
+---
+
+import bridge_basicExample from '!!raw-loader!../../_examples/bridge-basic.js';
+import CodeBlock from '@theme/CodeBlock';
+
+# bridge()
+
+A smooth curve between two curve ends — closing a gap between two
+guide curves, a transition that leaves one edge and arrives at another,
+the fourth side of a fill boundary. It matches the tangent at each end
+by default; `.continuity('g2')` matches the curvature too, and
+`.continuity('g0')` only the position (a straight line).
+`.continuity(start, end)` gives each end its own — `'g0'` at a solid's
+corner, written as an edge end, meets the corner without following the
+edge.
+
+At the end of a curve the bridge continues it: it leaves `from` in the
+direction that curve was heading and arrives at `to` heading into that
+curve. There is nothing to flip — the order of the two ends only sets
+the direction of the result. An end that is a plain point (a sketch
+point, a vertex) matches position only.
+
+`.startMagnitude(n)` and `.endMagnitude(n)` set how far the bridge
+keeps going straight before it turns at each end: 1 by default, larger
+is fuller, smaller is tighter.
+
+The result is a curve object of one wire with one edge: `edges()`,
+`start()` and `end()` read it. The curves the ends lie on are read, not
+used up.
+
+**Returns**: [**`Bridge`**](/docs/api/types/bridge)
+
+:::tip
+See the [guide](/docs/curves/bridge) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+bridge(from: Vertex | SceneObject, to: Vertex | SceneObject): Bridge
+```
+
+A smooth curve between two curve ends — closing a gap between two
+guide curves, a transition that leaves one edge and arrives at another,
+the fourth side of a fill boundary. It matches the tangent at each end
+by default; `.continuity('g2')` matches the curvature too, and
+`.continuity('g0')` only the position (a straight line).
+`.continuity(start, end)` gives each end its own — `'g0'` at a solid's
+corner, written as an edge end, meets the corner without following the
+edge.
+
+At the end of a curve the bridge continues it: it leaves `from` in the
+direction that curve was heading and arrives at `to` heading into that
+curve. There is nothing to flip — the order of the two ends only sets
+the direction of the result. An end that is a plain point (a sketch
+point, a vertex) matches position only.
+
+`.startMagnitude(n)` and `.endMagnitude(n)` set how far the bridge
+keeps going straight before it turns at each end: 1 by default, larger
+is fuller, smaller is tighter.
+
+The result is a curve object of one wire with one edge: `edges()`,
+`start()` and `end()` read it. The curves the ends lie on are read, not
+used up.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `from` | [Vertex](/docs/api/types/vertex) \| [SceneObject](/docs/api/types/scene-object) | Where the bridge starts: `.start()` or `.end()` of an edge selection or of a curve (`c.end()`, `c.edges(0).start()`, `e.sideEdges(2).end()`), a sketch entity's end (`sk.geometries.l.end()`), or a point (a sketch point, a vertex). |
+| `to` | [Vertex](/docs/api/types/vertex) \| [SceneObject](/docs/api/types/scene-object) | Where it ends: the same kinds as `from`. |
+
+## Examples
+
+<CodeBlock language="js">{bridge_basicExample}</CodeBlock>
+
+![bridge example](/img/docs/api/bridge-basic.png)

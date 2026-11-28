@@ -1,0 +1,134 @@
+---
+sidebar_position: 12.78
+title: "Bridge"
+description: "The Bridge type. Extends CurveResult."
+---
+
+# Bridge
+
+Extends [`CurveResult`](/docs/api/types/curve-result)
+
+
+<details>
+<summary>Inherited from [`CurveResult`](/docs/api/types/curve-result)</summary>
+
+### edges()
+
+```ts
+edges(...args: (number | EdgeFilter)[]): ISelection
+```
+
+The edges of the curve, in the order the curve runs. With no argument,
+all of them.
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `...args` | (number \| EdgeFilter)[] | Edge indices, or edge filters to narrow the edges by. *(optional)* |
+
+---
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+The point the curve starts at. When the result is several separate
+curves, the first one's.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+The point the curve ends at. When the result is several separate
+curves, the first one's.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+
+</details>
+
+## Methods
+
+### continuity()
+
+```ts
+continuity(start: "g0" | "g1" | "g2", end?: "g0" | "g1" | "g2"): this
+```
+
+How the bridge meets its ends: `'g0'` position only, `'g1'` tangent
+(the default), `'g2'` curvature. One value sets both ends; two set the
+start and the end — `.continuity('g2', 'g0')`. An end that is a plain
+point only ever matches position, whatever its value; `'g0'` at both
+ends is a straight line between the two points.
+
+The main use of two values: a solid's corner is written as the end of
+an edge through it (`e.endEdges(0).start()`), so the bridge would
+continue that edge; `'g0'` at that end matches its position only.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start` | "g0" \| "g1" \| "g2" | At the start (`from`), or at both ends when it is the only value: `'g0'`, `'g1'` or `'g2'`. |
+| `end` | "g0" \| "g1" \| "g2" | At the end (`to`): `'g0'`, `'g1'` or `'g2'`. Left out, the same as `start`. *(optional)* |
+
+---
+
+### startMagnitude()
+
+```ts
+startMagnitude(value: NumberParam): this
+```
+
+How far the bridge keeps going straight before it turns, at its start:
+1 by default; larger is fuller, smaller is tighter. Measured against
+the distance between the two ends, so a magnitude gives the same shape
+at any scale. It does nothing at a `'g0'` end, and must be greater
+than zero all the same.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | NumberParam | A number greater than zero. |
+
+---
+
+### endMagnitude()
+
+```ts
+endMagnitude(value: NumberParam): this
+```
+
+The same at its end: how far the bridge runs straight into the `to`
+curve. 1 by default; nothing at a `'g0'` end. Must be greater than
+zero.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | NumberParam | A number greater than zero. |
+

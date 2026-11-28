@@ -733,6 +733,12 @@ function findLoadCallFor(tree: TSTree, fileName: string): TSNode | null {
   return null;
 }
 
+/** Whether the file already holds a `load('<fileName>')` call, at any depth. */
+export async function loadsModel(code: string, fileName: string): Promise<boolean> {
+  const p = await getParser();
+  return findLoadCallFor(p.parse(code), fileName) !== null;
+}
+
 /**
  * Append `load('<fileName>')` as a new top-level statement — what the import
  * flow calls so the model lands in the scene without the user pasting the

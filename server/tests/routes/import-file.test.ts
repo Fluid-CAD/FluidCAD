@@ -15,10 +15,13 @@ let importError: Error | null;
 /** What importFile reports back; undefined mimics an older engine. */
 let importReport: { solidCount: number; unit: string; sourceUnits: { length: string[]; angle: string[] } } | undefined;
 
+/** The model the server has open; '' is none. Reset to a part file. */
+let currentFile: string;
+
 const WORKSPACE = '/ws';
 
 const fakeServer = {
-  getCurrentFileName: () => '/ws/model.fluid.js',
+  getCurrentFileName: () => currentFile,
   importFile: (workspacePath: string, fileName: string, _data: string) => {
     importCalls.push({ workspacePath, fileName });
     if (importError) {
@@ -67,6 +70,7 @@ describe('import-file route', () => {
     importCalls = [];
     importError = null;
     importReport = undefined;
+    currentFile = '/ws/model.fluid.js';
   });
 
   it('reports the solid count and the file\'s declared units', async () => {
@@ -88,6 +92,54 @@ describe('import-file route', () => {
     expect(relayed).toEqual([
       { type: 'insert-load', filePath: '/ws/model.fluid.js', fileName: 'bracket' },
     ]);
+  });
+
+  it('passes the active part on, so the load call lands in its body', async () => {
+    currentFile = '/ws/plate.part.js';
+    await postImport({
+      fileName: 'bracket.step',
+      data: 'AAAA',
+      part: { filePath: '/ws/plate.part.js', line: 3, column: 21 },
+    });
+    expect(relayed).toEqual([
+      { type: 'insert-load', filePath: '/ws/plate.part.js', fileName: 'bracket', part: { line: 3, column: 21 } },
+    ]);
+  });
+
+  it('drops an active part that belongs to another file', async () => {
+    await postImport({
+      fileName: 'bracket.step',
+      data: 'AAAA',
+      part: { filePath: '/ws/other.part.js', line: 3, column: 0 },
+    });
+    expect(relayed).toEqual([
+      { type: 'insert-load', filePath: '/ws/model.fluid.js', fileName: 'bracket' },
+    ]);
+  });
+
+  it('refuses a malformed active part', async () => {
+    const { status } = await postImport({ fileName: 'bracket.step', data: 'AAAA', part: { line: 3 } });
+    expect(status).toBe(400);
+    expect(importCalls).toEqual([]);
+    expect(relayed).toEqual([]);
+  });
+
+  it('refuses with no model open, before anything is imported', async () => {
+    currentFile = '';
+    const { status, body } = await postImport({ fileName: 'bracket.step', data: 'AAAA' });
+    expect(status).toBe(409);
+    expect(body.error).toMatch(/^Open a part first/);
+    expect(importCalls).toEqual([]);
+    expect(relayed).toEqual([]);
+  });
+
+  it('refuses while an assembly is the open model: load() would break it', async () => {
+    currentFile = '/ws/robot.assembly.js';
+    const { status, body } = await postImport({ fileName: 'bracket.step', data: 'AAAA' });
+    expect(status).toBe(409);
+    expect(body.error).toMatch(/not an assembly/);
+    expect(importCalls).toEqual([]);
+    expect(relayed).toEqual([]);
   });
 
   it('strips the .stp extension for the load name', async () => {

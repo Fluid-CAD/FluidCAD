@@ -5868,13 +5868,16 @@ export async function moveToPart(
 // ---------------------------------------------------------------------------
 
 export async function importFile(fileName: string, data: string): Promise<ImportResult> {
+  // The timeline's active part rides along as it does on an apply: the
+  // load() the import writes lands in that part's body.
+  const part = activePartProvider?.() ?? null;
   // A failed import carries the engine's message in the error body; only a
   // request that never reached the server is a network error.
   try {
     const res = await fetch('api/import-file', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ fileName, data }),
+      body: JSON.stringify(part ? { fileName, data, part } : { fileName, data }),
     });
     const body = (await res.json().catch(() => null)) as ImportResult | null;
     if (!res.ok || !body) {

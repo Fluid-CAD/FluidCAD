@@ -225,6 +225,7 @@ export type {
 export { parseFeatureStatement, resolveEditedStatementLine } from './parse/feature-statement.ts';
 export { resolvePartBodyInsertion, type Insertion } from './insertion.ts';
 export { applyFeatureEdit, type ApplyFeatureEditOptions } from './apply/feature-edit.ts';
+export { applyImportedLoad } from './apply/imported-load.ts';
 export {
   FeatureCallees,
   type CustomFeatureCallee,

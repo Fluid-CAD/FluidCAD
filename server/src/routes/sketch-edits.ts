@@ -13,7 +13,6 @@ import {
   removeStatement,
   setFeatureName,
   insertGeometryCallWithVariable,
-  insertLoadCall,
   updateSketchPositions,
   type SketchPositionEdit,
   updateDimension,
@@ -35,7 +34,10 @@ import { validateSketchPositionEdit } from '../sketch-position-validate.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
 import { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { GlobalImports } from '../apply-feature-edit/global-imports.ts';
-import { ParamSites } from '../apply-feature-edit/index.ts';
+import { ParamSites, applyImportedLoad } from '../apply-feature-edit/index.ts';
+import { detectKind } from '../file-kind.ts';
+import { normalizePath } from '../normalize-path.ts';
+import { validateSketchLoc } from './apply-feature/locations.ts';
 import type { GlobalParamCatalog } from '../global-params/catalog.ts';
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
@@ -69,6 +71,23 @@ function validateNewVariable(
     return valid.length === 0 ? null : valid;
   }
   return validateOneNewVariable(input);
+}
+
+/**
+ * Why a STEP file cannot be imported while `filePath` is the open model, or
+ * null when it can. The import ends in a `load()` written into that model:
+ * with no model open there is nowhere to write it, and an assembly file
+ * refuses the call (`load()` is part design), so writing it there would
+ * break the assembly.
+ */
+export function importRefusal(filePath: string): string | null {
+  if (!filePath) {
+    return 'Open a part first: a STEP file is imported into the part that is open.';
+  }
+  if (detectKind(filePath) === 'assembly') {
+    return 'A STEP file is imported into a part, not an assembly. Open a part, import the file there, then insert that part into the assembly.';
+  }
+  return null;
 }
 
 export function createSketchEditsRouter(
@@ -123,6 +142,27 @@ export function createSketchEditsRouter(
       return;
     }
 
+    // Refused before the file is cached, so a refusal leaves nothing behind.
+    const target = fluidCadServer.getCurrentFileName();
+    const refusal = importRefusal(target);
+    if (refusal) {
+      res.status(409).json({ error: refusal });
+      return;
+    }
+    // The timeline's active part, as the page's applies carry it: the load()
+    // lands in its body. One naming another file is not this model's part.
+    let part: { line: number; column: number } | undefined;
+    if (req.body.part !== undefined && req.body.part !== null) {
+      const loc = validateSketchLoc(req.body.part);
+      if (!loc) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      if (normalizePath(loc.filePath) === normalizePath(target)) {
+        part = { line: loc.line, column: loc.column };
+      }
+    }
+
     // Older engines return nothing from importFile; the report fields are
     // then simply absent from the response.
     let report: { solidCount?: number; sourceUnits?: { length: string[]; angle: string[] } } | undefined;
@@ -136,8 +176,9 @@ export function createSketchEditsRouter(
     const loadName = fileName.replace(/\.(step|stp)$/i, '');
     sendToExtension({
       type: 'insert-load',
-      filePath: fluidCadServer.getCurrentFileName(),
+      filePath: target,
       fileName: loadName,
+      ...(part ? { part } : {}),
     });
     res.json({
       success: true,
@@ -648,13 +689,21 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/insert-load', async (req, res) => {
-    const { code, fileName } = req.body;
-    if (typeof code !== 'string' || typeof fileName !== 'string') {
+    const { code, fileName, part } = req.body;
+    const partLine = part === undefined || part === null ? null : part.line;
+    if (
+      typeof code !== 'string' || typeof fileName !== 'string'
+      || (partLine !== null && (!Number.isInteger(partLine) || partLine < 1))
+    ) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
     try {
-      const result = await insertLoadCall(code, fileName);
+      const result = await applyImportedLoad(
+        code,
+        fileName,
+        partLine === null ? undefined : { line: partLine, column: Number.isInteger(part.column) ? part.column : 0 },
+      );
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

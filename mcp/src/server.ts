@@ -1477,7 +1477,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Import a STEP file into the workspace',
       description:
-        'Reads `path` from disk, base64-encodes the bytes, and posts to the server\'s import pipeline. The imported geometry shows up as a new shape in the current scene. The reply reports `solidCount` and `sourceUnits` (the unit names the STEP file declared, e.g. `INCH`); the cached geometry is always mm and `load()` scales it into the loading document\'s unit, so no unit argument is needed.',
+        'Reads `path` from disk, base64-encodes the bytes, and posts to the server\'s import pipeline. The imported geometry shows up as a new shape in the current scene. The current file must be a part: the call is refused, and nothing is imported, with no model open or with an assembly open. The reply reports `solidCount` and `sourceUnits` (the unit names the STEP file declared, e.g. `INCH`); the cached geometry is always mm and `load()` scales it into the loading document\'s unit, so no unit argument is needed.',
       inputSchema: {
         ...workspaceArg,
         path: z

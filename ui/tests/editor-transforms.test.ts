@@ -234,6 +234,14 @@ describe('editor host transform table', () => {
     })).toEqual({ sourceLine: 12, startPoint: null, width: 1, height: 2, oldStartPoint: null });
   });
 
+  it('forwards the active part of an import, and only when there is one', () => {
+    expect(TRANSFORMS['insert-load'].body({
+      filePath: '/ws/m.part.js', fileName: 'bracket', part: { line: 3, column: 21 },
+    })).toEqual({ fileName: 'bracket', part: { line: 3, column: 21 } });
+    expect(TRANSFORMS['insert-load'].body({ filePath: '/ws/m.part.js', fileName: 'bracket' }))
+      .toEqual({ fileName: 'bracket' });
+  });
+
   it('resolves the target file per target flavour', () => {
     expect(targetPathOf(TRANSFORMS['add-guide'], { sourceLocation: { filePath: '/ws/a.part.js', line: 1 } })).toBeNull();
     expect(targetPathOf(TRANSFORMS['remove-feature'], { filePath: '/ws/other.part.js', line: 2 })).toBe('/ws/other.part.js');

@@ -153,7 +153,8 @@ export const TRANSFORMS: Record<string, TransformSpec> = {
   'insert-load': {
     endpoint: 'insert-load',
     target: 'path',
-    body: (msg) => ({ fileName: msg.fileName }),
+    // `part` is the timeline's active part: the load() lands in its body.
+    body: (msg) => ({ fileName: msg.fileName, ...(msg.part ? { part: msg.part } : {}) }),
   },
 
   // Breakpoints. `referenceRow` is **0-based** while `sourceLocation.line` is

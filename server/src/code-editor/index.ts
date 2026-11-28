@@ -66,6 +66,7 @@ export {
   findSketchBody,
   insertGeometryCall,
   insertLoadCall,
+  loadsModel,
   isDerivedOpStatement,
   isRegionDeclarationStatement,
   isSolvedConstraintStatement,

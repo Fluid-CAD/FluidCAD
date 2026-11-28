@@ -479,6 +479,18 @@ let currentRail: LeftRail | null = null;
 const fileImporter = new FileImporter(container, {
   showLoading: (text) => loadingOverlay.show(text),
   hideLoading: () => loadingOverlay.hide(),
+  // The import writes a load() into the open model, and load() is part
+  // design: said here, before the picker, and held to by the server.
+  refusal: () => {
+    const doc = sceneDocument.current;
+    if (!doc) {
+      return 'Open a part first: a STEP file is imported into the part that is open.';
+    }
+    if (doc.kind === 'assembly') {
+      return 'A STEP file is imported into a part, not an assembly. Open a part, import the file there, then insert that part into the assembly.';
+    }
+    return null;
+  },
 });
 
 // Always the live part-rail TimelinePanel — rebuilt (and re-wired) whenever

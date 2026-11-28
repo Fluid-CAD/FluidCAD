@@ -70,22 +70,30 @@ function curveOf(e: Edge): { degree: number; poles: number[][]; line: boolean } 
 /**
  * The continuity the kernel finds where `first` runs into `second`:
  * `first` at the parameter where it ends (its last, or with `firstAt:
- * 'first'` its first), `second` where it starts. Both run the same way
- * through the joint in every case below.
+ * 'first'` its first), `second` where it starts. The kernel's angle is
+ * between lines — a curve doubling back reads as tangent — so `sameWay`
+ * says whether the two first derivatives also point the same way.
  */
 function joint(
   first: Edge, second: Edge, order: 'G1' | 'G2',
   firstAt: 'first' | 'last' = 'last', secondAt: 'first' | 'last' = 'first',
-): { c0: number; g1: boolean; g2: boolean; angle: number } {
+): { c0: number; g1: boolean; g2: boolean; angle: number; sameWay: boolean } {
   const oc = getOC();
   const a = oc.BRep_Tool.Curve(first.getShape() as TopoDS_Edge, 0, 1);
   const b = oc.BRep_Tool.Curve(second.getShape() as TopoDS_Edge, 0, 1);
+  const u1 = firstAt === 'last' ? a.Last : a.First;
+  const u2 = secondAt === 'last' ? b.Last : b.First;
   const shape = (order === 'G1' ? oc.GeomAbs_Shape.GeomAbs_G1 : oc.GeomAbs_Shape.GeomAbs_G2) as GeomAbs_Shape;
-  const analysis = new oc.LocalAnalysis_CurveContinuity(
-    a.returnValue as Geom_Curve, firstAt === 'last' ? a.Last : a.First,
-    b.returnValue as Geom_Curve, secondAt === 'last' ? b.Last : b.First,
-    shape,
-  );
+  const analysis = new oc.LocalAnalysis_CurveContinuity(a.returnValue as Geom_Curve, u1, b.returnValue as Geom_Curve, u2, shape);
+  const derivative = (curve: Geom_Curve, u: number) => {
+    const pnt = new oc.gp_Pnt();
+    const vec = new oc.gp_Vec();
+    curve.D1(u, pnt, vec);
+    const result = new Vector3d(vec.X(), vec.Y(), vec.Z());
+    pnt.delete();
+    vec.delete();
+    return result;
+  };
   try {
     expect(analysis.IsDone()).toBe(true);
     return {
@@ -93,6 +101,7 @@ function joint(
       g1: analysis.IsG1(),
       g2: order === 'G2' ? analysis.IsG2() : false,
       angle: analysis.G1Angle(),
+      sameWay: derivative(a.returnValue as Geom_Curve, u1).dot(derivative(b.returnValue as Geom_Curve, u2)) > 0,
     };
   } finally {
     analysis.delete();
@@ -149,10 +158,10 @@ describe("BridgeOps", () => {
 
     const entry = joint(a, br, 'G1');
     const exit = joint(br, b, 'G1');
+    expect(entry).toMatchObject({ g1: true, sameWay: true });
     expect(entry.c0).toBeLessThan(1e-9);
-    expect(entry.g1).toBe(true);
+    expect(exit).toMatchObject({ g1: true, sameWay: true });
     expect(exit.c0).toBeLessThan(1e-9);
-    expect(exit.g1).toBe(true);
   });
 
   it("g2 between two arcs: a quintic with each arc's curvature at its joint, G2 by the kernel at both", () => {
@@ -172,10 +181,8 @@ describe("BridgeOps", () => {
 
     const entry = joint(a, br, 'G2');
     const exit = joint(br, b, 'G2');
-    expect(entry.g1).toBe(true);
-    expect(entry.g2).toBe(true);
-    expect(exit.g1).toBe(true);
-    expect(exit.g2).toBe(true);
+    expect(entry).toMatchObject({ g1: true, g2: true, sameWay: true });
+    expect(exit).toMatchObject({ g1: true, g2: true, sameWay: true });
 
     // The same arcs at g1: tangent, and the kernel sees the curvature jump.
     const tangent = bridge(from, to, "g1");
@@ -209,8 +216,8 @@ describe("BridgeOps", () => {
     expect(reach(fuller)).toBeCloseTo(2 * reach(plainBridge), 5);
     // The end magnitude left at 1: the far inner pole does not move.
     expect(curveOf(fuller).poles[2]).toEqual(curveOf(plainBridge).poles[2]);
-    expect(joint(a, fuller, 'G1').g1).toBe(true);
-    expect(joint(fuller, b, 'G1').g1).toBe(true);
+    expect(joint(a, fuller, 'G1')).toMatchObject({ g1: true, sameWay: true });
+    expect(joint(fuller, b, 'G1')).toMatchObject({ g1: true, sameWay: true });
   });
 
   it("mixed: an edge end and a bare point at g1 is a quadratic matching the tangent at the edge end only", () => {
@@ -220,7 +227,7 @@ describe("BridgeOps", () => {
     const curve = curveOf(br);
     expect(curve.degree).toBe(2);
     expect(curve.poles).toEqual([[10, 0, 0], [10 + Math.hypot(10, 10) / 2, 0, 0].map(round), [20, 10, 0]]);
-    expect(joint(a, br, 'G1').g1).toBe(true);
+    expect(joint(a, br, 'G1')).toMatchObject({ g1: true, sameWay: true });
   });
 
   it("mixed at g2: an arc end and a bare point is a cubic matching the arc's curvature at its end", () => {

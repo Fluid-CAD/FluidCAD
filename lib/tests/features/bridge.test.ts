@@ -173,6 +173,10 @@ function rails(box: Extrude): { a: ProjectedCurve; b: ProjectedCurve } {
   return { a, b };
 }
 
+/** Every object of the render that failed to build, with its error. */
+const errorsOf = (scene: Scene) =>
+  scene.getAllSceneObjects().flatMap(obj => obj.getError() ? [`${obj.getUniqueType()}: ${obj.getError()}`] : []);
+
 /** The scoped read of a render: what still shows on screen. */
 const onScreen = (scene: Scene, obj: unknown) => asObject(obj).getShapes(undefined, undefined, new Set(scene.getAllSceneObjects()));
 
@@ -186,7 +190,7 @@ describe("bridge(from, to)", () => {
       const br = bridge(a.end(), b.start()) as unknown as Bridge;
       const scene = render();
 
-      expect(br.getError()).toBeNull();
+      expect(errorsOf(scene)).toEqual([]);
       const wires = wiresOf(br);
       expect(wires).toHaveLength(1);
       expect(wires[0].getEdges()).toHaveLength(1);
@@ -220,7 +224,7 @@ describe("bridge(from, to)", () => {
       const br = bridge(near.end(), far.end()) as unknown as Bridge;
       const scene = render();
 
-      expect(br.getError()).toBeNull();
+      expect(errorsOf(scene)).toEqual([]);
       expect(curveOf(br).degree).toBe(3);
       // Both upright edges end at the top, heading up: the bridge rises out of one and drops into the other.
       expect(xyz(CurveEnds.ofEdge(edgeOf(br), "start").tangent!)).toEqual([0, 0, -1]);
@@ -237,9 +241,9 @@ describe("bridge(from, to)", () => {
       const target = sketch(plane("xy", 20), () => ({ p: point([30, 2]) }));
       const br = bridge(a.end(), target.geometries.p) as unknown as Bridge;
       const tangentAtPoint = bridge(target.geometries.p.start(), a.end()).continuity("g2") as unknown as Bridge;
-      render();
+      const scene = render();
 
-      expect(br.getError()).toBeNull();
+      expect(errorsOf(scene)).toEqual([]);
       expect(curveOf(br).degree).toBe(2);
       expect(curveOf(br).poles[2]).toEqual([30, 2, 20]);
       expect(tangentAtPoint.getError()).toBeNull();
@@ -252,9 +256,9 @@ describe("bridge(from, to)", () => {
         m: line([20, 10], [20, 20]),
       }));
       const br = bridge(lines.geometries.l.end(), lines.geometries.m.start()) as unknown as Bridge;
-      render();
+      const scene = render();
 
-      expect(br.getError()).toBeNull();
+      expect(errorsOf(scene)).toEqual([]);
       expect(curveOf(br).degree).toBe(3);
       expect(xyz(CurveEnds.ofEdge(edgeOf(br), "start").tangent!)).toEqual([-1, 0, 0]);
       expect(xyz(CurveEnds.ofEdge(edgeOf(br), "end").tangent!)).toEqual([0, 1, 0]);
@@ -286,8 +290,9 @@ describe("bridge(from, to)", () => {
           });
         }
       }));
-      render();
+      const scene = render();
 
+      expect(errorsOf(scene)).toEqual([]);
       expect(built).toHaveLength(90);
       kernelG2 = 0;
       for (const { br, from, to, order } of built) {

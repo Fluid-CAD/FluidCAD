@@ -78,7 +78,11 @@ function build(context: SceneParserContext): BridgeFunction {
       throw new Error(`bridge: is written outside a sketch; inside one, draw the curve with bezier().`);
     }
     const [from, to] = bridgeArgs(args);
-    return OperandArguments.addTool(context, [from, to], () => new Bridge(from, to));
+    // An end made for this call (`e.sideEdges(2).end()`, `c.end()`) wraps a
+    // lazy selection registered nowhere else: it goes into the scene ahead
+    // of the end, so both build before the bridge, as a hole's placements do.
+    const operands = [from, to].flatMap(end => end.isLazy() ? [...end.getDependencies(), end] : [end]);
+    return OperandArguments.addTool(context, operands, () => new Bridge(from, to));
   } as BridgeFunction;
 }
 

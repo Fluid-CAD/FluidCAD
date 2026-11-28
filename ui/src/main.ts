@@ -54,6 +54,7 @@ import { HelixFeatureService } from './interactive/create-feature/helix-service'
 import { IntersectionCurveFeatureService } from './interactive/create-feature/intersection-curve-service';
 import { ProjectedCurveFeatureService } from './interactive/create-feature/projected-curve-service';
 import { OffsetCurveFeatureService } from './interactive/create-feature/offset-curve-service';
+import { BridgeFeatureService } from './interactive/create-feature/bridge-service';
 import { RepeatFeatureService } from './interactive/create-feature/repeat-service';
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
@@ -2873,6 +2874,22 @@ const offsetCurveService = new OffsetCurveFeatureService(container, viewer, navb
     onSuspendSketchUI: suspendSketchForFeature,
     onResumeSketchUI: resumeSketchForFeature,
   });
+const bridgeService = new BridgeFeatureService(container, viewer, navbar,
+  curvesMenu.add({
+    id: 'bridge',
+    label: 'Bridge',
+    iconSrc: iconUrl('bridge'),
+    tip: 'Join two curve ends smoothly',
+    order: 40,
+  }),
+  {
+    onEnter: () => {
+      enterPartDialog('bridge');
+    },
+    onActiveChange: syncSketchButtonBlocked,
+    onSuspendSketchUI: suspendSketchForFeature,
+    onResumeSketchUI: resumeSketchForFeature,
+  });
 // Constructed after the transform services so its own navbar group registers
 // after theirs (…, | Mirror, Translate, Rotate, Split, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
@@ -2933,6 +2950,7 @@ PartFeatureDialogs.register(featureDialogs, {
   intersectionCurve: intersectionCurveService,
   projectedCurve: projectedCurveService,
   offsetCurve: offsetCurveService,
+  bridge: bridgeService,
   repeat: repeatService,
   copy: copyService,
   mirror: mirrorService,

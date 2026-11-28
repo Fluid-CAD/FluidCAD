@@ -60,6 +60,7 @@ export const TOOL_SYNONYMS: Readonly<Record<string, readonly string[]>> = Object
   'part:intersection-curve': ['section', 'intersect', 'crossing', 'seam'],
   'part:projected-curve': ['project', 'drop curve', 'imprint', 'curve on surface'],
   'part:offset-curve': ['offset edge', 'parallel curve', 'inset'],
+  'part:bridge': ['bridging curve', 'blend curve', 'connect curves'],
   'part:rib': ['web', 'stiffener'],
   'part:hole': ['drill', 'bore', 'counterbore', 'countersink', 'tap'],
   'part:shell': ['hollow', 'thickness', 'thin'],

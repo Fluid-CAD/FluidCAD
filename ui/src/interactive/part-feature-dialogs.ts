@@ -1,6 +1,7 @@
 import type { FeatureEditTarget, ParsedFeatureStatement } from '../api';
 import type { ConnectorData, SceneObjectRender } from '../types';
 import type { BooleanFeatureService } from './create-feature/boolean-service';
+import type { BridgeFeatureService } from './create-feature/bridge-service';
 import type { ColorFeatureService } from './create-feature/color-service';
 import type { ConnectorFeatureService } from './create-feature/connector-service';
 import type { CopyFeatureService } from './create-feature/copy-service';
@@ -40,6 +41,7 @@ export type PartDialogServices = {
   intersectionCurve: IntersectionCurveFeatureService;
   projectedCurve: ProjectedCurveFeatureService;
   offsetCurve: OffsetCurveFeatureService;
+  bridge: BridgeFeatureService;
   repeat: RepeatFeatureService;
   copy: CopyFeatureService;
   mirror: MirrorFeatureService;
@@ -259,6 +261,21 @@ export class PartFeatureDialogs {
       },
       timelinePicks: true,
       sketchPicks: true,
+    }));
+    registry.register(new ServiceDialog('bridge', s.bridge, {
+      edit: { rowTypes: ['bridge'], kind: 'bridge', open: (t, p, i) => s.bridge.enterEdit(t, p, i) },
+      picking: (d) => d.isPicking,
+      // Two end rows. A click lands in the armed one: a vertex as itself,
+      // an edge as the end its anchor suggestion floats nearest the click —
+      // the hover floats it. The right-click menu and a double-click grow
+      // no end; a timeline row is refused in the row's words.
+      claims: {
+        click: (d) => d.isPicking,
+        hover: (d) => d.isHoverPicking,
+        contextMenu: (d) => d.isPicking,
+        doubleClick: (d) => d.isPicking,
+      },
+      timelinePicks: true,
     }));
     registry.register(new ServiceDialog('repeat', s.repeat, {
       // `repeat('mirror'|'rotate', …)` rows carry the mirror and rotate

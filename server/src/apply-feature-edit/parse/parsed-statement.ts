@@ -4,6 +4,7 @@ import type { TSNode } from '../../code-editor/index.ts';
 import { decomposeChain, type ChainSegment } from '../ast/chain.ts';
 import { insideSketchCallback } from '../ast/nodes.ts';
 import type { BooleanKind } from '../features/boolean.ts';
+import type { BridgeContinuity } from '../features/bridge.ts';
 import type { ConnectorOffsetSpec, ConnectorRotateSpec } from '../features/connector.ts';
 import type { ExtrudeTargetKind } from '../features/extrude.ts';
 import type { LoftConditionSpec } from '../features/loft.ts';
@@ -19,7 +20,7 @@ import type { RegionName, ValueExpr } from '../value-expr.ts';
 import type { BooleanSlot, ChoiceSlot, TextSlot } from '../value-slots.ts';
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color' | 'intersection-curve' | 'projected-curve' | 'offset-curve';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector' | 'hole' | 'split' | 'color' | 'intersection-curve' | 'projected-curve' | 'offset-curve' | 'bridge';
 
 /**
  * A statement's parsed `.scope(…)` chain, shared by every feature that
@@ -191,6 +192,29 @@ export type ParsedFeatureStatement =
     edgesArg: string;
     /** The `on` option's value as written (`on` for the shorthand). */
     onArg: string;
+  }
+  | {
+    feature: 'bridge';
+    /** The from end, verbatim: an edge's or a curve's `.start()` / `.end()`, or a point. */
+    fromText: string;
+    /** The to end, verbatim. */
+    toText: string;
+    /** The statement a bare-variable from end names, by call site, or null. */
+    fromRef: { line: number; column: number } | null;
+    /** The statement a bare-variable to end names, by call site, or null. */
+    toRef: { line: number; column: number } | null;
+    /** How the bridge meets its start: 'g1' when `.continuity()` is absent; one value there sets both ends. */
+    startContinuity: BridgeContinuity;
+    /** How the bridge meets its end. */
+    endContinuity: BridgeContinuity;
+    /** `.startMagnitude(…)` — a number, or the expression computing it; 1 when the chain is absent. */
+    startMagnitude: ValueExpr;
+    /** `.endMagnitude(…)`; 1 when the chain is absent. */
+    endMagnitude: ValueExpr;
+    /** The `.startMagnitude(…)` argument as written — what an edit that leaves it writes back — or null when absent. */
+    startMagnitudeArg: string | null;
+    /** The `.endMagnitude(…)` argument as written, or null when absent. */
+    endMagnitudeArg: string | null;
   }
   | (ParsedScopeChain & {
     feature: 'loft';
@@ -558,6 +582,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   project: 'project',
   intersect: 'project',
   connector: 'connector',
+  bridge: 'bridge',
 };
 
 /** A call chain as {@link editableKindOf} reads it: the root call and its chained members. */
@@ -655,7 +680,15 @@ export function editableKindOf(chain: KindChain, call: TSNode): EditableFeatureK
  * alone. Everything else that leaves a curve — an imported one, a repeat of
  * one, a custom feature's — is the scene's to answer (`FeatureCallees`).
  */
-const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix', 'intersection-curve', 'projected-curve', 'offset-curve']);
+const CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix', 'intersection-curve', 'projected-curve', 'offset-curve', 'bridge']);
+
+/**
+ * The curve kinds a refusal names the callees of: those that draw a curve
+ * of their own. The tools that make one out of other geometry — the
+ * intersection, projected and offset curves, the bridge — read as curves
+ * too ({@link readsAsCurve}), but a refusal does not offer them.
+ */
+const DRAWN_CURVE_KINDS: ReadonlySet<EditableFeatureKind> = new Set<EditableFeatureKind>(['sketch', 'helix']);
 
 /** Whether the statement `call` is read, with no scene to ask, as leaving a curve of its own. */
 export function readsAsCurve(call: TSNode): boolean {
@@ -666,12 +699,14 @@ export function readsAsCurve(call: TSNode): boolean {
 
 /**
  * The callees a statement is read as leaving a curve by, as a refusal names
- * them: those whose callee alone says so. `intersect` and `project` leave
- * one only outside a sketch, and `offset` only there with `{ on }`, so a
- * refusal does not offer them.
+ * them: those whose callee alone says so and that draw a curve of their own
+ * ({@link DRAWN_CURVE_KINDS}). `intersect` and `project` leave one only
+ * outside a sketch, and `offset` only there with `{ on }`; they and
+ * `bridge` derive a curve from other geometry, so a refusal does not offer
+ * them.
  */
 export function curveCallees(): string[] {
-  return Object.keys(EDITABLE_CALLEES).filter(callee => CURVE_KINDS.has(EDITABLE_CALLEES[callee]));
+  return Object.keys(EDITABLE_CALLEES).filter(callee => DRAWN_CURVE_KINDS.has(EDITABLE_CALLEES[callee]));
 }
 
 /**
@@ -725,6 +760,7 @@ export const DISPLAY_TYPE_BY_CALLEE: Record<string, string> = {
   intersect: 'Intersection Curve',
   project: 'Projected Curve',
   offset: 'Offset Curve',
+  bridge: 'Bridge',
   plane: 'Plane',
   axis: 'Axis',
 };
@@ -811,6 +847,11 @@ export const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // call's arguments and the tool has no chained options; `.name()` and
   // friends are unrecognized members and survive verbatim.
   'offset-curve': new Set(),
+  // The two ends are the root call's arguments; the continuity and the two
+  // magnitudes are chained options, read in any order and written in this
+  // one. `.name()` and friends are unrecognized members and survive
+  // verbatim.
+  bridge: new Set(['continuity', 'startMagnitude', 'endMagnitude']),
   // The bases and the transform options are all root-call arguments; `.name()`
   // and friends are unrecognized members and survive verbatim.
   plane: new Set(),

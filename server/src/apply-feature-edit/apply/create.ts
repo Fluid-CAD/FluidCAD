@@ -24,6 +24,7 @@ import { renderHelixSourceExpr, renderHelixStatement } from '../features/helix.t
 import { intersectionCurveCreateError } from '../features/intersection-curve.ts';
 import { projectedCurveCreateError } from '../features/projected-curve.ts';
 import { offsetCurveCreateError } from '../features/offset-curve.ts';
+import { bridgeCreateError } from '../features/bridge.ts';
 import { renderLoftConnections, validEditCondition } from '../features/loft.ts';
 import type { MirrorAxisSpec } from '../features/mirror.ts';
 import { isLocalAxes, renderPlaneBaseExprs, renderPlaneStatement, validPlaneRotationAxes } from '../features/plane.ts';
@@ -240,6 +241,14 @@ export async function applyCreateEdit(
     // producer or a selector part; a literal zero distance is refused as
     // the engine refuses it.
     const refusal = offsetCurveCreateError(spec);
+    if (refusal) {
+      return { newCode: code, error: refusal };
+    }
+  } else if (spec.feature === 'bridge') {
+    // Each end an edge's selector part or a bound curve with its start or
+    // end, or a staged sketch point; a literal zero or negative magnitude
+    // at an end that writes one is refused as the engine refuses it.
+    const refusal = bridgeCreateError(spec);
     if (refusal) {
       return { newCode: code, error: refusal };
     }

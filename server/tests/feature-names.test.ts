@@ -47,6 +47,7 @@ import { Helix } from '../../lib/features/helix.js';
 import { IntersectionCurve } from '../../lib/features/intersection-curve.js';
 import { ProjectedCurve } from '../../lib/features/projected-curve.js';
 import { OffsetCurve } from '../../lib/features/offset-curve.js';
+import { Bridge } from '../../lib/features/bridge.js';
 import { PlaneObject } from '../../lib/features/plane.js';
 import { AxisObject } from '../../lib/features/axis.js';
 
@@ -120,6 +121,7 @@ describe('DISPLAY_TYPE_BY_CALLEE', () => {
       // the face outline outside a sketch are never named (`displayTypeOf`
       // reads the kind) and keep their own "Offset".
       offset: [{ cls: OffsetCurve }],
+      bridge: [{ cls: Bridge }],
       plane: [{ cls: PlaneObject }],
       axis: [{ cls: AxisObject }],
     };

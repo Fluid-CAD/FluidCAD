@@ -10,6 +10,7 @@ import {
 } from '../ast/args.ts';
 import { decomposeChain, type ChainSegment } from '../ast/chain.ts';
 import { parseBooleanChain, type BooleanKind } from '../features/boolean.ts';
+import { parseBridgeChain } from '../features/bridge.ts';
 import { parseColorChain } from '../features/color.ts';
 import { parseConnectorChain } from '../features/connector.ts';
 import { parseCopyChain } from '../features/copy.ts';
@@ -315,6 +316,10 @@ export function parseFeatureChain(
 
   if (feature === 'offset-curve') {
     return parseOffsetCurveChain(args, start, end);
+  }
+
+  if (feature === 'bridge') {
+    return parseBridgeChain(args, recognized, start, end);
   }
 
   const isCut = chain.root.name === 'cut';

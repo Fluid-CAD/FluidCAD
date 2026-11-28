@@ -137,6 +137,19 @@ export {
   type OffsetCurveRow,
 } from './features/offset-curve.ts';
 export {
+  BRIDGE_CALLEE,
+  BRIDGE_CONTINUITIES,
+  BRIDGE_CONTINUITY,
+  BRIDGE_MAGNITUDE_NOT_POSITIVE,
+  BridgeEnds,
+  bridgeMagnitudeError,
+  renderBridgeStatement,
+  type BridgeContinuity,
+  type BridgeEdit,
+  type BridgeEditOptions,
+} from './features/bridge.ts';
+export { EndSpecs, type EndEdit, type EndRole, type EndSpec } from './features/end.ts';
+export {
   renderRepeatAxisExpr,
   renderRepeatPlaneExpr,
   renderRepeatStatement,

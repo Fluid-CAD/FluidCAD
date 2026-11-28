@@ -38,6 +38,7 @@ import { LoftConnections } from '../loft-connections.ts';
 import { HolePlacements } from '../hole-placements.ts';
 import { CustomFeaturePoints } from '../custom-feature-points.ts';
 import { SplitSeeds } from '../split-seeds.ts';
+import { BridgeEnds } from '../features/bridge.ts';
 import { RegionDeclarations } from '../region-declarations.ts';
 import { FeatureCallees, type FeatureCalleeSource } from '../producers/callees.ts';
 import type { ApplyFeatureEditResult, ApplyFeatureEditSpec, FeatureEditApply } from '../spec.ts';
@@ -166,6 +167,17 @@ async function applyFeatureEditTransform(
   // atomic write, like the hole's sketch point placements.
   if (SplitSeeds.needsStaging(spec)) {
     const staged = await SplitSeeds.prepare(code, spec);
+    if ('error' in staged) {
+      return { newCode: code, error: staged.error };
+    }
+    const result = await applyFeatureEditTransform(staged.code, staged.spec, context);
+    return result.error ? { newCode: code, error: result.error } : result;
+  }
+
+  // A bridge's ends that are sketch points are exported from their sketches
+  // first; the statement then names each by its export.
+  if (BridgeEnds.needsStaging(spec)) {
+    const staged = await BridgeEnds.prepare(code, spec);
     if ('error' in staged) {
       return { newCode: code, error: staged.error };
     }

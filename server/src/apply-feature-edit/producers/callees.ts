@@ -27,13 +27,14 @@ const PRODUCER_CALLEES = new Set([
  * and an offset curve an `offset(…, { on })` outside a sketch: inside one
  * the callee is the sketch tool, and an `offset(…)` outside one with no
  * trailing object outlines faces, which {@link FeatureCallees.binds} refuses
- * by the form of the call.
+ * by the form of the call. A bridge is a `bridge(…)`, which has one form.
  */
 const CURVE_PRODUCER_CALLEES: Record<string, string[]> = {
   helix: ['helix'],
   'intersection-curve': ['intersect'],
   'projected-curve': ['project'],
   'offset-curve': ['offset'],
+  bridge: ['bridge'],
 };
 
 /**
@@ -43,13 +44,13 @@ const CURVE_PRODUCER_CALLEES: Record<string, string[]> = {
  * never chains selector accessors onto it, so modifier and primitive calls
  * qualify too. The move, copy and colour targets take the same list: what
  * they name may hold a surface or a curve rather than a solid — `load()`
- * brings both in from a file, `helix()`, and `intersect()`, `project()` and
- * `offset(…, { on })` outside a sketch, draw a curve (the callee's other
- * forms are refused by {@link FeatureCallees.binds}).
+ * brings both in from a file, `helix()`, `bridge()`, and `intersect()`,
+ * `project()` and `offset(…, { on })` outside a sketch, draw a curve (the
+ * callee's other forms are refused by {@link FeatureCallees.binds}).
  */
 const REPEAT_TARGET_CALLEES = new Set([
   ...PRODUCER_CALLEES,
-  'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix', 'intersect', 'project', 'offset',
+  'fillet', 'chamfer', 'draft', 'cylinder', 'sphere', 'helix', 'intersect', 'project', 'offset', 'bridge',
   'fuse', 'subtract', 'common', 'mirror', 'translate', 'rotate',
   'repeat', 'copy', 'load', 'part', 'select',
   // A split holds the pieces it made, so it is the body a later target pick

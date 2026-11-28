@@ -40,6 +40,7 @@ import type { HelixEditOptions, HelixSourceSpec } from './features/helix.ts';
 import type { IntersectionCurveEdit, IntersectionCurveEditOptions } from './features/intersection-curve.ts';
 import type { ProjectedCurveEdit, ProjectedCurveEditOptions } from './features/projected-curve.ts';
 import type { OffsetCurveEdit, OffsetCurveEditOptions } from './features/offset-curve.ts';
+import type { BridgeEdit, BridgeEditOptions } from './features/bridge.ts';
 import type {
   EditLoftGuide,
   EditLoftProfile,
@@ -79,7 +80,7 @@ import type { BooleanSlot, TextSlot } from './value-slots.ts';
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'color' | 'custom' | 'intersection-curve' | 'projected-curve' | 'offset-curve';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'translate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rib' | 'connector' | 'expose' | 'part' | 'section' | 'hole' | 'split' | 'color' | 'custom' | 'intersection-curve' | 'projected-curve' | 'offset-curve' | 'bridge';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -157,6 +158,12 @@ export type ApplyFeatureEditSpec = {
    * (bound surface producers or face selector parts).
    */
   offsetCurve?: OffsetCurveEditOptions;
+  /**
+   * Bridge-only payload: its two ends (an edge end renders its own selector
+   * part, a curve end binds its statement, a sketch point is staged into its
+   * export first), the continuity at each end and the two magnitudes.
+   */
+  bridge?: BridgeEditOptions;
   /** Repeat-only payload; `parts` (if any) render the axis/plane selector. */
   repeat?: RepeatEditOptions;
   /** Copy-only payload; `parts` (if any) render the axis selector. */
@@ -786,6 +793,13 @@ export type FeatureStatementEditTarget = {
    * distance replaces the statement's when given, else stays as written.
    */
   offsetCurve?: OffsetCurveEdit;
+  /**
+   * Bridge: each end `keep` (or absent) re-emits the statement's own text
+   * verbatim, a new end writes its expression; the continuity at each end
+   * and each magnitude replace the statement's when given, else stay as
+   * written.
+   */
+  bridge?: BridgeEdit;
   /**
    * Sketch retarget (the sketch dialog's re-pick): rewrite the statement's
    * target argument — an origin-plane literal, a bound `plane(…)` producer,

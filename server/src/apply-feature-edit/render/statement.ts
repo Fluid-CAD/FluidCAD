@@ -14,6 +14,7 @@ import { renderOffsetStatement } from '../features/offset.ts';
 import { renderPlaneBaseExprs, renderPlaneStatement } from '../features/plane.ts';
 import { PROJECTED_CURVE_CALLEE, renderProjectedCurveStatement } from '../features/projected-curve.ts';
 import { OFFSET_CURVE_CALLEE, renderOffsetCurveStatement } from '../features/offset-curve.ts';
+import { renderBridgeStatement } from '../features/bridge.ts';
 import { projectionCallee } from '../features/projection.ts';
 import { renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement } from '../features/repeat.ts';
 import { renderRevolveAxisExpr, renderRevolveStatement } from '../features/revolve.ts';
@@ -137,6 +138,9 @@ export function buildStatement(
   }
   if (spec.feature === 'offset-curve') {
     return renderOffsetCurveStatement(spec.offsetCurve!, spec.parts, i => bindings[i].varName);
+  }
+  if (spec.feature === 'bridge') {
+    return renderBridgeStatement(spec.bridge!, spec.parts, i => bindings[i].varName);
   }
   if (spec.feature === 'repeat') {
     const rp = spec.repeat!;

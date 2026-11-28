@@ -356,8 +356,8 @@ export interface IBridge extends ICurveResult {
   /**
    * How far the bridge keeps going straight before it turns, at its start:
    * 1 by default; larger is fuller, smaller is tighter. Measured against
-   * the distance between the two ends, so the shape stays the same when the
-   * gap grows. Must be greater than zero.
+   * the distance between the two ends, so a magnitude gives the same shape
+   * at any scale. Must be greater than zero.
    * @param value - A number greater than zero.
    */
   startMagnitude(value: NumberParam): this;

@@ -124,6 +124,7 @@ const seeAlsoByDisplay: Record<string, string[]> = {
   Distance: ['api/constraints', 'api/types/dimension'],
   Offset: ['api/offset'],
   OffsetCurve: ['api/offset', 'api/sweep'],
+  Bridge: ['api/bridge', 'api/sweep', 'api/loft'],
   Plane: ['api/plane', 'api/types/plane-like'],
   Axis: ['api/axis', 'api/types/axis-like'],
   Select: ['api/select'],

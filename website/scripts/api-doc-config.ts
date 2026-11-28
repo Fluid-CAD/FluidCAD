@@ -117,6 +117,7 @@ export const features: FeatureEntry[] = [
   { name: 'rib', displayName: 'rib', category: '3d', sourceFile: 'core/rib.ts', interfaceName: 'RibFunction', returnType: 'IRib', relatedGuide: '/docs/3d-operations/rib', sidebarPosition: 16 },
   { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/3d-operations/wrap', sidebarPosition: 17 },
   { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/3d-operations/helix', sidebarPosition: 18 },
+  { name: 'bridge', displayName: 'bridge', category: '3d', sourceFile: 'core/bridge.ts', interfaceName: 'BridgeFunction', returnType: 'IBridge', sidebarPosition: 18.8 },
   { name: 'hole', displayName: 'hole', category: '3d', sourceFile: 'core/hole.ts', interfaceName: 'HoleFunction', returnType: 'IHole', relatedGuide: '/docs/3d-operations/hole', sidebarPosition: 19 },
   { name: 'split', displayName: 'split', category: '3d', sourceFile: 'core/split.ts', interfaceName: 'SplitFunction', returnType: 'ISplit', relatedGuide: '/docs/3d-operations/split', sidebarPosition: 20 },
 
@@ -191,6 +192,7 @@ export const types: TypeEntry[] = [
   { name: 'IIntersectionCurve', displayName: 'IntersectionCurve', sourceFile: 'core/interfaces.ts', extendsType: 'ICurveResult', sidebarPosition: 12.75 },
   { name: 'IProjectedCurve', displayName: 'ProjectedCurve', sourceFile: 'core/interfaces.ts', extendsType: 'ICurveResult', sidebarPosition: 12.76 },
   { name: 'IOffsetCurve', displayName: 'OffsetCurve', sourceFile: 'core/interfaces.ts', extendsType: 'ICurveResult', sidebarPosition: 12.77 },
+  { name: 'IBridge', displayName: 'Bridge', sourceFile: 'core/interfaces.ts', extendsType: 'ICurveResult', sidebarPosition: 12.78 },
   { name: 'IHole', displayName: 'Hole', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.8 },
   { name: 'IText', displayName: 'Text', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17.5 },
   { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
@@ -371,6 +373,7 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IIntersectionCurve': 'IntersectionCurve',
   'IProjectedCurve': 'ProjectedCurve',
   'IOffsetCurve': 'OffsetCurve',
+  'IBridge': 'Bridge',
   'IHole': 'Hole',
   'IText': 'Text',
   'IOffset': 'Offset',

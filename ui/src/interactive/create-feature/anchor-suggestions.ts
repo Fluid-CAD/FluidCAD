@@ -105,6 +105,11 @@ export class AnchorSuggestions {
        */
       offers?: (anchor: ConnectorAnchor) => boolean;
       /**
+       * What a face or edge offering none of the anchors {@link offers}
+       * takes is told — an end row's "a closed edge has no start or end".
+       */
+      offersRefusal?: string;
+      /**
        * How the rail asks the engine — the owner's own request (each dialog
        * hands it the one it imports), `fetchConnectorAnchors` when left out.
        */
@@ -268,7 +273,7 @@ export class AnchorSuggestions {
     const anchors = result.anchors.filter(candidate => this.opts.offers!(candidate.anchor));
     return anchors.length > 0
       ? { ...result, anchors }
-      : { ok: false, reason: 'That face or edge offers no anchor this value takes.' };
+      : { ok: false, reason: this.opts.offersRefusal ?? 'That face or edge offers no anchor this value takes.' };
   }
 
   /** The answer has what a lock needs: a refusal to report, or the anchors (plus the expression, when asked). */

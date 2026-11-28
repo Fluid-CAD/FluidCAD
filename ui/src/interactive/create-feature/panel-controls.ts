@@ -21,6 +21,8 @@ export class ChoiceTabs<T extends string> {
   private tabs = new Map<T, HTMLButtonElement>();
   private current: T;
   private readonly initial: T;
+  /** The tabs that take no click ({@link setDisabled}, or `disabled` at construction). */
+  private disabled = new Set<T>();
 
   /**
    * Sizing classes every tab wears: equal widths by default; a compact row
@@ -40,19 +42,20 @@ export class ChoiceTabs<T extends string> {
     this.extra = options.compact ? ' flex-auto text-xs px-2' : ' flex-1';
     for (const { key, label, title, disabled } of choices) {
       const tab = document.createElement('button');
-      tab.className = (key === this.current ? TAB_ACTIVE : TAB_BASE) + this.extra;
       tab.textContent = label;
       tab.title = title;
       if (disabled) {
-        // Visually muted but not `disabled`/pointer-events:none — the title
-        // tooltip must still show on hover.
-        tab.classList.add('opacity-40', 'cursor-not-allowed');
-      } else {
-        tab.addEventListener('click', () => this.set(key));
+        this.disabled.add(key);
       }
+      tab.addEventListener('click', () => {
+        if (!this.disabled.has(key)) {
+          this.set(key);
+        }
+      });
       host.appendChild(tab);
       this.tabs.set(key, tab);
     }
+    this.paint();
   }
 
   get value(): T {
@@ -62,14 +65,30 @@ export class ChoiceTabs<T extends string> {
   /** Programmatic tab choice (edit-mode prefill); no change event fires. */
   setValue(key: T): void {
     this.current = key;
-    for (const [kind, tab] of this.tabs) {
-      tab.className = (kind === key ? TAB_ACTIVE : TAB_BASE) + this.extra;
-    }
+    this.paint();
   }
 
   /** Back to the construction-time tab (fresh-arming defaults); no change event fires. */
   reset(): void {
     this.setValue(this.initial);
+  }
+
+  /**
+   * Mute the tabs `keys`, every other one live again: a muted tab keeps its
+   * title tooltip but takes no click — a choice the row cannot take right
+   * now. The current tab stays as it is and no change event fires.
+   */
+  setDisabled(keys: readonly T[]): void {
+    this.disabled = new Set(keys);
+    this.paint();
+  }
+
+  /** Each tab's face: the current one active; a muted one dimmed, not `disabled`/pointer-events:none, so its title still shows. */
+  private paint(): void {
+    for (const [key, tab] of this.tabs) {
+      tab.className = (key === this.current ? TAB_ACTIVE : TAB_BASE) + this.extra
+        + (this.disabled.has(key) ? ' opacity-40 cursor-not-allowed' : '');
+    }
   }
 
   private set(key: T): void {
